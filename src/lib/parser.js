@@ -14,6 +14,9 @@ function normalizeName(name) {
     .trim();
 }
 
+// Matches an inline "(Commander)" tag at the end of a card line (e.g. Deckcheck export)
+const INLINE_COMMANDER_RE = /\s*\(Commander\)\s*$/i;
+
 function parseLine(line) {
   if (COMMENT_LINE.test(line)) return null;
 
@@ -25,13 +28,20 @@ function parseLine(line) {
     isSB = true;
   }
 
+  // Check for inline (Commander) tag — strip it and flag the card
+  let isCommander = false;
+  if (INLINE_COMMANDER_RE.test(line)) {
+    isCommander = true;
+    line = line.replace(INLINE_COMMANDER_RE, '').trim();
+  }
+
   for (const pattern of LINE_PATTERNS) {
     const match = line.match(pattern);
     if (match) {
       const quantity = parseInt(match[1], 10);
       const name = normalizeName(match[2]);
       if (quantity > 0 && name.length > 0) {
-        return { name, quantity, isSB };
+        return { name, quantity, isSB, isCommander };
       }
     }
   }
@@ -39,7 +49,7 @@ function parseLine(line) {
   // Fallback: bare card name with quantity 1
   const trimmed = line.trim();
   if (trimmed.length > 0 && !/^\d+$/.test(trimmed)) {
-    return { name: normalizeName(trimmed), quantity: 1, isSB };
+    return { name: normalizeName(trimmed), quantity: 1, isSB, isCommander };
   }
 
   return null;
@@ -160,10 +170,15 @@ function splitSections(rawText) {
 function parseLines(lines) {
   const cards = new Map();
   const sbCards = new Map();
+  const inlineCommanders = [];
 
   for (const line of lines) {
     const parsed = parseLine(line);
     if (!parsed) continue;
+
+    if (parsed.isCommander) {
+      inlineCommanders.push(parsed.name);
+    }
 
     const target = parsed.isSB ? sbCards : cards;
     const key = parsed.name.toLowerCase();
@@ -175,7 +190,7 @@ function parseLines(lines) {
     }
   }
 
-  return { cards, sbCards };
+  return { cards, sbCards, inlineCommanders };
 }
 
 export function parse(rawText) {
@@ -202,6 +217,8 @@ export function parse(rawText) {
   // Commander cards go into mainboard too (they're part of the deck)
   // but we also extract their names for display
   const commanders = [];
+
+  // 1. Commanders from explicit "Commander" section header
   for (const [key, value] of cmdResult.cards) {
     commanders.push(value.displayName);
     if (mainboard.has(key)) {
@@ -209,6 +226,12 @@ export function parse(rawText) {
     } else {
       mainboard.set(key, value);
     }
+  }
+
+  // 2. Commanders from inline "(Commander)" tags (e.g. Deckcheck exports)
+  //    These cards are already in mainboard from parseLines, just grab their names
+  if (commanders.length === 0 && mainResult.inlineCommanders.length > 0) {
+    commanders.push(...mainResult.inlineCommanders);
   }
 
   // Merge SB-prefixed cards from main section into sideboard
