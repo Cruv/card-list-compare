@@ -4,7 +4,7 @@ import { formatChangelog, formatMpcFill } from '../lib/formatter';
 import './ChangelogOutput.css';
 
 export default function ChangelogOutput({ diffResult }) {
-  const { mainboard, sideboard, hasSideboard } = diffResult;
+  const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
 
   const totalIn = mainboard.cardsIn.length + sideboard.cardsIn.length;
   const totalOut = mainboard.cardsOut.length + sideboard.cardsOut.length;
@@ -15,10 +15,23 @@ export default function ChangelogOutput({ diffResult }) {
   const hasAdditions = totalIn > 0 ||
     [...mainboard.quantityChanges, ...sideboard.quantityChanges].some((c) => c.delta > 0);
 
+  const commanderLabel = commanders && commanders.length > 0
+    ? commanders.join(' / ')
+    : null;
+
   return (
     <div className="changelog-output">
       <div className="changelog-output-header">
-        <h2 className="changelog-output-title">Changelog</h2>
+        {commanderLabel && (
+          <h2 className="changelog-output-commander">{commanderLabel}</h2>
+        )}
+        <h2 className="changelog-output-title">
+          Changelog
+          <span className="changelog-output-timestamp">
+            {new Date().toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}{' '}
+            {new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+          </span>
+        </h2>
         {!noChanges && (
           <div className="changelog-output-summary">
             {totalIn > 0 && <span className="summary-badge summary-badge--in">+{totalIn} in</span>}

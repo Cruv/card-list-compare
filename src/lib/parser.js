@@ -2,6 +2,7 @@ import {
   LINE_PATTERNS,
   SIDEBOARD_HEADER,
   MAINBOARD_HEADER,
+  COMMANDER_HEADER,
   SB_PREFIX,
   COMMENT_LINE,
 } from './constants.js';
@@ -107,13 +108,21 @@ function splitSections(rawText) {
   const lines = rawText.split(/\r?\n/);
   const mainLines = [];
   const sideLines = [];
+  const commanderLines = [];
   let currentTarget = mainLines;
   let foundExplicitSideboard = false;
+  let foundExplicitCommander = false;
   let blankLineCount = 0;
   let hasSeenContent = false;
 
   for (const line of lines) {
     const trimmed = line.trim();
+
+    if (COMMANDER_HEADER.test(trimmed)) {
+      currentTarget = commanderLines;
+      foundExplicitCommander = true;
+      continue;
+    }
 
     if (SIDEBOARD_HEADER.test(trimmed)) {
       currentTarget = sideLines;
@@ -133,6 +142,10 @@ function splitSections(rawText) {
           currentTarget = sideLines;
         }
       }
+      // If we were in commander section, switch to mainboard on blank line
+      if (currentTarget === commanderLines && commanderLines.length > 0) {
+        currentTarget = mainLines;
+      }
       continue;
     }
 
@@ -141,7 +154,7 @@ function splitSections(rawText) {
     currentTarget.push(trimmed);
   }
 
-  return { mainLines, sideLines };
+  return { mainLines, sideLines, commanderLines };
 }
 
 function parseLines(lines) {
@@ -167,23 +180,36 @@ function parseLines(lines) {
 
 export function parse(rawText) {
   if (!rawText || !rawText.trim()) {
-    return { mainboard: new Map(), sideboard: new Map() };
+    return { mainboard: new Map(), sideboard: new Map(), commanders: [] };
   }
 
   // Try CSV first
   if (isCSV(rawText)) {
     const result = parseCSV(rawText);
-    if (result) return result;
+    if (result) return { ...result, commanders: [] };
   }
 
-  const { mainLines, sideLines } = splitSections(rawText);
+  const { mainLines, sideLines, commanderLines } = splitSections(rawText);
 
   const mainResult = parseLines(mainLines);
   const sideResult = parseLines(sideLines);
+  const cmdResult = parseLines(commanderLines);
 
   // Merge: any SB:-prefixed cards from mainLines go to sideboard
   const mainboard = mainResult.cards;
   const sideboard = sideResult.cards;
+
+  // Commander cards go into mainboard too (they're part of the deck)
+  // but we also extract their names for display
+  const commanders = [];
+  for (const [key, value] of cmdResult.cards) {
+    commanders.push(value.displayName);
+    if (mainboard.has(key)) {
+      mainboard.get(key).quantity += value.quantity;
+    } else {
+      mainboard.set(key, value);
+    }
+  }
 
   // Merge SB-prefixed cards from main section into sideboard
   for (const [key, value] of mainResult.sbCards) {
@@ -203,5 +229,5 @@ export function parse(rawText) {
     }
   }
 
-  return { mainboard, sideboard };
+  return { mainboard, sideboard, commanders };
 }

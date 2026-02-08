@@ -13,10 +13,27 @@
   flex-wrap: wrap;
 }
 
+.changelog-output-commander {
+  width: 100%;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent-blue);
+  margin: 0 0 4px 0;
+}
+
 .changelog-output-title {
   font-size: 20px;
   font-weight: 700;
   color: var(--text-primary);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.changelog-output-timestamp {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-muted);
 }
 
 .changelog-output-summary {

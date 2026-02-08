@@ -14,5 +14,6 @@ export const LINE_PATTERNS = [
 
 export const SIDEBOARD_HEADER = /^\s*(sideboard|sb)\s*[:.]?\s*$/i;
 export const MAINBOARD_HEADER = /^\s*(mainboard|main|deck)\s*[:.]?\s*$/i;
+export const COMMANDER_HEADER = /^\s*(commander|commanders|command zone)\s*[:.]?\s*$/i;
 export const SB_PREFIX = /^\s*SB:\s*/i;
 export const COMMENT_LINE = /^\s*(\/\/|#)/;

@@ -1,3 +1,30 @@
+/**
+ * Build a header line with commander name(s) and timestamp.
+ * e.g. "📋 Atraxa, Praetors' Voice — Changelog (2025-01-15 3:42 PM)"
+ */
+function buildHeader(diffResult) {
+  const commanders = diffResult.commanders || [];
+  const now = new Date();
+  const date = now.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const time = now.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  const timestamp = `${date} ${time}`;
+
+  if (commanders.length > 0) {
+    const cmdNames = commanders.join(' / ');
+    return `${cmdNames} — Changelog (${timestamp})`;
+  }
+
+  return `Deck Changelog (${timestamp})`;
+}
+
 function formatSection(title, section) {
   const { cardsIn, cardsOut, quantityChanges } = section;
 
@@ -36,7 +63,9 @@ function formatSection(title, section) {
 }
 
 export function formatChangelog(diffResult) {
-  let output = formatSection('Mainboard', diffResult.mainboard);
+  let output = buildHeader(diffResult) + '\n\n';
+
+  output += formatSection('Mainboard', diffResult.mainboard);
 
   if (diffResult.hasSideboard) {
     output += '\n' + formatSection('Sideboard', diffResult.sideboard);

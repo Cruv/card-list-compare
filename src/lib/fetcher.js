@@ -44,13 +44,15 @@ async function fetchArchidekt(url) {
   }
 
   const data = await res.json();
-  return archidektToText(data);
+  const { text } = archidektToText(data);
+  return text;
 }
 
 function archidektToText(data) {
   const mainLines = [];
   const sideLines = [];
   const commanderLines = [];
+  const commanderNames = [];
 
   const cards = data.cards || [];
 
@@ -65,6 +67,7 @@ function archidektToText(data) {
 
     if (categories.includes('commander') || categories.includes('commanders')) {
       commanderLines.push(line);
+      commanderNames.push(name);
     } else if (categories.includes('sideboard')) {
       sideLines.push(line);
     } else if (categories.includes('maybeboard') || categories.includes('considering')) {
@@ -78,8 +81,8 @@ function archidektToText(data) {
   let text = '';
 
   if (commanderLines.length > 0) {
-    // Put commander at the top of mainboard
-    text += commanderLines.join('\n') + '\n';
+    // Put commander under explicit header so parser can detect it
+    text += 'Commander\n' + commanderLines.join('\n') + '\n\n';
   }
 
   text += mainLines.join('\n');
@@ -88,7 +91,7 @@ function archidektToText(data) {
     text += '\n\nSideboard\n' + sideLines.join('\n');
   }
 
-  return text;
+  return { text, commanders: commanderNames };
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +157,7 @@ function moxfieldToText(data) {
   let text = '';
 
   if (sections.commanders.length > 0) {
-    text += sections.commanders.join('\n') + '\n';
+    text += 'Commander\n' + sections.commanders.join('\n') + '\n\n';
   }
   if (sections.companions.length > 0) {
     text += sections.companions.join('\n') + '\n';

@@ -40,5 +40,6 @@ export function computeDiff(before, after) {
     mainboard: diffSection(before.mainboard, after.mainboard),
     sideboard: diffSection(before.sideboard, after.sideboard),
     hasSideboard: before.sideboard.size > 0 || after.sideboard.size > 0,
+    commanders: after.commanders || [],
   };
 }
