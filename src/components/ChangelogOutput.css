@@ -1,0 +1,86 @@
+.changelog-output {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px 24px;
+}
+
+.changelog-output-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.changelog-output-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.changelog-output-summary {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.summary-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+.summary-badge--in {
+  color: var(--accent-green);
+  background: rgba(76, 175, 80, 0.15);
+}
+
+.summary-badge--out {
+  color: var(--accent-red);
+  background: rgba(244, 67, 54, 0.15);
+}
+
+.summary-badge--changed {
+  color: var(--accent-yellow);
+  background: rgba(255, 193, 7, 0.15);
+}
+
+.changelog-output-buttons {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.copy-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent-blue);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.copy-btn:hover {
+  opacity: 0.85;
+}
+
+.copy-btn--mpc {
+  background: var(--accent-green);
+}
+
+.changelog-output-body {
+  /* container for sections */
+}
+
+.changelog-output-identical {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 24px;
+}

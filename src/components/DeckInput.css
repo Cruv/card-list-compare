@@ -1,0 +1,205 @@
+.deck-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.deck-input-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.deck-input-label {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+.deck-input-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.deck-input-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.deck-input-btn:hover {
+  background: var(--border-color);
+  color: var(--text-primary);
+}
+
+.deck-input-btn--active {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+}
+
+.deck-input-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* URL import bar */
+.deck-input-url-bar {
+  display: flex;
+  gap: 6px;
+}
+
+.deck-input-url {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  outline: none;
+}
+
+.deck-input-url:focus {
+  border-color: var(--accent-blue);
+}
+
+.deck-input-url::placeholder {
+  color: var(--text-muted);
+}
+
+.deck-input-url-go {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent-blue);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.deck-input-url-go:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Snapshots dropdown */
+.deck-input-snapshots {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.deck-input-snapshots-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.deck-input-snapshots-list {
+  list-style: none;
+  padding: 4px;
+}
+
+.deck-input-snapshot-item {
+  margin: 0;
+}
+
+.deck-input-snapshot-btn {
+  width: 100%;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.deck-input-snapshot-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.snapshot-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snapshot-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.snapshot-source {
+  padding: 1px 6px;
+  background: var(--bg-surface);
+  border-radius: 3px;
+  text-transform: capitalize;
+}
+
+/* Error message */
+.deck-input-error {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-red);
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.25);
+  border-radius: 4px;
+}
+
+/* Textarea */
+.deck-input-textarea {
+  width: 100%;
+  min-height: 300px;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.deck-input-textarea:focus {
+  border-color: var(--accent-blue);
+}
+
+.deck-input-textarea::placeholder {
+  color: var(--text-muted);
+}

@@ -1,0 +1,47 @@
+.card-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  border-radius: 3px;
+}
+
+.card-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.card-line-prefix {
+  width: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.card-line-qty {
+  width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.card-line-name {
+  flex: 1;
+}
+
+.card-line-detail {
+  margin-left: auto;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.card-line--in {
+  color: var(--accent-green);
+}
+
+.card-line--out {
+  color: var(--accent-red);
+}
+
+.card-line--changed {
+  color: var(--accent-yellow);
+}
