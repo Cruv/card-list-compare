@@ -1,5 +1,4 @@
 #!/bin/sh
-set -e
 
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
@@ -28,13 +27,14 @@ fi
 # Create abc user with the target UID and group
 adduser -u "$PUID" -G "$GROUP_NAME" -D -H -s /sbin/nologin abc 2>/dev/null || true
 
-echo "User abc created: $(id abc)"
+echo "User abc created: $(id abc 2>&1)"
 
-# Fix ownership on writable directories
+# Ensure writable directories exist and are owned by abc
+mkdir -p /run/nginx
 chown -R abc:abc /app/data
 chown -R abc:abc /var/log/nginx
 chown -R abc:abc /var/lib/nginx
-touch /tmp/nginx.pid && chown abc:abc /tmp/nginx.pid
+chown -R abc:abc /run/nginx
 
 # Start backend as unprivileged user
 su -s /bin/sh abc -c "cd /app/server && node index.js" &
