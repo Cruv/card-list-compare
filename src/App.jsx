@@ -1,7 +1,6 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import DeckInput from './components/DeckInput';
 import ChangelogOutput from './components/ChangelogOutput';
-import SnapshotManager from './components/SnapshotManager';
 import AuthBar from './components/AuthBar';
 import AdminPanel from './components/AdminPanel';
 import UserSettings from './components/UserSettings';
@@ -11,7 +10,6 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth } from './context/AuthContext';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
-import { getSnapshots, saveSnapshot, deleteSnapshot } from './lib/snapshots';
 import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
 import './App.css';
@@ -26,8 +24,6 @@ export default function App() {
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
   const [diffResult, setDiffResult] = useState(null);
-  const [snapshots, setSnapshots] = useState(() => getSnapshots());
-  const [showManager, setShowManager] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -46,10 +42,6 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [user]);
 
-  const refreshSnapshots = useCallback(() => {
-    setSnapshots(getSnapshots());
-  }, []);
-
   function handleCompare() {
     const before = parse(beforeText);
     const after = parse(afterText);
@@ -65,23 +57,6 @@ export default function App() {
   function handleSwap() {
     setBeforeText(afterText);
     setAfterText(beforeText);
-    setDiffResult(null);
-  }
-
-  function handleSaveSnapshot(name, text) {
-    saveSnapshot({ name, text, source: 'paste' });
-    refreshSnapshots();
-    toast.success(`Snapshot "${name}" saved`);
-  }
-
-  function handleDeleteSnapshot(id) {
-    deleteSnapshot(id);
-    refreshSnapshots();
-  }
-
-  function handleLoadSnapshot(snap, target) {
-    if (target === 'before') setBeforeText(snap.text);
-    else setAfterText(snap.text);
     setDiffResult(null);
   }
 
@@ -196,18 +171,12 @@ export default function App() {
           label="Before"
           value={beforeText}
           onChange={setBeforeText}
-          snapshots={snapshots}
-          onLoadSnapshot={(snap) => { setBeforeText(snap.text); setDiffResult(null); }}
-          onSaveSnapshot={handleSaveSnapshot}
           user={user}
         />
         <DeckInput
           label="After"
           value={afterText}
           onChange={setAfterText}
-          snapshots={snapshots}
-          onLoadSnapshot={(snap) => { setAfterText(snap.text); setDiffResult(null); }}
-          onSaveSnapshot={handleSaveSnapshot}
           user={user}
         />
       </div>
@@ -229,29 +198,13 @@ export default function App() {
         <button className="btn btn-secondary" onClick={handleClear} type="button">
           Clear
         </button>
-        <button
-          className={`btn btn-secondary${showManager ? ' btn--active' : ''}`}
-          onClick={() => setShowManager(!showManager)}
-          type="button"
-        >
-          Manage Snapshots ({snapshots.length})
-        </button>
       </div>
-
-      {showManager && (
-        <SnapshotManager
-          snapshots={snapshots}
-          onDelete={handleDeleteSnapshot}
-          onLoad={handleLoadSnapshot}
-          onClose={() => setShowManager(false)}
-        />
-      )}
 
       <ErrorBoundary>
         {diffResult && <ChangelogOutput diffResult={diffResult} onShare={handleShare} />}
       </ErrorBoundary>
 
-      {!diffResult && !showManager && (
+      {!diffResult && (
         <div className="app-empty">
           <p>
             Paste, upload, or import deck lists from{' '}
@@ -259,7 +212,7 @@ export default function App() {
             then click <strong>Compare Lists</strong> to generate a changelog.
           </p>
           <p className="app-empty-hint">
-            Save snapshots to track your deck over time and compare any two versions.
+            Track your decks in Settings to automatically snapshot changes and compare versions.
           </p>
         </div>
       )}
