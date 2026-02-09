@@ -4,6 +4,9 @@ import ChangelogOutput from './components/ChangelogOutput';
 import SnapshotManager from './components/SnapshotManager';
 import AuthBar from './components/AuthBar';
 import DeckTracker from './components/DeckTracker';
+import UserSettings from './components/UserSettings';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth } from './context/AuthContext';
 import { parse } from './lib/parser';
@@ -13,6 +16,11 @@ import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
 import './App.css';
 
+function getResetToken() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('reset') || null;
+}
+
 export default function App() {
   const { user } = useAuth();
   const [beforeText, setBeforeText] = useState('');
@@ -20,6 +28,22 @@ export default function App() {
   const [diffResult, setDiffResult] = useState(null);
   const [snapshots, setSnapshots] = useState(() => getSnapshots());
   const [showManager, setShowManager] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetToken, setResetToken] = useState(getResetToken);
+
+  // Prompt existing users without email (once per session)
+  useEffect(() => {
+    if (!user) return;
+    if (user.email) return;
+    if (sessionStorage.getItem('clc-email-prompted')) return;
+    sessionStorage.setItem('clc-email-prompted', '1');
+    // Small delay so it doesn't fire immediately on login
+    const timer = setTimeout(() => {
+      toast.info('Add an email in Settings to enable password reset.', 6000);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [user]);
 
   const refreshSnapshots = useCallback(() => {
     setSnapshots(getSnapshots());
@@ -122,15 +146,48 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // If a reset token is in the URL, show the reset password form
+  if (resetToken) {
+    return (
+      <div className="app">
+        <header className="app-header">
+          <h1 className="app-title">Card List Compare</h1>
+        </header>
+        <ResetPassword
+          token={resetToken}
+          onComplete={() => {
+            setResetToken(null);
+            window.history.replaceState(null, '', window.location.pathname);
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="app-header">
-        <AuthBar />
+        <AuthBar
+          onShowSettings={() => { setShowSettings(true); setShowForgotPassword(false); }}
+          onShowForgotPassword={() => { setShowForgotPassword(true); setShowSettings(false); }}
+        />
         <h1 className="app-title">Card List Compare</h1>
         <p className="app-subtitle">
           Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield
         </p>
       </header>
+
+      {showSettings && user && (
+        <ErrorBoundary>
+          <UserSettings onClose={() => setShowSettings(false)} />
+        </ErrorBoundary>
+      )}
+
+      {showForgotPassword && !user && (
+        <ErrorBoundary>
+          <ForgotPassword onClose={() => setShowForgotPassword(false)} />
+        </ErrorBoundary>
+      )}
 
       <div className="app-inputs">
         <DeckInput

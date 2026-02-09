@@ -59,6 +59,21 @@
   border-color: var(--accent-blue);
 }
 
+.auth-bar-link {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 4px;
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.auth-bar-link:hover {
+  opacity: 1;
+}
+
 .auth-bar-error {
   width: 100%;
   text-align: right;

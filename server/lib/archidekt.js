@@ -21,8 +21,12 @@ export async function fetchOwnerDecks(archidektUsername) {
   if (!decksRes.ok) {
     throw new Error(`Archidekt decks API returned status ${decksRes.status}`);
   }
-  const decks = await decksRes.json();
-  return (Array.isArray(decks) ? decks : decks.results || []).map(deck => ({
+  const decksData = await decksRes.json();
+  // Archidekt wraps the array in { decks: [...], rootFolder: ... }
+  const decksList = Array.isArray(decksData)
+    ? decksData
+    : decksData.decks || decksData.results || [];
+  return decksList.map(deck => ({
     id: deck.id,
     name: deck.name,
     url: `https://archidekt.com/decks/${deck.id}`,

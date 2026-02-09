@@ -27,6 +27,25 @@ export async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE COLLATE NOCASE,
       password_hash TEXT NOT NULL,
+      email TEXT UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Migration: add email column to existing databases
+  try {
+    db.run('ALTER TABLE users ADD COLUMN email TEXT UNIQUE');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
@@ -81,6 +100,7 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_owner ON tracked_decks(tracked_owner_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_deck_snapshots_deck ON deck_snapshots(tracked_deck_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_deck_snapshots_created ON deck_snapshots(tracked_deck_id, created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_reset_tokens_token ON password_reset_tokens(token)');
 
   persist();
   return db;

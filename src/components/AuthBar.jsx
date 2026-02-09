@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { login, register } from '../lib/api';
+import { toast } from './Toast';
 import './AuthBar.css';
 
-export default function AuthBar() {
+export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
   const { user, loading, loginUser, logoutUser } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
@@ -26,6 +27,9 @@ export default function AuthBar() {
       setShowForm(false);
       setUsername('');
       setPassword('');
+      if (isRegister) {
+        toast.success('Account created! You\'re now logged in.');
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -37,6 +41,9 @@ export default function AuthBar() {
     return (
       <div className="auth-bar">
         <span className="auth-bar-user">{user.username}</span>
+        <button className="auth-bar-btn" onClick={onShowSettings} type="button" title="Account Settings">
+          ⚙ Settings
+        </button>
         <button className="auth-bar-btn" onClick={logoutUser} type="button">
           Log Out
         </button>
@@ -93,6 +100,15 @@ export default function AuthBar() {
         >
           Cancel
         </button>
+        {!isRegister && (
+          <button
+            className="auth-bar-link"
+            type="button"
+            onClick={() => { setShowForm(false); onShowForgotPassword?.(); }}
+          >
+            Forgot password?
+          </button>
+        )}
       </form>
       {error && <div className="auth-bar-error" role="alert">{error}</div>}
     </div>

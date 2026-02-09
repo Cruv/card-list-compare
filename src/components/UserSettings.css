@@ -1,0 +1,126 @@
+.user-settings {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 24px;
+  margin-top: 16px;
+  max-width: 520px;
+}
+
+.user-settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.user-settings-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.user-settings-section {
+  padding: 16px 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.user-settings-section h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.user-settings-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.user-settings-field label {
+  color: var(--text-secondary);
+  min-width: 100px;
+  font-weight: 600;
+}
+
+.user-settings-value {
+  color: var(--text-primary);
+}
+
+.user-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.user-settings-form label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.user-settings-optional {
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.user-settings-form input {
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.user-settings-form input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: var(--focus-ring);
+}
+
+.user-settings-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.user-settings-input-row input {
+  flex: 1;
+}
+
+.user-settings-form button {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.user-settings-danger {
+  border-top: 2px solid var(--accent-red);
+}
+
+.user-settings-danger h3 {
+  color: var(--accent-red);
+}
+
+.user-settings-danger p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+@media (max-width: 640px) {
+  .user-settings {
+    padding: 16px;
+  }
+
+  .user-settings-field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}

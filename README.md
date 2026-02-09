@@ -15,6 +15,8 @@ Compare two MTG deck lists side-by-side and generate detailed changelogs showing
 - **Shareable Links** - Generate permanent share links for any comparison
 - **Export Formats** - Copy changelogs as plain text, Reddit markdown (with `[[card]]` links), JSON, or MPCFill proxy-print format
 - **User Accounts** - Optional registration to persist tracked decks and snapshots across devices
+- **User Settings** - Change password, add email, delete account from an in-app settings panel
+- **Password Reset** - Email-based password reset flow (requires SMTP configuration)
 
 ## Quick Start with Docker
 
@@ -79,6 +81,14 @@ cp .env.example .env
 | `JWT_SECRET` | Yes (production) | Insecure fallback | Secret key for signing auth tokens. Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
 | `DB_PATH` | No | `./server/data/cardlistcompare.db` | Path to SQLite database file |
 | `PORT` | No | `3001` | Express server port |
+| `SMTP_HOST` | No | — | SMTP server hostname (e.g. `smtp.gmail.com`) |
+| `SMTP_PORT` | No | `587` | SMTP port |
+| `SMTP_USER` | No | — | SMTP username / email |
+| `SMTP_PASS` | No | — | SMTP password or app-specific password |
+| `SMTP_FROM` | No | `noreply@cardlistcompare.local` | From address for outgoing emails |
+| `APP_URL` | No | `http://localhost:8080` | Public URL of the app (used in password reset links) |
+
+> **Note:** SMTP variables are only needed for password reset via email. Without them, the app works normally — users just can't reset forgotten passwords. They'll see a message explaining this if they try.
 
 ### Running Tests
 
@@ -190,7 +200,7 @@ card-list-compare/
   server/                 # Express 5 backend
     routes/               # API routes (auth, owners, decks, snapshots, share)
     middleware/            # Auth, rate limiting, validation
-    lib/                  # Server-side Archidekt API client
+    lib/                  # Server-side Archidekt API client, email sender
     db.js                 # SQLite via sql.js
   nginx.conf              # Production reverse proxy config
   Dockerfile              # Multi-stage build (frontend + backend + nginx)
@@ -202,7 +212,7 @@ card-list-compare/
 - **Frontend**: React 19, Vite 7, plain CSS with CSS variables
 - **Backend**: Express 5, ESM modules
 - **Database**: SQLite via sql.js (pure JavaScript, no native compilation)
-- **Auth**: JWT with bcryptjs
+- **Auth**: JWT with bcryptjs, optional email-based password reset via Nodemailer
 - **Testing**: Vitest
 - **Deployment**: Docker (Alpine + nginx + Node), bind-mounted data volume
 

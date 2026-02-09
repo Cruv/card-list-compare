@@ -58,6 +58,23 @@ export const login = (username, password) =>
 
 export const getMe = () => apiFetch('/auth/me');
 
+export const changePassword = (currentPassword, newPassword) =>
+  apiFetch('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+
+export const updateEmail = (email) =>
+  apiFetch('/auth/email', { method: 'PUT', body: JSON.stringify({ email }) });
+
+export const forgotPassword = (email) =>
+  apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+
+export const resetPassword = (token, newPassword) =>
+  apiFetch('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, newPassword }) });
+
+export const deleteAccount = (confirmUsername) =>
+  apiFetch('/auth/account', { method: 'DELETE', body: JSON.stringify({ confirmUsername }) });
+
+export const getEmailConfigured = () => apiFetch('/auth/email-configured');
+
 // Owners
 export const getOwners = () => apiFetch('/owners');
 
