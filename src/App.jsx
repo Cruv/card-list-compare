@@ -3,7 +3,7 @@ import DeckInput from './components/DeckInput';
 import ChangelogOutput from './components/ChangelogOutput';
 import SnapshotManager from './components/SnapshotManager';
 import AuthBar from './components/AuthBar';
-import DeckTracker from './components/DeckTracker';
+import AdminPanel from './components/AdminPanel';
 import UserSettings from './components/UserSettings';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
@@ -29,6 +29,7 @@ export default function App() {
   const [snapshots, setSnapshots] = useState(() => getSnapshots());
   const [showManager, setShowManager] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
 
@@ -83,12 +84,6 @@ export default function App() {
     else setAfterText(snap.text);
     setDiffResult(null);
   }
-
-  const handleLoadToCompare = useCallback((text, target) => {
-    if (target === 'before') setBeforeText(text);
-    else setAfterText(text);
-    setDiffResult(null);
-  }, []);
 
   const canCompare = useMemo(
     () => beforeText.trim().length > 0 || afterText.trim().length > 0,
@@ -168,14 +163,21 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <AuthBar
-          onShowSettings={() => { setShowSettings(true); setShowForgotPassword(false); }}
-          onShowForgotPassword={() => { setShowForgotPassword(true); setShowSettings(false); }}
+          onShowSettings={() => { setShowSettings(true); setShowAdmin(false); setShowForgotPassword(false); }}
+          onShowAdmin={() => { setShowAdmin(true); setShowSettings(false); setShowForgotPassword(false); }}
+          onShowForgotPassword={() => { setShowForgotPassword(true); setShowSettings(false); setShowAdmin(false); }}
         />
         <h1 className="app-title">Card List Compare</h1>
         <p className="app-subtitle">
           Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield
         </p>
       </header>
+
+      {showAdmin && user?.isAdmin && (
+        <ErrorBoundary>
+          <AdminPanel onClose={() => setShowAdmin(false)} />
+        </ErrorBoundary>
+      )}
 
       {showSettings && user && (
         <ErrorBoundary>
@@ -197,6 +199,7 @@ export default function App() {
           snapshots={snapshots}
           onLoadSnapshot={(snap) => { setBeforeText(snap.text); setDiffResult(null); }}
           onSaveSnapshot={handleSaveSnapshot}
+          user={user}
         />
         <DeckInput
           label="After"
@@ -205,6 +208,7 @@ export default function App() {
           snapshots={snapshots}
           onLoadSnapshot={(snap) => { setAfterText(snap.text); setDiffResult(null); }}
           onSaveSnapshot={handleSaveSnapshot}
+          user={user}
         />
       </div>
 
@@ -260,13 +264,6 @@ export default function App() {
         </div>
       )}
 
-      <ErrorBoundary>
-        {user && (
-          <DeckTracker
-            onLoadToCompare={handleLoadToCompare}
-          />
-        )}
-      </ErrorBoundary>
     </div>
   );
 }

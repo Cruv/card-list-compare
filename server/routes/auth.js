@@ -10,6 +10,12 @@ const router = Router();
 
 router.post('/register', authLimiter, async (req, res) => {
   try {
+    // Check if registration is enabled
+    const regSetting = get("SELECT value FROM server_settings WHERE key = 'registration_enabled'");
+    if (regSetting && regSetting.value === 'false') {
+      return res.status(403).json({ error: 'Registration is currently disabled. Contact an admin for an account.' });
+    }
+
     const { username, password } = req.body;
 
     if (!username || typeof username !== 'string' || username.trim().length < 3 || username.trim().length > 30) {
@@ -30,10 +36,10 @@ router.post('/register', authLimiter, async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const result = run('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username.trim(), hash]);
 
-    const user = { id: result.lastInsertRowid, username: username.trim() };
+    const user = { id: result.lastInsertRowid, username: username.trim(), is_admin: 0 };
     const token = createToken(user);
 
-    res.status(201).json({ token, user: { id: user.id, username: user.username, email: null } });
+    res.status(201).json({ token, user: { id: user.id, username: user.username, email: null, isAdmin: false } });
   } catch (err) {
     console.error('Register error:', err);
     res.status(500).json({ error: 'Registration failed' });
@@ -59,7 +65,7 @@ router.post('/login', authLimiter, async (req, res) => {
     }
 
     const token = createToken(user);
-    res.json({ token, user: { id: user.id, username: user.username, email: user.email || null } });
+    res.json({ token, user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin } });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed' });
@@ -67,11 +73,11 @@ router.post('/login', authLimiter, async (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  const user = get('SELECT id, username, email, created_at FROM users WHERE id = ?', [req.user.userId]);
+  const user = get('SELECT id, username, email, is_admin, created_at FROM users WHERE id = ?', [req.user.userId]);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
-  res.json({ user: { id: user.id, username: user.username, email: user.email || null, createdAt: user.created_at } });
+  res.json({ user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin, createdAt: user.created_at } });
 });
 
 // Change password (requires current password)
@@ -231,6 +237,13 @@ router.delete('/account', requireAuth, async (req, res) => {
 // Check if email is configured (public endpoint for UI)
 router.get('/email-configured', (_req, res) => {
   res.json({ configured: isEmailConfigured() });
+});
+
+// Check if registration is open (public endpoint for UI)
+router.get('/registration-status', (_req, res) => {
+  const setting = get("SELECT value FROM server_settings WHERE key = 'registration_enabled'");
+  const enabled = !setting || setting.value !== 'false';
+  res.json({ registrationEnabled: enabled });
 });
 
 export default router;

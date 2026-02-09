@@ -111,6 +111,13 @@
   gap: 4px;
 }
 
+.tracked-deck-changelog-copy {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
 .tracked-deck-changelog-empty {
   font-size: 13px;
   color: var(--text-muted);

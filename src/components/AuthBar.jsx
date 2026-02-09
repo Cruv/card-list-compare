@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { login, register } from '../lib/api';
+import { login, register, getRegistrationStatus } from '../lib/api';
 import { toast } from './Toast';
 import './AuthBar.css';
 
-export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
+export default function AuthBar({ onShowSettings, onShowForgotPassword, onShowAdmin }) {
   const { user, loading, loginUser, logoutUser } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
@@ -12,6 +12,13 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [registrationOpen, setRegistrationOpen] = useState(true);
+
+  useEffect(() => {
+    getRegistrationStatus()
+      .then(data => setRegistrationOpen(data.registrationEnabled))
+      .catch(() => {}); // default to true if check fails
+  }, []);
 
   if (loading) return null;
 
@@ -41,8 +48,13 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
     return (
       <div className="auth-bar">
         <span className="auth-bar-user">{user.username}</span>
+        {user.isAdmin && (
+          <button className="auth-bar-btn" onClick={onShowAdmin} type="button" title="Admin Panel">
+            Admin
+          </button>
+        )}
         <button className="auth-bar-btn" onClick={onShowSettings} type="button" title="Account Settings">
-          ⚙ Settings
+          Settings
         </button>
         <button className="auth-bar-btn" onClick={logoutUser} type="button">
           Log Out
@@ -86,17 +98,19 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
         <button className="auth-bar-btn auth-bar-btn--primary" type="submit" disabled={submitting}>
           {submitting ? '...' : isRegister ? 'Register' : 'Log In'}
         </button>
+        {registrationOpen && (
+          <button
+            className="auth-bar-btn"
+            type="button"
+            onClick={() => { setIsRegister(!isRegister); setError(null); }}
+          >
+            {isRegister ? 'Have an account?' : 'New user?'}
+          </button>
+        )}
         <button
           className="auth-bar-btn"
           type="button"
-          onClick={() => { setIsRegister(!isRegister); setError(null); }}
-        >
-          {isRegister ? 'Have an account?' : 'New user?'}
-        </button>
-        <button
-          className="auth-bar-btn"
-          type="button"
-          onClick={() => { setShowForm(false); setError(null); }}
+          onClick={() => { setShowForm(false); setError(null); setIsRegister(false); }}
         >
           Cancel
         </button>

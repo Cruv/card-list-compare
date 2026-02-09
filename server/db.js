@@ -42,6 +42,15 @@ export async function initDb() {
   }
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)');
 
+  // Migration: add is_admin column to existing databases
+  try {
+    db.run('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Auto-promote user id=1 to admin (idempotent)
+  db.run('UPDATE users SET is_admin = 1 WHERE id = 1');
 
   db.run(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -97,6 +106,17 @@ export async function initDb() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS server_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Seed default settings
+  db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('registration_enabled', 'true')`);
 
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');

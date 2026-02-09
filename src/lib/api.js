@@ -125,3 +125,40 @@ export const createShare = (beforeText, afterText, title) =>
   apiFetch('/share', { method: 'POST', body: JSON.stringify({ beforeText, afterText, title }) });
 
 export const getShare = (id) => apiFetch(`/share/${id}`);
+
+// Single snapshot (includes deck_text)
+export const getSnapshot = (deckId, snapshotId) =>
+  apiFetch(`/decks/${deckId}/snapshots/${snapshotId}`);
+
+// Registration status (public)
+export const getRegistrationStatus = () => apiFetch('/auth/registration-status');
+
+// Admin
+export const getAdminStats = () => apiFetch('/admin/stats');
+
+export const getAdminUsers = () => apiFetch('/admin/users');
+
+export const adminResetPassword = (userId, newPassword) =>
+  apiFetch(`/admin/users/${userId}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ newPassword }),
+  });
+
+export const adminDeleteUser = (userId) =>
+  apiFetch(`/admin/users/${userId}`, { method: 'DELETE' });
+
+export const adminToggleAdmin = (userId) =>
+  apiFetch(`/admin/users/${userId}/toggle-admin`, { method: 'PATCH' });
+
+export const getAdminSettings = () => apiFetch('/admin/settings');
+
+export const updateAdminSetting = (key, value) =>
+  apiFetch(`/admin/settings/${key}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value }),
+  });
+
+export const getAdminShares = () => apiFetch('/admin/shares');
+
+export const adminDeleteShare = (shareId) =>
+  apiFetch(`/admin/shares/${shareId}`, { method: 'DELETE' });

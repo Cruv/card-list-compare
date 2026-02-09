@@ -33,6 +33,22 @@ router.get('/:deckId/snapshots', (req, res) => {
   res.json({ snapshots });
 });
 
+// Get a single snapshot with deck_text (for loading into DeckInput)
+router.get('/:deckId/snapshots/:snapshotId', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+  const snapshotId = requireIntParam(req, res, 'snapshotId');
+  if (snapshotId === null) return;
+
+  const snapshot = get('SELECT * FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
+    [snapshotId, deck.id]);
+  if (!snapshot) {
+    return res.status(404).json({ error: 'Snapshot not found' });
+  }
+
+  res.json({ snapshot });
+});
+
 router.delete('/:deckId/snapshots/:snapshotId', (req, res) => {
   const deck = verifyDeckOwnership(req, res);
   if (!deck) return;

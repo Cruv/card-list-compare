@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   getDeckSnapshots,
   deleteSnapshot,
@@ -7,6 +7,8 @@ import {
 } from '../lib/api';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
+import CopyButton from './CopyButton';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
 import './TrackedDeckCard.css';
 
 export default function TrackedDeckCard({ deck, onRefresh, onUntrack, onLoadToCompare, onUpdate }) {
@@ -311,25 +313,60 @@ export default function TrackedDeckCard({ deck, onRefresh, onUntrack, onLoadToCo
 function ChangelogDisplay({ diff }) {
   const { mainboard, sideboard, hasSideboard } = diff;
 
-  const hasMainChanges =
-    mainboard.cardsIn.length > 0 ||
-    mainboard.cardsOut.length > 0 ||
-    mainboard.quantityChanges.length > 0;
+  const { hasMainChanges, hasSideChanges, noChanges, hasAdditions } = useMemo(() => {
+    const hasMain =
+      mainboard.cardsIn.length > 0 ||
+      mainboard.cardsOut.length > 0 ||
+      mainboard.quantityChanges.length > 0;
 
-  const hasSideChanges = hasSideboard && (
-    sideboard.cardsIn.length > 0 ||
-    sideboard.cardsOut.length > 0 ||
-    sideboard.quantityChanges.length > 0
-  );
+    const hasSide = hasSideboard && (
+      sideboard.cardsIn.length > 0 ||
+      sideboard.cardsOut.length > 0 ||
+      sideboard.quantityChanges.length > 0
+    );
 
-  if (!hasMainChanges && !hasSideChanges) {
+    const none = !hasMain && !hasSide;
+
+    const additions = mainboard.cardsIn.length > 0 ||
+      sideboard.cardsIn.length > 0 ||
+      [...mainboard.quantityChanges, ...sideboard.quantityChanges].some(c => c.delta > 0);
+
+    return { hasMainChanges: hasMain, hasSideChanges: hasSide, noChanges: none, hasAdditions: additions };
+  }, [mainboard, sideboard, hasSideboard]);
+
+  if (noChanges) {
     return <p className="tracked-deck-changelog-empty">No changes detected.</p>;
   }
 
+  // Build a diffResult-like object for the formatters
+  const diffResult = { mainboard, sideboard, hasSideboard, commanders: [] };
+
   return (
-    <div className="changelog-inline">
-      {hasMainChanges && <SectionDisplay title="Mainboard" section={mainboard} />}
-      {hasSideChanges && <SectionDisplay title="Sideboard" section={sideboard} />}
+    <div>
+      <div className="tracked-deck-changelog-copy">
+        {hasAdditions && (
+          <CopyButton
+            getText={() => formatMpcFill(diffResult)}
+            label="Copy for MPCFill"
+            className="copy-btn copy-btn--mpc"
+          />
+        )}
+        <CopyButton getText={() => formatChangelog(diffResult)} />
+        <CopyButton
+          getText={() => formatReddit(diffResult)}
+          label="Copy for Reddit"
+          className="copy-btn copy-btn--reddit"
+        />
+        <CopyButton
+          getText={() => formatJSON(diffResult)}
+          label="Copy JSON"
+          className="copy-btn copy-btn--json"
+        />
+      </div>
+      <div className="changelog-inline">
+        {hasMainChanges && <SectionDisplay title="Mainboard" section={mainboard} />}
+        {hasSideChanges && <SectionDisplay title="Sideboard" section={sideboard} />}
+      </div>
     </div>
   );
 }

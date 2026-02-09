@@ -7,6 +7,7 @@ import ownerRoutes from './routes/owners.js';
 import deckRoutes from './routes/decks.js';
 import snapshotRoutes from './routes/snapshots.js';
 import shareRoutes from './routes/share.js';
+import adminRoutes from './routes/admin.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -31,6 +32,7 @@ app.use('/api/owners', ownerRoutes);
 app.use('/api/decks', deckRoutes);
 app.use('/api/decks', snapshotRoutes);
 app.use('/api/share', shareRoutes);
+app.use('/api/admin', adminRoutes);
 
 async function start() {
   await initDb();
