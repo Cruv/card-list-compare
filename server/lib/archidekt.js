@@ -1,13 +1,28 @@
 const ARCHIDEKT_BASE = 'https://archidekt.com/api';
 
 export async function fetchOwnerDecks(archidektUsername) {
-  const url = `${ARCHIDEKT_BASE}/decks/v3/?owner=${encodeURIComponent(archidektUsername)}&ownerexact=true&pageSize=100`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Archidekt returned status ${res.status}`);
+  // Step 1: Look up the user's numeric ID via the users endpoint
+  const usersUrl = `${ARCHIDEKT_BASE}/users/?username=${encodeURIComponent(archidektUsername)}`;
+  const usersRes = await fetch(usersUrl);
+  if (!usersRes.ok) {
+    throw new Error(`Archidekt users API returned status ${usersRes.status}`);
   }
-  const data = await res.json();
-  return (data.results || []).map(deck => ({
+  const usersData = await usersRes.json();
+  const exactMatch = (usersData.results || []).find(
+    u => u.username.toLowerCase() === archidektUsername.toLowerCase()
+  );
+  if (!exactMatch) {
+    throw new Error(`Archidekt user "${archidektUsername}" not found`);
+  }
+
+  // Step 2: Fetch the user's decks by their numeric ID
+  const decksUrl = `${ARCHIDEKT_BASE}/users/${exactMatch.id}/decks/`;
+  const decksRes = await fetch(decksUrl);
+  if (!decksRes.ok) {
+    throw new Error(`Archidekt decks API returned status ${decksRes.status}`);
+  }
+  const decks = await decksRes.json();
+  return (Array.isArray(decks) ? decks : decks.results || []).map(deck => ({
     id: deck.id,
     name: deck.name,
     url: `https://archidekt.com/decks/${deck.id}`,
