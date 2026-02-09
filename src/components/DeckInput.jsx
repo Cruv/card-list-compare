@@ -1,9 +1,11 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { fetchDeckFromUrl } from '../lib/fetcher';
-import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot } from '../lib/api';
+import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot } from '../lib/api';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import './DeckInput.css';
+
+const INITIAL_SNAP_LIMIT = 5;
 
 const PLACEHOLDER = `Paste your deck list here...
 
@@ -31,6 +33,11 @@ export default function DeckInput({ label, value, onChange, user }) {
   const [deckSnapshots, setDeckSnapshots] = useState([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [refreshingDeckId, setRefreshingDeckId] = useState(null);
+
+  // Nickname editing state
+  const [editingNickname, setEditingNickname] = useState(null);
+  const [nicknameValue, setNicknameValue] = useState('');
+  const [showAllSnapshots, setShowAllSnapshots] = useState(false);
 
   const [confirm, ConfirmDialog] = useConfirm();
 
@@ -104,9 +111,13 @@ export default function DeckInput({ label, value, onChange, user }) {
     if (expandedDeckId === deckId) {
       setExpandedDeckId(null);
       setDeckSnapshots([]);
+      setShowAllSnapshots(false);
+      setEditingNickname(null);
       return;
     }
     setExpandedDeckId(deckId);
+    setShowAllSnapshots(false);
+    setEditingNickname(null);
     setSnapshotsLoading(true);
     try {
       const data = await getDeckSnapshots(deckId);
@@ -174,6 +185,18 @@ export default function DeckInput({ label, value, onChange, user }) {
       setTrackedDecks(decksData.decks);
     } catch (err) {
       toast.error(err.message || 'Failed to delete snapshot');
+    }
+  }
+
+  async function handleSaveNickname(deckId, snapshotId) {
+    try {
+      await renameSnapshot(deckId, snapshotId, nicknameValue || null);
+      setEditingNickname(null);
+      toast.success('Nickname saved');
+      const data = await getDeckSnapshots(deckId);
+      setDeckSnapshots(data.snapshots);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save nickname');
     }
   }
 
@@ -289,29 +312,92 @@ export default function DeckInput({ label, value, onChange, user }) {
                         <p className="deck-input-tracked-empty">No snapshots yet.</p>
                       ) : (
                         <ul className="deck-input-tracked-snap-list">
-                          {deckSnapshots.map(snap => (
+                          {(showAllSnapshots ? deckSnapshots : deckSnapshots.slice(0, INITIAL_SNAP_LIMIT)).map((snap, index) => (
                             <li key={snap.id} className="deck-input-tracked-snap-row">
-                              <button
-                                className="deck-input-tracked-snap-btn"
-                                onClick={() => handleLoadTrackedSnapshot(deck.id, snap.id)}
-                                disabled={loading}
-                                type="button"
-                              >
-                                <span className="deck-input-tracked-snap-date">{formatDate(snap.created_at)}</span>
-                                {snap.nickname && (
-                                  <span className="deck-input-tracked-snap-nick">{snap.nickname}</span>
-                                )}
-                              </button>
-                              <button
-                                className="deck-input-tracked-snap-delete"
-                                onClick={(e) => handleDeleteSnapshot(e, deck.id, snap.id)}
-                                type="button"
-                                title="Delete this snapshot"
-                              >
-                                &times;
-                              </button>
+                              {editingNickname === snap.id ? (
+                                <div className="deck-input-tracked-snap-edit">
+                                  <span className="deck-input-tracked-snap-number">#{index + 1}</span>
+                                  <input
+                                    type="text"
+                                    className="deck-input-tracked-snap-nick-input"
+                                    value={nicknameValue}
+                                    onChange={(e) => setNicknameValue(e.target.value)}
+                                    placeholder="Nickname (optional)"
+                                    maxLength={100}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleSaveNickname(deck.id, snap.id);
+                                      if (e.key === 'Escape') setEditingNickname(null);
+                                    }}
+                                    autoFocus
+                                  />
+                                  <button
+                                    className="deck-input-tracked-snap-save"
+                                    onClick={() => handleSaveNickname(deck.id, snap.id)}
+                                    type="button"
+                                    title="Save nickname"
+                                  >
+                                    &#10003;
+                                  </button>
+                                  <button
+                                    className="deck-input-tracked-snap-cancel"
+                                    onClick={() => setEditingNickname(null)}
+                                    type="button"
+                                    title="Cancel"
+                                  >
+                                    &#10005;
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    className="deck-input-tracked-snap-btn"
+                                    onClick={() => handleLoadTrackedSnapshot(deck.id, snap.id)}
+                                    disabled={loading}
+                                    type="button"
+                                  >
+                                    <span className="deck-input-tracked-snap-number">#{index + 1}</span>
+                                    <span className="deck-input-tracked-snap-date">{formatDate(snap.created_at)}</span>
+                                    {snap.nickname && (
+                                      <span className="deck-input-tracked-snap-nick">{snap.nickname}</span>
+                                    )}
+                                  </button>
+                                  <button
+                                    className="deck-input-tracked-snap-rename"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingNickname(snap.id);
+                                      setNicknameValue(snap.nickname || '');
+                                    }}
+                                    type="button"
+                                    title={snap.nickname ? 'Rename snapshot' : 'Add nickname'}
+                                  >
+                                    &#9998;
+                                  </button>
+                                  <button
+                                    className="deck-input-tracked-snap-delete"
+                                    onClick={(e) => handleDeleteSnapshot(e, deck.id, snap.id)}
+                                    type="button"
+                                    title="Delete this snapshot"
+                                  >
+                                    &times;
+                                  </button>
+                                </>
+                              )}
                             </li>
                           ))}
+                          {deckSnapshots.length > INITIAL_SNAP_LIMIT && (
+                            <li className="deck-input-tracked-snap-toggle">
+                              <button
+                                className="deck-input-tracked-snap-toggle-btn"
+                                onClick={() => setShowAllSnapshots(!showAllSnapshots)}
+                                type="button"
+                              >
+                                {showAllSnapshots
+                                  ? 'Show less'
+                                  : `Show all ${deckSnapshots.length} snapshots`}
+                              </button>
+                            </li>
+                          )}
                         </ul>
                       )}
                     </div>
