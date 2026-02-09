@@ -93,7 +93,7 @@ export default function UserSettings({ onClose }) {
 
   return (
     <div className="user-settings">
-      <ConfirmDialog />
+      {ConfirmDialog}
       <div className="user-settings-header">
         <h2>Account Settings</h2>
         <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Close</button>
