@@ -87,12 +87,14 @@
 }
 
 .btn-secondary.btn-danger {
-  color: var(--accent-red);
+  color: #fff;
+  background: var(--accent-red);
   border-color: var(--accent-red);
 }
 
 .btn-secondary.btn-danger:hover {
-  background: rgba(244, 67, 54, 0.15);
+  background: #d32f2f;
+  border-color: #d32f2f;
 }
 
 .deck-tracker-browse {

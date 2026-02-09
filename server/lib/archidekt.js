@@ -1,7 +1,7 @@
 const ARCHIDEKT_BASE = 'https://archidekt.com/api';
 
 export async function fetchOwnerDecks(archidektUsername) {
-  const url = `${ARCHIDEKT_BASE}/decks/cards/?owner=${encodeURIComponent(archidektUsername)}&ownerexact=true&pageSize=100`;
+  const url = `${ARCHIDEKT_BASE}/decks/v3/?owner=${encodeURIComponent(archidektUsername)}&ownerexact=true&pageSize=100`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Archidekt returned status ${res.status}`);
