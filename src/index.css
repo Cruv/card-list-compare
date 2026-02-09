@@ -11,6 +11,14 @@
   --accent-blue: #5c6bc0;
   --border-color: #2a2a4a;
   --font-mono: 'Consolas', 'Courier New', 'Liberation Mono', monospace;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 3px rgba(92, 107, 192, 0.25);
 }
 
 *,
@@ -35,4 +43,13 @@ body {
 
 button {
   font-family: inherit;
+}
+
+/* Global focus ring for inputs */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: var(--focus-ring);
 }

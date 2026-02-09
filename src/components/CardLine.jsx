@@ -1,6 +1,7 @@
+import { memo } from 'react';
 import './CardLine.css';
 
-export default function CardLine({ name, quantity, changeType, oldQty, newQty, delta }) {
+export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta }) {
   if (changeType === 'in') {
     return (
       <div className="card-line card-line--in">
@@ -32,4 +33,4 @@ export default function CardLine({ name, quantity, changeType, oldQty, newQty, d
       </span>
     </div>
   );
-}
+});

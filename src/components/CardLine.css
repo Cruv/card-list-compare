@@ -2,36 +2,43 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  padding: 3px 8px;
+  padding: 5px 10px;
   font-family: var(--font-mono);
   font-size: 13px;
-  border-radius: 3px;
+  line-height: 1.5;
+  border-radius: 4px;
+  transition: background 0.1s, padding-left 0.15s;
 }
 
 .card-line:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.05);
+  padding-left: 14px;
 }
 
 .card-line-prefix {
   width: 12px;
-  font-weight: 700;
+  font-weight: 800;
   flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .card-line-qty {
   width: 20px;
   text-align: right;
   flex-shrink: 0;
+  font-weight: 600;
 }
 
 .card-line-name {
   flex: 1;
+  font-weight: 500;
 }
 
 .card-line-detail {
   margin-left: auto;
-  opacity: 0.8;
+  opacity: 0.7;
   white-space: nowrap;
+  font-size: 12px;
 }
 
 .card-line--in {

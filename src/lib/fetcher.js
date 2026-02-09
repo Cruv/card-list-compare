@@ -11,6 +11,26 @@
  */
 
 // ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+const FETCH_TIMEOUT = 10_000; // 10 seconds
+
+function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+
+  return fetch(url, { ...options, signal: controller.signal })
+    .catch(err => {
+      if (err.name === 'AbortError') {
+        throw new Error('Request timed out. The site may be slow — try again later.');
+      }
+      throw new Error('Network error. Check your connection and try again.');
+    })
+    .finally(() => clearTimeout(timer));
+}
+
+// ---------------------------------------------------------------------------
 // URL pattern detection
 // ---------------------------------------------------------------------------
 
@@ -37,7 +57,7 @@ async function fetchArchidekt(url) {
   // Use the Vite proxy in dev, or direct URL with CORS headers in production
   const apiUrl = `/api/archidekt/decks/${deckId}/`;
 
-  const res = await fetch(apiUrl);
+  const res = await fetchWithTimeout(apiUrl);
   if (!res.ok) {
     if (res.status === 404) throw new Error('Archidekt deck not found. Is the URL correct?');
     throw new Error(`Archidekt returned status ${res.status}`);
@@ -105,7 +125,7 @@ async function fetchMoxfield(url) {
 
   const apiUrl = `/api/moxfield/v3/decks/all/${deckId}`;
 
-  const res = await fetch(apiUrl);
+  const res = await fetchWithTimeout(apiUrl);
   if (!res.ok) {
     if (res.status === 404) throw new Error('Moxfield deck not found. Is the URL correct?');
     if (res.status === 403)

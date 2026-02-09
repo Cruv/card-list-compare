@@ -1,0 +1,175 @@
+.deck-tracker {
+  margin-top: 40px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border-color);
+}
+
+.deck-tracker-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.deck-tracker-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.deck-tracker-error {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid var(--accent-red);
+  color: var(--accent-red);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.deck-tracker-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.deck-tracker-add input {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.deck-tracker-add input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.deck-tracker-owners {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.deck-tracker-owner {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--bg-secondary);
+}
+
+.deck-tracker-owner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.deck-tracker-owner-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.deck-tracker-owner-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.btn-secondary.btn-danger {
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
+.btn-secondary.btn-danger:hover {
+  background: rgba(244, 67, 54, 0.15);
+}
+
+.deck-tracker-browse {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.deck-tracker-browse-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.deck-tracker-browse-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.deck-tracker-browse-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+}
+
+.deck-tracker-browse-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.deck-tracker-browse-tracked {
+  font-size: 11px;
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.deck-tracker-empty {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--text-muted);
+}
+
+.deck-tracker-empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.deck-tracker-empty-hint {
+  font-size: 13px;
+  max-width: 400px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+.deck-tracker-decks {
+  margin-top: 4px;
+}
+
+.deck-tracker-decks-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.deck-tracker-decks-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0;
+}

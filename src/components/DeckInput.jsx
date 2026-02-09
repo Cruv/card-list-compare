@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
+import { fetchDeckFromUrl } from '../lib/fetcher';
+import NameModal from './NameModal';
 import './DeckInput.css';
 
 const PLACEHOLDER = `Paste your deck list here...
@@ -20,6 +21,7 @@ export default function DeckInput({ label, value, onChange, snapshots, onLoadSna
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showNameModal, setShowNameModal] = useState(false);
 
   function handleFile(e) {
     const file = e.target.files[0];
@@ -28,6 +30,9 @@ export default function DeckInput({ label, value, onChange, snapshots, onLoadSna
     reader.onload = (ev) => {
       onChange(ev.target.result);
       setError(null);
+    };
+    reader.onerror = () => {
+      setError('Failed to read file. Please try again.');
     };
     reader.readAsText(file);
     e.target.value = '';
@@ -38,7 +43,7 @@ export default function DeckInput({ label, value, onChange, snapshots, onLoadSna
     setLoading(true);
     setError(null);
     try {
-      const { text, site } = await fetchDeckFromUrl(urlInput.trim());
+      const { text } = await fetchDeckFromUrl(urlInput.trim());
       onChange(text);
       setShowUrl(false);
       setUrlInput('');
@@ -62,10 +67,7 @@ export default function DeckInput({ label, value, onChange, snapshots, onLoadSna
 
   function handleSave() {
     if (!value.trim()) return;
-    const name = prompt('Name this snapshot:', `${label} - ${new Date().toLocaleDateString()}`);
-    if (name !== null) {
-      onSaveSnapshot(name, value);
-    }
+    setShowNameModal(true);
   }
 
   return (
@@ -169,7 +171,7 @@ export default function DeckInput({ label, value, onChange, snapshots, onLoadSna
       )}
 
       {error && (
-        <div className="deck-input-error">
+        <div className="deck-input-error" role="alert">
           {error.split('\n').map((line, i) => (
             <span key={i}>{line}<br /></span>
           ))}
@@ -182,7 +184,21 @@ export default function DeckInput({ label, value, onChange, snapshots, onLoadSna
         onChange={(e) => { onChange(e.target.value); setError(null); }}
         placeholder={PLACEHOLDER}
         spellCheck={false}
+        aria-label={`${label} deck list`}
       />
+
+      {showNameModal && (
+        <NameModal
+          defaultValue={`${label} - ${new Date().toLocaleDateString()}`}
+          title="Save Snapshot"
+          placeholder="Snapshot name..."
+          onConfirm={(name) => {
+            onSaveSnapshot(name, value);
+            setShowNameModal(false);
+          }}
+          onCancel={() => setShowNameModal(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,15 +1,21 @@
 .changelog-output {
-  background: var(--bg-secondary);
+  background: linear-gradient(
+    135deg,
+    var(--bg-secondary) 0%,
+    var(--bg-secondary) 92%,
+    rgba(92, 107, 192, 0.06) 100%
+  );
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 20px 24px;
+  border-radius: 10px;
+  padding: 24px 28px;
+  box-shadow: var(--shadow-md);
 }
 
 .changelog-output-header {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   flex-wrap: wrap;
 }
 
@@ -36,6 +42,8 @@
   color: var(--text-muted);
 }
 
+/* ── Summary badges ───────────────────────────────────────────── */
+
 .changelog-output-summary {
   display: flex;
   gap: 8px;
@@ -44,52 +52,78 @@
 
 .summary-badge {
   font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 14px;
 }
 
 .summary-badge--in {
   color: var(--accent-green);
-  background: rgba(76, 175, 80, 0.15);
+  background: rgba(76, 175, 80, 0.2);
 }
 
 .summary-badge--out {
   color: var(--accent-red);
-  background: rgba(244, 67, 54, 0.15);
+  background: rgba(244, 67, 54, 0.2);
 }
 
 .summary-badge--changed {
   color: var(--accent-yellow);
-  background: rgba(255, 193, 7, 0.15);
+  background: rgba(255, 193, 7, 0.2);
 }
+
+/* ── Copy / action buttons ────────────────────────────────────── */
 
 .changelog-output-buttons {
   margin-left: auto;
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .copy-btn {
-  padding: 6px 16px;
-  font-size: 13px;
+  padding: 7px 16px;
+  font-size: 12px;
   font-weight: 600;
   background: var(--accent-blue);
   color: #fff;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
   white-space: nowrap;
 }
 
 .copy-btn:hover {
   opacity: 0.85;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.copy-btn:active {
+  transform: scale(0.97);
+  box-shadow: none;
 }
 
 .copy-btn--mpc {
   background: var(--accent-green);
 }
+
+.copy-btn--reddit {
+  background: #ff4500;
+}
+
+.copy-btn--json {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.copy-btn--share {
+  background: #7c3aed;
+}
+
+/* ── Body ─────────────────────────────────────────────────────── */
 
 .changelog-output-body {
   /* container for sections */
@@ -99,5 +133,23 @@
   color: var(--text-muted);
   font-style: italic;
   text-align: center;
-  padding: 24px;
+  padding: 32px;
+}
+
+/* ── Mobile ───────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .changelog-output {
+    padding: 16px;
+  }
+
+  .changelog-output-buttons {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .copy-btn {
+    flex: 1;
+    text-align: center;
+  }
 }

@@ -1,23 +1,25 @@
+import { useState, useMemo } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
-import { formatChangelog, formatMpcFill } from '../lib/formatter';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
+import { toast } from './Toast';
 import './ChangelogOutput.css';
 
-export default function ChangelogOutput({ diffResult }) {
+export default function ChangelogOutput({ diffResult, onShare }) {
   const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
 
-  const totalIn = mainboard.cardsIn.length + sideboard.cardsIn.length;
-  const totalOut = mainboard.cardsOut.length + sideboard.cardsOut.length;
-  const totalChanged = mainboard.quantityChanges.length + sideboard.quantityChanges.length;
-  const noChanges = totalIn === 0 && totalOut === 0 && totalChanged === 0;
-
-  // Check if there are any additions (new cards or quantity increases) for MPCFill
-  const hasAdditions = totalIn > 0 ||
-    [...mainboard.quantityChanges, ...sideboard.quantityChanges].some((c) => c.delta > 0);
-
-  const commanderLabel = commanders && commanders.length > 0
-    ? commanders.join(' / ')
-    : null;
+  const { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel } = useMemo(() => {
+    const totalIn = mainboard.cardsIn.length + sideboard.cardsIn.length;
+    const totalOut = mainboard.cardsOut.length + sideboard.cardsOut.length;
+    const totalChanged = mainboard.quantityChanges.length + sideboard.quantityChanges.length;
+    const noChanges = totalIn === 0 && totalOut === 0 && totalChanged === 0;
+    const hasAdditions = totalIn > 0 ||
+      [...mainboard.quantityChanges, ...sideboard.quantityChanges].some((c) => c.delta > 0);
+    const commanderLabel = commanders && commanders.length > 0
+      ? commanders.join(' / ')
+      : null;
+    return { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel };
+  }, [mainboard, sideboard, commanders]);
 
   return (
     <div className="changelog-output">
@@ -54,6 +56,21 @@ export default function ChangelogOutput({ diffResult }) {
             />
           )}
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult)} />}
+          {!noChanges && (
+            <CopyButton
+              getText={() => formatReddit(diffResult)}
+              label="Copy for Reddit"
+              className="copy-btn copy-btn--reddit"
+            />
+          )}
+          {!noChanges && (
+            <CopyButton
+              getText={() => formatJSON(diffResult)}
+              label="Copy JSON"
+              className="copy-btn copy-btn--json"
+            />
+          )}
+          {onShare && <ShareButton onShare={onShare} />}
         </div>
       </div>
 
@@ -66,5 +83,43 @@ export default function ChangelogOutput({ diffResult }) {
         </div>
       )}
     </div>
+  );
+}
+
+function ShareButton({ onShare }) {
+  const [state, setState] = useState('idle'); // idle | loading | done
+  const [shareUrl, setShareUrl] = useState(null);
+
+  async function handleShare() {
+    setState('loading');
+    try {
+      const url = await onShare();
+      setShareUrl(url);
+      await navigator.clipboard.writeText(url);
+      setState('done');
+      setTimeout(() => setState('idle'), 3000);
+    } catch (err) {
+      toast.error('Failed to create share link');
+      setState('idle');
+    }
+  }
+
+  if (state === 'done') {
+    return (
+      <button className="copy-btn copy-btn--share" type="button" disabled>
+        Link Copied!
+      </button>
+    );
+  }
+
+  return (
+    <button
+      className="copy-btn copy-btn--share"
+      onClick={handleShare}
+      disabled={state === 'loading'}
+      type="button"
+    >
+      {state === 'loading' ? 'Sharing...' : 'Share Link'}
+    </button>
   );
 }

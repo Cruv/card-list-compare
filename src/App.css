@@ -40,7 +40,10 @@
   justify-content: center;
   gap: 10px;
   margin-bottom: 32px;
+  flex-wrap: wrap;
 }
+
+/* ── Buttons ──────────────────────────────────────────────────── */
 
 .btn {
   padding: 10px 24px;
@@ -49,11 +52,17 @@
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
 }
 
-.btn:active {
-  transform: scale(0.97);
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97) translateY(0);
+  box-shadow: none;
 }
 
 .btn:disabled {
@@ -76,27 +85,23 @@
   border: 1px solid var(--border-color);
 }
 
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled) {
   background: var(--border-color);
   color: var(--text-primary);
 }
 
-.app-empty {
-  text-align: center;
-  padding: 48px 20px;
-  color: var(--text-muted);
-  font-size: 14px;
+.btn-danger {
+  background: var(--accent-red);
+  color: #fff;
 }
 
-.app-empty strong {
-  color: var(--text-secondary);
+.btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
 }
 
-.app-empty-hint {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-muted);
-  opacity: 0.7;
+.btn:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
 }
 
 .btn--active {
@@ -105,6 +110,31 @@
   border-color: var(--accent-blue) !important;
 }
 
-.app-actions {
-  flex-wrap: wrap;
+/* ── Empty state ──────────────────────────────────────────────── */
+
+.app-empty {
+  text-align: center;
+  padding: 56px 24px;
+  color: var(--text-muted);
+  font-size: 14px;
+  border: 2px dashed var(--border-color);
+  border-radius: 10px;
+  margin: 0 auto;
+  max-width: 560px;
+  background: linear-gradient(
+    135deg,
+    rgba(92, 107, 192, 0.03) 0%,
+    rgba(76, 175, 80, 0.02) 100%
+  );
+}
+
+.app-empty strong {
+  color: var(--text-secondary);
+}
+
+.app-empty-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+  opacity: 0.7;
 }

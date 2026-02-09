@@ -1,7 +1,8 @@
+import { memo } from 'react';
 import CardLine from './CardLine';
 import './SectionChangelog.css';
 
-export default function SectionChangelog({ sectionName, changes }) {
+export default memo(function SectionChangelog({ sectionName, changes }) {
   const { cardsIn, cardsOut, quantityChanges } = changes;
   const isEmpty = cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0;
 
@@ -65,4 +66,4 @@ export default function SectionChangelog({ sectionName, changes }) {
       )}
     </div>
   );
-}
+});

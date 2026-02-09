@@ -19,6 +19,10 @@ export default defineConfig({
           'User-Agent': 'CardListCompare/1.0',
         },
       },
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
 })

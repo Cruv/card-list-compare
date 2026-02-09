@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 
-export default function CopyButton({ getText, label = 'Copy', className = 'copy-btn' }) {
+export default memo(function CopyButton({ getText, label = 'Copy', className = 'copy-btn' }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -26,4 +26,4 @@ export default function CopyButton({ getText, label = 'Copy', className = 'copy-
       {copied ? 'Copied!' : label}
     </button>
   );
-}
+});

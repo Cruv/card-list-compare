@@ -100,3 +100,78 @@ export function formatMpcFill(diffResult) {
 
   return lines.join('\n');
 }
+
+/**
+ * Format changelog as Reddit-flavored markdown.
+ */
+function formatRedditSection(title, section) {
+  const { cardsIn, cardsOut, quantityChanges } = section;
+
+  if (cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0) {
+    return '';
+  }
+
+  let text = `### ${title}\n\n`;
+
+  if (cardsIn.length > 0) {
+    text += '**Cards In:**\n\n';
+    for (const card of cardsIn) {
+      text += `- \\+ ${card.quantity} [[${card.name}]]\n`;
+    }
+    text += '\n';
+  }
+
+  if (cardsOut.length > 0) {
+    text += '**Cards Out:**\n\n';
+    for (const card of cardsOut) {
+      text += `- \\- ${card.quantity} [[${card.name}]]\n`;
+    }
+    text += '\n';
+  }
+
+  if (quantityChanges.length > 0) {
+    text += '**Quantity Changes:**\n\n';
+    for (const card of quantityChanges) {
+      const sign = card.delta > 0 ? '+' : '';
+      text += `- ~ [[${card.name}]] (${card.oldQty} \u2192 ${card.newQty}, ${sign}${card.delta})\n`;
+    }
+    text += '\n';
+  }
+
+  return text;
+}
+
+export function formatReddit(diffResult) {
+  let output = `## ${buildHeader(diffResult)}\n\n`;
+
+  output += formatRedditSection('Mainboard', diffResult.mainboard);
+
+  if (diffResult.hasSideboard) {
+    output += formatRedditSection('Sideboard', diffResult.sideboard);
+  }
+
+  return output.trim();
+}
+
+/**
+ * Format diff as structured JSON for data export.
+ */
+export function formatJSON(diffResult) {
+  const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
+  return JSON.stringify({
+    commanders,
+    timestamp: new Date().toISOString(),
+    mainboard: {
+      cardsIn: mainboard.cardsIn,
+      cardsOut: mainboard.cardsOut,
+      quantityChanges: mainboard.quantityChanges,
+    },
+    ...(hasSideboard ? {
+      sideboard: {
+        cardsIn: sideboard.cardsIn,
+        cardsOut: sideboard.cardsOut,
+        quantityChanges: sideboard.quantityChanges,
+      },
+    } : {}),
+  }, null, 2);
+}

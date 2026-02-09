@@ -1,0 +1,240 @@
+.tracked-deck {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  margin-bottom: 10px;
+}
+
+.tracked-deck-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tracked-deck-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tracked-deck-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+}
+
+.tracked-deck-name:hover {
+  color: var(--accent-blue);
+}
+
+.tracked-deck-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tracked-deck-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tracked-deck-msg {
+  font-size: 12px;
+  color: var(--accent-green);
+  margin-top: 6px;
+}
+
+.tracked-deck-error {
+  font-size: 12px;
+  color: var(--accent-red);
+  margin-top: 6px;
+}
+
+.tracked-deck-body {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.tracked-deck-changelog-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.tracked-deck-compare {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.tracked-deck-compare select {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-width: 160px;
+}
+
+.tracked-deck-changelog {
+  margin-bottom: 16px;
+}
+
+.tracked-deck-changelog-header {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tracked-deck-changelog-load {
+  display: flex;
+  gap: 4px;
+}
+
+.tracked-deck-changelog-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.changelog-inline {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-primary);
+  padding: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.changelog-section {
+  margin-bottom: 8px;
+}
+
+.changelog-section:last-child {
+  margin-bottom: 0;
+}
+
+.changelog-section-title {
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.changelog-group {
+  margin-bottom: 6px;
+}
+
+.changelog-group-title {
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.changelog-line {
+  padding-left: 8px;
+}
+
+.changelog-in {
+  color: var(--accent-green);
+}
+
+.changelog-out {
+  color: var(--accent-red);
+}
+
+.changelog-qty {
+  color: var(--accent-yellow);
+}
+
+.tracked-deck-snapshots {
+  margin-top: 12px;
+}
+
+.tracked-deck-snapshots-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.tracked-deck-snapshots-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tracked-deck-snapshot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+}
+
+.tracked-deck-snapshot-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tracked-deck-snapshot-date {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tracked-deck-snapshot-nick {
+  font-size: 12px;
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.tracked-deck-snapshot-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tracked-deck-snapshot-edit input {
+  padding: 2px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  width: 140px;
+}
+
+.tracked-deck-snapshot-edit input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.tracked-deck-snapshot-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}

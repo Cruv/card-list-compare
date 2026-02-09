@@ -1,0 +1,110 @@
+const API_BASE = '/api';
+const DEFAULT_TIMEOUT = 15_000; // 15 seconds
+
+function getToken() {
+  return localStorage.getItem('clc-auth-token');
+}
+
+async function apiFetch(path, options = {}) {
+  const token = getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+    throw new Error('Network error. Check your connection and try again.');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (res.status === 401) {
+    localStorage.removeItem('clc-auth-token');
+    window.dispatchEvent(new Event('auth-expired'));
+    throw new Error('Session expired. Please log in again.');
+  }
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Request failed: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+// Auth
+export const register = (username, password) =>
+  apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) });
+
+export const login = (username, password) =>
+  apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+
+export const getMe = () => apiFetch('/auth/me');
+
+// Owners
+export const getOwners = () => apiFetch('/owners');
+
+export const addOwner = (archidektUsername) =>
+  apiFetch('/owners', { method: 'POST', body: JSON.stringify({ archidektUsername }) });
+
+export const removeOwner = (id) =>
+  apiFetch(`/owners/${id}`, { method: 'DELETE' });
+
+export const getOwnerDecks = (id) =>
+  apiFetch(`/owners/${id}/decks`);
+
+// Decks
+export const getTrackedDecks = () => apiFetch('/decks');
+
+export const trackDeck = (trackedOwnerId, archidektDeckId, deckName, deckUrl) =>
+  apiFetch('/decks', { method: 'POST', body: JSON.stringify({ trackedOwnerId, archidektDeckId, deckName, deckUrl }) });
+
+export const untrackDeck = (id) =>
+  apiFetch(`/decks/${id}`, { method: 'DELETE' });
+
+export const refreshDeck = (id) =>
+  apiFetch(`/decks/${id}/refresh`, { method: 'POST' });
+
+export const refreshAllDecks = () =>
+  apiFetch('/decks/refresh-all', { method: 'POST', timeout: 60_000 });
+
+// Snapshots
+export const getDeckSnapshots = (deckId) =>
+  apiFetch(`/decks/${deckId}/snapshots`);
+
+export const deleteSnapshot = (deckId, snapshotId) =>
+  apiFetch(`/decks/${deckId}/snapshots/${snapshotId}`, { method: 'DELETE' });
+
+export const renameSnapshot = (deckId, snapshotId, nickname) =>
+  apiFetch(`/decks/${deckId}/snapshots/${snapshotId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ nickname }),
+  });
+
+export const getDeckChangelog = (deckId, snapshotA, snapshotB) => {
+  const params = snapshotA && snapshotB ? `?a=${snapshotA}&b=${snapshotB}` : '';
+  return apiFetch(`/decks/${deckId}/changelog${params}`);
+};
+
+// Sharing
+export const createShare = (beforeText, afterText, title) =>
+  apiFetch('/share', { method: 'POST', body: JSON.stringify({ beforeText, afterText, title }) });
+
+export const getShare = (id) => apiFetch(`/share/${id}`);

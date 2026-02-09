@@ -1,13 +1,30 @@
+import { useConfirm } from './ConfirmModal';
+import { toast } from './Toast';
 import './SnapshotManager.css';
 
 export default function SnapshotManager({ snapshots, onDelete, onLoad, onClose }) {
+  const [confirm, ConfirmDialog] = useConfirm();
+
   function countCards(text) {
     const lines = text.split('\n').filter((l) => l.trim() && !/^(sideboard|sb|mainboard|deck)/i.test(l.trim()));
     return lines.length;
   }
 
+  async function handleDelete(snap) {
+    const confirmed = await confirm({
+      title: 'Delete snapshot?',
+      message: `This will permanently delete "${snap.name}".`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!confirmed) return;
+    onDelete(snap.id);
+    toast.success('Snapshot deleted');
+  }
+
   return (
     <div className="snapshot-manager">
+      {ConfirmDialog}
       <div className="snapshot-manager-header">
         <h3 className="snapshot-manager-title">Saved Snapshots</h3>
         <button className="snapshot-manager-close" onClick={onClose} type="button">
@@ -51,11 +68,7 @@ export default function SnapshotManager({ snapshots, onDelete, onLoad, onClose }
                 </button>
                 <button
                   className="snapshot-manager-action snapshot-manager-action--delete"
-                  onClick={() => {
-                    if (confirm(`Delete snapshot "${snap.name}"?`)) {
-                      onDelete(snap.id);
-                    }
-                  }}
+                  onClick={() => handleDelete(snap)}
                   type="button"
                 >
                   Delete

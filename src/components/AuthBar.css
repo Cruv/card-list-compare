@@ -1,0 +1,68 @@
+.auth-bar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.auth-bar-user {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.auth-bar-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.auth-bar-btn:hover {
+  opacity: 0.85;
+  color: var(--text-primary);
+}
+
+.auth-bar-btn--primary {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+}
+
+.auth-bar-form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.auth-bar-form input {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  width: 120px;
+}
+
+.auth-bar-form input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.auth-bar-error {
+  width: 100%;
+  text-align: right;
+  font-size: 11px;
+  color: var(--accent-red);
+  margin-top: 2px;
+}
