@@ -1,11 +1,34 @@
 #!/bin/sh
+set -e
 
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 
-# Create group and user with requested IDs
-addgroup -g "$PGID" abc 2>/dev/null
-adduser -u "$PUID" -G abc -D -H -s /sbin/nologin abc 2>/dev/null
+echo "Setting up user abc with UID=$PUID GID=$PGID"
+
+# Remove existing abc user/group if present (from a previous run or image layer)
+deluser abc 2>/dev/null || true
+delgroup abc 2>/dev/null || true
+
+# If a group with this GID already exists, use it; otherwise create abc group
+EXISTING_GROUP=$(getent group "$PGID" | cut -d: -f1)
+if [ -z "$EXISTING_GROUP" ]; then
+    addgroup -g "$PGID" abc
+    GROUP_NAME=abc
+else
+    GROUP_NAME="$EXISTING_GROUP"
+fi
+
+# If a user with this UID already exists, remove it first
+EXISTING_USER=$(getent passwd "$PUID" | cut -d: -f1)
+if [ -n "$EXISTING_USER" ] && [ "$EXISTING_USER" != "abc" ]; then
+    deluser "$EXISTING_USER" 2>/dev/null || true
+fi
+
+# Create abc user with the target UID and group
+adduser -u "$PUID" -G "$GROUP_NAME" -D -H -s /sbin/nologin abc 2>/dev/null || true
+
+echo "User abc created: $(id abc)"
 
 # Fix ownership on writable directories
 chown -R abc:abc /app/data
