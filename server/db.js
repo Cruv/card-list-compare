@@ -33,11 +33,15 @@ export async function initDb() {
   `);
 
   // Migration: add email column to existing databases
+  // Note: SQLite ALTER TABLE ADD COLUMN does not support UNIQUE constraint,
+  // so we add the column plain and enforce uniqueness via a separate index.
   try {
-    db.run('ALTER TABLE users ADD COLUMN email TEXT UNIQUE');
+    db.run('ALTER TABLE users ADD COLUMN email TEXT');
   } catch {
     // Column already exists — ignore
   }
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)');
+
 
   db.run(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
