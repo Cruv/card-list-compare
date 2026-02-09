@@ -22,9 +22,9 @@ RUN apk add --no-cache nginx curl
 
 WORKDIR /app
 
-# Copy nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-RUN rm -f /etc/nginx/http.d/default.conf
+# Copy nginx config (replace entire main config to avoid nested server blocks)
+COPY nginx.conf /etc/nginx/nginx.conf
+RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/http.d/default.conf
 
 # Copy frontend build
 COPY --from=frontend-build /app/dist /usr/share/nginx/html
