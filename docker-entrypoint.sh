@@ -5,29 +5,21 @@ PGID=${PGID:-1000}
 
 echo "Setting up user abc with UID=$PUID GID=$PGID"
 
-# Remove existing abc user/group if present (from a previous run or image layer)
+# Remove any existing user/group that conflicts with our target UID/GID
+EXISTING_USER=$(getent passwd "$PUID" 2>/dev/null | cut -d: -f1)
+EXISTING_GROUP=$(getent group "$PGID" 2>/dev/null | cut -d: -f1)
+[ -n "$EXISTING_USER" ] && deluser "$EXISTING_USER" 2>/dev/null || true
+[ -n "$EXISTING_GROUP" ] && delgroup "$EXISTING_GROUP" 2>/dev/null || true
+
+# Also remove abc if it exists with a different UID/GID
 deluser abc 2>/dev/null || true
 delgroup abc 2>/dev/null || true
 
-# If a group with this GID already exists, use it; otherwise create abc group
-EXISTING_GROUP=$(getent group "$PGID" | cut -d: -f1)
-if [ -z "$EXISTING_GROUP" ]; then
-    addgroup -g "$PGID" abc
-    GROUP_NAME=abc
-else
-    GROUP_NAME="$EXISTING_GROUP"
-fi
+# Create fresh group and user
+addgroup -g "$PGID" abc
+adduser -u "$PUID" -G abc -D -H -s /sbin/nologin abc
 
-# If a user with this UID already exists, remove it first
-EXISTING_USER=$(getent passwd "$PUID" | cut -d: -f1)
-if [ -n "$EXISTING_USER" ] && [ "$EXISTING_USER" != "abc" ]; then
-    deluser "$EXISTING_USER" 2>/dev/null || true
-fi
-
-# Create abc user with the target UID and group
-adduser -u "$PUID" -G "$GROUP_NAME" -D -H -s /sbin/nologin abc 2>/dev/null || true
-
-echo "User abc created: $(id abc 2>&1)"
+echo "User abc created: $(id abc)"
 
 # Ensure writable directories exist and are owned by abc
 mkdir -p /run/nginx
