@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { fetchDeckFromUrl } from '../lib/fetcher';
-import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot } from '../lib/api';
+import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot, createSnapshot } from '../lib/api';
+import { formatForArchidekt } from '../lib/formatter';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import './DeckInput.css';
@@ -17,6 +18,13 @@ CSV with header row
 
 Separate sideboard with a blank line
 or a "Sideboard" header.`;
+
+function siteLabel(site) {
+  if (site === 'archidekt') return 'Archidekt';
+  if (site === 'moxfield') return 'Moxfield';
+  if (site === 'deckcheck') return 'DeckCheck';
+  return site;
+}
 
 export default function DeckInput({ label, value, onChange, user }) {
   const fileRef = useRef(null);
@@ -39,6 +47,10 @@ export default function DeckInput({ label, value, onChange, user }) {
   const [nicknameValue, setNicknameValue] = useState('');
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
 
+  // Save-to-tracked prompt state
+  const [savePrompt, setSavePrompt] = useState(null);
+  const [selectedSaveDeck, setSelectedSaveDeck] = useState(null);
+
   const [confirm, ConfirmDialog] = useConfirm();
 
   const closeAllPanels = useCallback(() => {
@@ -54,6 +66,7 @@ export default function DeckInput({ label, value, onChange, user }) {
     reader.onload = (ev) => {
       onChange(ev.target.result);
       setError(null);
+      setSavePrompt(null);
     };
     reader.onerror = () => {
       setError('Failed to read file. Please try again.');
@@ -62,20 +75,72 @@ export default function DeckInput({ label, value, onChange, user }) {
     e.target.value = '';
   }
 
+  // Match imported commanders against tracked decks
+  function findMatchingDecks(commanders, decks) {
+    if (!commanders || commanders.length === 0 || !decks || decks.length === 0) return [];
+    const importedSet = new Set(commanders.map(c => c.toLowerCase()));
+    return decks.filter(deck => {
+      let deckCommanders = [];
+      try {
+        deckCommanders = JSON.parse(deck.commanders || '[]');
+      } catch { return false; }
+      if (!Array.isArray(deckCommanders) || deckCommanders.length === 0) return false;
+      return deckCommanders.some(c => importedSet.has(c.toLowerCase()));
+    });
+  }
+
   async function handleUrlImport() {
     if (!urlInput.trim()) return;
     setLoading(true);
     setError(null);
+    setSavePrompt(null);
     try {
-      const { text } = await fetchDeckFromUrl(urlInput.trim());
+      const { text, site, commanders } = await fetchDeckFromUrl(urlInput.trim());
       onChange(text);
       setShowUrl(false);
       setUrlInput('');
+
+      // Check for tracked deck commander match
+      if (user && commanders && commanders.length > 0) {
+        try {
+          const data = await getTrackedDecks();
+          const matches = findMatchingDecks(commanders, data.decks);
+          if (matches.length > 0) {
+            setSavePrompt({ text, site, commanders, matchingDecks: matches });
+            setSelectedSaveDeck(matches[0].id);
+          }
+        } catch {
+          // Non-fatal — just skip the prompt
+        }
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleSaveToTracked() {
+    if (!savePrompt || !selectedSaveDeck) return;
+    const deck = savePrompt.matchingDecks.find(d => d.id === selectedSaveDeck);
+    const nickname = `Imported from ${siteLabel(savePrompt.site)}`;
+    try {
+      await createSnapshot(selectedSaveDeck, savePrompt.text, nickname);
+      toast.success(`Snapshot saved to ${deck?.deck_name || 'tracked deck'}`);
+      setSavePrompt(null);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save snapshot');
+    }
+  }
+
+  function handleCopyForArchidekt() {
+    if (!value.trim()) return;
+    const formatted = formatForArchidekt(value);
+    navigator.clipboard.writeText(formatted).then(() => {
+      toast.success('Copied for Archidekt import');
+    }).catch(() => {
+      toast.error('Failed to copy to clipboard');
+    });
   }
 
   function handleUrlKeyDown(e) {
@@ -136,6 +201,7 @@ export default function DeckInput({ label, value, onChange, user }) {
       onChange(data.snapshot.deck_text);
       setShowTracked(false);
       setExpandedDeckId(null);
+      setSavePrompt(null);
     } catch {
       setError('Failed to load snapshot');
     } finally {
@@ -150,12 +216,10 @@ export default function DeckInput({ label, value, onChange, user }) {
       const result = await refreshDeck(deckId);
       const msg = result.changed ? 'New snapshot saved!' : 'No changes detected.';
       toast(msg, result.changed ? 'success' : 'info');
-      // Reload snapshots if this deck is expanded
       if (expandedDeckId === deckId) {
         const data = await getDeckSnapshots(deckId);
         setDeckSnapshots(data.snapshots);
       }
-      // Reload deck list to update snapshot counts
       const decksData = await getTrackedDecks();
       setTrackedDecks(decksData.decks);
     } catch (err) {
@@ -177,10 +241,8 @@ export default function DeckInput({ label, value, onChange, user }) {
     try {
       await apiDeleteSnapshot(deckId, snapshotId);
       toast.success('Snapshot deleted');
-      // Reload snapshots
       const data = await getDeckSnapshots(deckId);
       setDeckSnapshots(data.snapshots);
-      // Update deck list for snapshot counts
       const decksData = await getTrackedDecks();
       setTrackedDecks(decksData.decks);
     } catch (err) {
@@ -213,7 +275,7 @@ export default function DeckInput({ label, value, onChange, user }) {
         <div className="deck-input-actions">
           <button
             className={`deck-input-btn${showUrl ? ' deck-input-btn--active' : ''}`}
-            onClick={() => { closeAllPanels(); setShowUrl(!showUrl); }}
+            onClick={() => { closeAllPanels(); setSavePrompt(null); setShowUrl(!showUrl); }}
             type="button"
             title="Import from URL"
           >
@@ -222,7 +284,7 @@ export default function DeckInput({ label, value, onChange, user }) {
           {user && (
             <button
               className={`deck-input-btn${showTracked ? ' deck-input-btn--active' : ''}`}
-              onClick={() => { closeAllPanels(); setShowTracked(!showTracked); }}
+              onClick={() => { closeAllPanels(); setSavePrompt(null); setShowTracked(!showTracked); }}
               type="button"
               title="Load from tracked decks"
             >
@@ -237,6 +299,16 @@ export default function DeckInput({ label, value, onChange, user }) {
           >
             File
           </button>
+          {value.trim() && (
+            <button
+              className="deck-input-btn"
+              onClick={handleCopyForArchidekt}
+              type="button"
+              title="Copy deck list formatted for Archidekt import"
+            >
+              Export
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -255,7 +327,7 @@ export default function DeckInput({ label, value, onChange, user }) {
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={handleUrlKeyDown}
-            placeholder="Paste Archidekt or Moxfield URL..."
+            placeholder="Paste Archidekt, Moxfield, or DeckCheck URL..."
             autoFocus
             disabled={loading}
           />
@@ -267,6 +339,45 @@ export default function DeckInput({ label, value, onChange, user }) {
           >
             {loading ? 'Loading...' : 'Import'}
           </button>
+        </div>
+      )}
+
+      {savePrompt && (
+        <div className="deck-input-save-prompt">
+          {savePrompt.matchingDecks.length === 1 ? (
+            <span className="deck-input-save-prompt-text">
+              Commanders match <strong>{savePrompt.matchingDecks[0].deck_name}</strong>. Save as snapshot?
+            </span>
+          ) : (
+            <span className="deck-input-save-prompt-text">
+              Commanders match tracked decks. Save to:{' '}
+              <select
+                className="deck-input-save-prompt-select"
+                value={selectedSaveDeck || ''}
+                onChange={(e) => setSelectedSaveDeck(Number(e.target.value))}
+              >
+                {savePrompt.matchingDecks.map(d => (
+                  <option key={d.id} value={d.id}>{d.deck_name}</option>
+                ))}
+              </select>
+            </span>
+          )}
+          <div className="deck-input-save-prompt-actions">
+            <button
+              className="deck-input-save-prompt-btn deck-input-save-prompt-btn--save"
+              onClick={handleSaveToTracked}
+              type="button"
+            >
+              Save
+            </button>
+            <button
+              className="deck-input-save-prompt-btn deck-input-save-prompt-btn--dismiss"
+              onClick={() => setSavePrompt(null)}
+              type="button"
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 
@@ -420,7 +531,7 @@ export default function DeckInput({ label, value, onChange, user }) {
       <textarea
         className="deck-input-textarea"
         value={value}
-        onChange={(e) => { onChange(e.target.value); setError(null); }}
+        onChange={(e) => { onChange(e.target.value); setError(null); setSavePrompt(null); }}
         placeholder={PLACEHOLDER}
         spellCheck={false}
         aria-label={`${label} deck list`}

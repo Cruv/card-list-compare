@@ -2,12 +2,13 @@
  * Fetches deck lists from supported sites by URL.
  *
  * Supported:
- *  - Archidekt: https://archidekt.com/decks/{id}/...
- *  - Moxfield:  https://www.moxfield.com/decks/{publicId}
+ *  - Archidekt:  https://archidekt.com/decks/{id}/...
+ *  - Moxfield:   https://www.moxfield.com/decks/{publicId}
+ *  - DeckCheck:  https://deckcheck.co/app/deckview/{hash}
  *
- * Returns { text: string } where text is a plain-text deck list
- * that our existing parser can handle, OR throws an Error with a
- * user-friendly message.
+ * Returns { text: string, site: string, commanders: string[] }
+ * where text is a plain-text deck list that our parser can handle,
+ * OR throws an Error with a user-friendly message.
  */
 
 // ---------------------------------------------------------------------------
@@ -64,8 +65,7 @@ async function fetchArchidekt(url) {
   }
 
   const data = await res.json();
-  const { text } = archidektToText(data);
-  return text;
+  return archidektToText(data);
 }
 
 function archidektToText(data) {
@@ -146,6 +146,7 @@ function moxfieldToText(data) {
     sideboard: [],
     companions: [],
   };
+  const commanderNames = [];
 
   // Moxfield organizes cards by board name
   const boards = data.boards || {};
@@ -161,6 +162,7 @@ function moxfieldToText(data) {
 
       if (target === 'commanders' || target === 'commander') {
         sections.commanders.push(line);
+        commanderNames.push(name);
       } else if (target === 'sideboard' || target === 'side') {
         sections.sideboard.push(line);
       } else if (target === 'companions' || target === 'companion') {
@@ -189,7 +191,54 @@ function moxfieldToText(data) {
     text += '\n\nSideboard\n' + sections.sideboard.join('\n');
   }
 
-  return text;
+  return { text, commanders: commanderNames };
+}
+
+// ---------------------------------------------------------------------------
+// DeckCheck
+// ---------------------------------------------------------------------------
+
+async function fetchDeckcheck(url) {
+  const match = url.match(DECKCHECK_RE);
+  if (!match) throw new Error('Could not parse DeckCheck deck ID from URL.');
+  const hash = match[2];
+
+  const apiUrl = `/api/deckcheck/dc3/deck-cards/${hash}`;
+
+  const res = await fetchWithTimeout(apiUrl);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('DeckCheck deck not found. Is the URL correct?');
+    throw new Error(`DeckCheck returned status ${res.status}`);
+  }
+
+  const data = await res.json();
+  return deckcheckToText(data);
+}
+
+function deckcheckToText(data) {
+  const commanderNames = data.commanders || [];
+  const cards = data.cards || {};
+
+  let text = '';
+
+  if (commanderNames.length > 0) {
+    const commanderLines = commanderNames.map(name => `1 ${name}`);
+    text += 'Commander\n' + commanderLines.join('\n') + '\n\n';
+  }
+
+  // Build mainboard from the cards map (name → quantity)
+  // Exclude commanders from the mainboard
+  const commanderSet = new Set(commanderNames.map(n => n.toLowerCase()));
+  const mainLines = [];
+
+  for (const [name, qty] of Object.entries(cards)) {
+    if (commanderSet.has(name.toLowerCase())) continue;
+    mainLines.push(`${qty} ${name}`);
+  }
+
+  text += mainLines.join('\n');
+
+  return { text, commanders: commanderNames };
 }
 
 // ---------------------------------------------------------------------------
@@ -198,36 +247,32 @@ function moxfieldToText(data) {
 
 /**
  * Fetch a deck list from a URL.
- * Returns { text: string, site: string }
+ * Returns { text: string, site: string, commanders: string[] }
  * Throws Error with user-friendly message on failure.
  */
 export async function fetchDeckFromUrl(url) {
   const site = detectSite(url);
 
-  if (site === 'deckcheck') {
-    throw new Error(
-      'Deckcheck.co does not have a public API.\n\n' +
-        'To import a Deckcheck deck:\n' +
-        '1. Open your deck on deckcheck.co\n' +
-        '2. Click the export/copy button in the deck builder\n' +
-        '3. Paste the text list here'
-    );
-  }
-
   if (site === 'archidekt') {
-    const text = await fetchArchidekt(url);
-    return { text, site };
+    const { text, commanders } = await fetchArchidekt(url);
+    return { text, site, commanders };
   }
 
   if (site === 'moxfield') {
-    const text = await fetchMoxfield(url);
-    return { text, site };
+    const { text, commanders } = await fetchMoxfield(url);
+    return { text, site, commanders };
+  }
+
+  if (site === 'deckcheck') {
+    const { text, commanders } = await fetchDeckcheck(url);
+    return { text, site, commanders };
   }
 
   throw new Error(
     'Unsupported URL. Supported sites:\n' +
       '• Archidekt (archidekt.com/decks/...)\n' +
-      '• Moxfield (moxfield.com/decks/...)\n\n' +
+      '• Moxfield (moxfield.com/decks/...)\n' +
+      '• DeckCheck (deckcheck.co/app/deckview/...)\n\n' +
       'For other sites, export your deck list and paste it directly.'
   );
 }

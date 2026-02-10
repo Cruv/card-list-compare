@@ -58,12 +58,13 @@ router.post('/', archidektLimiter, async (req, res) => {
 
     const deckId = result.lastInsertRowid;
 
-    // Fetch initial snapshot
+    // Fetch initial snapshot and extract commanders
     try {
       const apiData = await fetchDeck(archidektDeckId);
-      const { text } = archidektToText(apiData);
+      const { text, commanders } = archidektToText(apiData);
       run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deckId, text]);
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deckId]);
+      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), commanders = ? WHERE id = ?',
+        [JSON.stringify(commanders || []), deckId]);
     } catch (fetchErr) {
       console.error('Initial snapshot fetch failed:', fetchErr);
     }
@@ -91,7 +92,7 @@ router.post('/refresh-all', archidektLimiter, async (req, res) => {
   for (const deck of decks) {
     try {
       const apiData = await fetchDeck(deck.archidekt_deck_id);
-      const { text } = archidektToText(apiData);
+      const { text, commanders } = archidektToText(apiData);
 
       const latest = get(
         'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
@@ -103,8 +104,15 @@ router.post('/refresh-all', archidektLimiter, async (req, res) => {
         results.push({ deckId: deck.id, deckName: deck.deck_name, changed: false });
       } else {
         run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, text]);
-        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-          [apiData.name || deck.deck_name, deck.id]);
+        // Update commanders if detected (don't blank out user-set values)
+        const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
+        if (cmdsJson) {
+          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
+            [apiData.name || deck.deck_name, cmdsJson, deck.id]);
+        } else {
+          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
+            [apiData.name || deck.deck_name, deck.id]);
+        }
         results.push({ deckId: deck.id, deckName: deck.deck_name, changed: true });
       }
     } catch (err) {
@@ -135,6 +143,32 @@ router.delete('/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// Update deck metadata (commanders, etc.)
+router.patch('/:id', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  if (!deck) {
+    return res.status(404).json({ error: 'Tracked deck not found' });
+  }
+
+  const { commanders } = req.body;
+  if (commanders !== undefined) {
+    if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
+      return res.status(400).json({ error: 'Commanders must be an array of strings' });
+    }
+    if (commanders.length > 5) {
+      return res.status(400).json({ error: 'Too many commanders' });
+    }
+    const cleaned = commanders.map(c => c.trim()).filter(Boolean);
+    run('UPDATE tracked_decks SET commanders = ? WHERE id = ?', [JSON.stringify(cleaned), id]);
+  }
+
+  const updated = get('SELECT * FROM tracked_decks WHERE id = ?', [id]);
+  res.json({ deck: updated });
+});
+
 router.post('/:id/refresh', archidektLimiter, async (req, res) => {
   const id = requireIntParam(req, res, 'id');
   if (id === null) return;
@@ -146,7 +180,7 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
 
   try {
     const apiData = await fetchDeck(deck.archidekt_deck_id);
-    const { text } = archidektToText(apiData);
+    const { text, commanders } = archidektToText(apiData);
 
     const latest = get(
       'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
@@ -159,8 +193,15 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
     }
 
     run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, text]);
-    run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-      [apiData.name || deck.deck_name, deck.id]);
+    // Update commanders if detected (don't blank out user-set values)
+    const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
+    if (cmdsJson) {
+      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
+        [apiData.name || deck.deck_name, cmdsJson, deck.id]);
+    } else {
+      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
+        [apiData.name || deck.deck_name, deck.id]);
+    }
 
     res.json({ changed: true, message: 'New snapshot saved' });
   } catch (err) {

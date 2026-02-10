@@ -5,7 +5,7 @@ import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib
 import { toast } from './Toast';
 import './ChangelogOutput.css';
 
-export default function ChangelogOutput({ diffResult, onShare }) {
+export default function ChangelogOutput({ diffResult, typeMap, onShare }) {
   const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
 
   const { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel } = useMemo(() => {
@@ -55,10 +55,10 @@ export default function ChangelogOutput({ diffResult, onShare }) {
               className="copy-btn copy-btn--mpc"
             />
           )}
-          {!noChanges && <CopyButton getText={() => formatChangelog(diffResult)} />}
+          {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, typeMap)} />}
           {!noChanges && (
             <CopyButton
-              getText={() => formatReddit(diffResult)}
+              getText={() => formatReddit(diffResult, typeMap)}
               label="Copy for Reddit"
               className="copy-btn copy-btn--reddit"
             />
@@ -78,8 +78,8 @@ export default function ChangelogOutput({ diffResult, onShare }) {
         <p className="changelog-output-identical">Lists are identical — no changes detected.</p>
       ) : (
         <div className="changelog-output-body">
-          <SectionChangelog sectionName="Mainboard" changes={mainboard} />
-          {hasSideboard && <SectionChangelog sectionName="Sideboard" changes={sideboard} />}
+          <SectionChangelog sectionName="Mainboard" changes={mainboard} typeMap={typeMap} />
+          {hasSideboard && <SectionChangelog sectionName="Sideboard" changes={sideboard} typeMap={typeMap} />}
         </div>
       )}
     </div>

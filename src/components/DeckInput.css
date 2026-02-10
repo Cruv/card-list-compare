@@ -386,6 +386,76 @@
   background: rgba(33, 150, 243, 0.1);
 }
 
+/* Save-to-tracked prompt */
+.deck-input-save-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-blue);
+  background: rgba(33, 150, 243, 0.1);
+  border: 1px solid rgba(33, 150, 243, 0.25);
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+
+.deck-input-save-prompt-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.deck-input-save-prompt-text strong {
+  color: var(--text-primary);
+}
+
+.deck-input-save-prompt-select {
+  padding: 2px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+}
+
+.deck-input-save-prompt-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.deck-input-save-prompt-btn {
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.deck-input-save-prompt-btn--save {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+.deck-input-save-prompt-btn--save:hover {
+  background: #1976d2;
+}
+
+.deck-input-save-prompt-btn--dismiss {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.deck-input-save-prompt-btn--dismiss:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
 /* Error message */
 .deck-input-error {
   padding: 8px 12px;

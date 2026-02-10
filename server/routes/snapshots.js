@@ -21,6 +21,44 @@ function verifyDeckOwnership(req, res) {
   return deck;
 }
 
+// Create a manual snapshot (e.g. from URL import)
+router.post('/:deckId/snapshots', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+
+  const { deck_text, nickname } = req.body;
+  if (!deck_text || typeof deck_text !== 'string' || !deck_text.trim()) {
+    return res.status(400).json({ error: 'deck_text is required and must be non-empty' });
+  }
+  if (nickname !== null && nickname !== undefined && typeof nickname !== 'string') {
+    return res.status(400).json({ error: 'Nickname must be a string or null' });
+  }
+  if (nickname && !requireMaxLength(res, nickname, 100, 'Nickname')) return;
+
+  const result = run(
+    'INSERT INTO deck_snapshots (tracked_deck_id, deck_text, nickname) VALUES (?, ?, ?)',
+    [deck.id, deck_text.trim(), nickname?.trim() || null]
+  );
+
+  // Backfill commanders if the deck doesn't have any set
+  if (!deck.commanders || deck.commanders === '[]') {
+    try {
+      const parsed = parse(deck_text);
+      const cmds = parsed.commanders || [];
+      if (cmds.length > 0) {
+        run('UPDATE tracked_decks SET commanders = ? WHERE id = ?',
+          [JSON.stringify(cmds), deck.id]);
+      }
+    } catch {
+      // Parse failure is non-fatal
+    }
+  }
+
+  const snapshot = get('SELECT id, nickname, created_at FROM deck_snapshots WHERE id = ?',
+    [result.lastInsertRowid]);
+  res.status(201).json({ snapshot });
+});
+
 router.get('/:deckId/snapshots', (req, res) => {
   const deck = verifyDeckOwnership(req, res);
   if (!deck) return;

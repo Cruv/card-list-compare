@@ -120,6 +120,18 @@ export const getDeckChangelog = (deckId, snapshotA, snapshotB) => {
   return apiFetch(`/decks/${deckId}/changelog${params}`);
 };
 
+export const createSnapshot = (deckId, deckText, nickname) =>
+  apiFetch(`/decks/${deckId}/snapshots`, {
+    method: 'POST',
+    body: JSON.stringify({ deck_text: deckText, nickname }),
+  });
+
+export const updateDeckCommanders = (deckId, commanders) =>
+  apiFetch(`/decks/${deckId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ commanders }),
+  });
+
 // Sharing
 export const createShare = (beforeText, afterText, title) =>
   apiFetch('/share', { method: 'POST', body: JSON.stringify({ beforeText, afterText, title }) });

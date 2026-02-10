@@ -118,6 +118,41 @@ export async function initDb() {
   // Seed default settings
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('registration_enabled', 'true')`);
 
+  // Migration: add commanders column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN commanders TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Backfill commanders from latest snapshots for existing decks
+  const decksNeedingCommanders = all(
+    'SELECT d.id FROM tracked_decks d WHERE d.commanders IS NULL'
+  );
+  if (decksNeedingCommanders.length > 0) {
+    const { parse: parseDeck } = await import('../src/lib/parser.js');
+    for (const deck of decksNeedingCommanders) {
+      const snap = get(
+        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+        [deck.id]
+      );
+      if (snap?.deck_text) {
+        try {
+          const parsed = parseDeck(snap.deck_text);
+          const cmds = parsed.commanders || [];
+          run('UPDATE tracked_decks SET commanders = ? WHERE id = ?',
+            [JSON.stringify(cmds), deck.id]);
+        } catch {
+          run('UPDATE tracked_decks SET commanders = ? WHERE id = ?',
+            [JSON.stringify([]), deck.id]);
+        }
+      } else {
+        run('UPDATE tracked_decks SET commanders = ? WHERE id = ?',
+          [JSON.stringify([]), deck.id]);
+      }
+    }
+  }
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_user ON tracked_decks(user_id)');

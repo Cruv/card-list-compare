@@ -25,7 +25,33 @@ function buildHeader(diffResult) {
   return `Deck Changelog (${timestamp})`;
 }
 
-function formatSection(title, section) {
+function formatCardsByType(cards, typeMap, lineFormatter) {
+  if (!typeMap || typeMap.size === 0) {
+    return cards.map(lineFormatter).join('');
+  }
+
+  // Canonical type order
+  const TYPE_ORDER = ['Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Other'];
+  const groups = new Map();
+
+  for (const card of cards) {
+    const type = typeMap.get(card.name.toLowerCase()) || 'Other';
+    if (!groups.has(type)) groups.set(type, []);
+    groups.get(type).push(card);
+  }
+
+  let text = '';
+  for (const type of TYPE_ORDER) {
+    const group = groups.get(type);
+    if (!group || group.length === 0) continue;
+    group.sort((a, b) => a.name.localeCompare(b.name));
+    text += `  [${type}]\n`;
+    text += group.map(lineFormatter).join('');
+  }
+  return text;
+}
+
+function formatSection(title, section, typeMap) {
   const { cardsIn, cardsOut, quantityChanges } = section;
 
   if (cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0) {
@@ -36,39 +62,35 @@ function formatSection(title, section) {
 
   if (cardsIn.length > 0) {
     text += '--- Cards In ---\n';
-    for (const card of cardsIn) {
-      text += `+ ${card.quantity} ${card.name}\n`;
-    }
+    text += formatCardsByType(cardsIn, typeMap, card => `+ ${card.quantity} ${card.name}\n`);
     text += '\n';
   }
 
   if (cardsOut.length > 0) {
     text += '--- Cards Out ---\n';
-    for (const card of cardsOut) {
-      text += `- ${card.quantity} ${card.name}\n`;
-    }
+    text += formatCardsByType(cardsOut, typeMap, card => `- ${card.quantity} ${card.name}\n`);
     text += '\n';
   }
 
   if (quantityChanges.length > 0) {
     text += '--- Quantity Changes ---\n';
-    for (const card of quantityChanges) {
+    text += formatCardsByType(quantityChanges, typeMap, card => {
       const sign = card.delta > 0 ? '+' : '';
-      text += `~ ${card.name} (${card.oldQty} \u2192 ${card.newQty}, ${sign}${card.delta})\n`;
-    }
+      return `~ ${card.name} (${card.oldQty} \u2192 ${card.newQty}, ${sign}${card.delta})\n`;
+    });
     text += '\n';
   }
 
   return text;
 }
 
-export function formatChangelog(diffResult) {
+export function formatChangelog(diffResult, typeMap) {
   let output = buildHeader(diffResult) + '\n\n';
 
-  output += formatSection('Mainboard', diffResult.mainboard);
+  output += formatSection('Mainboard', diffResult.mainboard, typeMap);
 
   if (diffResult.hasSideboard) {
-    output += '\n' + formatSection('Sideboard', diffResult.sideboard);
+    output += '\n' + formatSection('Sideboard', diffResult.sideboard, typeMap);
   }
 
   return output.trim();
@@ -104,7 +126,32 @@ export function formatMpcFill(diffResult) {
 /**
  * Format changelog as Reddit-flavored markdown.
  */
-function formatRedditSection(title, section) {
+function formatRedditCardsByType(cards, typeMap, lineFormatter) {
+  if (!typeMap || typeMap.size === 0) {
+    return cards.map(lineFormatter).join('');
+  }
+
+  const TYPE_ORDER = ['Creature', 'Planeswalker', 'Battle', 'Instant', 'Sorcery', 'Artifact', 'Enchantment', 'Land', 'Other'];
+  const groups = new Map();
+
+  for (const card of cards) {
+    const type = typeMap.get(card.name.toLowerCase()) || 'Other';
+    if (!groups.has(type)) groups.set(type, []);
+    groups.get(type).push(card);
+  }
+
+  let text = '';
+  for (const type of TYPE_ORDER) {
+    const group = groups.get(type);
+    if (!group || group.length === 0) continue;
+    group.sort((a, b) => a.name.localeCompare(b.name));
+    text += `\n*${type}:*\n\n`;
+    text += group.map(lineFormatter).join('');
+  }
+  return text;
+}
+
+function formatRedditSection(title, section, typeMap) {
   const { cardsIn, cardsOut, quantityChanges } = section;
 
   if (cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0) {
@@ -114,43 +161,82 @@ function formatRedditSection(title, section) {
   let text = `### ${title}\n\n`;
 
   if (cardsIn.length > 0) {
-    text += '**Cards In:**\n\n';
-    for (const card of cardsIn) {
-      text += `- \\+ ${card.quantity} [[${card.name}]]\n`;
-    }
+    text += '**Cards In:**\n';
+    text += formatRedditCardsByType(cardsIn, typeMap, card => `- \\+ ${card.quantity} [[${card.name}]]\n`);
     text += '\n';
   }
 
   if (cardsOut.length > 0) {
-    text += '**Cards Out:**\n\n';
-    for (const card of cardsOut) {
-      text += `- \\- ${card.quantity} [[${card.name}]]\n`;
-    }
+    text += '**Cards Out:**\n';
+    text += formatRedditCardsByType(cardsOut, typeMap, card => `- \\- ${card.quantity} [[${card.name}]]\n`);
     text += '\n';
   }
 
   if (quantityChanges.length > 0) {
-    text += '**Quantity Changes:**\n\n';
-    for (const card of quantityChanges) {
+    text += '**Quantity Changes:**\n';
+    text += formatRedditCardsByType(quantityChanges, typeMap, card => {
       const sign = card.delta > 0 ? '+' : '';
-      text += `- ~ [[${card.name}]] (${card.oldQty} \u2192 ${card.newQty}, ${sign}${card.delta})\n`;
-    }
+      return `- ~ [[${card.name}]] (${card.oldQty} \u2192 ${card.newQty}, ${sign}${card.delta})\n`;
+    });
     text += '\n';
   }
 
   return text;
 }
 
-export function formatReddit(diffResult) {
+export function formatReddit(diffResult, typeMap) {
   let output = `## ${buildHeader(diffResult)}\n\n`;
 
-  output += formatRedditSection('Mainboard', diffResult.mainboard);
+  output += formatRedditSection('Mainboard', diffResult.mainboard, typeMap);
 
   if (diffResult.hasSideboard) {
-    output += formatRedditSection('Sideboard', diffResult.sideboard);
+    output += formatRedditSection('Sideboard', diffResult.sideboard, typeMap);
   }
 
   return output.trim();
+}
+
+/**
+ * Format a deck list text for Archidekt import.
+ * Strips "Commander" header (Archidekt auto-detects commanders),
+ * converts "Sideboard" header to "# Sideboard".
+ */
+export function formatForArchidekt(text) {
+  if (!text || !text.trim()) return '';
+
+  const lines = text.split('\n');
+  const output = [];
+  let inCommander = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const lower = trimmed.toLowerCase();
+
+    // Detect section headers
+    if (lower === 'commander' || lower === 'commanders' || lower === 'command zone') {
+      inCommander = true;
+      continue; // Skip the header line
+    }
+    if (lower === 'sideboard' || lower === 'side') {
+      inCommander = false;
+      output.push('# Sideboard');
+      continue;
+    }
+
+    // Blank line ends commander section
+    if (inCommander && trimmed === '') {
+      inCommander = false;
+      continue;
+    }
+
+    // Skip leading blank lines
+    if (trimmed === '' && output.length === 0) continue;
+
+    // Commander cards go into mainboard (Archidekt auto-assigns role)
+    output.push(trimmed || '');
+  }
+
+  return output.join('\n').trim();
 }
 
 /**

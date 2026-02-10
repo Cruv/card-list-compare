@@ -19,6 +19,16 @@ export default defineConfig({
           'User-Agent': 'CardListCompare/1.0',
         },
       },
+      '/api/deckcheck': {
+        target: 'https://deckcheck.co/api',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/deckcheck/, ''),
+      },
+      '/api/scryfall': {
+        target: 'https://api.scryfall.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/scryfall/, ''),
+      },
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,

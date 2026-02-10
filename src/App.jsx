@@ -10,6 +10,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth } from './context/AuthContext';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
+import { collectCardNames, fetchCardTypes } from './lib/scryfall';
 import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
 import './App.css';
@@ -24,6 +25,7 @@ export default function App() {
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
   const [diffResult, setDiffResult] = useState(null);
+  const [typeMap, setTypeMap] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -45,13 +47,24 @@ export default function App() {
   function handleCompare() {
     const before = parse(beforeText);
     const after = parse(afterText);
-    setDiffResult(computeDiff(before, after));
+    const diff = computeDiff(before, after);
+    setDiffResult(diff);
+    setTypeMap(null);
+
+    // Fetch card types in the background (non-blocking)
+    const names = collectCardNames(diff);
+    if (names.length > 0) {
+      fetchCardTypes(names)
+        .then(setTypeMap)
+        .catch(() => {}); // Silent fail — cards just won't be grouped by type
+    }
   }
 
   function handleClear() {
     setBeforeText('');
     setAfterText('');
     setDiffResult(null);
+    setTypeMap(null);
   }
 
   function handleSwap() {
@@ -79,7 +92,16 @@ export default function App() {
         // Auto-compare
         const before = parse(data.beforeText || '');
         const after = parse(data.afterText || '');
-        setDiffResult(computeDiff(before, after));
+        const diff = computeDiff(before, after);
+        setDiffResult(diff);
+
+        // Fetch card types in the background
+        const names = collectCardNames(diff);
+        if (names.length > 0) {
+          fetchCardTypes(names)
+            .then(setTypeMap)
+            .catch(() => {});
+        }
       } catch {
         toast.error('Failed to load shared comparison. The link may be invalid or expired.');
       }
@@ -144,7 +166,7 @@ export default function App() {
         />
         <h1 className="app-title">Card List Compare</h1>
         <p className="app-subtitle">
-          Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield
+          Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield / DeckCheck
         </p>
       </header>
 
@@ -201,7 +223,7 @@ export default function App() {
       </div>
 
       <ErrorBoundary>
-        {diffResult && <ChangelogOutput diffResult={diffResult} onShare={handleShare} />}
+        {diffResult && <ChangelogOutput diffResult={diffResult} typeMap={typeMap} onShare={handleShare} />}
       </ErrorBoundary>
 
       {!diffResult && (

@@ -7,7 +7,7 @@ import {
   getOwners, addOwner, removeOwner, getOwnerDecks,
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
-  getDeckChangelog,
+  getDeckChangelog, updateDeckCommanders,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
@@ -238,6 +238,11 @@ function DeckTrackerSettings({ confirm }) {
   const [nicknameValue, setNicknameValue] = useState('');
   const [refreshingDeck, setRefreshingDeck] = useState(null);
 
+  // Commander editing state
+  const [editingCommanderDeckId, setEditingCommanderDeckId] = useState(null);
+  const [commanderValue, setCommanderValue] = useState('');
+  const [savingCommander, setSavingCommander] = useState(false);
+
   // Changelog state
   const [changelog, setChangelog] = useState(null);
   const [changelogDeckId, setChangelogDeckId] = useState(null);
@@ -318,13 +323,42 @@ function DeckTrackerSettings({ confirm }) {
   async function handleTrackDeck(ownerId, deck) {
     setError(null);
     try {
-      await trackDeck(ownerId, deck.id, deck.name, deck.url);
+      const result = await trackDeck(ownerId, deck.id, deck.name, deck.url);
       toast.success(`Now tracking "${deck.name}"`);
       const data = await getOwnerDecks(ownerId);
       setOwnerDecks(data.decks);
       await refresh();
+
+      // If no commanders were auto-detected, prompt user to set them
+      const tracked = result?.deck;
+      if (tracked) {
+        let cmds = [];
+        try { cmds = JSON.parse(tracked.commanders || '[]'); } catch { /* ignore */ }
+        if (!cmds || cmds.length === 0) {
+          toast('No commander detected — click the pencil icon to set one.', 'info', 5000);
+        }
+      }
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function handleSaveCommanders(deckId) {
+    setSavingCommander(true);
+    try {
+      const commanders = commanderValue
+        .split(',')
+        .map(c => c.trim())
+        .filter(Boolean);
+      await updateDeckCommanders(deckId, commanders);
+      toast.success(commanders.length > 0 ? 'Commanders updated' : 'Commanders cleared');
+      setEditingCommanderDeckId(null);
+      setCommanderValue('');
+      await refresh();
+    } catch (err) {
+      toast.error(err.message || 'Failed to update commanders');
+    } finally {
+      setSavingCommander(false);
     }
   }
 
@@ -557,7 +591,11 @@ function DeckTrackerSettings({ confirm }) {
               {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.length})`}
             </button>
           </div>
-          {trackedDecks.map(deck => (
+          {trackedDecks.map(deck => {
+            let deckCommanders = [];
+            try { deckCommanders = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
+
+            return (
             <div key={deck.id} className="settings-tracker-deck">
               <div className="settings-tracker-deck-header">
                 <button
@@ -588,6 +626,60 @@ function DeckTrackerSettings({ confirm }) {
                     Untrack
                   </button>
                 </div>
+              </div>
+              <div className="settings-tracker-deck-commanders">
+                {editingCommanderDeckId === deck.id ? (
+                  <div className="settings-tracker-commander-edit">
+                    <input
+                      type="text"
+                      value={commanderValue}
+                      onChange={e => setCommanderValue(e.target.value)}
+                      placeholder="Commander name(s), comma-separated"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') handleSaveCommanders(deck.id);
+                        if (e.key === 'Escape') setEditingCommanderDeckId(null);
+                      }}
+                      disabled={savingCommander}
+                      autoFocus
+                    />
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleSaveCommanders(deck.id)}
+                      disabled={savingCommander}
+                      type="button"
+                    >
+                      {savingCommander ? '...' : 'Save'}
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setEditingCommanderDeckId(null)}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="settings-tracker-commander-display">
+                    {deckCommanders.length > 0 ? (
+                      <span className="settings-tracker-commander-names">
+                        {deckCommanders.join(' / ')}
+                      </span>
+                    ) : (
+                      <span className="settings-tracker-commander-warn">No commander set</span>
+                    )}
+                    <button
+                      className="settings-tracker-commander-edit-btn"
+                      onClick={() => {
+                        setEditingCommanderDeckId(deck.id);
+                        setCommanderValue(deckCommanders.join(', '));
+                      }}
+                      type="button"
+                      title="Edit commander(s)"
+                    >
+                      &#9998;
+                    </button>
+                  </div>
+                )}
               </div>
 
               {expandedDeckId === deck.id && (
@@ -689,7 +781,7 @@ function DeckTrackerSettings({ confirm }) {
                 </div>
               )}
             </div>
-          ))}
+          );})}
         </div>
       )}
 
