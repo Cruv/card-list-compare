@@ -456,6 +456,65 @@
   color: var(--text-primary);
 }
 
+/* Manual save-to-tracked panel */
+.deck-input-save-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  background: rgba(33, 150, 243, 0.08);
+  border: 1px solid rgba(33, 150, 243, 0.2);
+  border-radius: 4px;
+}
+
+.deck-input-save-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deck-input-save-panel-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 55px;
+  flex-shrink: 0;
+}
+
+.deck-input-save-panel-select {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.deck-input-save-panel-nick {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+}
+
+.deck-input-save-panel-nick:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.deck-input-save-panel-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
 /* Error message */
 .deck-input-error {
   padding: 8px 12px;

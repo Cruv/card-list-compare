@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { fetchDeckFromUrl } from '../lib/fetcher';
 import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot, createSnapshot } from '../lib/api';
 import { formatForArchidekt } from '../lib/formatter';
+import { parse } from '../lib/parser';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import './DeckInput.css';
@@ -47,15 +48,24 @@ export default function DeckInput({ label, value, onChange, user }) {
   const [nicknameValue, setNicknameValue] = useState('');
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
 
-  // Save-to-tracked prompt state
+  // Save-to-tracked prompt state (auto-prompt after URL import)
   const [savePrompt, setSavePrompt] = useState(null);
   const [selectedSaveDeck, setSelectedSaveDeck] = useState(null);
+
+  // Manual save-to-tracked panel state
+  const [showSavePanel, setShowSavePanel] = useState(false);
+  const [savePanelDecks, setSavePanelDecks] = useState([]);
+  const [savePanelLoading, setSavePanelLoading] = useState(false);
+  const [savePanelSaving, setSavePanelSaving] = useState(false);
+  const [savePanelSelected, setSavePanelSelected] = useState(null);
+  const [savePanelNickname, setSavePanelNickname] = useState('');
 
   const [confirm, ConfirmDialog] = useConfirm();
 
   const closeAllPanels = useCallback(() => {
     setShowUrl(false);
     setShowTracked(false);
+    setShowSavePanel(false);
     setError(null);
   }, []);
 
@@ -130,6 +140,48 @@ export default function DeckInput({ label, value, onChange, user }) {
       setSavePrompt(null);
     } catch (err) {
       toast.error(err.message || 'Failed to save snapshot');
+    }
+  }
+
+  async function handleOpenSavePanel() {
+    if (!value.trim()) return;
+    setShowSavePanel(true);
+    setSavePanelLoading(true);
+    setSavePanelNickname('');
+    try {
+      const data = await getTrackedDecks();
+      const allDecks = data.decks || [];
+      setSavePanelDecks(allDecks);
+
+      // Try to auto-select a matching deck by commander
+      const parsed = parse(value);
+      const commanders = parsed.commanders || [];
+      if (commanders.length > 0) {
+        const matches = findMatchingDecks(commanders, allDecks);
+        setSavePanelSelected(matches.length > 0 ? matches[0].id : (allDecks[0]?.id || null));
+      } else {
+        setSavePanelSelected(allDecks[0]?.id || null);
+      }
+    } catch {
+      toast.error('Failed to load tracked decks');
+      setShowSavePanel(false);
+    } finally {
+      setSavePanelLoading(false);
+    }
+  }
+
+  async function handleSavePanelConfirm() {
+    if (!savePanelSelected || !value.trim()) return;
+    setSavePanelSaving(true);
+    const deck = savePanelDecks.find(d => d.id === savePanelSelected);
+    try {
+      await createSnapshot(savePanelSelected, value.trim(), savePanelNickname.trim() || null);
+      toast.success(`Snapshot saved to ${deck?.deck_name || 'tracked deck'}`);
+      setShowSavePanel(false);
+    } catch (err) {
+      toast.error(err.message || 'Failed to save snapshot');
+    } finally {
+      setSavePanelSaving(false);
     }
   }
 
@@ -309,6 +361,24 @@ export default function DeckInput({ label, value, onChange, user }) {
               Export
             </button>
           )}
+          {user && value.trim() && (
+            <button
+              className={`deck-input-btn${showSavePanel ? ' deck-input-btn--active' : ''}`}
+              onClick={() => {
+                if (showSavePanel) {
+                  setShowSavePanel(false);
+                } else {
+                  closeAllPanels();
+                  setSavePrompt(null);
+                  handleOpenSavePanel();
+                }
+              }}
+              type="button"
+              title="Save this deck list as a snapshot to a tracked deck"
+            >
+              Save
+            </button>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -378,6 +448,63 @@ export default function DeckInput({ label, value, onChange, user }) {
               Dismiss
             </button>
           </div>
+        </div>
+      )}
+
+      {showSavePanel && (
+        <div className="deck-input-save-panel">
+          {savePanelLoading ? (
+            <p className="deck-input-tracked-empty">Loading tracked decks...</p>
+          ) : savePanelDecks.length === 0 ? (
+            <p className="deck-input-tracked-empty">No tracked decks yet. Add them in Settings.</p>
+          ) : (
+            <>
+              <div className="deck-input-save-panel-row">
+                <label className="deck-input-save-panel-label">Save to:</label>
+                <select
+                  className="deck-input-save-panel-select"
+                  value={savePanelSelected || ''}
+                  onChange={(e) => setSavePanelSelected(Number(e.target.value))}
+                >
+                  {savePanelDecks.map(d => (
+                    <option key={d.id} value={d.id}>{d.deck_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="deck-input-save-panel-row">
+                <label className="deck-input-save-panel-label">Nickname:</label>
+                <input
+                  className="deck-input-save-panel-nick"
+                  type="text"
+                  value={savePanelNickname}
+                  onChange={(e) => setSavePanelNickname(e.target.value)}
+                  placeholder="Optional nickname"
+                  maxLength={100}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSavePanelConfirm();
+                    if (e.key === 'Escape') setShowSavePanel(false);
+                  }}
+                />
+              </div>
+              <div className="deck-input-save-panel-actions">
+                <button
+                  className="deck-input-save-prompt-btn deck-input-save-prompt-btn--save"
+                  onClick={handleSavePanelConfirm}
+                  disabled={savePanelSaving || !savePanelSelected}
+                  type="button"
+                >
+                  {savePanelSaving ? 'Saving...' : 'Save Snapshot'}
+                </button>
+                <button
+                  className="deck-input-save-prompt-btn deck-input-save-prompt-btn--dismiss"
+                  onClick={() => setShowSavePanel(false)}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

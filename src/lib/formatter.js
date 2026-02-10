@@ -198,8 +198,9 @@ export function formatReddit(diffResult, typeMap) {
 
 /**
  * Format a deck list text for Archidekt import.
- * Strips "Commander" header (Archidekt auto-detects commanders),
- * converts "Sideboard" header to "# Sideboard".
+ * Commander cards get an inline "//COMMANDER" tag so Archidekt
+ * auto-assigns them to the command zone on import.
+ * Converts "Sideboard" header to "# Sideboard".
  */
 export function formatForArchidekt(text) {
   if (!text || !text.trim()) return '';
@@ -207,6 +208,7 @@ export function formatForArchidekt(text) {
   const lines = text.split('\n');
   const output = [];
   let inCommander = false;
+  const commanderCards = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -215,7 +217,7 @@ export function formatForArchidekt(text) {
     // Detect section headers
     if (lower === 'commander' || lower === 'commanders' || lower === 'command zone') {
       inCommander = true;
-      continue; // Skip the header line
+      continue;
     }
     if (lower === 'sideboard' || lower === 'side') {
       inCommander = false;
@@ -232,11 +234,21 @@ export function formatForArchidekt(text) {
     // Skip leading blank lines
     if (trimmed === '' && output.length === 0) continue;
 
-    // Commander cards go into mainboard (Archidekt auto-assigns role)
-    output.push(trimmed || '');
+    if (inCommander && trimmed) {
+      commanderCards.push(trimmed);
+    } else {
+      output.push(trimmed || '');
+    }
   }
 
-  return output.join('\n').trim();
+  // Prepend commander cards with //COMMANDER tag
+  const result = [];
+  for (const card of commanderCards) {
+    result.push(card + ' //COMMANDER');
+  }
+  result.push(...output);
+
+  return result.join('\n').trim();
 }
 
 /**
