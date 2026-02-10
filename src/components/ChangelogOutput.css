@@ -123,6 +123,13 @@
   background: #7c3aed;
 }
 
+.copy-btn--power {
+  background: #0d9488;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
 /* ── Body ─────────────────────────────────────────────────────── */
 
 .changelog-output-body {

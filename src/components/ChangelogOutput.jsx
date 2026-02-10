@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
+import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
 import './ChangelogOutput.css';
 
@@ -71,6 +72,16 @@ export default function ChangelogOutput({ diffResult, typeMap, onShare }) {
             />
           )}
           {onShare && <ShareButton onShare={onShare} />}
+          {commanders.length > 0 && (
+            <a
+              className="copy-btn copy-btn--power"
+              href={DECKCHECK_POWER_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Check Power &#8599;
+            </a>
+          )}
         </div>
       </div>
 
@@ -88,17 +99,14 @@ export default function ChangelogOutput({ diffResult, typeMap, onShare }) {
 
 function ShareButton({ onShare }) {
   const [state, setState] = useState('idle'); // idle | loading | done
-  const [shareUrl, setShareUrl] = useState(null);
-
   async function handleShare() {
     setState('loading');
     try {
       const url = await onShare();
-      setShareUrl(url);
       await navigator.clipboard.writeText(url);
       setState('done');
       setTimeout(() => setState('idle'), 3000);
-    } catch (err) {
+    } catch {
       toast.error('Failed to create share link');
       setState('idle');
     }
