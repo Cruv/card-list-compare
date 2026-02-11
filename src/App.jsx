@@ -157,7 +157,8 @@ export default function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app" role="main">
+      <a href="#deck-inputs" className="sr-only sr-only-focusable">Skip to content</a>
       <header className="app-header">
         <AuthBar
           onShowSettings={() => { setShowSettings(true); setShowAdmin(false); setShowForgotPassword(false); }}
@@ -188,7 +189,7 @@ export default function App() {
         </ErrorBoundary>
       )}
 
-      <div className="app-inputs">
+      <div id="deck-inputs" className="app-inputs">
         <DeckInput
           label="Before"
           value={beforeText}

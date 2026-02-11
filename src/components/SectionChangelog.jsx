@@ -39,7 +39,7 @@ export default memo(function SectionChangelog({ sectionName, changes, cardMap })
   const hasTypes = cardMap && cardMap.size > 0;
 
   return (
-    <div className="section-changelog">
+    <section className="section-changelog" aria-label={`${sectionName} changes`}>
       <h3 className="section-changelog-title">{sectionName}</h3>
 
       {isEmpty && <p className="section-changelog-empty">No changes</p>}
@@ -85,6 +85,6 @@ export default memo(function SectionChangelog({ sectionName, changes, cardMap })
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 });

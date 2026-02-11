@@ -22,7 +22,7 @@ export default memo(function CopyButton({ getText, label = 'Copy', className = '
   }
 
   return (
-    <button className={className} onClick={handleCopy} type="button">
+    <button className={className} onClick={handleCopy} type="button" aria-label={label}>
       {copied ? 'Copied!' : label}
     </button>
   );

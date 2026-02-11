@@ -74,3 +74,28 @@
   height: auto;
   border-radius: 10px;
 }
+
+/* Disable hover tooltip on touch devices */
+@media (hover: none) {
+  .card-tooltip {
+    display: none;
+  }
+
+  .card-line:hover {
+    padding-left: 10px;
+    background: transparent;
+  }
+}
+
+@media (max-width: 480px) {
+  .card-line {
+    font-size: 12px;
+    gap: 4px;
+    padding: 4px 6px;
+  }
+
+  .card-line-name {
+    white-space: normal;
+    word-break: break-word;
+  }
+}

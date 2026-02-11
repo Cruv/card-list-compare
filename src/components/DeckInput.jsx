@@ -386,7 +386,7 @@ export default function DeckInput({ label, value, onChange, user }) {
             disabled={loading || !urlInput.trim()}
             type="button"
           >
-            {loading ? 'Loading...' : 'Import'}
+            {loading ? <><span className="spinner" /> Importing...</> : 'Import'}
           </button>
         </div>
       )}

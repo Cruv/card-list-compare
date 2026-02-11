@@ -89,3 +89,26 @@
   line-height: 1;
   margin-right: auto;
 }
+
+/* ── Mobile ───────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .auth-bar {
+    gap: 4px;
+  }
+
+  .auth-bar-btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .auth-bar-form {
+    width: 100%;
+    gap: 4px;
+  }
+
+  .auth-bar-form input {
+    width: 100%;
+    min-width: 0;
+    flex: 1;
+  }
+}

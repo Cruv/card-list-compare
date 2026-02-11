@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#1a1a2e"/>
+  <!-- Subtle diamond lattice -->
+  <defs>
+    <pattern id="lattice" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
+      <path d="M0 30 L30 0 L60 30 L30 60 Z" fill="none" stroke="rgba(92,107,192,0.06)" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="630" fill="url(#lattice)"/>
+  <!-- Corner glows -->
+  <ellipse cx="200" cy="0" rx="400" ry="300" fill="rgba(92,107,192,0.08)"/>
+  <ellipse cx="1000" cy="630" rx="400" ry="300" fill="rgba(76,175,80,0.06)"/>
+  <!-- Card icons -->
+  <rect x="440" y="160" width="120" height="170" rx="10" fill="#16213e" stroke="#5c6bc0" stroke-width="3" opacity="0.7"/>
+  <rect x="480" y="180" width="120" height="170" rx="10" fill="#0f3460" stroke="#7c8cf0" stroke-width="3"/>
+  <!-- Arrows -->
+  <path d="M640 250 L680 250" stroke="#f44336" stroke-width="4" stroke-linecap="round"/>
+  <path d="M680 250 L672 242" stroke="#f44336" stroke-width="3" stroke-linecap="round"/>
+  <path d="M680 250 L672 258" stroke="#f44336" stroke-width="3" stroke-linecap="round"/>
+  <path d="M720 290 L680 290" stroke="#4caf50" stroke-width="4" stroke-linecap="round"/>
+  <path d="M680 290 L688 282" stroke="#4caf50" stroke-width="3" stroke-linecap="round"/>
+  <path d="M680 290 L688 298" stroke="#4caf50" stroke-width="3" stroke-linecap="round"/>
+  <!-- Title -->
+  <text x="600" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" fill="#e8e8f0" text-anchor="middle" letter-spacing="-1">Card List Compare</text>
+  <text x="600" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="22" fill="#a0a0b8" text-anchor="middle">MTG Deck Changelog Generator</text>
+</svg>

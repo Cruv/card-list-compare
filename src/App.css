@@ -112,6 +112,29 @@
   border-color: var(--accent-blue) !important;
 }
 
+/* ── Loading spinner ──────────────────────────────────────────── */
+
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+}
+
+.spinner--lg {
+  width: 24px;
+  height: 24px;
+  border-width: 3px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Empty state ──────────────────────────────────────────────── */
 
 .app-empty {
@@ -139,4 +162,43 @@
   font-size: 12px;
   color: var(--text-muted);
   opacity: 0.7;
+}
+
+/* ── Mobile ───────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .app {
+    padding: 16px 12px 48px;
+  }
+
+  .app-header {
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+  }
+
+  .app-title {
+    font-size: 22px;
+  }
+
+  .app-subtitle {
+    font-size: 12px;
+  }
+
+  .app-actions {
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+
+  .btn {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  .btn-sm {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .app-empty {
+    padding: 32px 16px;
+  }
 }

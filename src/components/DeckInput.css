@@ -557,3 +557,45 @@
     min-height: 180px;
   }
 }
+
+@media (max-width: 480px) {
+  .deck-input-header {
+    gap: 6px;
+  }
+
+  .deck-input-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .deck-input-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .deck-input-url-bar {
+    flex-direction: column;
+  }
+
+  .deck-input-url-go {
+    width: 100%;
+  }
+
+  .deck-input-save-prompt {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .deck-input-tracked-deck-btn {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .deck-input-save-panel-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+}
