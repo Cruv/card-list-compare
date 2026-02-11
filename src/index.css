@@ -59,10 +59,76 @@ html {
 }
 
 body {
-  background: var(--bg-primary);
+  background-color: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
   transition: background-color 0.2s, color 0.2s;
+  position: relative;
+}
+
+/* Subtle arcane geometric background — MTG card-back vibes */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    /* Corner glow accents */
+    radial-gradient(ellipse at 15% 0%, rgba(92, 107, 192, 0.10) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 100%, rgba(76, 175, 80, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(92, 107, 192, 0.03) 0%, transparent 70%),
+    /* Repeating diamond lattice — like the MTG card back pattern */
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 40px,
+      rgba(92, 107, 192, 0.025) 40px,
+      rgba(92, 107, 192, 0.025) 41px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 40px,
+      rgba(92, 107, 192, 0.025) 40px,
+      rgba(92, 107, 192, 0.025) 41px
+    ),
+    /* Faint horizontal lines like aged parchment texture */
+    repeating-linear-gradient(
+      180deg,
+      transparent,
+      transparent 80px,
+      rgba(92, 107, 192, 0.015) 80px,
+      rgba(92, 107, 192, 0.015) 81px
+    );
+}
+
+:root[data-theme="light"] body::before {
+  background:
+    radial-gradient(ellipse at 15% 0%, rgba(57, 73, 171, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 100%, rgba(46, 125, 50, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(57, 73, 171, 0.02) 0%, transparent 70%),
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 40px,
+      rgba(57, 73, 171, 0.035) 40px,
+      rgba(57, 73, 171, 0.035) 41px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 40px,
+      rgba(57, 73, 171, 0.035) 40px,
+      rgba(57, 73, 171, 0.035) 41px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      transparent,
+      transparent 80px,
+      rgba(57, 73, 171, 0.02) 80px,
+      rgba(57, 73, 171, 0.02) 81px
+    );
 }
 
 button {
