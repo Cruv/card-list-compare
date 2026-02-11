@@ -223,7 +223,7 @@ export default function App() {
       </div>
 
       <ErrorBoundary>
-        {diffResult && <ChangelogOutput diffResult={diffResult} typeMap={typeMap} onShare={handleShare} />}
+        {diffResult && <ChangelogOutput diffResult={diffResult} typeMap={typeMap} onShare={handleShare} afterText={afterText} />}
       </ErrorBoundary>
 
       {!diffResult && (

@@ -241,10 +241,10 @@ export function formatForArchidekt(text) {
     }
   }
 
-  // Prepend commander cards with //COMMANDER tag
+  // Prepend commander cards with `Commander` category tag (Archidekt backtick syntax)
   const result = [];
   for (const card of commanderCards) {
-    result.push(card + ' //COMMANDER');
+    result.push(card + ' `Commander`');
   }
   result.push(...output);
 

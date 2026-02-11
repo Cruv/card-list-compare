@@ -123,6 +123,10 @@
   background: #7c3aed;
 }
 
+.copy-btn--archidekt {
+  background: #e67e22;
+}
+
 .copy-btn--power {
   background: #0d9488;
   text-decoration: none;

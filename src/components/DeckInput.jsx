@@ -1,7 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { fetchDeckFromUrl } from '../lib/fetcher';
 import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot, createSnapshot } from '../lib/api';
-import { formatForArchidekt } from '../lib/formatter';
 import { parse } from '../lib/parser';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
@@ -185,16 +184,6 @@ export default function DeckInput({ label, value, onChange, user }) {
     }
   }
 
-  function handleCopyForArchidekt() {
-    if (!value.trim()) return;
-    const formatted = formatForArchidekt(value);
-    navigator.clipboard.writeText(formatted).then(() => {
-      toast.success('Copied for Archidekt import');
-    }).catch(() => {
-      toast.error('Failed to copy to clipboard');
-    });
-  }
-
   function handleUrlKeyDown(e) {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -351,16 +340,6 @@ export default function DeckInput({ label, value, onChange, user }) {
           >
             File
           </button>
-          {value.trim() && (
-            <button
-              className="deck-input-btn"
-              onClick={handleCopyForArchidekt}
-              type="button"
-              title="Copy deck list formatted for Archidekt import"
-            >
-              Export
-            </button>
-          )}
           {user && value.trim() && (
             <button
               className={`deck-input-btn${showSavePanel ? ' deck-input-btn--active' : ''}`}

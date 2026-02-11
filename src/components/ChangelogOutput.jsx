@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
 import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
 import './ChangelogOutput.css';
 
-export default function ChangelogOutput({ diffResult, typeMap, onShare }) {
+export default function ChangelogOutput({ diffResult, typeMap, onShare, afterText }) {
   const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
 
   const { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel } = useMemo(() => {
@@ -69,6 +69,13 @@ export default function ChangelogOutput({ diffResult, typeMap, onShare }) {
               getText={() => formatJSON(diffResult)}
               label="Copy JSON"
               className="copy-btn copy-btn--json"
+            />
+          )}
+          {afterText && (
+            <CopyButton
+              getText={() => formatForArchidekt(afterText)}
+              label="Export for Archidekt"
+              className="copy-btn copy-btn--archidekt"
             />
           )}
           {onShare && <ShareButton onShare={onShare} />}
