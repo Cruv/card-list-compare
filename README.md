@@ -29,23 +29,37 @@ Compare two MTG deck lists side-by-side and generate detailed changelogs showing
 
 ## Quick Start with Docker
 
-The fastest way to run Card List Compare:
+No need to clone the repo — just create two files and run:
 
-```bash
-# 1. Clone the repo
-git clone https://github.com/Cruv/card-list-compare.git
-cd card-list-compare
+**1. Create a `docker-compose.yml`:**
 
-# 2. Generate a secret for JWT auth
-export JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-
-# 3. Start it
-docker compose up -d
-
-# 4. Open http://localhost:8080
+```yaml
+services:
+  card-list-compare:
+    image: ghcr.io/cruv/card-list-compare:latest
+    ports:
+      - "8080:80"
+    environment:
+      - JWT_SECRET=CHANGE_ME  # Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - DB_PATH=/app/data/cardlistcompare.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
 ```
 
-Your database is stored in `./data/` on the host via bind mount, so it persists across container rebuilds and is easy to back up.
+**2. Start it:**
+
+```bash
+docker compose up -d
+# Open http://localhost:8080
+```
+
+That's it. Your database is stored in `./data/` on the host via bind mount, so it persists across container rebuilds and is easy to back up.
+
+> **Important:** Replace `CHANGE_ME` with a real secret. Generate one with:
+> ```bash
+> node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+> ```
 
 ## Local Development
 
