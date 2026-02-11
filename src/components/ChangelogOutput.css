@@ -48,6 +48,7 @@
   display: flex;
   gap: 8px;
   flex: 1;
+  flex-wrap: wrap;
 }
 
 .summary-badge {
@@ -70,6 +71,11 @@
 .summary-badge--changed {
   color: var(--accent-yellow);
   background: rgba(255, 193, 7, 0.2);
+}
+
+.summary-badge--unchanged {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /* ── Copy / action buttons ────────────────────────────────────── */
@@ -132,6 +138,54 @@
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+}
+
+/* ── Search / filter ─────────────────────────────────────────── */
+
+.changelog-search {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.changelog-search-input {
+  width: 100%;
+  padding: 8px 36px 8px 12px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.changelog-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.changelog-search-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.changelog-search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+  transition: color 0.1s;
+}
+
+.changelog-search-clear:hover {
+  color: var(--text-primary);
 }
 
 /* ── Body ─────────────────────────────────────────────────────── */

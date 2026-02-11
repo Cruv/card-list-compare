@@ -1,6 +1,6 @@
 .card-line {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 5px 10px;
   font-family: var(--font-mono);
@@ -8,11 +8,16 @@
   line-height: 1.5;
   border-radius: 4px;
   transition: background 0.1s, padding-left 0.15s;
+  position: relative;
 }
 
 .card-line:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.04);
   padding-left: 14px;
+}
+
+:root[data-theme="dark"] .card-line:hover {
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .card-line-prefix {
@@ -30,8 +35,8 @@
 }
 
 .card-line-name {
-  flex: 1;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .card-line-detail {
@@ -51,4 +56,21 @@
 
 .card-line--changed {
   color: var(--accent-yellow);
+}
+
+/* ── Card image tooltip ──────────────────────────────────────── */
+
+.card-tooltip {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  transition: opacity 0.12s ease-out;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6));
+}
+
+.card-tooltip-img {
+  display: block;
+  width: 220px;
+  height: auto;
+  border-radius: 10px;
 }

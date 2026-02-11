@@ -1,11 +1,12 @@
 /**
- * Scryfall card type lookup.
+ * Scryfall card data lookup.
  *
  * Uses Scryfall's /cards/collection endpoint to batch-fetch card data
- * and extract the primary card type for sorting/grouping.
+ * and extract the primary card type, mana cost, and image URI.
  *
  * Rate-limited: Scryfall allows 10 requests/sec — we batch 75 cards
  * per request (Scryfall max) so typically only 1-2 requests needed.
+ * Batches are fetched in parallel using Promise.allSettled.
  */
 
 const SCRYFALL_BATCH_SIZE = 75;
@@ -45,22 +46,99 @@ export function primaryType(typeLine) {
 }
 
 /**
- * Given an array of card names, returns a Map<string, string>
- * mapping lowercased card name → primary type.
+ * Get the best image URI from a Scryfall card object.
+ * Prefers the 'normal' size from image_uris, falls back to front face.
+ */
+function getImageUri(card) {
+  if (card.image_uris) {
+    return card.image_uris.normal || card.image_uris.small || '';
+  }
+  // Double-faced cards store images per face
+  if (card.card_faces && card.card_faces[0]?.image_uris) {
+    return card.card_faces[0].image_uris.normal || card.card_faces[0].image_uris.small || '';
+  }
+  return '';
+}
+
+/**
+ * Get the mana cost string from a Scryfall card object.
+ * Returns something like "{2}{U}{B}" or "" for lands.
+ */
+function getManaCost(card) {
+  if (card.mana_cost) return card.mana_cost;
+  // Double-faced cards store mana cost on front face
+  if (card.card_faces && card.card_faces[0]?.mana_cost) {
+    return card.card_faces[0].mana_cost;
+  }
+  return '';
+}
+
+/**
+ * Fetch a single batch of cards from Scryfall.
+ * Returns an array of { key, type, manaCost, imageUri } objects.
+ */
+async function fetchBatch(batch) {
+  const identifiers = batch.map(name => ({ name }));
+  const results = [];
+
+  try {
+    const res = await fetch('/api/scryfall/cards/collection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifiers }),
+    });
+
+    if (!res.ok) {
+      // On failure, mark all as Other with no extra data
+      for (const name of batch) {
+        results.push({ key: name, type: 'Other', manaCost: '', imageUri: '' });
+      }
+      return results;
+    }
+
+    const data = await res.json();
+
+    // Map found cards
+    for (const card of (data.data || [])) {
+      const key = card.name.toLowerCase();
+      results.push({
+        key,
+        type: primaryType(card.type_line),
+        manaCost: getManaCost(card),
+        imageUri: getImageUri(card),
+      });
+    }
+
+    // Mark not-found cards
+    for (const nf of (data.not_found || [])) {
+      const key = (nf.name || '').toLowerCase();
+      if (key) {
+        results.push({ key, type: 'Other', manaCost: '', imageUri: '' });
+      }
+    }
+  } catch {
+    // Network error — mark batch as Other
+    for (const name of batch) {
+      results.push({ key: name, type: 'Other', manaCost: '', imageUri: '' });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Given an array of card names, returns a Map<string, { type, manaCost, imageUri }>
+ * mapping lowercased card name → card data.
  *
  * Uses Scryfall Collection API to batch lookup.
- * Cards not found are mapped to 'Other'.
+ * Batches are fetched in parallel using Promise.allSettled.
  */
-export async function fetchCardTypes(cardNames) {
-  const typeMap = new Map();
-  if (!cardNames || cardNames.length === 0) return typeMap;
+export async function fetchCardData(cardNames) {
+  const cardMap = new Map();
+  if (!cardNames || cardNames.length === 0) return cardMap;
 
   // Deduplicate
   const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
-  const nameToOriginal = new Map();
-  for (const name of cardNames) {
-    nameToOriginal.set(name.toLowerCase(), name);
-  }
 
   // Batch into groups of 75
   const batches = [];
@@ -68,52 +146,41 @@ export async function fetchCardTypes(cardNames) {
     batches.push(unique.slice(i, i + SCRYFALL_BATCH_SIZE));
   }
 
-  for (const batch of batches) {
-    const identifiers = batch.map(name => ({ name }));
+  // Fetch all batches in parallel
+  const settled = await Promise.allSettled(batches.map(fetchBatch));
 
-    try {
-      const res = await fetch('/api/scryfall/cards/collection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifiers }),
-      });
-
-      if (!res.ok) {
-        // On failure, mark all as Other and continue
-        for (const name of batch) {
-          typeMap.set(name, 'Other');
-        }
-        continue;
-      }
-
-      const data = await res.json();
-
-      // Map found cards
-      for (const card of (data.data || [])) {
-        const key = card.name.toLowerCase();
-        typeMap.set(key, primaryType(card.type_line));
-      }
-
-      // Mark not-found cards
-      for (const nf of (data.not_found || [])) {
-        const key = (nf.name || '').toLowerCase();
-        if (key) typeMap.set(key, 'Other');
-      }
-    } catch {
-      // Network error — mark batch as Other
-      for (const name of batch) {
-        typeMap.set(name, 'Other');
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      for (const entry of result.value) {
+        cardMap.set(entry.key, {
+          type: entry.type,
+          manaCost: entry.manaCost,
+          imageUri: entry.imageUri,
+        });
       }
     }
   }
 
   // Ensure all requested names have an entry
   for (const name of unique) {
-    if (!typeMap.has(name)) {
-      typeMap.set(name, 'Other');
+    if (!cardMap.has(name)) {
+      cardMap.set(name, { type: 'Other', manaCost: '', imageUri: '' });
     }
   }
 
+  return cardMap;
+}
+
+/**
+ * Legacy wrapper: returns a Map<string, string> mapping lowercased name → primary type.
+ * Uses fetchCardData under the hood.
+ */
+export async function fetchCardTypes(cardNames) {
+  const cardMap = await fetchCardData(cardNames);
+  const typeMap = new Map();
+  for (const [key, data] of cardMap) {
+    typeMap.set(key, data.type);
+  }
   return typeMap;
 }
 
@@ -137,12 +204,16 @@ export function collectCardNames(diffResult) {
  * Group an array of card objects by their primary type.
  * Returns an array of { type, cards } in canonical type order.
  * Only includes types that have cards.
+ *
+ * Accepts either a typeMap (Map<string, string>) or a cardMap (Map<string, { type, ... }>).
  */
-export function groupByType(cards, typeMap) {
+export function groupByType(cards, typeOrCardMap) {
   const groups = new Map();
 
   for (const card of cards) {
-    const type = typeMap.get(card.name.toLowerCase()) || 'Other';
+    const entry = typeOrCardMap.get(card.name.toLowerCase());
+    // Support both Map<string, string> and Map<string, { type, ... }>
+    const type = typeof entry === 'string' ? entry : (entry?.type || 'Other');
     if (!groups.has(type)) groups.set(type, []);
     groups.get(type).push(card);
   }

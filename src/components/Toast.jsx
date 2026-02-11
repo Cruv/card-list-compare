@@ -7,30 +7,39 @@ const ICONS = {
   info: '\u2139',
 };
 
-function ToastItem({ toast, onDismiss }) {
+// Default durations by type. 0 = persistent (dismiss manually).
+const DEFAULT_DURATIONS = {
+  success: 3000,
+  info: 3000,
+  error: 0, // errors are persistent by default
+};
+
+function ToastItem({ toast: t, onDismiss }) {
   const [exiting, setExiting] = useState(false);
+  const duration = t.duration ?? DEFAULT_DURATIONS[t.type] ?? 3000;
 
   useEffect(() => {
+    if (duration <= 0) return; // persistent — no auto-dismiss
     const timer = setTimeout(() => {
       setExiting(true);
-      setTimeout(() => onDismiss(toast.id), 200);
-    }, toast.duration || 3000);
+      setTimeout(() => onDismiss(t.id), 200);
+    }, duration);
     return () => clearTimeout(timer);
-  }, [toast.id, toast.duration, onDismiss]);
+  }, [t.id, duration, onDismiss]);
 
   function handleDismiss() {
     setExiting(true);
-    setTimeout(() => onDismiss(toast.id), 200);
+    setTimeout(() => onDismiss(t.id), 200);
   }
 
   return (
     <div
-      className={`toast toast--${toast.type}${exiting ? ' toast--exiting' : ''}`}
+      className={`toast toast--${t.type}${exiting ? ' toast--exiting' : ''}${duration <= 0 ? ' toast--persistent' : ''}`}
       role="alert"
       aria-live="polite"
     >
-      <span className="toast-icon" aria-hidden="true">{ICONS[toast.type] || ICONS.info}</span>
-      <span className="toast-message">{toast.message}</span>
+      <span className="toast-icon" aria-hidden="true">{ICONS[t.type] || ICONS.info}</span>
+      <span className="toast-message">{t.message}</span>
       <button
         className="toast-dismiss"
         onClick={handleDismiss}
@@ -39,6 +48,12 @@ function ToastItem({ toast, onDismiss }) {
       >
         &times;
       </button>
+      {duration > 0 && (
+        <div
+          className="toast-progress"
+          style={{ animationDuration: `${duration}ms` }}
+        />
+      )}
     </div>
   );
 }
@@ -47,7 +62,13 @@ function ToastItem({ toast, onDismiss }) {
 let globalAddToast = null;
 let nextId = 0;
 
-export function toast(message, type = 'info', duration = 3000) {
+/**
+ * Show a toast notification.
+ * @param {string} message
+ * @param {'info'|'success'|'error'} type
+ * @param {number|undefined} duration - ms to auto-dismiss. Pass undefined for default, 0 for persistent.
+ */
+export function toast(message, type = 'info', duration) {
   if (globalAddToast) {
     globalAddToast({ id: nextId++, message, type, duration });
   }

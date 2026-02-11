@@ -10,7 +10,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth } from './context/AuthContext';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
-import { collectCardNames, fetchCardTypes } from './lib/scryfall';
+import { collectCardNames, fetchCardData } from './lib/scryfall';
 import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
 import './App.css';
@@ -25,7 +25,7 @@ export default function App() {
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
   const [diffResult, setDiffResult] = useState(null);
-  const [typeMap, setTypeMap] = useState(null);
+  const [cardMap, setCardMap] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -49,13 +49,13 @@ export default function App() {
     const after = parse(afterText);
     const diff = computeDiff(before, after);
     setDiffResult(diff);
-    setTypeMap(null);
+    setCardMap(null);
 
-    // Fetch card types in the background (non-blocking)
+    // Fetch card data in the background (non-blocking)
     const names = collectCardNames(diff);
     if (names.length > 0) {
-      fetchCardTypes(names)
-        .then(setTypeMap)
+      fetchCardData(names)
+        .then(setCardMap)
         .catch(() => {}); // Silent fail — cards just won't be grouped by type
     }
   }
@@ -64,7 +64,7 @@ export default function App() {
     setBeforeText('');
     setAfterText('');
     setDiffResult(null);
-    setTypeMap(null);
+    setCardMap(null);
   }
 
   function handleSwap() {
@@ -95,11 +95,11 @@ export default function App() {
         const diff = computeDiff(before, after);
         setDiffResult(diff);
 
-        // Fetch card types in the background
+        // Fetch card data in the background
         const names = collectCardNames(diff);
         if (names.length > 0) {
-          fetchCardTypes(names)
-            .then(setTypeMap)
+          fetchCardData(names)
+            .then(setCardMap)
             .catch(() => {});
         }
       } catch {
@@ -223,7 +223,7 @@ export default function App() {
       </div>
 
       <ErrorBoundary>
-        {diffResult && <ChangelogOutput diffResult={diffResult} typeMap={typeMap} onShare={handleShare} afterText={afterText} />}
+        {diffResult && <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={afterText} />}
       </ErrorBoundary>
 
       {!diffResult && (

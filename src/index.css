@@ -1,4 +1,6 @@
-:root {
+/* ── Dark theme (default) ─────────────────────────────────────── */
+:root,
+:root[data-theme="dark"] {
   --bg-primary: #1a1a2e;
   --bg-secondary: #16213e;
   --bg-surface: #0f3460;
@@ -21,6 +23,27 @@
   --focus-ring: 0 0 0 3px rgba(92, 107, 192, 0.25);
 }
 
+/* ── Light theme ─────────────────────────────────────────────── */
+:root[data-theme="light"] {
+  --bg-primary: #f0f2f5;
+  --bg-secondary: #ffffff;
+  --bg-surface: #e3e8ef;
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a6a;
+  --text-muted: #8a8aa0;
+  --accent-green: #2e7d32;
+  --accent-red: #c62828;
+  --accent-yellow: #f57f17;
+  --accent-blue: #3949ab;
+  --border-color: #d0d4dc;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.15);
+
+  --focus-ring: 0 0 0 3px rgba(57, 73, 171, 0.2);
+}
+
 *,
 *::before,
 *::after {
@@ -39,6 +62,7 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 button {

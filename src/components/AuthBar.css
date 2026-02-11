@@ -81,3 +81,11 @@
   color: var(--accent-red);
   margin-top: 2px;
 }
+
+/* Theme toggle */
+.auth-bar-theme-toggle {
+  font-size: 16px;
+  padding: 3px 8px;
+  line-height: 1;
+  margin-right: auto;
+}

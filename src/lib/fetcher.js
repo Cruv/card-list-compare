@@ -79,11 +79,12 @@ function archidektToText(data) {
   for (const entry of cards) {
     const name = entry.card?.oracleCard?.name || entry.card?.name || 'Unknown';
     const qty = entry.quantity || 1;
+    const setCode = entry.card?.edition?.editioncode || '';
     const categories = (entry.categories || []).map((c) =>
       typeof c === 'string' ? c.toLowerCase() : (c.name || '').toLowerCase()
     );
 
-    const line = `${qty} ${name}`;
+    const line = setCode ? `${qty} ${name} (${setCode})` : `${qty} ${name}`;
 
     if (categories.includes('commander') || categories.includes('commanders')) {
       commanderLines.push(line);

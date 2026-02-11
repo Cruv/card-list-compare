@@ -3,7 +3,8 @@
 
 export const LINE_PATTERNS = [
   // "4 Lightning Bolt (M10) 123" — Arena/MTGO with set code and collector number
-  /^(\d+)\s*x?\s+(.+?)(?:\s+\([A-Za-z0-9]+\))?(?:\s+\d+)?\s*$/,
+  // Group 1: quantity, Group 2: card name, Group 3: set code (optional)
+  /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\))?(?:\s+\d+)?\s*$/,
 
   // CSV: "4,Lightning Bolt" or "4,"Lightning Bolt""
   /^(\d+)\s*,\s*"?([^"]+)"?\s*$/,

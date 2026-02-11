@@ -25,6 +25,16 @@ function buildHeader(diffResult) {
   return `Deck Changelog (${timestamp})`;
 }
 
+/**
+ * Resolve the type for a card name from either a typeMap (Map<string, string>)
+ * or a cardMap (Map<string, { type, ... }>).
+ */
+function resolveType(typeOrCardMap, name) {
+  const entry = typeOrCardMap.get(name.toLowerCase());
+  if (!entry) return 'Other';
+  return typeof entry === 'string' ? entry : (entry.type || 'Other');
+}
+
 function formatCardsByType(cards, typeMap, lineFormatter) {
   if (!typeMap || typeMap.size === 0) {
     return cards.map(lineFormatter).join('');
@@ -35,7 +45,7 @@ function formatCardsByType(cards, typeMap, lineFormatter) {
   const groups = new Map();
 
   for (const card of cards) {
-    const type = typeMap.get(card.name.toLowerCase()) || 'Other';
+    const type = resolveType(typeMap, card.name);
     if (!groups.has(type)) groups.set(type, []);
     groups.get(type).push(card);
   }
@@ -135,7 +145,7 @@ function formatRedditCardsByType(cards, typeMap, lineFormatter) {
   const groups = new Map();
 
   for (const card of cards) {
-    const type = typeMap.get(card.name.toLowerCase()) || 'Other';
+    const type = resolveType(typeMap, card.name);
     if (!groups.has(type)) groups.set(type, []);
     groups.get(type).push(card);
   }

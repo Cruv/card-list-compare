@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { login, register, getRegistrationStatus } from '../lib/api';
 import { toast } from './Toast';
 import './AuthBar.css';
 
 export default function AuthBar({ onShowSettings, onShowForgotPassword, onShowAdmin }) {
   const { user, loading, loginUser, logoutUser } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [showForm, setShowForm] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState('');
@@ -44,9 +46,22 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword, onShowAd
     }
   }
 
+  const themeToggle = (
+    <button
+      className="auth-bar-btn auth-bar-theme-toggle"
+      onClick={toggleTheme}
+      type="button"
+      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label="Toggle theme"
+    >
+      {theme === 'dark' ? '\u2600' : '\u263D'}
+    </button>
+  );
+
   if (user) {
     return (
       <div className="auth-bar">
+        {themeToggle}
         <span className="auth-bar-user">{user.username}</span>
         {user.isAdmin && (
           <button className="auth-bar-btn" onClick={onShowAdmin} type="button" title="Admin Panel">
@@ -66,6 +81,7 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword, onShowAd
   if (!showForm) {
     return (
       <div className="auth-bar">
+        {themeToggle}
         <button className="auth-bar-btn" onClick={() => setShowForm(true)} type="button">
           Log In
         </button>
@@ -75,6 +91,7 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword, onShowAd
 
   return (
     <div className="auth-bar">
+      {themeToggle}
       <form className="auth-bar-form" onSubmit={handleSubmit} aria-label="Authentication">
         <input
           type="text"

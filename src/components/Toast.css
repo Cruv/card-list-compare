@@ -11,6 +11,7 @@
 
 .toast {
   pointer-events: auto;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -23,7 +24,8 @@
   border: 1px solid var(--border-color);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   animation: toastSlideIn 0.25s ease-out;
-  max-width: 360px;
+  max-width: 400px;
+  overflow: hidden;
 }
 
 .toast--exiting {
@@ -40,6 +42,12 @@
 
 .toast--info {
   border-left: 4px solid var(--accent-blue);
+}
+
+/* Persistent toasts get a slightly stronger dismiss button */
+.toast--persistent .toast-dismiss {
+  color: var(--text-secondary);
+  font-size: 18px;
 }
 
 .toast-icon {
@@ -67,6 +75,26 @@
 .toast-dismiss:hover {
   color: var(--text-primary);
 }
+
+/* ── Progress bar for timed toasts ─────────────────────────── */
+
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  background: currentColor;
+  opacity: 0.3;
+  border-radius: 0 0 0 8px;
+  animation: toastProgress linear forwards;
+}
+
+@keyframes toastProgress {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+
+/* ── Animations ──────────────────────────────────────────────── */
 
 @keyframes toastSlideIn {
   from { transform: translateX(100%); opacity: 0; }

@@ -40,8 +40,9 @@ function parseLine(line) {
     if (match) {
       const quantity = parseInt(match[1], 10);
       const name = normalizeName(match[2]);
+      const setCode = match[3] || ''; // Group 3 from first pattern (set code)
       if (quantity > 0 && name.length > 0) {
-        return { name, quantity, isSB, isCommander };
+        return { name, quantity, isSB, isCommander, setCode };
       }
     }
   }
@@ -49,7 +50,7 @@ function parseLine(line) {
   // Fallback: bare card name with quantity 1
   const trimmed = line.trim();
   if (trimmed.length > 0 && !/^\d+$/.test(trimmed)) {
-    return { name: normalizeName(trimmed), quantity: 1, isSB, isCommander };
+    return { name: normalizeName(trimmed), quantity: 1, isSB, isCommander, setCode: '' };
   }
 
   return null;
@@ -184,9 +185,14 @@ function parseLines(lines) {
     const key = parsed.name.toLowerCase();
 
     if (target.has(key)) {
-      target.get(key).quantity += parsed.quantity;
+      const existing = target.get(key);
+      existing.quantity += parsed.quantity;
+      // Keep the set code from the first occurrence (or update if we didn't have one)
+      if (!existing.setCode && parsed.setCode) {
+        existing.setCode = parsed.setCode;
+      }
     } else {
-      target.set(key, { displayName: parsed.name, quantity: parsed.quantity });
+      target.set(key, { displayName: parsed.name, quantity: parsed.quantity, setCode: parsed.setCode || '' });
     }
   }
 
@@ -222,7 +228,9 @@ export function parse(rawText) {
   for (const [key, value] of cmdResult.cards) {
     commanders.push(value.displayName);
     if (mainboard.has(key)) {
-      mainboard.get(key).quantity += value.quantity;
+      const existing = mainboard.get(key);
+      existing.quantity += value.quantity;
+      if (!existing.setCode && value.setCode) existing.setCode = value.setCode;
     } else {
       mainboard.set(key, value);
     }
@@ -237,7 +245,9 @@ export function parse(rawText) {
   // Merge SB-prefixed cards from main section into sideboard
   for (const [key, value] of mainResult.sbCards) {
     if (sideboard.has(key)) {
-      sideboard.get(key).quantity += value.quantity;
+      const existing = sideboard.get(key);
+      existing.quantity += value.quantity;
+      if (!existing.setCode && value.setCode) existing.setCode = value.setCode;
     } else {
       sideboard.set(key, value);
     }
@@ -246,7 +256,9 @@ export function parse(rawText) {
   // Also merge SB-prefixed cards from side section
   for (const [key, value] of sideResult.sbCards) {
     if (sideboard.has(key)) {
-      sideboard.get(key).quantity += value.quantity;
+      const existing = sideboard.get(key);
+      existing.quantity += value.quantity;
+      if (!existing.setCode && value.setCode) existing.setCode = value.setCode;
     } else {
       sideboard.set(key, value);
     }

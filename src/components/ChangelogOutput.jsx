@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
@@ -6,10 +6,26 @@ import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
 import './ChangelogOutput.css';
 
-export default function ChangelogOutput({ diffResult, typeMap, onShare, afterText }) {
-  const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
+/**
+ * Filter a section's cards by search query (case-insensitive name match).
+ */
+function filterSection(section, query) {
+  if (!query) return section;
+  const lower = query.toLowerCase();
+  return {
+    cardsIn: section.cardsIn.filter(c => c.name.toLowerCase().includes(lower)),
+    cardsOut: section.cardsOut.filter(c => c.name.toLowerCase().includes(lower)),
+    quantityChanges: section.quantityChanges.filter(c => c.name.toLowerCase().includes(lower)),
+    totalUniqueCards: section.totalUniqueCards,
+    unchangedCount: section.unchangedCount,
+  };
+}
 
-  const { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel } = useMemo(() => {
+export default function ChangelogOutput({ diffResult, cardMap, onShare, afterText }) {
+  const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel, unchangedPct } = useMemo(() => {
     const totalIn = mainboard.cardsIn.length + sideboard.cardsIn.length;
     const totalOut = mainboard.cardsOut.length + sideboard.cardsOut.length;
     const totalChanged = mainboard.quantityChanges.length + sideboard.quantityChanges.length;
@@ -19,8 +35,26 @@ export default function ChangelogOutput({ diffResult, typeMap, onShare, afterTex
     const commanderLabel = commanders && commanders.length > 0
       ? commanders.join(' / ')
       : null;
-    return { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel };
+
+    // Compute unchanged percentage
+    const totalUnique = (mainboard.totalUniqueCards || 0) + (sideboard.totalUniqueCards || 0);
+    const totalUnchanged = (mainboard.unchangedCount || 0) + (sideboard.unchangedCount || 0);
+    const unchangedPct = totalUnique > 0 ? Math.round((totalUnchanged / totalUnique) * 100) : 0;
+
+    return { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel, unchangedPct };
   }, [mainboard, sideboard, commanders]);
+
+  // Filtered sections for search
+  const filteredMainboard = useMemo(() => filterSection(mainboard, searchQuery), [mainboard, searchQuery]);
+  const filteredSideboard = useMemo(() => filterSection(sideboard, searchQuery), [sideboard, searchQuery]);
+
+  const handleSearchChange = useCallback((e) => {
+    setSearchQuery(e.target.value);
+  }, []);
+
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+  }, []);
 
   return (
     <div className="changelog-output">
@@ -46,6 +80,11 @@ export default function ChangelogOutput({ diffResult, typeMap, onShare, afterTex
                 ~{totalChanged} changed
               </span>
             )}
+            {unchangedPct > 0 && (
+              <span className="summary-badge summary-badge--unchanged">
+                {unchangedPct}% unchanged
+              </span>
+            )}
           </div>
         )}
         <div className="changelog-output-buttons">
@@ -56,10 +95,10 @@ export default function ChangelogOutput({ diffResult, typeMap, onShare, afterTex
               className="copy-btn copy-btn--mpc"
             />
           )}
-          {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, typeMap)} />}
+          {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} />}
           {!noChanges && (
             <CopyButton
-              getText={() => formatReddit(diffResult, typeMap)}
+              getText={() => formatReddit(diffResult, cardMap)}
               label="Copy for Reddit"
               className="copy-btn copy-btn--reddit"
             />
@@ -96,8 +135,28 @@ export default function ChangelogOutput({ diffResult, typeMap, onShare, afterTex
         <p className="changelog-output-identical">Lists are identical — no changes detected.</p>
       ) : (
         <div className="changelog-output-body">
-          <SectionChangelog sectionName="Mainboard" changes={mainboard} typeMap={typeMap} />
-          {hasSideboard && <SectionChangelog sectionName="Sideboard" changes={sideboard} typeMap={typeMap} />}
+          <div className="changelog-search">
+            <input
+              type="text"
+              className="changelog-search-input"
+              placeholder="Filter cards by name..."
+              value={searchQuery}
+              onChange={handleSearchChange}
+              aria-label="Filter cards"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="changelog-search-clear"
+                onClick={clearSearch}
+                aria-label="Clear search"
+              >
+                &times;
+              </button>
+            )}
+          </div>
+          <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={cardMap} />
+          {hasSideboard && <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={cardMap} />}
         </div>
       )}
     </div>
