@@ -6,17 +6,26 @@ Compare two MTG deck lists side-by-side and generate detailed changelogs showing
 
 - **Deck Comparison** - Paste, upload, or import two deck lists and instantly see what changed
 - **Multi-Format Parser** - Handles Arena/MTGO exports, CSV, plain text (`4 Lightning Bolt`, `4x Lightning Bolt`), and `SB:` prefix notation
-- **URL Import** - Pull decks directly from Archidekt and Moxfield links
+- **URL Import** - Pull decks directly from Archidekt, Moxfield, and DeckCheck links
 - **Commander Detection** - Automatically identifies commanders from section headers or inline `(Commander)` tags
 - **Sideboard Support** - Detects sideboards via headers, blank-line separation, or `SB:` prefixes
+- **Set Code Preservation** - Captures edition/set codes from Archidekt so printings round-trip correctly
 - **Deck Tracker** - Track Archidekt users and their decks to automatically build change history over time
 - **Snapshot History** - Save deck versions locally or server-side, compare any two snapshots
 - **Bulk Refresh** - Refresh all tracked decks from Archidekt in one click
 - **Shareable Links** - Generate permanent share links for any comparison
-- **Export Formats** - Copy changelogs as plain text, Reddit markdown (with `[[card]]` links), JSON, or MPCFill proxy-print format
+- **Export Formats** - Copy changelogs as plain text, Reddit markdown (with `[[card]]` links), JSON, MPCFill proxy-print format, or Archidekt re-import
+- **Card Image Tooltips** - Hover over any card name to see the Scryfall card image
+- **Mana Cost Display** - Inline colored mana symbols pulled from Scryfall
+- **Card Type Grouping** - Changelogs grouped by creature, instant, sorcery, etc.
+- **Search & Filter** - Real-time card name filtering across all changelog sections
+- **Change Summary Stats** - See total cards in, out, changed, and % unchanged at a glance
+- **Dark / Light Mode** - Toggle between themes with localStorage persistence
+- **Mobile Friendly** - Responsive layout, touch-aware tooltips, installable as PWA
 - **User Accounts** - Optional registration to persist tracked decks and snapshots across devices
 - **User Settings** - Change password, add email, delete account from an in-app settings panel
 - **Password Reset** - Email-based password reset flow (requires SMTP configuration)
+- **Admin Panel** - Manage users, toggle registration, view system info
 
 ## Quick Start with Docker
 
@@ -87,6 +96,8 @@ cp .env.example .env
 | `SMTP_PASS` | No | — | SMTP password or app-specific password |
 | `SMTP_FROM` | No | `noreply@cardlistcompare.local` | From address for outgoing emails |
 | `APP_URL` | No | `http://localhost:8080` | Public URL of the app (used in password reset links) |
+| `PUID` | No | `1000` | User ID for file permissions in Docker |
+| `PGID` | No | `1000` | Group ID for file permissions in Docker |
 
 > **Note:** SMTP variables are only needed for password reset via email. Without them, the app works normally — users just can't reset forgotten passwords. They'll see a message explaining this if they try.
 
@@ -188,6 +199,7 @@ After comparing two lists, click **Share Link** to generate a permanent URL. The
 | **Copy for Reddit** | Markdown with `[[card]]` links | Reddit posts (card fetcher bots will link cards) |
 | **Copy JSON** | Structured JSON | Data analysis, scripts, automation |
 | **Copy for MPCFill** | Simple `qty name` list of new/increased cards | Ordering proxy prints of new additions |
+| **Export for Archidekt** | Archidekt text import format with set codes | Pasting back into Archidekt to preserve printings |
 
 ## Architecture
 
@@ -209,12 +221,13 @@ card-list-compare/
 
 ### Tech Stack
 
-- **Frontend**: React 19, Vite 7, plain CSS with CSS variables
+- **Frontend**: React 19, Vite 7, plain CSS with CSS variables, dark/light theming
 - **Backend**: Express 5, ESM modules
 - **Database**: SQLite via sql.js (pure JavaScript, no native compilation)
 - **Auth**: JWT with bcryptjs, optional email-based password reset via Nodemailer
+- **APIs**: Scryfall (card data/images), Archidekt, Moxfield, DeckCheck (deck imports)
 - **Testing**: Vitest
-- **Deployment**: Docker (Alpine + nginx + Node), bind-mounted data volume
+- **Deployment**: Docker (Alpine + nginx + Node), bind-mounted data volume, PWA support
 
 ### API Rate Limits
 

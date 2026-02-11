@@ -15,6 +15,16 @@ import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
 import './App.css';
 
+const APP_VERSION = '1.1.0';
+const WHATS_NEW = [
+  'Card image tooltips on hover',
+  'Dark / light mode toggle',
+  'Mana cost display & card type grouping',
+  'Set code preservation for Archidekt exports',
+  'Search/filter across changelogs',
+  'Installable as mobile app (PWA)',
+];
+
 function getResetToken() {
   const params = new URLSearchParams(window.location.search);
   return params.get('reset') || null;
@@ -30,6 +40,19 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
+
+  // Show "what's new" toast once per version
+  useEffect(() => {
+    const lastSeen = localStorage.getItem('clc-version-seen');
+    if (lastSeen === APP_VERSION) return;
+    localStorage.setItem('clc-version-seen', APP_VERSION);
+    // Don't show on very first visit (no previous version)
+    if (!lastSeen) return;
+    const timer = setTimeout(() => {
+      toast.info(`What's new in v${APP_VERSION}: ${WHATS_NEW[0]}, ${WHATS_NEW[1]}, and more!`, 8000);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Prompt existing users without email (once per session)
   useEffect(() => {
