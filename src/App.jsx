@@ -15,14 +15,11 @@ import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
 import './App.css';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const WHATS_NEW = [
-  'Card image tooltips on hover',
-  'Dark / light mode toggle',
-  'Mana cost display & card type grouping',
-  'Set code preservation for Archidekt exports',
-  'Search/filter across changelogs',
-  'Installable as mobile app (PWA)',
+  'Tap card names on mobile to see the card image',
+  'Fluid responsive scaling for all screen sizes',
+  'Container timezone support (TZ env var)',
 ];
 
 function getResetToken() {
@@ -45,9 +42,13 @@ export default function App() {
   useEffect(() => {
     const lastSeen = localStorage.getItem('clc-version-seen');
     if (lastSeen === APP_VERSION) return;
+    // First visit ever — stamp the version but don't show a toast
+    if (!lastSeen) {
+      localStorage.setItem('clc-version-seen', APP_VERSION);
+      return;
+    }
+    // Returning user with an older version — show the toast, then stamp
     localStorage.setItem('clc-version-seen', APP_VERSION);
-    // Don't show on very first visit (no previous version)
-    if (!lastSeen) return;
     const timer = setTimeout(() => {
       toast.info(`What's new in v${APP_VERSION}: ${WHATS_NEW[0]}, ${WHATS_NEW[1]}, and more!`, 8000);
     }, 2000);
