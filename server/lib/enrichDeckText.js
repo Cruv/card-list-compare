@@ -14,7 +14,8 @@ import { fetchCardPrintings } from './scryfall.js';
 
 /**
  * Build a metadata lookup from parsed deck data.
- * Returns Map<string(lowercased name), { setCode, collectorNumber, isFoil }>
+ * Returns Map<string(lowercased name), Array<{ setCode, collectorNumber, isFoil, quantity }>>
+ * Stores all printings per card name to support multi-printing cards (e.g. Nazgul).
  */
 function buildMetadataLookup(parsed) {
   const lookup = new Map();
@@ -22,11 +23,13 @@ function buildMetadataLookup(parsed) {
   function addEntries(map) {
     for (const [, entry] of map) {
       const key = entry.displayName.toLowerCase();
-      if (entry.setCode && entry.collectorNumber && !lookup.has(key)) {
-        lookup.set(key, {
+      if (entry.setCode && entry.collectorNumber) {
+        if (!lookup.has(key)) lookup.set(key, []);
+        lookup.get(key).push({
           setCode: entry.setCode,
           collectorNumber: entry.collectorNumber,
           isFoil: entry.isFoil || false,
+          quantity: entry.quantity,
         });
       }
     }
@@ -131,10 +134,35 @@ export async function enrichDeckText(newText, previousText) {
     }
 
     // Try carry-forward from previous snapshot
-    const prevMeta = prevLookup.get(key);
-    if (prevMeta) {
-      const isFoil = existingEntry?.isFoil || prevMeta.isFoil;
-      result.push(buildLine(qty, existingEntry?.displayName || rawName, prevMeta.setCode, prevMeta.collectorNumber, isFoil));
+    const prevPrintings = prevLookup.get(key);
+    if (prevPrintings && prevPrintings.length > 0) {
+      const displayName = existingEntry?.displayName || rawName;
+
+      if (prevPrintings.length === 1) {
+        // Single printing — apply to the whole quantity
+        const p = prevPrintings[0];
+        const isFoil = existingEntry?.isFoil || p.isFoil;
+        result.push(buildLine(qty, displayName, p.setCode, p.collectorNumber, isFoil));
+      } else {
+        // Multiple printings — expand into separate lines, matching previous quantities.
+        // If the new total differs from the previous total, distribute: use previous
+        // quantities for as many as we can, then assign any remainder to the first printing.
+        const prevTotal = prevPrintings.reduce((sum, p) => sum + p.quantity, 0);
+        let remaining = qty;
+
+        for (const p of prevPrintings) {
+          if (remaining <= 0) break;
+          const lineQty = Math.min(p.quantity, remaining);
+          result.push(buildLine(lineQty, displayName, p.setCode, p.collectorNumber, p.isFoil));
+          remaining -= lineQty;
+        }
+
+        // If new quantity exceeds previous total, add remainder to first printing
+        if (remaining > 0) {
+          const p = prevPrintings[0];
+          result.push(buildLine(remaining, displayName, p.setCode, p.collectorNumber, p.isFoil));
+        }
+      }
       continue;
     }
 
