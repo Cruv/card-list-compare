@@ -2,8 +2,8 @@
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: 10px;
-  padding: 24px;
-  margin-top: 16px;
+  padding: var(--space-lg);
+  margin-top: var(--space-lg);
   max-width: 620px;
 }
 
@@ -11,23 +11,23 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-lg);
 }
 
 .user-settings-header h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--fs-lg);
   color: var(--text-primary);
 }
 
 .user-settings-section {
-  padding: 16px 0;
+  padding: var(--space-lg) 0;
   border-top: 1px solid var(--border-color);
 }
 
 .user-settings-section h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
+  margin: 0 0 var(--space-md);
+  font-size: var(--fs-md);
   color: var(--text-primary);
   font-weight: 700;
 }
@@ -35,9 +35,9 @@
 .user-settings-field {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-  font-size: 13px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  font-size: var(--fs-base);
 }
 
 .user-settings-field label {
@@ -53,12 +53,12 @@
 .user-settings-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
 }
 
 .user-settings-form label {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text-secondary);
 }
@@ -69,11 +69,11 @@
 }
 
 .user-settings-form input {
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: var(--space-md) var(--space-md);
+  font-size: var(--fs-base);
   font-family: inherit;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-secondary);
   color: var(--text-primary);
 }
@@ -86,7 +86,7 @@
 
 .user-settings-input-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-md);
   align-items: center;
 }
 
@@ -96,13 +96,13 @@
 
 .user-settings-form button {
   align-self: flex-start;
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .user-settings-desc {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
-  margin: 0 0 12px;
+  margin: 0 0 var(--space-md);
 }
 
 /* Deck Tracker in Settings */
@@ -110,25 +110,25 @@
   background: rgba(244, 67, 54, 0.1);
   border: 1px solid var(--accent-red);
   color: var(--accent-red);
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  margin-bottom: 12px;
+  padding: var(--space-md) var(--space-md);
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-md);
 }
 
 .settings-tracker-add {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
 }
 
 .settings-tracker-add input {
   flex: 1;
-  padding: 6px 10px;
-  font-size: 13px;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--fs-base);
   font-family: inherit;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius);
   background: var(--bg-secondary);
   color: var(--text-primary);
 }
@@ -141,14 +141,14 @@
 .settings-tracker-owners {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 
 .settings-tracker-owner {
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 10px;
+  border-radius: var(--radius);
+  padding: var(--space-md);
   background: var(--bg-secondary);
 }
 
@@ -156,28 +156,28 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-md);
 }
 
 .settings-tracker-owner-name {
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: var(--text-primary);
 }
 
 .settings-tracker-owner-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .settings-tracker-browse {
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
   border-top: 1px solid var(--border-color);
 }
 
 .settings-tracker-browse-empty {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
 }
 
@@ -185,7 +185,7 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
   max-height: 200px;
   overflow-y: auto;
 }
@@ -194,59 +194,59 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius);
   background: var(--bg-primary);
 }
 
 .settings-tracker-browse-name {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-primary);
 }
 
 .settings-tracker-browse-tracked {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--accent-green);
   font-weight: 600;
 }
 
 .settings-tracker-decks {
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .settings-tracker-decks-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
 }
 
 .settings-tracker-decks-header h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .settings-tracker-deck {
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border-radius: var(--radius);
+  padding: var(--space-md) var(--space-md);
   background: var(--bg-secondary);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-sm);
 }
 
 .settings-tracker-deck-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-md);
   flex-wrap: wrap;
 }
 
 .settings-tracker-deck-name {
   font-weight: 700;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: var(--text-primary);
   background: none;
   border: none;
@@ -261,37 +261,37 @@
 }
 
 .settings-tracker-deck-meta {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   flex: 1;
 }
 
 .settings-tracker-deck-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   flex-shrink: 0;
 }
 
 /* Commander display/edit */
 .settings-tracker-deck-commanders {
-  margin-top: 4px;
+  margin-top: var(--space-xs);
   padding-left: 18px;
 }
 
 .settings-tracker-commander-display {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .settings-tracker-commander-names {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
   font-style: italic;
 }
 
 .settings-tracker-commander-warn {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--accent-red);
   font-style: italic;
   opacity: 0.85;
@@ -302,7 +302,7 @@
   border: none;
   cursor: pointer;
   padding: 0 2px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   line-height: 1;
   opacity: 0.6;
@@ -317,19 +317,19 @@
 .settings-tracker-commander-edit {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .settings-tracker-commander-edit input {
   flex: 1;
-  padding: 3px 6px;
-  font-size: 11px;
+  padding: 3px var(--space-sm);
+  font-size: var(--fs-xs);
   font-family: inherit;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: var(--bg-primary);
   color: var(--text-primary);
-  min-width: 180px;
+  min-width: clamp(100px, 30vw, 180px);
 }
 
 .settings-tracker-commander-edit input:focus {
@@ -339,8 +339,8 @@
 }
 
 .settings-tracker-snapshots {
-  margin-top: 8px;
-  padding-top: 8px;
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
   border-top: 1px solid var(--border-color);
 }
 
@@ -348,33 +348,33 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .settings-tracker-snap {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  padding: 4px 6px;
-  border-radius: 4px;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius);
   background: var(--bg-primary);
 }
 
 .settings-tracker-snap-info {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-sm);
   min-width: 0;
 }
 
 .settings-tracker-snap-date {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
 }
 
 .settings-tracker-snap-nick {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--accent-blue);
   font-weight: 600;
 }
@@ -382,18 +382,18 @@
 .settings-tracker-snap-edit {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .settings-tracker-snap-edit input {
-  padding: 2px 6px;
-  font-size: 11px;
+  padding: 2px var(--space-sm);
+  font-size: var(--fs-xs);
   font-family: inherit;
   border: 1px solid var(--border-color);
   border-radius: 3px;
   background: var(--bg-secondary);
   color: var(--text-primary);
-  width: 120px;
+  width: clamp(80px, 20vw, 120px);
 }
 
 .settings-tracker-snap-edit input:focus {
@@ -403,59 +403,59 @@
 
 .settings-tracker-snap-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   flex-shrink: 0;
 }
 
 .settings-tracker-empty {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-muted);
   font-style: italic;
   text-align: center;
-  padding: 12px;
+  padding: var(--space-md);
 }
 
 .settings-tracker-changelog-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-md);
 }
 
 .settings-tracker-compare {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-md);
 }
 
 .settings-tracker-compare select {
-  padding: 4px 6px;
-  font-size: 11px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--fs-xs);
   font-family: inherit;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius);
   background: var(--bg-primary);
   color: var(--text-primary);
-  min-width: 140px;
+  min-width: clamp(100px, 25vw, 140px);
 }
 
 .settings-tracker-changelog {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
 }
 
 .settings-tracker-changelog-header {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-sm);
 }
 
 .settings-tracker-changelog-copy {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   flex-wrap: wrap;
-  margin-bottom: 6px;
+  margin-bottom: var(--space-sm);
 }
 
 .user-settings-danger {
@@ -467,19 +467,56 @@
 }
 
 .user-settings-danger p {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-secondary);
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-md);
 }
 
 @media (max-width: 640px) {
-  .user-settings {
-    padding: 16px;
-  }
-
   .user-settings-field {
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
+  }
+
+  .settings-tracker-owner-header {
+    flex-wrap: wrap;
+  }
+
+  .settings-tracker-deck-header {
+    gap: var(--space-xs);
+  }
+
+  .settings-tracker-deck-meta {
+    width: 100%;
+    flex: none;
+  }
+
+  .settings-tracker-commander-edit input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .settings-tracker-commander-display {
+    flex-wrap: wrap;
+  }
+
+  .settings-tracker-compare {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-tracker-compare select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .settings-tracker-snap {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .settings-tracker-snap-info {
+    flex-wrap: wrap;
   }
 }

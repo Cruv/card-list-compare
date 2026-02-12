@@ -21,6 +21,20 @@
 
   /* Focus ring */
   --focus-ring: 0 0 0 3px rgba(92, 107, 192, 0.25);
+
+  /* Fluid scaling — smoothly adapts between 320px and 960px viewports */
+  --fs-xs: clamp(10px, 2.2vw, 11px);
+  --fs-sm: clamp(11px, 2.5vw, 12px);
+  --fs-base: clamp(12px, 2.8vw, 13px);
+  --fs-md: clamp(13px, 3vw, 14px);
+  --fs-lg: clamp(16px, 4vw, 20px);
+  --fs-xl: clamp(20px, 5vw, 28px);
+  --space-xs: clamp(3px, 0.8vw, 4px);
+  --space-sm: clamp(4px, 1vw, 6px);
+  --space-md: clamp(6px, 1.5vw, 8px);
+  --space-lg: clamp(12px, 3vw, 20px);
+  --space-xl: clamp(16px, 4vw, 32px);
+  --radius: clamp(4px, 1vw, 6px);
 }
 
 /* ── Light theme ─────────────────────────────────────────────── */

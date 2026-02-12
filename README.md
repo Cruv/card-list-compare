@@ -35,6 +35,7 @@ services:
       - PGID=1000
       - JWT_SECRET=CHANGE_ME
       - DB_PATH=/app/data/cardlistcompare.db
+      - TZ=America/New_York #optional
       - SMTP_HOST=smtp.example.com #optional
       - SMTP_PORT=587 #optional
       - SMTP_USER=you@example.com #optional
@@ -63,6 +64,7 @@ docker run -d \
   -e PGID=1000 \
   -e JWT_SECRET=CHANGE_ME \
   -e DB_PATH=/app/data/cardlistcompare.db \
+  -e TZ=America/New_York \
   -v ./data:/app/data \
   -p 8080:80 \
   --restart unless-stopped \
@@ -92,6 +94,7 @@ Container configuration is done through environment variables and volume mapping
 | `SMTP_USER` | No | &mdash; | SMTP username |
 | `SMTP_PASS` | No | &mdash; | SMTP password or app-specific password |
 | `SMTP_FROM` | No | &mdash; | From address for outgoing emails |
+| `TZ` | No | `UTC` | Container timezone ([tz database name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)), e.g. `America/New_York` |
 | `APP_URL` | No | &mdash; | Public URL of the app (used in reset email links) |
 
 > SMTP variables are only needed for password reset via email. Without them, the app works normally — users just can't reset forgotten passwords.

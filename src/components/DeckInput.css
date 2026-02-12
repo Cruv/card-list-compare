@@ -1,7 +1,7 @@
 .deck-input {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-md);
   flex: 1;
   min-width: 0;
 }
@@ -9,12 +9,12 @@
 .deck-input-header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   flex-wrap: wrap;
 }
 
 .deck-input-label {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 1px;
@@ -24,17 +24,17 @@
 .deck-input-actions {
   margin-left: auto;
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .deck-input-btn {
-  padding: 4px 10px;
-  font-size: 11px;
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--fs-xs);
   font-weight: 600;
   background: var(--bg-surface);
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   white-space: nowrap;
@@ -59,17 +59,17 @@
 /* URL import bar */
 .deck-input-url-bar {
   display: flex;
-  gap: 6px;
+  gap: var(--space-sm);
 }
 
 .deck-input-url {
   flex: 1;
-  padding: 8px 10px;
-  font-size: 13px;
+  padding: var(--space-md) var(--space-md);
+  font-size: var(--fs-base);
   color: var(--text-primary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius);
   outline: none;
 }
 
@@ -82,13 +82,13 @@
 }
 
 .deck-input-url-go {
-  padding: 8px 14px;
-  font-size: 13px;
+  padding: var(--space-md) clamp(10px, 2.5vw, 14px);
+  font-size: var(--fs-base);
   font-weight: 600;
   background: var(--accent-blue);
   color: #fff;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -102,22 +102,22 @@
 .deck-input-tracked {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius);
   max-height: 280px;
   overflow-y: auto;
 }
 
 .deck-input-tracked-empty {
-  padding: 16px;
+  padding: var(--space-lg);
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-style: italic;
 }
 
 .deck-input-tracked-list {
   list-style: none;
-  padding: 4px;
+  padding: var(--space-xs);
 }
 
 .deck-input-tracked-deck {
@@ -127,23 +127,23 @@
 .deck-input-tracked-deck-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .deck-input-tracked-deck-btn {
   flex: 1;
   min-width: 0;
-  padding: 8px 10px;
+  padding: var(--space-md) var(--space-md);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-md);
+  font-size: var(--fs-base);
   text-align: left;
   background: transparent;
   color: var(--text-primary);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.1s;
 }
@@ -160,7 +160,7 @@
 }
 
 .deck-input-tracked-deck-meta {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
   flex-shrink: 0;
 }
@@ -175,7 +175,7 @@
   background: transparent;
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   display: flex;
@@ -195,7 +195,7 @@
 }
 
 .deck-input-tracked-snaps {
-  padding-left: 20px;
+  padding-left: var(--space-lg);
 }
 
 .deck-input-tracked-snap-list {
@@ -212,16 +212,16 @@
 .deck-input-tracked-snap-btn {
   flex: 1;
   min-width: 0;
-  padding: 6px 10px;
+  padding: var(--space-sm) var(--space-md);
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-md);
+  font-size: var(--fs-sm);
   text-align: left;
   background: transparent;
   color: var(--text-primary);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.1s;
 }
@@ -269,7 +269,7 @@
 
 /* Snapshot number badge */
 .deck-input-tracked-snap-number {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-muted);
   min-width: 24px;
@@ -305,15 +305,15 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   padding: 2px 0;
 }
 
 .deck-input-tracked-snap-nick-input {
   flex: 1;
   min-width: 0;
-  padding: 3px 6px;
-  font-size: 11px;
+  padding: 3px var(--space-sm);
+  font-size: var(--fs-xs);
   font-family: inherit;
   border: 1px solid var(--border-color);
   border-radius: 3px;
@@ -371,8 +371,8 @@
 }
 
 .deck-input-tracked-snap-toggle-btn {
-  padding: 4px 10px;
-  font-size: 11px;
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--accent-blue);
   background: transparent;
@@ -390,14 +390,14 @@
 .deck-input-save-prompt {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 12px;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-md);
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--accent-blue);
   background: rgba(33, 150, 243, 0.1);
   border: 1px solid rgba(33, 150, 243, 0.25);
-  border-radius: 4px;
+  border-radius: var(--radius);
   flex-wrap: wrap;
 }
 
@@ -411,8 +411,8 @@
 }
 
 .deck-input-save-prompt-select {
-  padding: 2px 6px;
-  font-size: 11px;
+  padding: 2px var(--space-sm);
+  font-size: var(--fs-xs);
   font-family: inherit;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -422,13 +422,13 @@
 
 .deck-input-save-prompt-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   flex-shrink: 0;
 }
 
 .deck-input-save-prompt-btn {
-  padding: 3px 10px;
-  font-size: 11px;
+  padding: 3px var(--space-md);
+  font-size: var(--fs-xs);
   font-weight: 600;
   border: none;
   border-radius: 3px;
@@ -460,22 +460,22 @@
 .deck-input-save-panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  font-size: 12px;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-md);
+  font-size: var(--fs-sm);
   background: rgba(33, 150, 243, 0.08);
   border: 1px solid rgba(33, 150, 243, 0.2);
-  border-radius: 4px;
+  border-radius: var(--radius);
 }
 
 .deck-input-save-panel-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-md);
 }
 
 .deck-input-save-panel-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-secondary);
   min-width: 55px;
@@ -484,24 +484,24 @@
 
 .deck-input-save-panel-select {
   flex: 1;
-  padding: 4px 6px;
-  font-size: 12px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--fs-sm);
   font-family: inherit;
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius);
 }
 
 .deck-input-save-panel-nick {
   flex: 1;
-  padding: 4px 6px;
-  font-size: 12px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--fs-sm);
   font-family: inherit;
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius);
 }
 
 .deck-input-save-panel-nick:focus {
@@ -511,33 +511,33 @@
 
 .deck-input-save-panel-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   margin-top: 2px;
 }
 
 /* Error message */
 .deck-input-error {
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: var(--space-md) var(--space-md);
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--accent-red);
   background: rgba(244, 67, 54, 0.1);
   border: 1px solid rgba(244, 67, 54, 0.25);
-  border-radius: 4px;
+  border-radius: var(--radius);
 }
 
 /* Textarea */
 .deck-input-textarea {
   width: 100%;
   min-height: 300px;
-  padding: 12px;
+  padding: var(--space-md);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius);
   resize: vertical;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -560,18 +560,13 @@
 
 @media (max-width: 480px) {
   .deck-input-header {
-    gap: 6px;
+    gap: var(--space-sm);
   }
 
   .deck-input-actions {
     margin-left: 0;
     width: 100%;
     justify-content: flex-start;
-  }
-
-  .deck-input-btn {
-    padding: 6px 10px;
-    font-size: 12px;
   }
 
   .deck-input-url-bar {
@@ -596,6 +591,6 @@
   .deck-input-save-panel-row {
     flex-direction: column;
     align-items: stretch;
-    gap: 4px;
+    gap: var(--space-xs);
   }
 }

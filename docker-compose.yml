@@ -9,6 +9,7 @@ services:
     environment:
       - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
       - DB_PATH=/app/data/cardlistcompare.db
+      - TZ=America/New_York
     volumes:
       # Bind mount — DB and data live on the host at ./data/
       # Easy to back up, inspect, and persist across image rebuilds
