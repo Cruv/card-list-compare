@@ -16,8 +16,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const WHATS_NEW = [
+  'Fixed diff for multi-printing cards (e.g. 9 unique Nazgul artworks) collapsing correctly',
+  'Fixed diff matching double-faced cards (e.g. Sheoldred // The True Scriptures)',
   'Printing metadata preserved through Archidekt imports (set, collector number, foil)',
   'Export for Archidekt split button — copy text or download CSV with full metadata',
   'Changelog buttons consolidated into a cleaner layout with More dropdown',

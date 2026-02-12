@@ -333,4 +333,75 @@ Sideboard
       expect.objectContaining({ name: 'Nazgul', oldQty: 1, newQty: 2, delta: 1 }),
     ]);
   });
+
+  // ── Multi-printing collapse (Nazgul) ──────────────────────────
+
+  it('collapses multiple composite keys to match bare key with same total', () => {
+    const a = deck('9 Nazgul');
+    const b = deck(
+      '1 Nazgul (ltr) [100]\n1 Nazgul (ltr) [101]\n1 Nazgul (ltr) [102]\n' +
+      '1 Nazgul (ltr) [103]\n1 Nazgul (ltr) [104]\n1 Nazgul (ltr) [105]\n' +
+      '1 Nazgul (ltr) [106]\n1 Nazgul (ltr) [107]\n1 Nazgul (ltr) [108]'
+    );
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('detects quantity change when bare total differs from collapsed composites', () => {
+    const a = deck('7 Nazgul');
+    const b = deck(
+      '1 Nazgul (ltr) [100]\n1 Nazgul (ltr) [101]\n1 Nazgul (ltr) [102]\n' +
+      '1 Nazgul (ltr) [103]\n1 Nazgul (ltr) [104]\n1 Nazgul (ltr) [105]\n' +
+      '1 Nazgul (ltr) [106]\n1 Nazgul (ltr) [107]\n1 Nazgul (ltr) [108]'
+    );
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([
+      expect.objectContaining({ name: 'Nazgul', oldQty: 7, newQty: 9, delta: 2 }),
+    ]);
+  });
+
+  it('collapses composite keys in before when after has bare key', () => {
+    const a = deck(
+      '1 Nazgul (ltr) [100]\n1 Nazgul (ltr) [101]\n1 Nazgul (ltr) [102]'
+    );
+    const b = deck('3 Nazgul');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  // ── Double-faced card name matching ────────────────────────────
+
+  it('matches DFC full name against front face only', () => {
+    const a = deck('1 Sheoldred // The True Scriptures');
+    const b = deck('1 Sheoldred');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('matches front face only against DFC full name', () => {
+    const a = deck('1 Sheoldred');
+    const b = deck('1 Sheoldred // The True Scriptures');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('detects quantity change between DFC full name and front face', () => {
+    const a = deck('1 Sheoldred // The True Scriptures');
+    const b = deck('2 Sheoldred');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toHaveLength(1);
+    expect(diff.mainboard.quantityChanges[0]).toMatchObject({ oldQty: 1, newQty: 2, delta: 1 });
+  });
 });

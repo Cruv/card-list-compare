@@ -1,5 +1,5 @@
 /**
- * Build a lookup from bare name → composite key for maps that use composite keys.
+ * Build a lookup from bare name → composite keys for maps that use composite keys.
  * This allows matching "lightning bolt" against "lightning bolt|227".
  */
 function buildNameIndex(map) {
@@ -8,14 +8,36 @@ function buildNameIndex(map) {
     const pipe = key.indexOf('|');
     if (pipe !== -1) {
       const bare = key.slice(0, pipe);
-      // Only index if the bare name isn't also a direct key (avoid collisions)
-      if (!map.has(bare)) {
-        if (!index.has(bare)) index.set(bare, []);
-        index.get(bare).push(key);
-      }
+      if (!index.has(bare)) index.set(bare, []);
+      index.get(bare).push(key);
     }
   }
   return index;
+}
+
+/**
+ * Collapse multiple composite keys (e.g. 9 different Nazgul printings) into a
+ * single bare-name entry with aggregated quantity.
+ */
+function collapseCompositeKeys(map, compositeKeys, bare) {
+  let totalQty = 0;
+  let bestEntry = null;
+  for (const ck of compositeKeys) {
+    const entry = map.get(ck);
+    totalQty += entry.quantity;
+    if (!bestEntry) bestEntry = entry;
+    map.delete(ck);
+  }
+  map.set(bare, { ...bestEntry, quantity: totalQty, collectorNumber: '', isFoil: false });
+}
+
+/**
+ * Extract front face from a double-faced card key.
+ * "sheoldred // the true scriptures" → "sheoldred"
+ */
+function frontFace(key) {
+  const slash = key.indexOf(' // ');
+  return slash !== -1 ? key.slice(0, slash) : key;
 }
 
 function diffSection(beforeMap, afterMap) {
@@ -24,29 +46,61 @@ function diffSection(beforeMap, afterMap) {
   const quantityChanges = [];
   let unchangedCount = 0;
 
-  // Normalize: when one side uses bare keys and the other uses composite keys,
-  // remap the bare-key entries to match composite keys so the same card is compared.
   const before = new Map(beforeMap);
   const after = new Map(afterMap);
 
   const afterIndex = buildNameIndex(after);
   const beforeIndex = buildNameIndex(before);
 
-  // Remap bare before keys → composite after keys
+  // Remap bare before keys → composite after keys (single printing)
+  // or collapse multiple composite after keys into bare key (multi-printing)
   for (const [bare, compositeKeys] of afterIndex) {
-    if (before.has(bare) && compositeKeys.length === 1) {
-      const entry = before.get(bare);
-      before.delete(bare);
-      before.set(compositeKeys[0], entry);
+    if (after.has(bare)) continue; // bare key already exists in after, skip
+    if (before.has(bare)) {
+      if (compositeKeys.length === 1) {
+        const entry = before.get(bare);
+        before.delete(bare);
+        before.set(compositeKeys[0], entry);
+      } else {
+        collapseCompositeKeys(after, compositeKeys, bare);
+      }
     }
   }
 
-  // Remap bare after keys → composite before keys
+  // Remap bare after keys → composite before keys (single printing)
+  // or collapse multiple composite before keys into bare key (multi-printing)
   for (const [bare, compositeKeys] of beforeIndex) {
-    if (after.has(bare) && compositeKeys.length === 1) {
-      const entry = after.get(bare);
-      after.delete(bare);
-      after.set(compositeKeys[0], entry);
+    if (before.has(bare)) continue; // bare key already exists in before, skip
+    if (after.has(bare)) {
+      if (compositeKeys.length === 1) {
+        const entry = after.get(bare);
+        after.delete(bare);
+        after.set(compositeKeys[0], entry);
+      } else {
+        collapseCompositeKeys(before, compositeKeys, bare);
+      }
+    }
+  }
+
+  // Normalize double-faced card names: match "name // back face" against "name"
+  for (const bk of [...before.keys()]) {
+    if (after.has(bk)) continue;
+    const bkFront = frontFace(bk);
+    if (bkFront === bk) continue;
+    if (after.has(bkFront) && !before.has(bkFront)) {
+      const entry = after.get(bkFront);
+      after.delete(bkFront);
+      after.set(bk, entry);
+    }
+  }
+  for (const ak of [...after.keys()]) {
+    if (before.has(ak)) continue;
+    const akFront = frontFace(ak);
+    if (akFront === ak) continue;
+    if (before.has(akFront) && !after.has(akFront)) {
+      const entry = before.get(akFront);
+      before.delete(akFront);
+      before.set(ak, entry);
     }
   }
 
