@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatArchidektCSV } from '../lib/formatter';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
 import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
 import './ChangelogOutput.css';
@@ -97,7 +97,11 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           )}
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} />}
           {afterText && (
-            <ArchidektSplitButton afterText={afterText} commanders={commanders} />
+            <CopyButton
+              getText={() => formatForArchidekt(afterText, commanders)}
+              label="Export for Archidekt"
+              className="copy-btn copy-btn--archidekt"
+            />
           )}
           <MoreMenu
             diffResult={diffResult}
@@ -136,71 +140,6 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           </div>
           <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={cardMap} />
           {hasSideboard && <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={cardMap} />}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ArchidektSplitButton({ afterText, commanders }) {
-  const [copied, setCopied] = useState(false);
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [open]);
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(formatForArchidekt(afterText, commanders));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      const ta = document.createElement('textarea');
-      ta.value = formatForArchidekt(afterText, commanders);
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
-  }
-
-  return (
-    <div className="split-btn" ref={ref}>
-      <button
-        type="button"
-        className="copy-btn copy-btn--archidekt split-btn-main"
-        onClick={handleCopy}
-      >
-        {copied ? 'Copied!' : 'Export for Archidekt'}
-      </button>
-      <button
-        type="button"
-        className="copy-btn copy-btn--archidekt split-btn-arrow"
-        onClick={() => setOpen(prev => !prev)}
-        aria-expanded={open}
-        aria-haspopup="true"
-        aria-label="More export options"
-      >
-        &#9662;
-      </button>
-      {open && (
-        <div className="more-menu-dropdown split-btn-dropdown">
-          <button
-            type="button"
-            className="more-menu-item"
-            onClick={() => { downloadArchidektCSV(afterText, commanders); setOpen(false); }}
-          >
-            Download as CSV
-          </button>
         </div>
       )}
     </div>
@@ -291,16 +230,3 @@ function ShareMenuItem({ onShare, onDone }) {
   );
 }
 
-function downloadArchidektCSV(text, commanders = []) {
-  const csv = formatArchidektCSV(text, commanders);
-  if (!csv) return;
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'deck-export.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
