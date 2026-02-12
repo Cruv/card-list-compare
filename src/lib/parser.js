@@ -40,9 +40,11 @@ function parseLine(line) {
     if (match) {
       const quantity = parseInt(match[1], 10);
       const name = normalizeName(match[2]);
-      const setCode = match[3] || ''; // Group 3 from first pattern (set code)
+      const setCode = match[3] || '';
+      const collectorNumber = match[4] || '';
+      const isFoil = !!match[5];
       if (quantity > 0 && name.length > 0) {
-        return { name, quantity, isSB, isCommander, setCode };
+        return { name, quantity, isSB, isCommander, setCode, collectorNumber, isFoil };
       }
     }
   }
@@ -50,7 +52,7 @@ function parseLine(line) {
   // Fallback: bare card name with quantity 1
   const trimmed = line.trim();
   if (trimmed.length > 0 && !/^\d+$/.test(trimmed)) {
-    return { name: normalizeName(trimmed), quantity: 1, isSB, isCommander, setCode: '' };
+    return { name: normalizeName(trimmed), quantity: 1, isSB, isCommander, setCode: '', collectorNumber: '', isFoil: false };
   }
 
   return null;
@@ -108,7 +110,7 @@ function parseCSV(text) {
       const existing = target.get(key);
       existing.quantity += quantity;
     } else {
-      target.set(key, { displayName: name, quantity });
+      target.set(key, { displayName: name, quantity, setCode: '', collectorNumber: '', isFoil: false });
     }
   }
 
@@ -168,6 +170,11 @@ function splitSections(rawText) {
   return { mainLines, sideLines, commanderLines };
 }
 
+function cardKey(name, collectorNumber) {
+  const base = name.toLowerCase();
+  return collectorNumber ? `${base}|${collectorNumber}` : base;
+}
+
 function parseLines(lines) {
   const cards = new Map();
   const sbCards = new Map();
@@ -182,17 +189,22 @@ function parseLines(lines) {
     }
 
     const target = parsed.isSB ? sbCards : cards;
-    const key = parsed.name.toLowerCase();
+    const key = cardKey(parsed.name, parsed.collectorNumber);
 
     if (target.has(key)) {
       const existing = target.get(key);
       existing.quantity += parsed.quantity;
-      // Keep the set code from the first occurrence (or update if we didn't have one)
-      if (!existing.setCode && parsed.setCode) {
-        existing.setCode = parsed.setCode;
-      }
+      if (!existing.setCode && parsed.setCode) existing.setCode = parsed.setCode;
+      if (!existing.collectorNumber && parsed.collectorNumber) existing.collectorNumber = parsed.collectorNumber;
+      if (!existing.isFoil && parsed.isFoil) existing.isFoil = parsed.isFoil;
     } else {
-      target.set(key, { displayName: parsed.name, quantity: parsed.quantity, setCode: parsed.setCode || '' });
+      target.set(key, {
+        displayName: parsed.name,
+        quantity: parsed.quantity,
+        setCode: parsed.setCode || '',
+        collectorNumber: parsed.collectorNumber || '',
+        isFoil: parsed.isFoil || false,
+      });
     }
   }
 
@@ -231,6 +243,8 @@ export function parse(rawText) {
       const existing = mainboard.get(key);
       existing.quantity += value.quantity;
       if (!existing.setCode && value.setCode) existing.setCode = value.setCode;
+      if (!existing.collectorNumber && value.collectorNumber) existing.collectorNumber = value.collectorNumber;
+      if (!existing.isFoil && value.isFoil) existing.isFoil = value.isFoil;
     } else {
       mainboard.set(key, value);
     }
@@ -248,6 +262,8 @@ export function parse(rawText) {
       const existing = sideboard.get(key);
       existing.quantity += value.quantity;
       if (!existing.setCode && value.setCode) existing.setCode = value.setCode;
+      if (!existing.collectorNumber && value.collectorNumber) existing.collectorNumber = value.collectorNumber;
+      if (!existing.isFoil && value.isFoil) existing.isFoil = value.isFoil;
     } else {
       sideboard.set(key, value);
     }
@@ -259,6 +275,8 @@ export function parse(rawText) {
       const existing = sideboard.get(key);
       existing.quantity += value.quantity;
       if (!existing.setCode && value.setCode) existing.setCode = value.setCode;
+      if (!existing.collectorNumber && value.collectorNumber) existing.collectorNumber = value.collectorNumber;
+      if (!existing.isFoil && value.isFoil) existing.isFoil = value.isFoil;
     } else {
       sideboard.set(key, value);
     }

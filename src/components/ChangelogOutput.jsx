@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatArchidektCSV } from '../lib/formatter';
 import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
 import './ChangelogOutput.css';
@@ -117,6 +117,15 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
               className="copy-btn copy-btn--archidekt"
             />
           )}
+          {afterText && (
+            <button
+              type="button"
+              className="copy-btn copy-btn--csv"
+              onClick={() => downloadArchidektCSV(afterText)}
+            >
+              Download CSV
+            </button>
+          )}
           {onShare && <ShareButton onShare={onShare} />}
           {commanders.length > 0 && (
             <a
@@ -196,4 +205,18 @@ function ShareButton({ onShare }) {
       {state === 'loading' ? 'Sharing...' : 'Share Link'}
     </button>
   );
+}
+
+function downloadArchidektCSV(text) {
+  const csv = formatArchidektCSV(text);
+  if (!csv) return;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'deck-export.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }

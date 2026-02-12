@@ -1,3 +1,5 @@
+import { parse } from './parser.js';
+
 /**
  * Build a header line with commander name(s) and timestamp.
  * e.g. "📋 Atraxa, Praetors' Voice — Changelog (2025-01-15 3:42 PM)"
@@ -244,10 +246,13 @@ export function formatForArchidekt(text) {
     // Skip leading blank lines
     if (trimmed === '' && output.length === 0) continue;
 
-    if (inCommander && trimmed) {
-      commanderCards.push(trimmed);
+    // Strip collector numbers and foil tags — Archidekt text import only supports qty name (SET)
+    const cleaned = trimmed.replace(/\s+\[\d+\]/g, '').replace(/\s+\*F\*/g, '');
+
+    if (inCommander && cleaned) {
+      commanderCards.push(cleaned);
     } else {
-      output.push(trimmed || '');
+      output.push(cleaned || '');
     }
   }
 
@@ -259,6 +264,36 @@ export function formatForArchidekt(text) {
   result.push(...output);
 
   return result.join('\n').trim();
+}
+
+/**
+ * Format a deck list text as CSV for Archidekt file upload import.
+ * Preserves set code, collector number, and foil status.
+ * Output columns match Archidekt's expected import format.
+ */
+export function formatArchidektCSV(text) {
+  if (!text || !text.trim()) return '';
+
+  const parsed = parse(text);
+  const rows = [['quantity', 'card name', 'edition code', 'collector number', 'modifier']];
+
+  function addEntries(map) {
+    for (const [, entry] of map) {
+      const name = entry.displayName.includes(',') ? `"${entry.displayName}"` : entry.displayName;
+      rows.push([
+        entry.quantity,
+        name,
+        entry.setCode || '',
+        entry.collectorNumber || '',
+        entry.isFoil ? 'Foil' : 'Normal',
+      ]);
+    }
+  }
+
+  addEntries(parsed.mainboard);
+  addEntries(parsed.sideboard);
+
+  return rows.map(row => row.join(',')).join('\n');
 }
 
 /**

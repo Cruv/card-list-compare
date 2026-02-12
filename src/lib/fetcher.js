@@ -80,11 +80,16 @@ function archidektToText(data) {
     const name = entry.card?.oracleCard?.name || entry.card?.name || 'Unknown';
     const qty = entry.quantity || 1;
     const setCode = entry.card?.edition?.editioncode || '';
+    const collectorNumber = entry.card?.collectorNumber || '';
+    const modifier = entry.modifier || 'Normal';
     const categories = (entry.categories || []).map((c) =>
       typeof c === 'string' ? c.toLowerCase() : (c.name || '').toLowerCase()
     );
 
-    const line = setCode ? `${qty} ${name} (${setCode})` : `${qty} ${name}`;
+    let line = `${qty} ${name}`;
+    if (setCode) line += ` (${setCode})`;
+    if (collectorNumber) line += ` [${collectorNumber}]`;
+    if (modifier === 'Foil') line += ` *F*`;
 
     if (categories.includes('commander') || categories.includes('commanders')) {
       commanderLines.push(line);

@@ -11,7 +11,7 @@ function deck(text) {
 function buildMap(entries) {
   const m = new Map();
   for (const [name, qty] of Object.entries(entries)) {
-    m.set(name.toLowerCase(), { displayName: name, quantity: qty });
+    m.set(name.toLowerCase(), { displayName: name, quantity: qty, setCode: '', collectorNumber: '', isFoil: false });
   }
   return m;
 }
@@ -53,7 +53,7 @@ describe('computeDiff()', () => {
     const b = deck('4 Lightning Bolt\n2 Counterspell');
     const diff = computeDiff(a, b);
     expect(diff.mainboard.cardsIn).toEqual([
-      { name: 'Counterspell', quantity: 2 },
+      expect.objectContaining({ name: 'Counterspell', quantity: 2 }),
     ]);
     expect(diff.mainboard.cardsOut).toEqual([]);
   });
@@ -76,7 +76,7 @@ describe('computeDiff()', () => {
     const b = deck('4 Lightning Bolt');
     const diff = computeDiff(a, b);
     expect(diff.mainboard.cardsOut).toEqual([
-      { name: 'Counterspell', quantity: 2 },
+      expect.objectContaining({ name: 'Counterspell', quantity: 2 }),
     ]);
     expect(diff.mainboard.cardsIn).toEqual([]);
   });
@@ -95,7 +95,7 @@ describe('computeDiff()', () => {
     const b = deck('4 Lightning Bolt');
     const diff = computeDiff(a, b);
     expect(diff.mainboard.quantityChanges).toEqual([
-      { name: 'Lightning Bolt', oldQty: 2, newQty: 4, delta: 2 },
+      expect.objectContaining({ name: 'Lightning Bolt', oldQty: 2, newQty: 4, delta: 2 }),
     ]);
   });
 
@@ -104,7 +104,7 @@ describe('computeDiff()', () => {
     const b = deck('2 Lightning Bolt');
     const diff = computeDiff(a, b);
     expect(diff.mainboard.quantityChanges).toEqual([
-      { name: 'Lightning Bolt', oldQty: 4, newQty: 2, delta: -2 },
+      expect.objectContaining({ name: 'Lightning Bolt', oldQty: 4, newQty: 2, delta: -2 }),
     ]);
   });
 
@@ -122,10 +122,10 @@ describe('computeDiff()', () => {
     const diff = computeDiff(a, b);
 
     expect(diff.sideboard.cardsIn).toEqual([
-      { name: 'Negate', quantity: 1 },
+      expect.objectContaining({ name: 'Negate', quantity: 1 }),
     ]);
     expect(diff.sideboard.quantityChanges).toEqual([
-      { name: 'Fatal Push', oldQty: 3, newQty: 2, delta: -1 },
+      expect.objectContaining({ name: 'Fatal Push', oldQty: 3, newQty: 2, delta: -1 }),
     ]);
   });
 
@@ -209,17 +209,17 @@ describe('computeDiff()', () => {
 
     // Sol Ring removed
     expect(diff.mainboard.cardsOut).toEqual([
-      { name: 'Sol Ring', quantity: 3 },
+      expect.objectContaining({ name: 'Sol Ring', quantity: 3 }),
     ]);
 
     // Fatal Push added
     expect(diff.mainboard.cardsIn).toEqual([
-      { name: 'Fatal Push', quantity: 1 },
+      expect.objectContaining({ name: 'Fatal Push', quantity: 1 }),
     ]);
 
     // Counterspell 2 → 3
     expect(diff.mainboard.quantityChanges).toEqual([
-      { name: 'Counterspell', oldQty: 2, newQty: 3, delta: 1 },
+      expect.objectContaining({ name: 'Counterspell', oldQty: 2, newQty: 3, delta: 1 }),
     ]);
   });
 
@@ -244,15 +244,15 @@ Sideboard
     const diff = computeDiff(a, b);
 
     expect(diff.mainboard.quantityChanges).toEqual([
-      { name: 'Counterspell', oldQty: 2, newQty: 3, delta: 1 },
+      expect.objectContaining({ name: 'Counterspell', oldQty: 2, newQty: 3, delta: 1 }),
     ]);
 
     expect(diff.sideboard.cardsIn).toEqual([
-      { name: 'Negate', quantity: 1 },
+      expect.objectContaining({ name: 'Negate', quantity: 1 }),
     ]);
 
     expect(diff.sideboard.quantityChanges).toEqual([
-      { name: 'Fatal Push', oldQty: 3, newQty: 2, delta: -1 },
+      expect.objectContaining({ name: 'Fatal Push', oldQty: 3, newQty: 2, delta: -1 }),
     ]);
 
     expect(diff.hasSideboard).toBe(true);

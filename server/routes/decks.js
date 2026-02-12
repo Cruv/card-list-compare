@@ -5,6 +5,7 @@ import { archidektLimiter } from '../middleware/rateLimit.js';
 import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { fetchDeck } from '../lib/archidekt.js';
 import { archidektToText } from '../lib/deckToText.js';
+import { enrichDeckText } from '../lib/enrichDeckText.js';
 
 const router = Router();
 
@@ -62,7 +63,10 @@ router.post('/', archidektLimiter, async (req, res) => {
     try {
       const apiData = await fetchDeck(archidektDeckId);
       const { text, commanders } = archidektToText(apiData);
-      run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deckId, text]);
+      // Enrich with Scryfall fallback for any cards missing metadata
+      let enrichedText = text;
+      try { enrichedText = await enrichDeckText(text, null); } catch { /* non-fatal */ }
+      run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deckId, enrichedText]);
       run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), commanders = ? WHERE id = ?',
         [JSON.stringify(commanders || []), deckId]);
     } catch (fetchErr) {
@@ -99,11 +103,15 @@ router.post('/refresh-all', archidektLimiter, async (req, res) => {
         [deck.id]
       );
 
-      if (latest && latest.deck_text === text) {
+      // Enrich with carry-forward from previous snapshot + Scryfall fallback
+      let enrichedText = text;
+      try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
+
+      if (latest && latest.deck_text === enrichedText) {
         run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
         results.push({ deckId: deck.id, deckName: deck.deck_name, changed: false });
       } else {
-        run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, text]);
+        run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
         // Update commanders if detected (don't blank out user-set values)
         const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
         if (cmdsJson) {
@@ -187,12 +195,16 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
       [deck.id]
     );
 
-    if (latest && latest.deck_text === text) {
+    // Enrich with carry-forward from previous snapshot + Scryfall fallback
+    let enrichedText = text;
+    try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
+
+    if (latest && latest.deck_text === enrichedText) {
       run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
       return res.json({ changed: false, message: 'Deck is up to date' });
     }
 
-    run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, text]);
+    run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
     // Update commanders if detected (don't blank out user-set values)
     const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
     if (cmdsJson) {
