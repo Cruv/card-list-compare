@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatArchidektCSV } from '../lib/formatter';
@@ -96,20 +96,6 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
             />
           )}
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} />}
-          {!noChanges && (
-            <CopyButton
-              getText={() => formatReddit(diffResult, cardMap)}
-              label="Copy for Reddit"
-              className="copy-btn copy-btn--reddit"
-            />
-          )}
-          {!noChanges && (
-            <CopyButton
-              getText={() => formatJSON(diffResult)}
-              label="Copy JSON"
-              className="copy-btn copy-btn--json"
-            />
-          )}
           {afterText && (
             <CopyButton
               getText={() => formatForArchidekt(afterText)}
@@ -117,26 +103,14 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
               className="copy-btn copy-btn--archidekt"
             />
           )}
-          {afterText && (
-            <button
-              type="button"
-              className="copy-btn copy-btn--csv"
-              onClick={() => downloadArchidektCSV(afterText)}
-            >
-              Download CSV
-            </button>
-          )}
-          {onShare && <ShareButton onShare={onShare} />}
-          {commanders.length > 0 && (
-            <a
-              className="copy-btn copy-btn--power"
-              href={DECKCHECK_POWER_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Check Power &#8599;
-            </a>
-          )}
+          <MoreMenu
+            diffResult={diffResult}
+            cardMap={cardMap}
+            afterText={afterText}
+            noChanges={noChanges}
+            onShare={onShare}
+            commanders={commanders}
+          />
         </div>
       </div>
 
@@ -172,37 +146,95 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
   );
 }
 
-function ShareButton({ onShare }) {
-  const [state, setState] = useState('idle'); // idle | loading | done
+function MoreMenu({ diffResult, cardMap, afterText, noChanges, onShare, commanders }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div className="more-menu" ref={menuRef}>
+      <button
+        type="button"
+        className="copy-btn copy-btn--more"
+        onClick={() => setOpen(prev => !prev)}
+        aria-expanded={open}
+        aria-haspopup="true"
+      >
+        More &#9662;
+      </button>
+      {open && (
+        <div className="more-menu-dropdown">
+          {onShare && <ShareMenuItem onShare={onShare} onDone={() => setOpen(false)} />}
+          {commanders.length > 0 && (
+            <a
+              className="more-menu-item"
+              href={DECKCHECK_POWER_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Check Power &#8599;
+            </a>
+          )}
+          {!noChanges && (
+            <CopyButton
+              getText={() => formatReddit(diffResult, cardMap)}
+              label="Copy for Reddit"
+              className="more-menu-item"
+            />
+          )}
+          {!noChanges && (
+            <CopyButton
+              getText={() => formatJSON(diffResult)}
+              label="Copy JSON"
+              className="more-menu-item"
+            />
+          )}
+          {afterText && (
+            <button
+              type="button"
+              className="more-menu-item"
+              onClick={() => { downloadArchidektCSV(afterText); setOpen(false); }}
+            >
+              Download CSV
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShareMenuItem({ onShare, onDone }) {
+  const [state, setState] = useState('idle');
   async function handleShare() {
     setState('loading');
     try {
       const url = await onShare();
       await navigator.clipboard.writeText(url);
       setState('done');
-      setTimeout(() => setState('idle'), 3000);
+      setTimeout(() => { setState('idle'); onDone(); }, 1500);
     } catch {
       toast.error('Failed to create share link');
       setState('idle');
     }
   }
 
-  if (state === 'done') {
-    return (
-      <button className="copy-btn copy-btn--share" type="button" disabled>
-        Link Copied!
-      </button>
-    );
-  }
-
   return (
     <button
-      className="copy-btn copy-btn--share"
-      onClick={handleShare}
-      disabled={state === 'loading'}
       type="button"
+      className="more-menu-item"
+      onClick={handleShare}
+      disabled={state === 'loading' || state === 'done'}
     >
-      {state === 'loading' ? 'Sharing...' : 'Share Link'}
+      {state === 'done' ? 'Link Copied!' : state === 'loading' ? 'Sharing...' : 'Share Link'}
     </button>
   );
 }
