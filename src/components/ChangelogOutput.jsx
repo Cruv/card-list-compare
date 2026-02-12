@@ -97,13 +97,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           )}
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} />}
           {afterText && (
-            <button
-              type="button"
-              className="copy-btn copy-btn--archidekt"
-              onClick={() => downloadArchidektCSV(afterText)}
-            >
-              Export for Archidekt
-            </button>
+            <ArchidektSplitButton afterText={afterText} />
           )}
           <MoreMenu
             diffResult={diffResult}
@@ -142,6 +136,71 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           </div>
           <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={cardMap} />
           {hasSideboard && <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={cardMap} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArchidektSplitButton({ afterText }) {
+  const [copied, setCopied] = useState(false);
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(formatForArchidekt(afterText));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = formatForArchidekt(afterText);
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
+  return (
+    <div className="split-btn" ref={ref}>
+      <button
+        type="button"
+        className="copy-btn copy-btn--archidekt split-btn-main"
+        onClick={handleCopy}
+      >
+        {copied ? 'Copied!' : 'Export for Archidekt'}
+      </button>
+      <button
+        type="button"
+        className="copy-btn copy-btn--archidekt split-btn-arrow"
+        onClick={() => setOpen(prev => !prev)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        aria-label="More export options"
+      >
+        &#9662;
+      </button>
+      {open && (
+        <div className="more-menu-dropdown split-btn-dropdown">
+          <button
+            type="button"
+            className="more-menu-item"
+            onClick={() => { downloadArchidektCSV(afterText); setOpen(false); }}
+          >
+            Download as CSV
+          </button>
         </div>
       )}
     </div>
@@ -196,13 +255,6 @@ function MoreMenu({ diffResult, cardMap, afterText, noChanges, onShare, commande
             <CopyButton
               getText={() => formatJSON(diffResult)}
               label="Copy JSON"
-              className="more-menu-item"
-            />
-          )}
-          {afterText && (
-            <CopyButton
-              getText={() => formatForArchidekt(afterText)}
-              label="Copy for Archidekt (text)"
               className="more-menu-item"
             />
           )}
