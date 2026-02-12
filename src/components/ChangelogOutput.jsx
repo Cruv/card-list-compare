@@ -97,11 +97,13 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           )}
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} />}
           {afterText && (
-            <CopyButton
-              getText={() => formatForArchidekt(afterText)}
-              label="Export for Archidekt"
+            <button
+              type="button"
               className="copy-btn copy-btn--archidekt"
-            />
+              onClick={() => downloadArchidektCSV(afterText)}
+            >
+              Export for Archidekt
+            </button>
           )}
           <MoreMenu
             diffResult={diffResult}
@@ -198,13 +200,11 @@ function MoreMenu({ diffResult, cardMap, afterText, noChanges, onShare, commande
             />
           )}
           {afterText && (
-            <button
-              type="button"
+            <CopyButton
+              getText={() => formatForArchidekt(afterText)}
+              label="Copy for Archidekt (text)"
               className="more-menu-item"
-              onClick={() => { downloadArchidektCSV(afterText); setOpen(false); }}
-            >
-              Download CSV
-            </button>
+            />
           )}
         </div>
       )}
