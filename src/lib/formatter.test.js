@@ -374,20 +374,27 @@ describe('formatJSON()', () => {
 // ─── formatArchidektCSV ────────────────────────────────────────
 
 describe('formatArchidektCSV', () => {
-  it('includes category column header', () => {
+  it('matches Archidekt export header format', () => {
     const csv = formatArchidektCSV('1 Sol Ring (ltc) [284]');
     const lines = csv.split('\n');
-    expect(lines[0]).toBe('quantity,card name,edition code,collector number,category,modifier');
+    expect(lines[0]).toBe(
+      'quantity,card name,edition name,edition code,category,secondary categories,label,modifier,collector number,salt,color,cmc,rarity,scryfall ID,types,price,collection status,card text'
+    );
+  });
+
+  it('places columns in Archidekt order (modifier before collector number)', () => {
+    const csv = formatArchidektCSV('1 Sol Ring (ltc) [284]');
+    const dataLine = csv.split('\n')[1];
+    // Should contain: qty, name, edition name (empty), edition code, category, "", default, modifier, collector number, ...
+    expect(dataLine).toMatch(/^1,Sol Ring,,ltc,,.*,default,Normal,284,/);
   });
 
   it('tags commander in category column', () => {
     const text = '1 Sauron, the Dark Lord (ltr) [675] *F*\n1 Sol Ring (ltc) [284]';
     const csv = formatArchidektCSV(text, ['Sauron, the Dark Lord']);
     const lines = csv.split('\n');
-    // Sauron line should have Commander category
     const sauronLine = lines.find(l => l.includes('Sauron'));
     expect(sauronLine).toContain(',Commander,');
-    // Sol Ring should not have Commander category
     const solLine = lines.find(l => l.includes('Sol Ring'));
     expect(solLine).not.toContain(',Commander,');
   });
@@ -404,5 +411,11 @@ describe('formatArchidektCSV', () => {
     const csv = formatArchidektCSV(text);
     const fatalLine = csv.split('\n').find(l => l.includes('Fatal Push'));
     expect(fatalLine).toContain(',Sideboard,');
+  });
+
+  it('marks foil cards with Foil modifier', () => {
+    const csv = formatArchidektCSV('1 Black Market Connections (acr) [161] *F*');
+    const dataLine = csv.split('\n')[1];
+    expect(dataLine).toContain(',Foil,');
   });
 });

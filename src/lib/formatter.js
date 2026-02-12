@@ -281,27 +281,46 @@ export function formatArchidektCSV(text, commanders = []) {
     ...parsed.commanders.map(c => c.toLowerCase()),
   ]);
 
-  const rows = [['quantity', 'card name', 'edition code', 'collector number', 'category', 'modifier']];
+  // Match Archidekt's exact export header and column order
+  const header = 'quantity,card name,edition name,edition code,category,secondary categories,label,modifier,collector number,salt,color,cmc,rarity,scryfall ID,types,price,collection status,card text';
+  const rows = [header];
 
   function addEntries(map, sectionCategory) {
     for (const [, entry] of map) {
       const name = entry.displayName.includes(',') ? `"${entry.displayName}"` : entry.displayName;
       const isCommander = allCommanders.has(entry.displayName.toLowerCase());
+      const category = isCommander ? 'Commander' : sectionCategory;
+      const modifier = entry.isFoil ? 'Foil' : 'Normal';
+      // Archidekt column order: quantity, card name, edition name, edition code,
+      // category, secondary categories, label, modifier, collector number,
+      // salt, color, cmc, rarity, scryfall ID, types, price, collection status, card text
       rows.push([
         entry.quantity,
         name,
+        '',                              // edition name (we don't store this)
         entry.setCode || '',
+        category,
+        '""',                            // secondary categories
+        'default',                       // label
+        modifier,
         entry.collectorNumber || '',
-        isCommander ? 'Commander' : sectionCategory,
-        entry.isFoil ? 'Foil' : 'Normal',
-      ]);
+        '',                              // salt
+        '',                              // color
+        '',                              // cmc
+        '',                              // rarity
+        '',                              // scryfall ID
+        '',                              // types
+        '',                              // price
+        'not owned',                     // collection status
+        '',                              // card text
+      ].join(','));
     }
   }
 
   addEntries(parsed.mainboard, '');
   addEntries(parsed.sideboard, 'Sideboard');
 
-  return rows.map(row => row.join(',')).join('\n');
+  return rows.join('\n');
 }
 
 /**
