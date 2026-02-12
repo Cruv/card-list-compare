@@ -99,7 +99,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           {afterText && (
             <CopyButton
               getText={() => formatForArchidekt(afterText, commanders)}
-              label="Export for Archidekt"
+              label="Copy for Archidekt"
               className="copy-btn copy-btn--archidekt"
             />
           )}
