@@ -95,7 +95,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
               className="copy-btn copy-btn--mpc"
             />
           )}
-          {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} />}
+          {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} label="Copy Changelog" />}
           {afterText && (
             <CopyButton
               getText={() => formatForArchidekt(afterText, commanders)}
