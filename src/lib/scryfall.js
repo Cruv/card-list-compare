@@ -127,23 +127,46 @@ async function fetchBatch(batch) {
 }
 
 /**
+ * Extract front face from a double-faced card name.
+ * "Sheoldred // The True Scriptures" → "Sheoldred"
+ */
+function dfcFrontFace(name) {
+  const slash = name.indexOf(' // ');
+  return slash !== -1 ? name.slice(0, slash) : name;
+}
+
+/**
  * Given an array of card names, returns a Map<string, { type, manaCost, imageUri }>
  * mapping lowercased card name → card data.
  *
  * Uses Scryfall Collection API to batch lookup.
  * Batches are fetched in parallel using Promise.allSettled.
+ * DFC names like "Sheoldred // The True Scriptures" are normalized to their
+ * front face for the Scryfall query, and results are stored under both the
+ * full DFC name and the front-face-only name.
  */
 export async function fetchCardData(cardNames) {
   const cardMap = new Map();
   if (!cardNames || cardNames.length === 0) return cardMap;
 
-  // Deduplicate
-  const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
+  // Deduplicate and normalize DFC names for lookup
+  const originalNames = [...new Set(cardNames.map(n => n.toLowerCase()))];
+
+  // Build mapping: front-face name → all original names that map to it
+  const frontToOriginals = new Map();
+  for (const name of originalNames) {
+    const front = dfcFrontFace(name);
+    if (!frontToOriginals.has(front)) frontToOriginals.set(front, []);
+    frontToOriginals.get(front).push(name);
+  }
+
+  // Use front-face names for Scryfall queries
+  const lookupNames = [...frontToOriginals.keys()];
 
   // Batch into groups of 75
   const batches = [];
-  for (let i = 0; i < unique.length; i += SCRYFALL_BATCH_SIZE) {
-    batches.push(unique.slice(i, i + SCRYFALL_BATCH_SIZE));
+  for (let i = 0; i < lookupNames.length; i += SCRYFALL_BATCH_SIZE) {
+    batches.push(lookupNames.slice(i, i + SCRYFALL_BATCH_SIZE));
   }
 
   // Fetch all batches in parallel
@@ -152,17 +175,24 @@ export async function fetchCardData(cardNames) {
   for (const result of settled) {
     if (result.status === 'fulfilled') {
       for (const entry of result.value) {
-        cardMap.set(entry.key, {
+        const data = {
           type: entry.type,
           manaCost: entry.manaCost,
           imageUri: entry.imageUri,
-        });
+        };
+        // Store under the Scryfall key (front face)
+        cardMap.set(entry.key, data);
+        // Also store under any original DFC names that mapped to this front face
+        const originals = frontToOriginals.get(entry.key) || [];
+        for (const orig of originals) {
+          cardMap.set(orig, data);
+        }
       }
     }
   }
 
   // Ensure all requested names have an entry
-  for (const name of unique) {
+  for (const name of originalNames) {
     if (!cardMap.has(name)) {
       cardMap.set(name, { type: 'Other', manaCost: '', imageUri: '' });
     }
