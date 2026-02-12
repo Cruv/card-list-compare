@@ -16,11 +16,13 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const WHATS_NEW = [
-  'Tap card names on mobile to see the card image',
-  'Fluid responsive scaling for all screen sizes',
-  'Container timezone support (TZ env var)',
+  'Printing metadata preserved through Archidekt imports (set, collector number, foil)',
+  'Export for Archidekt split button — copy text or download CSV with full metadata',
+  'Changelog buttons consolidated into a cleaner layout with More dropdown',
+  'Admin delete safety — type username to confirm account deletion',
+  'Fixed diff showing entire deck as changed when comparing plain text vs enriched lists',
 ];
 
 function getResetToken() {
