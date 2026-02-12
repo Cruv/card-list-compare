@@ -56,7 +56,7 @@ function CardOverlay({ imageUri, name, onClose }) {
   if (!imageUri) return null;
 
   return createPortal(
-    <div className="card-overlay" onClick={onClose} role="dialog" aria-label={name}>
+    <div className="card-overlay" onClick={e => { e.stopPropagation(); onClose(); }} role="dialog" aria-label={name}>
       <img
         src={imageUri}
         alt={name}
