@@ -158,12 +158,12 @@ function ArchidektSplitButton({ afterText, commanders }) {
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(formatForArchidekt(afterText));
+      await navigator.clipboard.writeText(formatForArchidekt(afterText, commanders));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
       const ta = document.createElement('textarea');
-      ta.value = formatForArchidekt(afterText);
+      ta.value = formatForArchidekt(afterText, commanders);
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');

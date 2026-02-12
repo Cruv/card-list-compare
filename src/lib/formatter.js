@@ -214,54 +214,40 @@ export function formatReddit(diffResult, typeMap) {
  * auto-assigns them to the command zone on import.
  * Converts "Sideboard" header to "# Sideboard".
  */
-export function formatForArchidekt(text) {
+export function formatForArchidekt(text, commanders = []) {
   if (!text || !text.trim()) return '';
 
-  const lines = text.split('\n');
-  const output = [];
-  let inCommander = false;
-  const commanderCards = [];
+  const parsed = parse(text);
+  // Merge explicit commanders param with any parsed from the text
+  const allCommanders = new Set([
+    ...commanders.map(c => c.toLowerCase()),
+    ...parsed.commanders.map(c => c.toLowerCase()),
+  ]);
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    const lower = trimmed.toLowerCase();
-
-    // Detect section headers
-    if (lower === 'commander' || lower === 'commanders' || lower === 'command zone') {
-      inCommander = true;
-      continue;
+  function formatEntry(entry) {
+    // Archidekt text format: 1x Name (set) collectorNum *F* [Category]
+    let line = `${entry.quantity}x ${entry.displayName}`;
+    if (entry.setCode) line += ` (${entry.setCode})`;
+    if (entry.collectorNumber) line += ` ${entry.collectorNumber}`;
+    if (entry.isFoil) line += ` *F*`;
+    if (allCommanders.has(entry.displayName.toLowerCase())) {
+      line += ` [Commander{top}]`;
     }
-    if (lower === 'sideboard' || lower === 'side') {
-      inCommander = false;
-      output.push('# Sideboard');
-      continue;
-    }
-
-    // Blank line ends commander section
-    if (inCommander && trimmed === '') {
-      inCommander = false;
-      continue;
-    }
-
-    // Skip leading blank lines
-    if (trimmed === '' && output.length === 0) continue;
-
-    // Strip collector numbers and foil tags — Archidekt text import only supports qty name (SET)
-    const cleaned = trimmed.replace(/\s+\[\d+\]/g, '').replace(/\s+\*F\*/g, '');
-
-    if (inCommander && cleaned) {
-      commanderCards.push(cleaned);
-    } else {
-      output.push(cleaned || '');
-    }
+    return line;
   }
 
-  // Prepend commander cards with `Commander` category tag (Archidekt backtick syntax)
   const result = [];
-  for (const card of commanderCards) {
-    result.push(card + ' `Commander`');
+
+  for (const [, entry] of parsed.mainboard) {
+    result.push(formatEntry(entry));
   }
-  result.push(...output);
+
+  if (parsed.sideboard.size > 0) {
+    result.push('# Sideboard');
+    for (const [, entry] of parsed.sideboard) {
+      result.push(formatEntry(entry));
+    }
+  }
 
   return result.join('\n').trim();
 }

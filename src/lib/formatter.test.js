@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatArchidektCSV } from './formatter.js';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatArchidektCSV, formatForArchidekt } from './formatter.js';
 
 // Lock Date.now so timestamps are deterministic
 const FAKE_NOW = new Date('2025-06-15T14:30:00Z');
@@ -417,5 +417,46 @@ describe('formatArchidektCSV', () => {
     const csv = formatArchidektCSV('1 Black Market Connections (acr) [161] *F*');
     const dataLine = csv.split('\n')[1];
     expect(dataLine).toContain(',Foil,');
+  });
+});
+
+// ─── formatForArchidekt ────────────────────────────────────────
+
+describe('formatForArchidekt', () => {
+  it('formats lines in Archidekt txt format with Nx, set, and bare collector number', () => {
+    const result = formatForArchidekt('1 Sol Ring (ltc) [284]');
+    expect(result).toBe('1x Sol Ring (ltc) 284');
+  });
+
+  it('preserves foil marker', () => {
+    const result = formatForArchidekt('1 Black Market Connections (acr) [161] *F*');
+    expect(result).toBe('1x Black Market Connections (acr) 161 *F*');
+  });
+
+  it('tags commander with [Commander{top}] from explicit param', () => {
+    const text = '1 Sauron, the Dark Lord (ltr) [675] *F*\n1 Sol Ring (ltc) [284]';
+    const result = formatForArchidekt(text, ['Sauron, the Dark Lord']);
+    const lines = result.split('\n');
+    expect(lines[0]).toBe('1x Sauron, the Dark Lord (ltr) 675 *F* [Commander{top}]');
+    expect(lines[1]).toBe('1x Sol Ring (ltc) 284');
+  });
+
+  it('tags commander from parsed Commander section', () => {
+    const text = 'Commander\n1 Sauron, the Dark Lord (ltr) [675]\n\n1 Sol Ring (ltc) [284]';
+    const result = formatForArchidekt(text);
+    expect(result).toContain('Sauron, the Dark Lord (ltr) 675 [Commander{top}]');
+  });
+
+  it('outputs sideboard with # Sideboard header', () => {
+    const text = '1 Sol Ring (ltc) [284]\n\nSideboard\n1 Fatal Push (2xm) [69]';
+    const result = formatForArchidekt(text);
+    const lines = result.split('\n');
+    expect(lines).toContain('# Sideboard');
+    expect(lines[lines.length - 1]).toBe('1x Fatal Push (2xm) 69');
+  });
+
+  it('handles cards without set or collector number', () => {
+    const result = formatForArchidekt('3 Nazgul');
+    expect(result).toBe('3x Nazgul');
   });
 });
