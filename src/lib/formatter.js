@@ -271,27 +271,35 @@ export function formatForArchidekt(text) {
  * Preserves set code, collector number, and foil status.
  * Output columns match Archidekt's expected import format.
  */
-export function formatArchidektCSV(text) {
+export function formatArchidektCSV(text, commanders = []) {
   if (!text || !text.trim()) return '';
 
   const parsed = parse(text);
-  const rows = [['quantity', 'card name', 'edition code', 'collector number', 'modifier']];
+  // Merge explicit commanders param with any parsed from the text
+  const allCommanders = new Set([
+    ...commanders.map(c => c.toLowerCase()),
+    ...parsed.commanders.map(c => c.toLowerCase()),
+  ]);
 
-  function addEntries(map) {
+  const rows = [['quantity', 'card name', 'edition code', 'collector number', 'category', 'modifier']];
+
+  function addEntries(map, sectionCategory) {
     for (const [, entry] of map) {
       const name = entry.displayName.includes(',') ? `"${entry.displayName}"` : entry.displayName;
+      const isCommander = allCommanders.has(entry.displayName.toLowerCase());
       rows.push([
         entry.quantity,
         name,
         entry.setCode || '',
         entry.collectorNumber || '',
+        isCommander ? 'Commander' : sectionCategory,
         entry.isFoil ? 'Foil' : 'Normal',
       ]);
     }
   }
 
-  addEntries(parsed.mainboard);
-  addEntries(parsed.sideboard);
+  addEntries(parsed.mainboard, '');
+  addEntries(parsed.sideboard, 'Sideboard');
 
   return rows.map(row => row.join(',')).join('\n');
 }

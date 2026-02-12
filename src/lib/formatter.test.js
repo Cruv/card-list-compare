@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from './formatter.js';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatArchidektCSV } from './formatter.js';
 
 // Lock Date.now so timestamps are deterministic
 const FAKE_NOW = new Date('2025-06-15T14:30:00Z');
@@ -368,5 +368,41 @@ describe('formatJSON()', () => {
     const diff = makeDiff({ mainQty: [qtyChange] });
     const data = JSON.parse(formatJSON(diff));
     expect(data.mainboard.quantityChanges[0]).toEqual(qtyChange);
+  });
+});
+
+// ─── formatArchidektCSV ────────────────────────────────────────
+
+describe('formatArchidektCSV', () => {
+  it('includes category column header', () => {
+    const csv = formatArchidektCSV('1 Sol Ring (ltc) [284]');
+    const lines = csv.split('\n');
+    expect(lines[0]).toBe('quantity,card name,edition code,collector number,category,modifier');
+  });
+
+  it('tags commander in category column', () => {
+    const text = '1 Sauron, the Dark Lord (ltr) [675] *F*\n1 Sol Ring (ltc) [284]';
+    const csv = formatArchidektCSV(text, ['Sauron, the Dark Lord']);
+    const lines = csv.split('\n');
+    // Sauron line should have Commander category
+    const sauronLine = lines.find(l => l.includes('Sauron'));
+    expect(sauronLine).toContain(',Commander,');
+    // Sol Ring should not have Commander category
+    const solLine = lines.find(l => l.includes('Sol Ring'));
+    expect(solLine).not.toContain(',Commander,');
+  });
+
+  it('tags commander from parsed text when not passed explicitly', () => {
+    const text = 'Commander\n1 Sauron, the Dark Lord (ltr) [675]\n\n1 Sol Ring (ltc) [284]';
+    const csv = formatArchidektCSV(text);
+    const sauronLine = csv.split('\n').find(l => l.includes('Sauron'));
+    expect(sauronLine).toContain(',Commander,');
+  });
+
+  it('marks sideboard cards with Sideboard category', () => {
+    const text = '1 Sol Ring (ltc) [284]\n\nSideboard\n1 Fatal Push (2xm) [69]';
+    const csv = formatArchidektCSV(text);
+    const fatalLine = csv.split('\n').find(l => l.includes('Fatal Push'));
+    expect(fatalLine).toContain(',Sideboard,');
   });
 });

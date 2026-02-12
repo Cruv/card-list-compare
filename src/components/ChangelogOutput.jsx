@@ -97,7 +97,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           )}
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} />}
           {afterText && (
-            <ArchidektSplitButton afterText={afterText} />
+            <ArchidektSplitButton afterText={afterText} commanders={commanders} />
           )}
           <MoreMenu
             diffResult={diffResult}
@@ -142,7 +142,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
   );
 }
 
-function ArchidektSplitButton({ afterText }) {
+function ArchidektSplitButton({ afterText, commanders }) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -197,7 +197,7 @@ function ArchidektSplitButton({ afterText }) {
           <button
             type="button"
             className="more-menu-item"
-            onClick={() => { downloadArchidektCSV(afterText); setOpen(false); }}
+            onClick={() => { downloadArchidektCSV(afterText, commanders); setOpen(false); }}
           >
             Download as CSV
           </button>
@@ -291,8 +291,8 @@ function ShareMenuItem({ onShare, onDone }) {
   );
 }
 
-function downloadArchidektCSV(text) {
-  const csv = formatArchidektCSV(text);
+function downloadArchidektCSV(text, commanders = []) {
+  const csv = formatArchidektCSV(text, commanders);
   if (!csv) return;
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
