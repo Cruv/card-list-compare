@@ -32,12 +32,51 @@ function collapseCompositeKeys(map, compositeKeys, bare) {
 }
 
 /**
- * Extract front face from a double-faced card key.
+ * Extract front face from a double-faced card name.
  * "sheoldred // the true scriptures" → "sheoldred"
  */
-function frontFace(key) {
-  const slash = key.indexOf(' // ');
-  return slash !== -1 ? key.slice(0, slash) : key;
+function frontFace(name) {
+  const slash = name.indexOf(' // ');
+  return slash !== -1 ? name.slice(0, slash) : name;
+}
+
+/**
+ * Normalize DFC keys in a map: rename "name // back" keys to just "name"
+ * when the other map has the front-face-only key. Handles both bare keys
+ * and composite keys (name|collectorNumber).
+ */
+function normalizeDFCKeys(map, otherMap) {
+  for (const key of [...map.keys()]) {
+    if (otherMap.has(key)) continue;
+
+    // Extract the name portion (strip collector number if present)
+    const pipe = key.indexOf('|');
+    const name = pipe !== -1 ? key.slice(0, pipe) : key;
+    const suffix = pipe !== -1 ? key.slice(pipe) : '';
+    const front = frontFace(name);
+    if (front === name) continue;
+
+    // Try matching the front-face key (with same suffix) in the other map
+    const frontKey = front + suffix;
+    if (otherMap.has(frontKey) && !map.has(frontKey)) {
+      const entry = map.get(key);
+      map.delete(key);
+      map.set(frontKey, entry);
+    }
+    // Also try bare front-face (no suffix) when other side has no collector number
+    else if (!suffix && otherMap.has(front) && !map.has(front)) {
+      // Already handled by the frontKey case above when suffix is empty
+    }
+    else if (suffix) {
+      // Composite DFC key like "sheoldred // the true scriptures|123"
+      // Other side might have just "sheoldred" (bare, no collector number)
+      if (otherMap.has(front) && !map.has(front)) {
+        const entry = map.get(key);
+        map.delete(key);
+        map.set(front + suffix, entry);
+      }
+    }
+  }
 }
 
 function diffSection(beforeMap, afterMap) {
@@ -48,6 +87,11 @@ function diffSection(beforeMap, afterMap) {
 
   const before = new Map(beforeMap);
   const after = new Map(afterMap);
+
+  // First normalize DFC names so "Sheoldred // The True Scriptures" matches "Sheoldred"
+  // This must run before composite key remapping so the name indexes are correct.
+  normalizeDFCKeys(before, after);
+  normalizeDFCKeys(after, before);
 
   const afterIndex = buildNameIndex(after);
   const beforeIndex = buildNameIndex(before);
@@ -79,28 +123,6 @@ function diffSection(beforeMap, afterMap) {
       } else {
         collapseCompositeKeys(before, compositeKeys, bare);
       }
-    }
-  }
-
-  // Normalize double-faced card names: match "name // back face" against "name"
-  for (const bk of [...before.keys()]) {
-    if (after.has(bk)) continue;
-    const bkFront = frontFace(bk);
-    if (bkFront === bk) continue;
-    if (after.has(bkFront) && !before.has(bkFront)) {
-      const entry = after.get(bkFront);
-      after.delete(bkFront);
-      after.set(bk, entry);
-    }
-  }
-  for (const ak of [...after.keys()]) {
-    if (before.has(ak)) continue;
-    const akFront = frontFace(ak);
-    if (akFront === ak) continue;
-    if (before.has(akFront) && !after.has(akFront)) {
-      const entry = before.get(akFront);
-      before.delete(akFront);
-      before.set(ak, entry);
     }
   }
 

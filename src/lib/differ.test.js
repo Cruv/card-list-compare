@@ -404,4 +404,31 @@ Sideboard
     expect(diff.mainboard.quantityChanges).toHaveLength(1);
     expect(diff.mainboard.quantityChanges[0]).toMatchObject({ oldQty: 1, newQty: 2, delta: 1 });
   });
+
+  it('matches DFC with collector number against front face only', () => {
+    const a = deck('1 Sheoldred // The True Scriptures (one) [123]');
+    const b = deck('1 Sheoldred');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('matches front face only against DFC with collector number', () => {
+    const a = deck('1 Sheoldred');
+    const b = deck('1 Sheoldred // The True Scriptures (one) [123]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('matches DFC with collector number against front face with collector number', () => {
+    const a = deck('1 Sheoldred // The True Scriptures (one) [123]');
+    const b = deck('1 Sheoldred (one) [123]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
 });
