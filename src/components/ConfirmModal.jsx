@@ -21,14 +21,23 @@ export default function ConfirmModal({
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   danger = false,
+  typeToConfirm,
   onConfirm,
   onCancel,
 }) {
   const confirmRef = useRef(null);
+  const inputRef = useRef(null);
+  const [typed, setTyped] = useState('');
+  const needsTyping = !!typeToConfirm;
+  const typingMatches = !needsTyping || typed === typeToConfirm;
 
   useEffect(() => {
-    confirmRef.current?.focus();
-  }, []);
+    if (needsTyping) {
+      inputRef.current?.focus();
+    } else {
+      confirmRef.current?.focus();
+    }
+  }, [needsTyping]);
 
   useEffect(() => {
     function handleKey(e) {
@@ -50,6 +59,23 @@ export default function ConfirmModal({
       <div className="confirm-modal" onClick={e => e.stopPropagation()}>
         <h3 className="confirm-modal-title" id="confirm-modal-title">{title}</h3>
         {message && <p className="confirm-modal-message" id="confirm-modal-desc">{message}</p>}
+        {needsTyping && (
+          <div className="confirm-modal-type">
+            <label className="confirm-modal-type-label">
+              Type <strong>{typeToConfirm}</strong> to confirm:
+            </label>
+            <input
+              ref={inputRef}
+              className="confirm-modal-type-input"
+              type="text"
+              value={typed}
+              onChange={e => setTyped(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && typingMatches) onConfirm(); }}
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+        )}
         <div className="confirm-modal-actions">
           <button className="btn btn-secondary" type="button" onClick={onCancel}>
             {cancelLabel}
@@ -59,6 +85,7 @@ export default function ConfirmModal({
             className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`}
             type="button"
             onClick={onConfirm}
+            disabled={!typingMatches}
           >
             {confirmLabel}
           </button>
@@ -97,6 +124,7 @@ export function useConfirm() {
       confirmLabel={state.confirmLabel}
       cancelLabel={state.cancelLabel}
       danger={state.danger}
+      typeToConfirm={state.typeToConfirm}
       onConfirm={() => { state.resolve(true); setState(null); }}
       onCancel={() => { state.resolve(false); setState(null); }}
     />

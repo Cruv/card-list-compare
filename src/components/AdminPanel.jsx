@@ -128,6 +128,7 @@ function UsersTab({ currentUserId, confirm }) {
       message: 'This will permanently delete their account and all tracked decks, snapshots, and data.',
       confirmLabel: 'Delete User',
       danger: true,
+      typeToConfirm: username,
     });
     if (!confirmed) return;
     try {

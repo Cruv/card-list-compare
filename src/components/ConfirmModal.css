@@ -35,6 +35,34 @@
   line-height: 1.5;
 }
 
+.confirm-modal-type {
+  margin-bottom: 16px;
+}
+
+.confirm-modal-type-label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.confirm-modal-type-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: border-color 0.15s;
+}
+
+.confirm-modal-type-input:focus {
+  border-color: var(--accent-blue);
+  outline: none;
+}
+
 .confirm-modal-actions {
   display: flex;
   justify-content: flex-end;
