@@ -56,25 +56,21 @@ function normalizeDFCKeys(map, otherMap) {
     const front = frontFace(name);
     if (front === name) continue;
 
-    // Try matching the front-face key (with same suffix) in the other map
+    // Try matching the front-face key (with same collector number suffix) in other map
     const frontKey = front + suffix;
     if (otherMap.has(frontKey) && !map.has(frontKey)) {
       const entry = map.get(key);
       map.delete(key);
       map.set(frontKey, entry);
+      continue;
     }
-    // Also try bare front-face (no suffix) when other side has no collector number
-    else if (!suffix && otherMap.has(front) && !map.has(front)) {
-      // Already handled by the frontKey case above when suffix is empty
-    }
-    else if (suffix) {
-      // Composite DFC key like "sheoldred // the true scriptures|123"
-      // Other side might have just "sheoldred" (bare, no collector number)
-      if (otherMap.has(front) && !map.has(front)) {
-        const entry = map.get(key);
-        map.delete(key);
-        map.set(front + suffix, entry);
-      }
+
+    // Try matching the bare front-face (no collector number) in other map
+    // e.g. "sheoldred // the true scriptures|123" → "sheoldred" when other has "sheoldred"
+    if (otherMap.has(front) && !map.has(front)) {
+      const entry = map.get(key);
+      map.delete(key);
+      map.set(front, entry);
     }
   }
 }
