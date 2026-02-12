@@ -13,6 +13,7 @@ import { computeDiff } from './lib/differ';
 import { collectCardNames, fetchCardData } from './lib/scryfall';
 import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
+import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
 const APP_VERSION = '1.2.0';
@@ -37,6 +38,7 @@ export default function App() {
   const [showAdmin, setShowAdmin] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
+  const [showWhatsNew, setShowWhatsNew] = useState(false);
 
   // Show "what's new" toast once per version
   useEffect(() => {
@@ -264,6 +266,23 @@ export default function App() {
         </div>
       )}
 
+      <footer className="app-footer">
+        <button
+          className="whatsnew-link"
+          onClick={() => setShowWhatsNew(true)}
+          type="button"
+        >
+          What's new in v{APP_VERSION}
+        </button>
+      </footer>
+
+      {showWhatsNew && (
+        <WhatsNewModal
+          version={APP_VERSION}
+          changes={WHATS_NEW}
+          onClose={() => setShowWhatsNew(false)}
+        />
+      )}
     </div>
   );
 }
