@@ -291,4 +291,46 @@ Sideboard
     expect(diff.mainboard.cardsOut).toEqual([]);
     expect(diff.mainboard.quantityChanges).toEqual([]);
   });
+
+  // ── Bare vs composite key matching ─────────────────────────────
+
+  it('matches bare name (no set) against same card with set and collector number', () => {
+    const a = deck('1 Lightning Bolt');
+    const b = deck('1 Lightning Bolt (m10) [227]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('detects quantity change when before has bare name and after has metadata', () => {
+    const a = deck('2 Lightning Bolt');
+    const b = deck('4 Lightning Bolt (m10) [227]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([
+      expect.objectContaining({ name: 'Lightning Bolt', oldQty: 2, newQty: 4, delta: 2 }),
+    ]);
+  });
+
+  it('matches bare name against metadata in the reverse direction', () => {
+    const a = deck('1 Lightning Bolt (m10) [227]');
+    const b = deck('1 Lightning Bolt');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('keeps distinct printings separate when both sides have collector numbers', () => {
+    const a = deck('1 Nazgul (ltr) [551]\n1 Nazgul (ltr) [729]');
+    const b = deck('1 Nazgul (ltr) [551]\n2 Nazgul (ltr) [729]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([
+      expect.objectContaining({ name: 'Nazgul', oldQty: 1, newQty: 2, delta: 1 }),
+    ]);
+  });
 });
