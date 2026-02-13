@@ -206,6 +206,18 @@ export async function initDb() {
     )
   `);
 
+  // Migration: add brute-force protection columns (Phase 3)
+  try {
+    db.run('ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.run('ALTER TABLE users ADD COLUMN locked_until TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON admin_audit_log(created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');

@@ -9,6 +9,7 @@ import {
   adminSuspendUser,
   adminUnsuspendUser,
   adminForceLogout,
+  adminUnlockUser,
 } from '../../lib/api';
 
 function timeAgo(iso) {
@@ -175,6 +176,21 @@ export default function AdminUserList({ currentUserId }) {
     }
   }
 
+  async function handleUnlock(userId, username) {
+    try {
+      await adminUnlockUser(userId);
+      toast.success(`${username} unlocked`);
+      refresh();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  function isLocked(u) {
+    if (!u.locked_until) return false;
+    return new Date(u.locked_until + (u.locked_until.endsWith('Z') ? '' : 'Z')).getTime() > Date.now();
+  }
+
   const totalPages = Math.ceil(total / limit);
   const startItem = (page - 1) * limit + 1;
   const endItem = Math.min(page * limit, total);
@@ -233,6 +249,7 @@ export default function AdminUserList({ currentUserId }) {
                   <span className="admin-user-name">{u.username}</span>
                   {!!u.is_admin && <span className="admin-user-badge">Admin</span>}
                   {!!u.suspended && <span className="admin-user-badge admin-user-badge--suspended">Suspended</span>}
+                  {isLocked(u) && <span className="admin-user-badge admin-user-badge--locked">Locked</span>}
                 </div>
                 <div className="admin-user-meta">
                   {u.email ? (
@@ -274,6 +291,9 @@ export default function AdminUserList({ currentUserId }) {
                     u.suspended
                       ? <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleUnsuspend(u.id, u.username)}>Unsuspend</button>
                       : <button className="btn btn-secondary btn-sm btn-danger" type="button" onClick={() => handleSuspend(u.id, u.username)}>Suspend</button>
+                  )}
+                  {isLocked(u) && (
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleUnlock(u.id, u.username)}>Unlock</button>
                   )}
                   <button className="btn btn-secondary btn-sm btn-danger" type="button" onClick={() => handleDeleteUser(u.id, u.username)}>
                     Delete

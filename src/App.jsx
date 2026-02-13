@@ -17,13 +17,13 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.8.0';
 const WHATS_NEW = [
-  'Password complexity requirements — passwords now need uppercase, lowercase, and a digit',
-  'Session management — password changes invalidate all other sessions, JWT expiry reduced to 7 days',
-  'Email verification — verify your email address for password reset eligibility',
-  'Admin force-logout — admins can invalidate all sessions for any user',
-  'Password requirements checklist shown during registration and password changes',
+  'Security headers via helmet — Content-Security-Policy, referrer policy, and more',
+  'Input sanitization — content-type enforcement and field trimming on all API routes',
+  'Brute-force protection — accounts lock for 15 minutes after 5 failed login attempts',
+  'Admin unlock — admins can unlock locked accounts from the user management panel',
+  'Tightened rate limiting — auth endpoints reduced to 10 attempts per 15-minute window',
 ];
 
 function getResetToken() {

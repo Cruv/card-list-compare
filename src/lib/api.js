@@ -186,6 +186,9 @@ export const adminUnsuspendUser = (userId) =>
 export const adminForceLogout = (userId) =>
   apiFetch(`/admin/users/${userId}/force-logout`, { method: 'PATCH' });
 
+export const adminUnlockUser = (userId) =>
+  apiFetch(`/admin/users/${userId}/unlock`, { method: 'PATCH' });
+
 export const getAdminSettings = () => apiFetch('/admin/settings');
 
 export const updateAdminSetting = (key, value) =>

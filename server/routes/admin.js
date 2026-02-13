@@ -83,6 +83,7 @@ router.get('/users', (req, res) => {
     SELECT
       u.id, u.username, u.email, u.is_admin, u.created_at,
       u.last_login_at, u.suspended, u.email_verified,
+      u.failed_login_attempts, u.locked_until,
       COUNT(DISTINCT d.id) as tracked_deck_count,
       COUNT(DISTINCT s.id) as snapshot_count
     FROM users u
@@ -226,6 +227,21 @@ router.patch('/users/:id/force-logout', (req, res) => {
 
   run("UPDATE users SET password_changed_at = datetime('now') WHERE id = ?", [userId]);
   logAdminAction(req.user.userId, req.user.username, 'force_logout', userId, user.username, null);
+
+  res.json({ success: true });
+});
+
+// --- Unlock Account ---
+
+router.patch('/users/:id/unlock', (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  if (isNaN(userId)) return res.status(400).json({ error: 'Invalid user ID' });
+
+  const user = get('SELECT id, username, locked_until FROM users WHERE id = ?', [userId]);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  run('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', [userId]);
+  logAdminAction(req.user.userId, req.user.username, 'unlock_user', userId, user.username, null);
 
   res.json({ success: true });
 });

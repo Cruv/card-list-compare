@@ -65,13 +65,31 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(403).json({ error: 'Your account has been suspended. Contact an administrator.' });
     }
 
+    // Account lockout check
+    if (user.locked_until) {
+      const lockTime = new Date(user.locked_until + 'Z').getTime();
+      if (lockTime > Date.now()) {
+        const minutesLeft = Math.ceil((lockTime - Date.now()) / 60000);
+        return res.status(429).json({ error: `Account locked. Try again in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.` });
+      }
+      // Lock expired — reset counters
+      run('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', [user.id]);
+    }
+
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
+      const attempts = (user.failed_login_attempts || 0) + 1;
+      if (attempts >= 5) {
+        const lockUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+        run('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [attempts, lockUntil, user.id]);
+        return res.status(429).json({ error: 'Too many failed attempts. Account locked for 15 minutes.' });
+      }
+      run('UPDATE users SET failed_login_attempts = ? WHERE id = ?', [attempts, user.id]);
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
-    // Track last login time
-    run("UPDATE users SET last_login_at = datetime('now') WHERE id = ?", [user.id]);
+    // Successful login — reset lockout counters and track last login
+    run("UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?", [user.id]);
 
     const token = createToken(user);
     res.json({ token, user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin } });
@@ -234,6 +252,9 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
     }
+    if (typeof email !== 'string' || email.length > 254) {
+      return res.status(400).json({ error: 'Invalid email' });
+    }
 
     if (!isEmailConfigured()) {
       return res.status(503).json({ error: 'Email is not configured on this server. Contact your admin to reset your password.' });
@@ -267,6 +288,9 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     if (!token || !newPassword) {
       return res.status(400).json({ error: 'Token and new password are required' });
+    }
+    if (typeof token !== 'string' || token.length > 128) {
+      return res.status(400).json({ error: 'Invalid token' });
     }
     const pwError = validatePassword(newPassword);
     if (pwError) {

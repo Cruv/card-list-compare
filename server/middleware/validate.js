@@ -50,3 +50,30 @@ export function validatePassword(password) {
  * express.json({ limit }) handles this, but this is an extra safety net.
  */
 export const MAX_BODY_SIZE = '512kb';
+
+/**
+ * Reject non-JSON content types on POST/PUT/PATCH requests.
+ */
+export function requireJsonContentType(req, res, next) {
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    const ct = req.headers['content-type'] || '';
+    if (!ct.includes('application/json')) {
+      return res.status(415).json({ error: 'Content-Type must be application/json' });
+    }
+  }
+  next();
+}
+
+/**
+ * Trim whitespace from common string fields in the request body.
+ */
+export function trimBody(req, res, next) {
+  if (req.body && typeof req.body === 'object') {
+    for (const field of ['username', 'email', 'confirmUsername']) {
+      if (typeof req.body[field] === 'string') {
+        req.body[field] = req.body[field].trim();
+      }
+    }
+  }
+  next();
+}

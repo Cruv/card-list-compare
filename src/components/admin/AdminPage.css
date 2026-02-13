@@ -254,6 +254,10 @@
   vertical-align: middle;
 }
 
+.admin-user-badge--locked {
+  background: #ea580c;
+}
+
 .admin-user-meta {
   font-size: 11px;
   color: var(--text-secondary);
