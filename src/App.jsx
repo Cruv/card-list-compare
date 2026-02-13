@@ -12,24 +12,28 @@ import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
 import { collectCardNames, collectCardIdentifiers, fetchCardData } from './lib/scryfall';
-import { createShare, getShare } from './lib/api';
+import { createShare, getShare, verifyEmail } from './lib/api';
 import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 const WHATS_NEW = [
-  'Full-page admin panel with sidebar navigation — replaces the old modal overlay',
-  'User search, sort, and pagination in admin user management',
-  'Account suspension — admins can suspend/unsuspend users, blocking login and API access',
-  'Last login tracking — see when each user was last active',
-  'Admin audit log — every admin action (resets, deletions, promotions) is tracked and viewable',
-  'Enhanced dashboard with active users, suspended count, and recent activity feed',
+  'Password complexity requirements — passwords now need uppercase, lowercase, and a digit',
+  'Session management — password changes invalidate all other sessions, JWT expiry reduced to 7 days',
+  'Email verification — verify your email address for password reset eligibility',
+  'Admin force-logout — admins can invalidate all sessions for any user',
+  'Password requirements checklist shown during registration and password changes',
 ];
 
 function getResetToken() {
   const params = new URLSearchParams(window.location.search);
   return params.get('reset') || null;
+}
+
+function getVerifyToken() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('verify') || null;
 }
 
 export default function App() {
@@ -59,6 +63,23 @@ export default function App() {
       toast.info(`What's new in v${APP_VERSION}: ${WHATS_NEW[0]}, ${WHATS_NEW[1]}, and more!`, 8000);
     }, 2000);
     return () => clearTimeout(timer);
+  }, []);
+
+  // Handle email verification token from URL
+  useEffect(() => {
+    const verifyToken = getVerifyToken();
+    if (!verifyToken) return;
+    verifyEmail(verifyToken)
+      .then(() => {
+        toast.success('Email verified successfully!');
+      })
+      .catch(() => {
+        toast.error('Email verification failed — the link may be invalid or expired.');
+      })
+      .finally(() => {
+        // Clean URL
+        window.history.replaceState(null, '', window.location.pathname + window.location.hash);
+      });
   }, []);
 
   // Prompt existing users without email (once per session)

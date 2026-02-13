@@ -99,6 +99,34 @@
   margin-top: var(--space-xs);
 }
 
+.user-settings-email-status {
+  margin-top: 4px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.email-verified {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.email-unverified {
+  color: #d97706;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-theme="dark"] .email-verified {
+  color: #4ade80;
+}
+
+[data-theme="dark"] .email-unverified {
+  color: #fbbf24;
+}
+
 .user-settings-desc {
   font-size: var(--fs-sm);
   color: var(--text-muted);

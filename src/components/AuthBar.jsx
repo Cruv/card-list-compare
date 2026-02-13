@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { login, register, getRegistrationStatus } from '../lib/api';
 import { toast } from './Toast';
+import PasswordRequirements from './PasswordRequirements';
 import './AuthBar.css';
 
 export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
@@ -112,6 +113,7 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
           aria-label="Password"
           autoComplete={isRegister ? 'new-password' : 'current-password'}
         />
+        {isRegister && <PasswordRequirements password={password} />}
         <button className="auth-bar-btn auth-bar-btn--primary" type="submit" disabled={submitting}>
           {submitting ? '...' : isRegister ? 'Register' : 'Log In'}
         </button>

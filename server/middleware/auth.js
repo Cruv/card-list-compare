@@ -7,7 +7,7 @@ export function createToken(user) {
   return jwt.sign(
     { userId: user.id, username: user.username, isAdmin: !!user.is_admin },
     JWT_SECRET,
-    { expiresIn: '30d' }
+    { expiresIn: '7d' }
   );
 }
 
@@ -22,13 +22,20 @@ export function requireAuth(req, res, next) {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = { userId: payload.userId, username: payload.username, isAdmin: !!payload.isAdmin };
 
-    // Check if user account still exists and is not suspended
-    const dbUser = get('SELECT suspended FROM users WHERE id = ?', [payload.userId]);
+    // Check if user account still exists, is not suspended, and session is still valid
+    const dbUser = get('SELECT suspended, password_changed_at FROM users WHERE id = ?', [payload.userId]);
     if (!dbUser) {
       return res.status(401).json({ error: 'User not found' });
     }
     if (dbUser.suspended) {
       return res.status(403).json({ error: 'Account suspended' });
+    }
+    // Invalidate sessions issued before password change
+    if (dbUser.password_changed_at) {
+      const changedAtSeconds = Math.floor(new Date(dbUser.password_changed_at + 'Z').getTime() / 1000);
+      if (payload.iat < changedAtSeconds) {
+        return res.status(401).json({ error: 'Session invalidated — please log in again' });
+      }
     }
 
     next();

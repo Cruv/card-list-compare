@@ -70,3 +70,21 @@ export async function sendPasswordResetEmail(email, token) {
   `;
   return sendEmail(email, 'Reset your Card List Compare password', html);
 }
+
+export async function sendVerificationEmail(email, token) {
+  const verifyUrl = `${APP_URL}?verify=${token}`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+      <h2 style="color: #333;">Verify Your Email</h2>
+      <p>Please verify your email address for your Card List Compare account.</p>
+      <p>
+        <a href="${verifyUrl}" style="display: inline-block; padding: 12px 24px; background: #16a34a; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">
+          Verify Email
+        </a>
+      </p>
+      <p style="color: #666; font-size: 13px;">This link expires in 24 hours. If you didn't request this, you can safely ignore this email.</p>
+      <p style="color: #999; font-size: 11px;">Card List Compare</p>
+    </div>
+  `;
+  return sendEmail(email, 'Verify your Card List Compare email', html);
+}

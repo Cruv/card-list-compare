@@ -23,6 +23,29 @@ export function requireMaxLength(res, value, maxLength, fieldName) {
 }
 
 /**
+ * Validate password complexity.
+ * Returns null if valid, or an error message string if invalid.
+ */
+export function validatePassword(password) {
+  if (!password || typeof password !== 'string') {
+    return 'Password is required';
+  }
+  if (password.length < 8 || password.length > 128) {
+    return 'Password must be 8-128 characters';
+  }
+  if (!/[a-z]/.test(password)) {
+    return 'Password must contain at least one lowercase letter';
+  }
+  if (!/[A-Z]/.test(password)) {
+    return 'Password must contain at least one uppercase letter';
+  }
+  if (!/[0-9]/.test(password)) {
+    return 'Password must contain at least one digit';
+  }
+  return null;
+}
+
+/**
  * Limit JSON body size middleware (applied globally in index.js).
  * express.json({ limit }) handles this, but this is an extra safety net.
  */

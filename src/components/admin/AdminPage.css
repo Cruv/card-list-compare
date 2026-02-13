@@ -240,6 +240,20 @@
   background: var(--accent-red);
 }
 
+.admin-user-badge--verified {
+  background: #16a34a;
+  font-size: 9px;
+  padding: 1px 4px;
+  vertical-align: middle;
+}
+
+.admin-user-badge--unverified {
+  background: #d97706;
+  font-size: 9px;
+  padding: 1px 4px;
+  vertical-align: middle;
+}
+
 .admin-user-meta {
   font-size: 11px;
   color: var(--text-secondary);

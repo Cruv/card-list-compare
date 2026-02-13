@@ -75,6 +75,12 @@ export const deleteAccount = (confirmUsername) =>
 
 export const getEmailConfigured = () => apiFetch('/auth/email-configured');
 
+export const verifyEmail = (token) =>
+  apiFetch('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) });
+
+export const resendVerification = () =>
+  apiFetch('/auth/resend-verification', { method: 'POST' });
+
 // Owners
 export const getOwners = () => apiFetch('/owners');
 
@@ -176,6 +182,9 @@ export const adminSuspendUser = (userId) =>
 
 export const adminUnsuspendUser = (userId) =>
   apiFetch(`/admin/users/${userId}/unsuspend`, { method: 'PATCH' });
+
+export const adminForceLogout = (userId) =>
+  apiFetch(`/admin/users/${userId}/force-logout`, { method: 'PATCH' });
 
 export const getAdminSettings = () => apiFetch('/admin/settings');
 

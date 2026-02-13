@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { all, get, run, getDb } from '../db.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { validatePassword } from '../middleware/validate.js';
 
 const router = Router();
 
@@ -81,7 +82,7 @@ router.get('/users', (req, res) => {
   const users = all(`
     SELECT
       u.id, u.username, u.email, u.is_admin, u.created_at,
-      u.last_login_at, u.suspended,
+      u.last_login_at, u.suspended, u.email_verified,
       COUNT(DISTINCT d.id) as tracked_deck_count,
       COUNT(DISTINCT s.id) as snapshot_count
     FROM users u
@@ -108,12 +109,13 @@ router.post('/users/:id/reset-password', async (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   const { newPassword } = req.body;
-  if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8 || newPassword.length > 128) {
-    return res.status(400).json({ error: 'New password must be 8-128 characters' });
+  const pwError = validatePassword(newPassword);
+  if (pwError) {
+    return res.status(400).json({ error: pwError });
   }
 
   const hash = await bcrypt.hash(newPassword, 10);
-  run('UPDATE users SET password_hash = ? WHERE id = ?', [hash, userId]);
+  run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ?", [hash, userId]);
 
   logAdminAction(req.user.userId, req.user.username, 'reset_password', userId, user.username, null);
 
@@ -205,6 +207,25 @@ router.patch('/users/:id/unsuspend', (req, res) => {
 
   run('UPDATE users SET suspended = 0 WHERE id = ?', [userId]);
   logAdminAction(req.user.userId, req.user.username, 'unsuspend_user', userId, user.username, null);
+
+  res.json({ success: true });
+});
+
+// --- Force Logout ---
+
+router.patch('/users/:id/force-logout', (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  if (isNaN(userId)) return res.status(400).json({ error: 'Invalid user ID' });
+
+  if (userId === req.user.userId) {
+    return res.status(400).json({ error: 'Cannot force-logout yourself' });
+  }
+
+  const user = get('SELECT id, username FROM users WHERE id = ?', [userId]);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  run("UPDATE users SET password_changed_at = datetime('now') WHERE id = ?", [userId]);
+  logAdminAction(req.user.userId, req.user.username, 'force_logout', userId, user.username, null);
 
   res.json({ success: true });
 });

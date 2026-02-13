@@ -8,6 +8,7 @@ import {
   adminToggleAdmin,
   adminSuspendUser,
   adminUnsuspendUser,
+  adminForceLogout,
 } from '../../lib/api';
 
 function timeAgo(iso) {
@@ -159,6 +160,21 @@ export default function AdminUserList({ currentUserId }) {
     }
   }
 
+  async function handleForceLogout(userId, username) {
+    const confirmed = await confirm({
+      title: `Force logout "${username}"?`,
+      message: 'All their active sessions will be invalidated. They will need to log in again.',
+      confirmLabel: 'Force Logout',
+    });
+    if (!confirmed) return;
+    try {
+      await adminForceLogout(userId);
+      toast.success(`${username} logged out`);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
   const totalPages = Math.ceil(total / limit);
   const startItem = (page - 1) * limit + 1;
   const endItem = Math.min(page * limit, total);
@@ -219,7 +235,9 @@ export default function AdminUserList({ currentUserId }) {
                   {!!u.suspended && <span className="admin-user-badge admin-user-badge--suspended">Suspended</span>}
                 </div>
                 <div className="admin-user-meta">
-                  {u.email || 'No email'} &middot; {u.tracked_deck_count} decks &middot; {u.snapshot_count} snapshots
+                  {u.email ? (
+                    <>{u.email} {u.email_verified ? <span className="admin-user-badge admin-user-badge--verified" title="Email verified">{'\u2713'}</span> : <span className="admin-user-badge admin-user-badge--unverified" title="Email not verified">?</span>}</>
+                  ) : 'No email'} &middot; {u.tracked_deck_count} decks &middot; {u.snapshot_count} snapshots
                   <br />
                   Joined {formatDate(u.created_at)} &middot; Last login {timeAgo(u.last_login_at)}
                 </div>
@@ -245,6 +263,9 @@ export default function AdminUserList({ currentUserId }) {
                 <div className="admin-user-actions">
                   <button className="btn btn-secondary btn-sm" type="button" onClick={() => { setResetId(u.id); setResetPw(''); }}>
                     Reset PW
+                  </button>
+                  <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleForceLogout(u.id, u.username)}>
+                    Logout
                   </button>
                   <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleToggleAdmin(u.id, u.username, !!u.is_admin)}>
                     {u.is_admin ? 'Demote' : 'Promote'}

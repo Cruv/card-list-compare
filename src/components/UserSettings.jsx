@@ -7,21 +7,24 @@ import {
   getOwners, addOwner, removeOwner, getOwnerDecks,
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
-  getDeckChangelog, updateDeckCommanders,
+  getDeckChangelog, updateDeckCommanders, resendVerification,
 } from '../lib/api';
 import CopyButton from './CopyButton';
+import PasswordRequirements from './PasswordRequirements';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
 import Skeleton from './Skeleton';
 import './UserSettings.css';
 
 export default function UserSettings({ onClose }) {
-  const { user, logoutUser } = useAuth();
+  const { user, logoutUser, loginUser } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
 
   // Account info
   const [email, setEmail] = useState('');
   const [createdAt, setCreatedAt] = useState('');
   const [emailSaving, setEmailSaving] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [resending, setResending] = useState(false);
 
   // Change password
   const [currentPassword, setCurrentPassword] = useState('');
@@ -37,6 +40,7 @@ export default function UserSettings({ onClose }) {
     getMe().then(data => {
       setEmail(data.user.email || '');
       setCreatedAt(data.user.createdAt || '');
+      setEmailVerified(!!data.user.emailVerified);
     }).catch(() => {});
   }, []);
 
@@ -46,11 +50,28 @@ export default function UserSettings({ onClose }) {
     try {
       const data = await updateEmail(email.trim() || null);
       setEmail(data.user.email || '');
-      toast.success(email.trim() ? 'Email updated' : 'Email removed');
+      setEmailVerified(!!data.user.emailVerified);
+      if (email.trim()) {
+        toast.success('Email updated — check your inbox for a verification link');
+      } else {
+        toast.success('Email removed');
+      }
     } catch (err) {
       toast.error(err.message);
     } finally {
       setEmailSaving(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    setResending(true);
+    try {
+      await resendVerification();
+      toast.success('Verification email sent — check your inbox');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setResending(false);
     }
   }
 
@@ -62,7 +83,11 @@ export default function UserSettings({ onClose }) {
     }
     setPasswordSaving(true);
     try {
-      await changePassword(currentPassword, newPassword);
+      const data = await changePassword(currentPassword, newPassword);
+      // Update token so current session stays valid after password_changed_at is set
+      if (data.token) {
+        localStorage.setItem('clc-auth-token', data.token);
+      }
       toast.success('Password changed successfully');
       setCurrentPassword('');
       setNewPassword('');
@@ -135,6 +160,25 @@ export default function UserSettings({ onClose }) {
               {emailSaving ? '...' : 'Save'}
             </button>
           </div>
+          {email && (
+            <div className="user-settings-email-status">
+              {emailVerified ? (
+                <span className="email-verified">{'\u2713'} Verified</span>
+              ) : (
+                <span className="email-unverified">
+                  Not verified
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resending}
+                  >
+                    {resending ? '...' : 'Resend'}
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
         </form>
       </section>
 
@@ -163,6 +207,7 @@ export default function UserSettings({ onClose }) {
             minLength={8}
             required
           />
+          <PasswordRequirements password={newPassword} />
           <label htmlFor="settings-confirm-pw">Confirm New Password</label>
           <input
             id="settings-confirm-pw"

@@ -181,6 +181,31 @@ export async function initDb() {
     )
   `);
 
+  // Migration: add password_changed_at column to users (Phase 2 session management)
+  try {
+    db.run('ALTER TABLE users ADD COLUMN password_changed_at TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add email_verified column to users (Phase 2 email verification)
+  try {
+    db.run('ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Email verification tokens table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS email_verification_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON admin_audit_log(created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');
@@ -189,6 +214,7 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_deck_snapshots_deck ON deck_snapshots(tracked_deck_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_deck_snapshots_created ON deck_snapshots(tracked_deck_id, created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_reset_tokens_token ON password_reset_tokens(token)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_email_verify_token ON email_verification_tokens(token)');
 
   persist();
   return db;
