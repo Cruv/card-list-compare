@@ -34,6 +34,8 @@ router.get('/stats', (_req, res) => {
   const dbData = db.export();
   const dbSizeBytes = dbData.length;
 
+  const mem = process.memoryUsage();
+
   res.json({
     totalUsers: totalUsers.count,
     totalTrackedDecks: totalDecks.count,
@@ -42,6 +44,9 @@ router.get('/stats', (_req, res) => {
     suspendedUsers: suspendedUsers.count,
     recentLogins: recentLogins.count,
     dbSizeBytes,
+    uptime: Math.floor(process.uptime()),
+    memoryUsage: { rss: mem.rss, heapUsed: mem.heapUsed, heapTotal: mem.heapTotal },
+    nodeVersion: process.version,
   });
 });
 
@@ -331,6 +336,81 @@ router.get('/audit-log', (req, res) => {
   `, [...params, limit, offset]);
 
   res.json({ entries, total, page, limit });
+});
+
+// --- Database Backup ---
+
+router.get('/backup', (req, res) => {
+  const db = getDb();
+  const data = db.export();
+  const buffer = Buffer.from(data);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename = `cardlistcompare-${timestamp}.db`;
+
+  logAdminAction(req.user.userId, req.user.username, 'download_backup', null, null, `${(buffer.length / 1024).toFixed(0)} KB`);
+
+  res.set({
+    'Content-Type': 'application/octet-stream',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Content-Length': buffer.length,
+  });
+  res.send(buffer);
+});
+
+// --- Bulk Operations & Cleanup ---
+
+router.post('/bulk/suspend-all', (req, res) => {
+  const result = run('UPDATE users SET suspended = 1 WHERE is_admin = 0 AND suspended = 0');
+  logAdminAction(req.user.userId, req.user.username, 'bulk_suspend', null, null, `${result.changes} users suspended`);
+  res.json({ success: true, count: result.changes });
+});
+
+router.get('/users/export', (req, res) => {
+  const users = all(`
+    SELECT u.id, u.username, u.email, u.is_admin, u.suspended, u.email_verified,
+      u.created_at, u.last_login_at,
+      COUNT(DISTINCT d.id) as tracked_deck_count,
+      COUNT(DISTINCT s.id) as snapshot_count
+    FROM users u
+    LEFT JOIN tracked_decks d ON d.user_id = u.id
+    LEFT JOIN deck_snapshots s ON s.tracked_deck_id = d.id
+    GROUP BY u.id
+    ORDER BY u.created_at ASC
+  `);
+
+  const header = 'id,username,email,is_admin,suspended,email_verified,created_at,last_login_at,tracked_decks,snapshots';
+  const rows = users.map(u =>
+    [u.id, `"${u.username}"`, u.email ? `"${u.email}"` : '', u.is_admin, u.suspended, u.email_verified,
+     u.created_at, u.last_login_at || '', u.tracked_deck_count, u.snapshot_count].join(',')
+  );
+  const csv = [header, ...rows].join('\n');
+
+  logAdminAction(req.user.userId, req.user.username, 'export_users', null, null, `${users.length} users`);
+
+  res.set({
+    'Content-Type': 'text/csv',
+    'Content-Disposition': `attachment; filename="users-export.csv"`,
+  });
+  res.send(csv);
+});
+
+router.post('/cleanup/tokens', (req, res) => {
+  const resetResult = run('DELETE FROM password_reset_tokens WHERE used = 1 OR expires_at < datetime("now")');
+  const verifyResult = run('DELETE FROM email_verification_tokens WHERE expires_at < datetime("now")');
+  const total = resetResult.changes + verifyResult.changes;
+
+  logAdminAction(req.user.userId, req.user.username, 'cleanup_tokens', null, null, `${total} tokens removed`);
+
+  res.json({ success: true, removed: total });
+});
+
+router.post('/cleanup/audit-log', (req, res) => {
+  const days = Math.max(1, parseInt(req.body.days, 10) || 90);
+  const result = run(`DELETE FROM admin_audit_log WHERE created_at < datetime('now', '-${days} days')`);
+
+  logAdminAction(req.user.userId, req.user.username, 'cleanup_audit_log', null, null, `${result.changes} entries older than ${days}d`);
+
+  res.json({ success: true, removed: result.changes });
 });
 
 export default router;

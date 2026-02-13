@@ -17,13 +17,14 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 const WHATS_NEW = [
-  'Security headers via helmet — Content-Security-Policy, referrer policy, and more',
-  'Input sanitization — content-type enforcement and field trimming on all API routes',
-  'Brute-force protection — accounts lock for 15 minutes after 5 failed login attempts',
-  'Admin unlock — admins can unlock locked accounts from the user management panel',
-  'Tightened rate limiting — auth endpoints reduced to 10 attempts per 15-minute window',
+  'Database backup download — admins can download a full SQLite backup from the dashboard',
+  'Server health monitoring — uptime, memory usage, and Node version in admin stats (auto-refreshes)',
+  'User export — download all users as CSV from maintenance section',
+  'Token cleanup — one-click removal of expired password reset and email verification tokens',
+  'Audit log cleanup — purge old audit entries by age (configurable days)',
+  'Emergency lockdown — instantly suspend all non-admin users',
 ];
 
 function getResetToken() {

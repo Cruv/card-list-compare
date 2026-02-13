@@ -210,3 +210,55 @@ export const getAdminAuditLog = ({ page, limit, action } = {}) => {
   const qs = params.toString();
   return apiFetch(`/admin/audit-log${qs ? `?${qs}` : ''}`);
 };
+
+export async function downloadBackup() {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/admin/backup`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Backup download failed');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const disposition = res.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : 'backup.db';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadUsersExport() {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/admin/users/export`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Export failed');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'users-export.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export const adminBulkSuspend = () =>
+  apiFetch('/admin/bulk/suspend-all', { method: 'POST' });
+
+export const adminCleanupTokens = () =>
+  apiFetch('/admin/cleanup/tokens', { method: 'POST' });
+
+export const adminCleanupAuditLog = (days = 90) =>
+  apiFetch('/admin/cleanup/audit-log', { method: 'POST', body: JSON.stringify({ days }) });
