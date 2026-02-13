@@ -431,4 +431,32 @@ Sideboard
     expect(diff.mainboard.cardsOut).toEqual([]);
     expect(diff.mainboard.quantityChanges).toEqual([]);
   });
+
+  // ── Alphanumeric collector numbers (promos) ─────────────────────
+
+  it('matches promo printing with alphanumeric collector number against bare name', () => {
+    const a = deck('1 Dragon Tempest (pdtk) [136p]\n1 Sol Ring (ltc) [284]');
+    const b = deck('1 Dragon Tempest\n1 Sol Ring');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('matches bare name against promo printing with alphanumeric collector number', () => {
+    const a = deck('1 Dragon Tempest\n1 Mother of Runes');
+    const b = deck('1 Dragon Tempest (pdtk) [136p]\n1 Mother of Runes (plst) [DDO-20]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('matches multiple promo printings against bare names', () => {
+    const a = deck('1 Dragon Tempest (pdtk) [136p]\n1 Sephara, Sky\'s Blade (pm20) [36p]\n1 Nykthos, Shrine to Nyx (ppro) [2022-3]');
+    const b = deck('1 Dragon Tempest\n1 Sephara, Sky\'s Blade\n1 Nykthos, Shrine to Nyx');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+  });
 });

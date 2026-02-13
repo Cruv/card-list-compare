@@ -64,16 +64,56 @@ describe('parse()', () => {
 
   // ── Arena/MTGO format with set code + collector number ───────────
 
-  it('parses Arena format "4 Lightning Bolt (M10) 123"', () => {
+  it('parses Arena format "4 Lightning Bolt (M10) 123" with bare collector number', () => {
     const result = parse('4 Lightning Bolt (M10) 123');
-    const main = mapToObj(result.mainboard);
-    expect(main['lightning bolt']).toEqual({ displayName: 'Lightning Bolt', quantity: 4 });
+    // Arena bare collector numbers are now captured as metadata
+    const entry = result.mainboard.get('lightning bolt|123');
+    expect(entry).toBeDefined();
+    expect(entry.displayName).toBe('Lightning Bolt');
+    expect(entry.quantity).toBe(4);
+    expect(entry.setCode).toBe('M10');
+    expect(entry.collectorNumber).toBe('123');
   });
 
   it('parses Arena format with just set code "2 Counterspell (MH2)"', () => {
     const result = parse('2 Counterspell (MH2)');
     const main = mapToObj(result.mainboard);
     expect(main['counterspell'].quantity).toBe(2);
+  });
+
+  // ── Alphanumeric collector numbers (promos, special printings) ───
+
+  it('parses bracketed alphanumeric collector number "1 Dragon Tempest (pdtk) [136p]"', () => {
+    const result = parse('1 Dragon Tempest (pdtk) [136p]');
+    const entry = result.mainboard.get('dragon tempest|136p');
+    expect(entry).toBeDefined();
+    expect(entry.displayName).toBe('Dragon Tempest');
+    expect(entry.setCode).toBe('pdtk');
+    expect(entry.collectorNumber).toBe('136p');
+  });
+
+  it('parses collector number with hyphen "1 Mother of Runes (plst) [DDO-20]"', () => {
+    const result = parse('1 Mother of Runes (plst) [DDO-20]');
+    const entry = result.mainboard.get('mother of runes|DDO-20');
+    expect(entry).toBeDefined();
+    expect(entry.setCode).toBe('plst');
+    expect(entry.collectorNumber).toBe('DDO-20');
+  });
+
+  it('parses year-style collector number "1 Nykthos, Shrine to Nyx (ppro) [2022-3]"', () => {
+    const result = parse('1 Nykthos, Shrine to Nyx (ppro) [2022-3]');
+    const entry = result.mainboard.get('nykthos, shrine to nyx|2022-3');
+    expect(entry).toBeDefined();
+    expect(entry.setCode).toBe('ppro');
+    expect(entry.collectorNumber).toBe('2022-3');
+  });
+
+  it('parses bare alphanumeric collector number after set code "1x Dragon Tempest (pdtk) 136p"', () => {
+    const result = parse('1x Dragon Tempest (pdtk) 136p');
+    const entry = result.mainboard.get('dragon tempest|136p');
+    expect(entry).toBeDefined();
+    expect(entry.setCode).toBe('pdtk');
+    expect(entry.collectorNumber).toBe('136p');
   });
 
   // ── CSV format ───────────────────────────────────────────────────
@@ -366,11 +406,15 @@ Sideboard
 Sol Ring
 3 Fatal Push (MH2) 45`;
     const result = parse(text);
-    const main = mapToObj(result.mainboard);
-    expect(main['lightning bolt'].quantity).toBe(4);
-    expect(main['counterspell'].quantity).toBe(2);
-    expect(main['sol ring'].quantity).toBe(1);
-    expect(main['fatal push'].quantity).toBe(3);
+    expect(result.mainboard.get('lightning bolt').quantity).toBe(4);
+    expect(result.mainboard.get('counterspell').quantity).toBe(2);
+    expect(result.mainboard.get('sol ring').quantity).toBe(1);
+    // Fatal Push with bare collector number gets composite key
+    const fatalPush = result.mainboard.get('fatal push|45');
+    expect(fatalPush).toBeDefined();
+    expect(fatalPush.quantity).toBe(3);
+    expect(fatalPush.setCode).toBe('MH2');
+    expect(fatalPush.collectorNumber).toBe('45');
   });
 
   // ── Edge cases ───────────────────────────────────────────────────

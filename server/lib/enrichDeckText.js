@@ -89,7 +89,8 @@ export async function enrichDeckText(newText, previousText) {
   const result = [];
 
   // Regex to parse a card line: qty name (set) [num] *F*
-  const CARD_LINE_RE = /^(\d+)\s*x?\s+(.+?)(?:\s+\([A-Za-z0-9]+\))?(?:\s+\[\d+\])?(?:\s+\*F\*)?\s*$/;
+  // Collector numbers can be alphanumeric with hyphens (e.g. 136p, DDO-20, 2022-3)
+  const CARD_LINE_RE = /^(\d+)\s*x?\s+(.+?)(?:\s+\([A-Za-z0-9]+\))?(?:\s+\[[\w-]+\])?(?:\s+\*F\*)?\s*$/;
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();

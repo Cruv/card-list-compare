@@ -41,8 +41,9 @@ function parseLine(line) {
       const quantity = parseInt(match[1], 10);
       const name = normalizeName(match[2]);
       const setCode = match[3] || '';
-      const collectorNumber = match[4] || '';
-      const isFoil = !!match[5];
+      // Collector number: group 4 (bracketed) or group 5 (bare after set code)
+      const collectorNumber = match[4] || match[5] || '';
+      const isFoil = !!match[6];
       if (quantity > 0 && name.length > 0) {
         return { name, quantity, isSB, isCommander, setCode, collectorNumber, isFoil };
       }
