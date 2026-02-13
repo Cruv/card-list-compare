@@ -50,8 +50,8 @@ async function apiFetch(path, options = {}) {
 }
 
 // Auth
-export const register = (username, password) =>
-  apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) });
+export const register = (username, password, inviteCode) =>
+  apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ username, password, inviteCode: inviteCode || undefined }) });
 
 export const login = (username, password) =>
   apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
@@ -80,6 +80,15 @@ export const verifyEmail = (token) =>
 
 export const resendVerification = () =>
   apiFetch('/auth/resend-verification', { method: 'POST' });
+
+// Invites (user)
+export const createInviteCode = (maxUses) =>
+  apiFetch('/auth/invite', { method: 'POST', body: JSON.stringify({ maxUses }) });
+
+export const getMyInvites = () => apiFetch('/auth/my-invites');
+
+export const deleteInviteCode = (id) =>
+  apiFetch(`/auth/invite/${id}`, { method: 'DELETE' });
 
 // Owners
 export const getOwners = () => apiFetch('/owners');
@@ -131,6 +140,12 @@ export const createSnapshot = (deckId, deckText, nickname) =>
     method: 'POST',
     body: JSON.stringify({ deck_text: deckText, nickname }),
   });
+
+export const lockSnapshot = (deckId, snapshotId) =>
+  apiFetch(`/decks/${deckId}/snapshots/${snapshotId}/lock`, { method: 'PATCH' });
+
+export const unlockSnapshot = (deckId, snapshotId) =>
+  apiFetch(`/decks/${deckId}/snapshots/${snapshotId}/unlock`, { method: 'PATCH' });
 
 export const updateDeckCommanders = (deckId, commanders) =>
   apiFetch(`/decks/${deckId}`, {
@@ -188,6 +203,14 @@ export const adminForceLogout = (userId) =>
 
 export const adminUnlockUser = (userId) =>
   apiFetch(`/admin/users/${userId}/unlock`, { method: 'PATCH' });
+
+export const adminToggleInvite = (userId) =>
+  apiFetch(`/admin/users/${userId}/toggle-invite`, { method: 'PATCH' });
+
+export const getAdminInvites = () => apiFetch('/admin/invites');
+
+export const adminDeleteInvite = (id) =>
+  apiFetch(`/admin/invites/${id}`, { method: 'DELETE' });
 
 export const getAdminSettings = () => apiFetch('/admin/settings');
 

@@ -10,6 +10,7 @@ import {
   adminUnsuspendUser,
   adminForceLogout,
   adminUnlockUser,
+  adminToggleInvite,
 } from '../../lib/api';
 
 function timeAgo(iso) {
@@ -186,6 +187,16 @@ export default function AdminUserList({ currentUserId }) {
     }
   }
 
+  async function handleToggleInvite(userId, username, currentlyCanInvite) {
+    try {
+      await adminToggleInvite(userId);
+      toast.success(`${username} ${currentlyCanInvite ? 'can no longer' : 'can now'} generate invite codes`);
+      refresh();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
   function isLocked(u) {
     if (!u.locked_until) return false;
     return new Date(u.locked_until + (u.locked_until.endsWith('Z') ? '' : 'Z')).getTime() > Date.now();
@@ -248,6 +259,7 @@ export default function AdminUserList({ currentUserId }) {
                 <div>
                   <span className="admin-user-name">{u.username}</span>
                   {!!u.is_admin && <span className="admin-user-badge">Admin</span>}
+                  {!!u.can_invite && <span className="admin-user-badge admin-user-badge--invite">Invite</span>}
                   {!!u.suspended && <span className="admin-user-badge admin-user-badge--suspended">Suspended</span>}
                   {isLocked(u) && <span className="admin-user-badge admin-user-badge--locked">Locked</span>}
                 </div>
@@ -287,6 +299,11 @@ export default function AdminUserList({ currentUserId }) {
                   <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleToggleAdmin(u.id, u.username, !!u.is_admin)}>
                     {u.is_admin ? 'Demote' : 'Promote'}
                   </button>
+                  {!u.is_admin && (
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleToggleInvite(u.id, u.username, !!u.can_invite)}>
+                      {u.can_invite ? 'Revoke Invite' : 'Grant Invite'}
+                    </button>
+                  )}
                   {!u.is_admin && (
                     u.suspended
                       ? <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleUnsuspend(u.id, u.username)}>Unsuspend</button>

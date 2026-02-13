@@ -6,6 +6,7 @@ import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { fetchDeck } from '../lib/archidekt.js';
 import { archidektToText } from '../lib/deckToText.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
+import { pruneSnapshots } from '../lib/pruneSnapshots.js';
 
 const router = Router();
 
@@ -67,6 +68,7 @@ router.post('/', archidektLimiter, async (req, res) => {
       let enrichedText = text;
       try { enrichedText = await enrichDeckText(text, null); } catch { /* non-fatal */ }
       run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deckId, enrichedText]);
+      pruneSnapshots(deckId);
       run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), commanders = ? WHERE id = ?',
         [JSON.stringify(commanders || []), deckId]);
     } catch (fetchErr) {
@@ -112,6 +114,7 @@ router.post('/refresh-all', archidektLimiter, async (req, res) => {
         results.push({ deckId: deck.id, deckName: deck.deck_name, changed: false });
       } else {
         run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
+        pruneSnapshots(deck.id);
         // Update commanders if detected (don't blank out user-set values)
         const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
         if (cmdsJson) {
@@ -205,6 +208,7 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
     }
 
     run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
+    pruneSnapshots(deck.id);
     // Update commanders if detected (don't blank out user-set values)
     const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
     if (cmdsJson) {

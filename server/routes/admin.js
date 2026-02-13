@@ -86,7 +86,7 @@ router.get('/users', (req, res) => {
   // Fetch page of users
   const users = all(`
     SELECT
-      u.id, u.username, u.email, u.is_admin, u.created_at,
+      u.id, u.username, u.email, u.is_admin, u.can_invite, u.created_at,
       u.last_login_at, u.suspended, u.email_verified,
       u.failed_login_attempts, u.locked_until,
       COUNT(DISTINCT d.id) as tracked_deck_count,
@@ -263,7 +263,7 @@ router.get('/settings', (_req, res) => {
 });
 
 router.put('/settings/:key', (req, res) => {
-  const allowedKeys = ['registration_enabled'];
+  const allowedKeys = ['registration_enabled', 'max_snapshots_per_deck', 'max_locked_per_deck'];
   const { key } = req.params;
   const { value } = req.body;
 
@@ -272,6 +272,19 @@ router.put('/settings/:key', (req, res) => {
   }
   if (typeof value !== 'string') {
     return res.status(400).json({ error: 'Value must be a string' });
+  }
+
+  // Per-key validation
+  if (key === 'registration_enabled') {
+    if (!['open', 'invite', 'closed'].includes(value)) {
+      return res.status(400).json({ error: 'Registration mode must be open, invite, or closed' });
+    }
+  }
+  if (key === 'max_snapshots_per_deck' || key === 'max_locked_per_deck') {
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 0 || num > 1000) {
+      return res.status(400).json({ error: 'Value must be 0-1000 (0 = unlimited)' });
+    }
   }
 
   run(
@@ -357,6 +370,52 @@ router.get('/backup', (req, res) => {
   res.send(buffer);
 });
 
+// --- Invite Management ---
+
+router.patch('/users/:id/toggle-invite', (req, res) => {
+  const userId = parseInt(req.params.id, 10);
+  if (isNaN(userId)) return res.status(400).json({ error: 'Invalid user ID' });
+
+  const user = get('SELECT id, username, can_invite FROM users WHERE id = ?', [userId]);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+
+  const newStatus = user.can_invite ? 0 : 1;
+  run('UPDATE users SET can_invite = ? WHERE id = ?', [newStatus, userId]);
+
+  const action = newStatus ? 'Granted invite permission' : 'Revoked invite permission';
+  logAdminAction(req.user.userId, req.user.username, 'toggle_invite', userId, user.username, action);
+
+  res.json({ success: true, canInvite: !!newStatus });
+});
+
+router.get('/invites', (_req, res) => {
+  const invites = all(`
+    SELECT ic.*, u.username as creator_username
+    FROM invite_codes ic
+    JOIN users u ON ic.created_by_user_id = u.id
+    ORDER BY ic.created_at DESC
+  `);
+  res.json({ invites });
+});
+
+router.delete('/invites/:id', (req, res) => {
+  const inviteId = parseInt(req.params.id, 10);
+  if (isNaN(inviteId)) return res.status(400).json({ error: 'Invalid invite ID' });
+
+  const invite = get(`
+    SELECT ic.id, ic.code, u.username as creator_username
+    FROM invite_codes ic
+    JOIN users u ON ic.created_by_user_id = u.id
+    WHERE ic.id = ?
+  `, [inviteId]);
+  if (!invite) return res.status(404).json({ error: 'Invite code not found' });
+
+  logAdminAction(req.user.userId, req.user.username, 'delete_invite', null, invite.creator_username, `Code: ${invite.code}`);
+
+  run('DELETE FROM invite_codes WHERE id = ?', [inviteId]);
+  res.json({ success: true });
+});
+
 // --- Bulk Operations & Cleanup ---
 
 router.post('/bulk/suspend-all', (req, res) => {
@@ -367,7 +426,7 @@ router.post('/bulk/suspend-all', (req, res) => {
 
 router.get('/users/export', (req, res) => {
   const users = all(`
-    SELECT u.id, u.username, u.email, u.is_admin, u.suspended, u.email_verified,
+    SELECT u.id, u.username, u.email, u.is_admin, u.can_invite, u.suspended, u.email_verified,
       u.created_at, u.last_login_at,
       COUNT(DISTINCT d.id) as tracked_deck_count,
       COUNT(DISTINCT s.id) as snapshot_count

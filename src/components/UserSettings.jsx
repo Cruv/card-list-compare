@@ -8,6 +8,8 @@ import {
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
   getDeckChangelog, updateDeckCommanders, resendVerification,
+  lockSnapshot, unlockSnapshot,
+  createInviteCode, getMyInvites, deleteInviteCode,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -19,6 +21,9 @@ export default function UserSettings() {
   const { user, logoutUser, loginUser } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
   const [activeTab, setActiveTab] = useState('account');
+
+  // User capabilities
+  const [canInvite, setCanInvite] = useState(false);
 
   // Account info
   const [email, setEmail] = useState('');
@@ -42,6 +47,7 @@ export default function UserSettings() {
       setEmail(data.user.email || '');
       setCreatedAt(data.user.createdAt || '');
       setEmailVerified(!!data.user.emailVerified);
+      setCanInvite(!!data.user.canInvite);
     }).catch(() => {});
   }, []);
 
@@ -152,6 +158,15 @@ export default function UserSettings() {
           >
             Deck Tracker
           </button>
+          {(canInvite || user?.isAdmin) && (
+            <button
+              className={`user-settings-tab${activeTab === 'invites' ? ' user-settings-tab--active' : ''}`}
+              onClick={() => setActiveTab('invites')}
+              type="button"
+            >
+              Invites
+            </button>
+          )}
         </nav>
 
       {activeTab === 'account' && (
@@ -285,6 +300,12 @@ export default function UserSettings() {
         </div>
       )}
 
+      {activeTab === 'invites' && (canInvite || user?.isAdmin) && (
+        <div className="user-settings-panel">
+          <InviteManagement />
+        </div>
+      )}
+
       </div>
     </div>
   );
@@ -302,6 +323,10 @@ function DeckTrackerSettings({ confirm }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
+
+  // Search + collapse state
+  const [deckSearch, setDeckSearch] = useState('');
+  const [collapsedOwners, setCollapsedOwners] = useState(new Set());
 
   // Per-deck expanded snapshots
   const [expandedDeckId, setExpandedDeckId] = useState(null);
@@ -322,6 +347,42 @@ function DeckTrackerSettings({ confirm }) {
   const [compareMode, setCompareMode] = useState(false);
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
+
+  // Group decks by owner
+  const decksByOwner = useMemo(() => {
+    const groups = new Map();
+    for (const deck of trackedDecks) {
+      const owner = deck.archidekt_username || 'Unknown';
+      if (!groups.has(owner)) groups.set(owner, []);
+      groups.get(owner).push(deck);
+    }
+    // Sort by owner name alphabetically
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [trackedDecks]);
+
+  // Filter by search
+  const filteredDecksByOwner = useMemo(() => {
+    const term = deckSearch.trim().toLowerCase();
+    if (!term) return decksByOwner;
+    return decksByOwner
+      .map(([owner, decks]) => {
+        const filtered = decks.filter(d =>
+          d.deck_name.toLowerCase().includes(term) ||
+          owner.toLowerCase().includes(term)
+        );
+        return [owner, filtered];
+      })
+      .filter(([, decks]) => decks.length > 0);
+  }, [decksByOwner, deckSearch]);
+
+  function toggleOwnerCollapse(owner) {
+    setCollapsedOwners(prev => {
+      const next = new Set(prev);
+      if (next.has(owner)) next.delete(owner);
+      else next.add(owner);
+      return next;
+    });
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -555,6 +616,22 @@ function DeckTrackerSettings({ confirm }) {
     }
   }
 
+  async function handleToggleLock(deckId, snapshotId, isLocked) {
+    try {
+      if (isLocked) {
+        await unlockSnapshot(deckId, snapshotId);
+        toast.success('Snapshot unlocked');
+      } else {
+        await lockSnapshot(deckId, snapshotId);
+        toast.success('Snapshot locked — it will be protected from auto-pruning');
+      }
+      const data = await getDeckSnapshots(deckId);
+      setDeckSnapshots(data.snapshots);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
   async function handleSaveNickname(deckId, snapshotId) {
     try {
       await renameSnapshot(deckId, snapshotId, nicknameValue || null);
@@ -664,197 +741,104 @@ function DeckTrackerSettings({ confirm }) {
               {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.length})`}
             </button>
           </div>
-          {trackedDecks.map(deck => {
-            let deckCommanders = [];
-            try { deckCommanders = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
+
+          {/* Search filter */}
+          {trackedDecks.length > 3 && (
+            <div className="settings-tracker-search">
+              <input
+                className="settings-tracker-search-input"
+                type="text"
+                placeholder="Filter decks..."
+                value={deckSearch}
+                onChange={e => setDeckSearch(e.target.value)}
+                aria-label="Filter tracked decks"
+              />
+              {deckSearch && (
+                <button
+                  className="settings-tracker-search-clear"
+                  onClick={() => setDeckSearch('')}
+                  type="button"
+                  aria-label="Clear search"
+                >
+                  &times;
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Owner groups */}
+          {filteredDecksByOwner.length === 0 && deckSearch.trim() && (
+            <p className="settings-tracker-empty">No decks matching "{deckSearch}"</p>
+          )}
+
+          {filteredDecksByOwner.map(([ownerName, decks]) => {
+            const isSearchActive = deckSearch.trim().length > 0;
+            const isCollapsed = !isSearchActive && collapsedOwners.has(ownerName);
 
             return (
-            <div key={deck.id} className="settings-tracker-deck">
-              <div className="settings-tracker-deck-header">
+              <div key={ownerName} className="settings-tracker-owner-group">
                 <button
-                  className="settings-tracker-deck-name"
-                  onClick={() => handleExpandDeckSnapshots(deck.id)}
+                  className="settings-tracker-owner-group-header"
+                  onClick={() => toggleOwnerCollapse(ownerName)}
                   type="button"
-                  aria-expanded={expandedDeckId === deck.id}
+                  aria-expanded={!isCollapsed}
                 >
-                  {expandedDeckId === deck.id ? '\u25BC' : '\u25B6'} {deck.deck_name}
+                  <span className="settings-tracker-owner-group-arrow">{isCollapsed ? '\u25B6' : '\u25BC'}</span>
+                  <span className="settings-tracker-owner-group-name">{ownerName}</span>
+                  <span className="settings-tracker-owner-group-count">{decks.length}</span>
                 </button>
-                <span className="settings-tracker-deck-meta">
-                  {deck.archidekt_username} &middot; {deck.snapshot_count} snapshot{deck.snapshot_count !== 1 ? 's' : ''}
-                </span>
-                <div className="settings-tracker-deck-actions">
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => handleRefreshDeck(deck.id)}
-                    disabled={refreshingDeck === deck.id}
-                    type="button"
-                  >
-                    {refreshingDeck === deck.id ? '...' : 'Refresh'}
-                  </button>
-                  <button
-                    className="btn btn-secondary btn-sm btn-danger"
-                    onClick={() => handleUntrackDeck(deck.id)}
-                    type="button"
-                  >
-                    Untrack
-                  </button>
-                </div>
-              </div>
-              <div className="settings-tracker-deck-commanders">
-                {editingCommanderDeckId === deck.id ? (
-                  <div className="settings-tracker-commander-edit">
-                    <input
-                      type="text"
-                      value={commanderValue}
-                      onChange={e => setCommanderValue(e.target.value)}
-                      placeholder="Commander name(s), comma-separated"
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') handleSaveCommanders(deck.id);
-                        if (e.key === 'Escape') setEditingCommanderDeckId(null);
-                      }}
-                      disabled={savingCommander}
-                      autoFocus
-                    />
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => handleSaveCommanders(deck.id)}
-                      disabled={savingCommander}
-                      type="button"
-                    >
-                      {savingCommander ? '...' : 'Save'}
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => setEditingCommanderDeckId(null)}
-                      type="button"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <div className="settings-tracker-commander-display">
-                    {deckCommanders.length > 0 ? (
-                      <span className="settings-tracker-commander-names">
-                        {deckCommanders.join(' / ')}
-                      </span>
-                    ) : (
-                      <span className="settings-tracker-commander-warn">No commander set</span>
-                    )}
-                    <button
-                      className="settings-tracker-commander-edit-btn"
-                      onClick={() => {
-                        setEditingCommanderDeckId(deck.id);
-                        setCommanderValue(deckCommanders.join(', '));
-                      }}
-                      type="button"
-                      title="Edit commander(s)"
-                    >
-                      &#9998;
-                    </button>
+                {!isCollapsed && (
+                  <div className="settings-tracker-owner-group-decks">
+                    {decks.map(deck => {
+                      let deckCommanders = [];
+                      try { deckCommanders = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
+
+                      return (
+                        <DeckCard
+                          key={deck.id}
+                          deck={deck}
+                          deckCommanders={deckCommanders}
+                          expandedDeckId={expandedDeckId}
+                          handleExpandDeckSnapshots={handleExpandDeckSnapshots}
+                          handleRefreshDeck={handleRefreshDeck}
+                          refreshingDeck={refreshingDeck}
+                          handleUntrackDeck={handleUntrackDeck}
+                          editingCommanderDeckId={editingCommanderDeckId}
+                          setEditingCommanderDeckId={setEditingCommanderDeckId}
+                          commanderValue={commanderValue}
+                          setCommanderValue={setCommanderValue}
+                          handleSaveCommanders={handleSaveCommanders}
+                          savingCommander={savingCommander}
+                          handleViewChangelog={handleViewChangelog}
+                          compareMode={compareMode}
+                          setCompareMode={setCompareMode}
+                          changelogDeckId={changelogDeckId}
+                          setChangelogDeckId={setChangelogDeckId}
+                          changelog={changelog}
+                          setChangelog={setChangelog}
+                          compareA={compareA}
+                          setCompareA={setCompareA}
+                          compareB={compareB}
+                          setCompareB={setCompareB}
+                          handleCompareSnapshots={handleCompareSnapshots}
+                          deckSnapshots={deckSnapshots}
+                          snapshotsLoading={snapshotsLoading}
+                          editingNickname={editingNickname}
+                          setEditingNickname={setEditingNickname}
+                          nicknameValue={nicknameValue}
+                          setNicknameValue={setNicknameValue}
+                          handleSaveNickname={handleSaveNickname}
+                          handleDeleteSnapshot={handleDeleteSnapshot}
+                          handleToggleLock={handleToggleLock}
+                          formatDate={formatDate}
+                        />
+                      );
+                    })}
                   </div>
                 )}
               </div>
-
-              {expandedDeckId === deck.id && (
-                <div className="settings-tracker-snapshots">
-                  <div className="settings-tracker-changelog-actions">
-                    <button className="btn btn-primary btn-sm" onClick={() => handleViewChangelog(deck.id)} type="button">
-                      View Latest Changelog
-                    </button>
-                    <button
-                      className={`btn btn-secondary btn-sm${compareMode && changelogDeckId === deck.id ? ' btn--active' : ''}`}
-                      onClick={() => { setCompareMode(!compareMode); setChangelog(null); setChangelogDeckId(deck.id); setCompareA(''); setCompareB(''); }}
-                      type="button"
-                    >
-                      Compare...
-                    </button>
-                    {deck.deck_url && (
-                      <a href={deck.deck_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
-                        Archidekt
-                      </a>
-                    )}
-                  </div>
-
-                  {compareMode && changelogDeckId === deck.id && (
-                    <div className="settings-tracker-compare">
-                      <select value={compareA} onChange={e => setCompareA(e.target.value)} aria-label="Select older snapshot">
-                        <option value="">Before (older)...</option>
-                        {deckSnapshots.map(s => (
-                          <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}</option>
-                        ))}
-                      </select>
-                      <select value={compareB} onChange={e => setCompareB(e.target.value)} aria-label="Select newer snapshot">
-                        <option value="">After (newer)...</option>
-                        {deckSnapshots.map(s => (
-                          <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}</option>
-                        ))}
-                      </select>
-                      <button className="btn btn-primary btn-sm" onClick={() => handleCompareSnapshots(deck.id)} disabled={!compareA || !compareB} type="button">
-                        Compare
-                      </button>
-                    </div>
-                  )}
-
-                  {changelog && changelogDeckId === deck.id && (
-                    <SettingsChangelogDisplay changelog={changelog} />
-                  )}
-
-                  {snapshotsLoading ? (
-                    <Skeleton lines={3} />
-                  ) : deckSnapshots.length === 0 ? (
-                    <p className="settings-tracker-empty">No snapshots yet. Click Refresh to fetch the current list.</p>
-                  ) : (
-                    <ul className="settings-tracker-snap-list">
-                      {deckSnapshots.map(snap => (
-                        <li key={snap.id} className="settings-tracker-snap">
-                          <div className="settings-tracker-snap-info">
-                            {editingNickname === snap.id ? (
-                              <span className="settings-tracker-snap-edit">
-                                <input
-                                  type="text"
-                                  value={nicknameValue}
-                                  onChange={e => setNicknameValue(e.target.value)}
-                                  placeholder="Nickname (optional)"
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') handleSaveNickname(deck.id, snap.id);
-                                    if (e.key === 'Escape') setEditingNickname(null);
-                                  }}
-                                  autoFocus
-                                />
-                                <button className="btn btn-primary btn-sm" onClick={() => handleSaveNickname(deck.id, snap.id)} type="button">Save</button>
-                                <button className="btn btn-secondary btn-sm" onClick={() => setEditingNickname(null)} type="button">Cancel</button>
-                              </span>
-                            ) : (
-                              <>
-                                <span className="settings-tracker-snap-date">{formatDate(snap.created_at)}</span>
-                                {snap.nickname && <span className="settings-tracker-snap-nick">{snap.nickname}</span>}
-                              </>
-                            )}
-                          </div>
-                          <div className="settings-tracker-snap-actions">
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              onClick={() => { setEditingNickname(snap.id); setNicknameValue(snap.nickname || ''); }}
-                              type="button"
-                            >
-                              {snap.nickname ? 'Rename' : 'Nickname'}
-                            </button>
-                            <button
-                              className="btn btn-secondary btn-sm btn-danger"
-                              onClick={() => handleDeleteSnapshot(deck.id, snap.id)}
-                              type="button"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </div>
-          );})}
+            );
+          })}
         </div>
       )}
 
@@ -863,6 +847,357 @@ function DeckTrackerSettings({ confirm }) {
           No tracked users yet. Enter an Archidekt username above to start tracking their decks.
         </p>
       )}
+    </div>
+  );
+}
+
+// --- Deck Card (extracted for owner-group rendering) ---
+
+function DeckCard({
+  deck, deckCommanders,
+  expandedDeckId, handleExpandDeckSnapshots,
+  handleRefreshDeck, refreshingDeck,
+  handleUntrackDeck,
+  editingCommanderDeckId, setEditingCommanderDeckId,
+  commanderValue, setCommanderValue,
+  handleSaveCommanders, savingCommander,
+  handleViewChangelog,
+  compareMode, setCompareMode,
+  changelogDeckId, setChangelogDeckId,
+  changelog, setChangelog,
+  compareA, setCompareA,
+  compareB, setCompareB,
+  handleCompareSnapshots,
+  deckSnapshots, snapshotsLoading,
+  editingNickname, setEditingNickname,
+  nicknameValue, setNicknameValue,
+  handleSaveNickname,
+  handleDeleteSnapshot,
+  handleToggleLock,
+  formatDate,
+}) {
+  return (
+    <div className="settings-tracker-deck">
+      <div className="settings-tracker-deck-header">
+        <button
+          className="settings-tracker-deck-name"
+          onClick={() => handleExpandDeckSnapshots(deck.id)}
+          type="button"
+          aria-expanded={expandedDeckId === deck.id}
+        >
+          {expandedDeckId === deck.id ? '\u25BC' : '\u25B6'} {deck.deck_name}
+        </button>
+        <span className="settings-tracker-deck-meta">
+          {deck.snapshot_count} snapshot{deck.snapshot_count !== 1 ? 's' : ''}
+        </span>
+        <div className="settings-tracker-deck-actions">
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => handleRefreshDeck(deck.id)}
+            disabled={refreshingDeck === deck.id}
+            type="button"
+          >
+            {refreshingDeck === deck.id ? '...' : 'Refresh'}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm btn-danger"
+            onClick={() => handleUntrackDeck(deck.id)}
+            type="button"
+          >
+            Untrack
+          </button>
+        </div>
+      </div>
+      <div className="settings-tracker-deck-commanders">
+        {editingCommanderDeckId === deck.id ? (
+          <div className="settings-tracker-commander-edit">
+            <input
+              type="text"
+              value={commanderValue}
+              onChange={e => setCommanderValue(e.target.value)}
+              placeholder="Commander name(s), comma-separated"
+              onKeyDown={e => {
+                if (e.key === 'Enter') handleSaveCommanders(deck.id);
+                if (e.key === 'Escape') setEditingCommanderDeckId(null);
+              }}
+              disabled={savingCommander}
+              autoFocus
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => handleSaveCommanders(deck.id)}
+              disabled={savingCommander}
+              type="button"
+            >
+              {savingCommander ? '...' : 'Save'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setEditingCommanderDeckId(null)}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="settings-tracker-commander-display">
+            {deckCommanders.length > 0 ? (
+              <span className="settings-tracker-commander-names">
+                {deckCommanders.join(' / ')}
+              </span>
+            ) : (
+              <span className="settings-tracker-commander-warn">No commander set</span>
+            )}
+            <button
+              className="settings-tracker-commander-edit-btn"
+              onClick={() => {
+                setEditingCommanderDeckId(deck.id);
+                setCommanderValue(deckCommanders.join(', '));
+              }}
+              type="button"
+              title="Edit commander(s)"
+            >
+              &#9998;
+            </button>
+          </div>
+        )}
+      </div>
+
+      {expandedDeckId === deck.id && (
+        <div className="settings-tracker-snapshots">
+          <div className="settings-tracker-changelog-actions">
+            <button className="btn btn-primary btn-sm" onClick={() => handleViewChangelog(deck.id)} type="button">
+              View Latest Changelog
+            </button>
+            <button
+              className={`btn btn-secondary btn-sm${compareMode && changelogDeckId === deck.id ? ' btn--active' : ''}`}
+              onClick={() => { setCompareMode(!compareMode); setChangelog(null); setChangelogDeckId(deck.id); setCompareA(''); setCompareB(''); }}
+              type="button"
+            >
+              Compare...
+            </button>
+            {deck.deck_url && (
+              <a href={deck.deck_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
+                Archidekt
+              </a>
+            )}
+          </div>
+
+          {compareMode && changelogDeckId === deck.id && (
+            <div className="settings-tracker-compare">
+              <select value={compareA} onChange={e => setCompareA(e.target.value)} aria-label="Select older snapshot">
+                <option value="">Before (older)...</option>
+                {deckSnapshots.map(s => (
+                  <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}</option>
+                ))}
+              </select>
+              <select value={compareB} onChange={e => setCompareB(e.target.value)} aria-label="Select newer snapshot">
+                <option value="">After (newer)...</option>
+                {deckSnapshots.map(s => (
+                  <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}</option>
+                ))}
+              </select>
+              <button className="btn btn-primary btn-sm" onClick={() => handleCompareSnapshots(deck.id)} disabled={!compareA || !compareB} type="button">
+                Compare
+              </button>
+            </div>
+          )}
+
+          {changelog && changelogDeckId === deck.id && (
+            <SettingsChangelogDisplay changelog={changelog} />
+          )}
+
+          {snapshotsLoading ? (
+            <Skeleton lines={3} />
+          ) : deckSnapshots.length === 0 ? (
+            <p className="settings-tracker-empty">No snapshots yet. Click Refresh to fetch the current list.</p>
+          ) : (
+            <ul className="settings-tracker-snap-list">
+              {deckSnapshots.map(snap => (
+                <li key={snap.id} className={`settings-tracker-snap${snap.locked ? ' settings-tracker-snap--locked' : ''}`}>
+                  <div className="settings-tracker-snap-info">
+                    {editingNickname === snap.id ? (
+                      <span className="settings-tracker-snap-edit">
+                        <input
+                          type="text"
+                          value={nicknameValue}
+                          onChange={e => setNicknameValue(e.target.value)}
+                          placeholder="Nickname (optional)"
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSaveNickname(deck.id, snap.id);
+                            if (e.key === 'Escape') setEditingNickname(null);
+                          }}
+                          autoFocus
+                        />
+                        <button className="btn btn-primary btn-sm" onClick={() => handleSaveNickname(deck.id, snap.id)} type="button">Save</button>
+                        <button className="btn btn-secondary btn-sm" onClick={() => setEditingNickname(null)} type="button">Cancel</button>
+                      </span>
+                    ) : (
+                      <>
+                        <span className="settings-tracker-snap-date">{formatDate(snap.created_at)}</span>
+                        {snap.nickname && <span className="settings-tracker-snap-nick">{snap.nickname}</span>}
+                      </>
+                    )}
+                  </div>
+                  <div className="settings-tracker-snap-actions">
+                    <button
+                      className="settings-tracker-lock-btn"
+                      onClick={() => handleToggleLock(deck.id, snap.id, !!snap.locked)}
+                      type="button"
+                      title={snap.locked ? 'Unlock snapshot (allow auto-pruning)' : 'Lock snapshot (prevent auto-pruning)'}
+                    >
+                      {snap.locked ? '\uD83D\uDD12' : '\uD83D\uDD13'}
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => { setEditingNickname(snap.id); setNicknameValue(snap.nickname || ''); }}
+                      type="button"
+                    >
+                      {snap.nickname ? 'Rename' : 'Nickname'}
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm btn-danger"
+                      onClick={() => handleDeleteSnapshot(deck.id, snap.id)}
+                      type="button"
+                      disabled={!!snap.locked}
+                      title={snap.locked ? 'Unlock to delete' : 'Delete snapshot'}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Invite Code Management ---
+
+function InviteManagement() {
+  const [invites, setInvites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [maxUses, setMaxUses] = useState(1);
+  const [creating, setCreating] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const data = await getMyInvites();
+      setInvites(data.invites);
+    } catch {
+      toast.error('Failed to load invite codes');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function handleCreate(e) {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      await createInviteCode(maxUses);
+      toast.success('Invite code created');
+      await refresh();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleDelete(id) {
+    try {
+      await deleteInviteCode(id);
+      toast.success('Invite code deleted');
+      await refresh();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  function handleCopy(code, id) {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    return new Date(iso + 'Z').toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+  }
+
+  return (
+    <div className="settings-invites">
+      <section className="user-settings-section" style={{ borderTop: 'none' }}>
+        <h3>Invite Codes</h3>
+        <p className="user-settings-desc">
+          Create invite codes to share with others. Each code can be used a limited number of times.
+        </p>
+
+        <form className="settings-invite-create" onSubmit={handleCreate}>
+          <label htmlFor="invite-max-uses">Max uses:</label>
+          <select
+            id="invite-max-uses"
+            value={maxUses}
+            onChange={e => setMaxUses(parseInt(e.target.value, 10))}
+            disabled={creating}
+          >
+            <option value={1}>1</option>
+            <option value={3}>3</option>
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+          <button className="btn btn-primary btn-sm" type="submit" disabled={creating}>
+            {creating ? '...' : 'Create Code'}
+          </button>
+        </form>
+
+        {loading ? (
+          <p className="settings-tracker-empty">Loading...</p>
+        ) : invites.length === 0 ? (
+          <p className="settings-tracker-empty">No invite codes yet. Create one above.</p>
+        ) : (
+          <ul className="settings-invite-list">
+            {invites.map(inv => (
+              <li key={inv.id} className="settings-invite-item">
+                <div className="settings-invite-info">
+                  <code className="settings-invite-code">{inv.code}</code>
+                  <button
+                    className="settings-invite-copy"
+                    onClick={() => handleCopy(inv.code, inv.id)}
+                    type="button"
+                    title="Copy code"
+                  >
+                    {copiedId === inv.id ? '\u2713' : 'Copy'}
+                  </button>
+                  <span className="settings-invite-usage">
+                    {inv.use_count}/{inv.max_uses > 0 ? inv.max_uses : '\u221E'} used
+                  </span>
+                  <span className="settings-invite-date">{formatDate(inv.created_at)}</span>
+                </div>
+                <button
+                  className="btn btn-secondary btn-sm btn-danger"
+                  onClick={() => handleDelete(inv.id)}
+                  type="button"
+                >
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

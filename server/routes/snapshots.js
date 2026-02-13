@@ -5,6 +5,7 @@ import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { parse } from '../../src/lib/parser.js';
 import { computeDiff } from '../../src/lib/differ.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
+import { pruneSnapshots } from '../lib/pruneSnapshots.js';
 
 const router = Router();
 
@@ -52,6 +53,7 @@ router.post('/:deckId/snapshots', async (req, res) => {
     'INSERT INTO deck_snapshots (tracked_deck_id, deck_text, nickname) VALUES (?, ?, ?)',
     [deck.id, enrichedText, nickname?.trim() || null]
   );
+  pruneSnapshots(deck.id);
 
   // Backfill commanders if the deck doesn't have any set
   if (!deck.commanders || deck.commanders === '[]') {
@@ -77,7 +79,7 @@ router.get('/:deckId/snapshots', (req, res) => {
   if (!deck) return;
 
   const snapshots = all(
-    'SELECT id, nickname, created_at FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC',
+    'SELECT id, nickname, locked, created_at FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC',
     [deck.id]
   );
 
@@ -111,6 +113,9 @@ router.delete('/:deckId/snapshots/:snapshotId', (req, res) => {
   if (!snapshot) {
     return res.status(404).json({ error: 'Snapshot not found' });
   }
+  if (snapshot.locked) {
+    return res.status(400).json({ error: 'Cannot delete a locked snapshot. Unlock it first.' });
+  }
 
   run('DELETE FROM deck_snapshots WHERE id = ?', [snapshotId]);
   res.json({ success: true });
@@ -135,6 +140,56 @@ router.patch('/:deckId/snapshots/:snapshotId', (req, res) => {
   }
 
   run('UPDATE deck_snapshots SET nickname = ? WHERE id = ?', [nickname?.trim() || null, snapshotId]);
+  res.json({ success: true });
+});
+
+// Lock a snapshot (prevent auto-pruning and deletion)
+router.patch('/:deckId/snapshots/:snapshotId/lock', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+  const snapshotId = requireIntParam(req, res, 'snapshotId');
+  if (snapshotId === null) return;
+
+  const snapshot = get('SELECT * FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
+    [snapshotId, deck.id]);
+  if (!snapshot) {
+    return res.status(404).json({ error: 'Snapshot not found' });
+  }
+  if (snapshot.locked) {
+    return res.json({ success: true }); // Already locked
+  }
+
+  // Check lock limit
+  const lockSetting = get("SELECT value FROM server_settings WHERE key = 'max_locked_per_deck'");
+  const maxLocked = parseInt(lockSetting?.value, 10) || 5;
+  if (maxLocked > 0) {
+    const lockedCount = get(
+      'SELECT COUNT(*) as count FROM deck_snapshots WHERE tracked_deck_id = ? AND locked = 1',
+      [deck.id]
+    );
+    if (lockedCount.count >= maxLocked) {
+      return res.status(400).json({ error: `Lock limit reached (${maxLocked} per deck). Unlock another snapshot first.` });
+    }
+  }
+
+  run('UPDATE deck_snapshots SET locked = 1 WHERE id = ?', [snapshotId]);
+  res.json({ success: true });
+});
+
+// Unlock a snapshot
+router.patch('/:deckId/snapshots/:snapshotId/unlock', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+  const snapshotId = requireIntParam(req, res, 'snapshotId');
+  if (snapshotId === null) return;
+
+  const snapshot = get('SELECT * FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
+    [snapshotId, deck.id]);
+  if (!snapshot) {
+    return res.status(404).json({ error: 'Snapshot not found' });
+  }
+
+  run('UPDATE deck_snapshots SET locked = 0 WHERE id = ?', [snapshotId]);
   res.json({ success: true });
 });
 

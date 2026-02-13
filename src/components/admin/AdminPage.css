@@ -291,6 +291,11 @@
   color: #ea580c;
 }
 
+.admin-user-badge--invite {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+}
+
 .admin-user-meta {
   font-size: var(--fs-xs);
   color: var(--text-secondary);
@@ -574,6 +579,84 @@
   margin-top: var(--space-md);
   padding-top: var(--space-md);
   border-top: 1px solid var(--border-color);
+}
+
+/* Setting Number Input */
+.admin-setting-number {
+  width: 80px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--fs-base);
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.admin-setting-number:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: var(--focus-ring);
+}
+
+/* Admin Invite List */
+.admin-invite-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.admin-invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.admin-invite-row:last-child {
+  border-bottom: none;
+}
+
+.admin-invite-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.admin-invite-code {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius);
+  letter-spacing: 0.5px;
+}
+
+.admin-invite-usage {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.admin-invite-creator {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.admin-invite-date {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.admin-invite-actions {
+  flex-shrink: 0;
 }
 
 /* ── Responsive ──────────────────────────────────────── */

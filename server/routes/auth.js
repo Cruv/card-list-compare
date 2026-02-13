@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { get, run } from '../db.js';
+import { get, run, all } from '../db.js';
 import { createToken, requireAuth } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { validatePassword } from '../middleware/validate.js';
@@ -11,13 +11,18 @@ const router = Router();
 
 router.post('/register', authLimiter, async (req, res) => {
   try {
-    // Check if registration is enabled
+    // Check registration mode
     const regSetting = get("SELECT value FROM server_settings WHERE key = 'registration_enabled'");
-    if (regSetting && regSetting.value === 'false') {
+    const mode = regSetting?.value || 'open';
+
+    // Backward compat: 'false' → closed, 'true' → open
+    const normalizedMode = mode === 'false' ? 'closed' : mode === 'true' ? 'open' : mode;
+
+    if (normalizedMode === 'closed') {
       return res.status(403).json({ error: 'Registration is currently disabled. Contact an admin for an account.' });
     }
 
-    const { username, password } = req.body;
+    const { username, password, inviteCode } = req.body;
 
     if (!username || typeof username !== 'string' || username.trim().length < 3 || username.trim().length > 30) {
       return res.status(400).json({ error: 'Username must be 3-30 characters' });
@@ -30,6 +35,27 @@ router.post('/register', authLimiter, async (req, res) => {
       return res.status(400).json({ error: pwError });
     }
 
+    // Validate invite code if in invite mode
+    let invite = null;
+    if (normalizedMode === 'invite') {
+      if (!inviteCode || typeof inviteCode !== 'string' || !inviteCode.trim()) {
+        return res.status(400).json({ error: 'An invite code is required to register' });
+      }
+      invite = get('SELECT * FROM invite_codes WHERE code = ?', [inviteCode.trim()]);
+      if (!invite) {
+        return res.status(400).json({ error: 'Invalid invite code' });
+      }
+      if (invite.max_uses > 0 && invite.use_count >= invite.max_uses) {
+        return res.status(400).json({ error: 'This invite code has been fully used' });
+      }
+      if (invite.expires_at) {
+        const expiresAt = new Date(invite.expires_at + 'Z').getTime();
+        if (expiresAt < Date.now()) {
+          return res.status(400).json({ error: 'This invite code has expired' });
+        }
+      }
+    }
+
     const existing = get('SELECT id FROM users WHERE username = ?', [username.trim()]);
     if (existing) {
       return res.status(409).json({ error: 'Username already taken' });
@@ -37,6 +63,13 @@ router.post('/register', authLimiter, async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const result = run('INSERT INTO users (username, password_hash) VALUES (?, ?)', [username.trim(), hash]);
+
+    // Track invite redemption
+    if (invite) {
+      run('UPDATE invite_codes SET use_count = use_count + 1 WHERE id = ?', [invite.id]);
+      run('INSERT INTO invite_redemptions (invite_code_id, user_id) VALUES (?, ?)',
+        [invite.id, result.lastInsertRowid]);
+    }
 
     const user = { id: result.lastInsertRowid, username: username.trim(), is_admin: 0 };
     const token = createToken(user);
@@ -100,11 +133,11 @@ router.post('/login', authLimiter, async (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  const user = get('SELECT id, username, email, is_admin, created_at, last_login_at, email_verified FROM users WHERE id = ?', [req.user.userId]);
+  const user = get('SELECT id, username, email, is_admin, can_invite, created_at, last_login_at, email_verified FROM users WHERE id = ?', [req.user.userId]);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
-  res.json({ user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin, createdAt: user.created_at, lastLoginAt: user.last_login_at || null, emailVerified: !!user.email_verified } });
+  res.json({ user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin, canInvite: !!user.can_invite, createdAt: user.created_at, lastLoginAt: user.last_login_at || null, emailVerified: !!user.email_verified } });
 });
 
 // Change password (requires current password)
@@ -351,8 +384,85 @@ router.get('/email-configured', (_req, res) => {
 // Check if registration is open (public endpoint for UI)
 router.get('/registration-status', (_req, res) => {
   const setting = get("SELECT value FROM server_settings WHERE key = 'registration_enabled'");
-  const enabled = !setting || setting.value !== 'false';
-  res.json({ registrationEnabled: enabled });
+  const value = setting?.value || 'open';
+  // Backward compat: 'true' → 'open', 'false' → 'closed'
+  const mode = value === 'true' ? 'open' : value === 'false' ? 'closed' : value;
+  // Return both new and legacy format for backward compat
+  res.json({ registrationMode: mode, registrationEnabled: mode !== 'closed' });
+});
+
+// --- Invite Code Management ---
+
+// Create invite code (requires can_invite or is_admin)
+router.post('/invite', requireAuth, (req, res) => {
+  try {
+    const user = get('SELECT id, username, is_admin, can_invite FROM users WHERE id = ?', [req.user.userId]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.is_admin && !user.can_invite) {
+      return res.status(403).json({ error: 'You do not have permission to create invite codes' });
+    }
+
+    const { maxUses } = req.body;
+    const max = parseInt(maxUses, 10) || 1;
+    if (max < 1 || max > 100) {
+      return res.status(400).json({ error: 'Max uses must be 1-100' });
+    }
+
+    const code = crypto.randomBytes(6).toString('hex'); // 12-char hex code
+    run('INSERT INTO invite_codes (code, created_by_user_id, max_uses) VALUES (?, ?, ?)',
+      [code, user.id, max]);
+
+    const invite = get('SELECT * FROM invite_codes WHERE code = ?', [code]);
+    res.status(201).json({ invite });
+  } catch (err) {
+    console.error('Create invite error:', err);
+    res.status(500).json({ error: 'Failed to create invite code' });
+  }
+});
+
+// List own invite codes
+router.get('/my-invites', requireAuth, (req, res) => {
+  try {
+    const user = get('SELECT id, is_admin, can_invite FROM users WHERE id = ?', [req.user.userId]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.is_admin && !user.can_invite) {
+      return res.status(403).json({ error: 'You do not have permission to manage invite codes' });
+    }
+
+    const invites = all(
+      'SELECT * FROM invite_codes WHERE created_by_user_id = ? ORDER BY created_at DESC',
+      [user.id]
+    );
+    res.json({ invites });
+  } catch (err) {
+    console.error('Get invites error:', err);
+    res.status(500).json({ error: 'Failed to retrieve invite codes' });
+  }
+});
+
+// Delete own invite code (or any if admin)
+router.delete('/invite/:id', requireAuth, (req, res) => {
+  try {
+    const inviteId = parseInt(req.params.id, 10);
+    if (isNaN(inviteId)) return res.status(400).json({ error: 'Invalid invite ID' });
+
+    const user = get('SELECT id, is_admin FROM users WHERE id = ?', [req.user.userId]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const invite = get('SELECT * FROM invite_codes WHERE id = ?', [inviteId]);
+    if (!invite) return res.status(404).json({ error: 'Invite code not found' });
+
+    // Must be owner or admin
+    if (invite.created_by_user_id !== user.id && !user.is_admin) {
+      return res.status(403).json({ error: 'Not authorized to delete this invite code' });
+    }
+
+    run('DELETE FROM invite_codes WHERE id = ?', [inviteId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete invite error:', err);
+    res.status(500).json({ error: 'Failed to delete invite code' });
+  }
 });
 
 export default router;

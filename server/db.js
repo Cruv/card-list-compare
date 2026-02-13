@@ -218,7 +218,61 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // Migration: add locked column to deck_snapshots (snapshot pruning)
+  try {
+    db.run('ALTER TABLE deck_snapshots ADD COLUMN locked INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Seed snapshot pruning settings
+  db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_snapshots_per_deck', '25')`);
+  db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_locked_per_deck', '5')`);
+
+  // Migration: convert registration_enabled from boolean to tri-state
+  const regSetting = get("SELECT value FROM server_settings WHERE key = 'registration_enabled'");
+  if (regSetting) {
+    if (regSetting.value === 'true') {
+      run("UPDATE server_settings SET value = 'open' WHERE key = 'registration_enabled'");
+    } else if (regSetting.value === 'false') {
+      run("UPDATE server_settings SET value = 'closed' WHERE key = 'registration_enabled'");
+    }
+  }
+
+  // Invite codes table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS invite_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      created_by_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      max_uses INTEGER NOT NULL DEFAULT 1,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      expires_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Invite redemptions audit trail
+  db.run(`
+    CREATE TABLE IF NOT EXISTS invite_redemptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invite_code_id INTEGER NOT NULL REFERENCES invite_codes(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      redeemed_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Migration: add can_invite column to users
+  try {
+    db.run('ALTER TABLE users ADD COLUMN can_invite INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Indexes
+  db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_invite_redemptions_code ON invite_redemptions(invite_code_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON admin_audit_log(created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_user ON tracked_decks(user_id)');

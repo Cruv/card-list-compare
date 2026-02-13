@@ -13,14 +13,19 @@ export default function AuthBar({ onShowForgotPassword }) {
   const [isRegister, setIsRegister] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [registrationOpen, setRegistrationOpen] = useState(true);
+  const [registrationMode, setRegistrationMode] = useState('open'); // 'open' | 'invite' | 'closed'
 
   useEffect(() => {
     getRegistrationStatus()
-      .then(data => setRegistrationOpen(data.registrationEnabled))
-      .catch(() => {}); // default to true if check fails
+      .then(data => {
+        // Support both new registrationMode and legacy registrationEnabled
+        const mode = data.registrationMode || (data.registrationEnabled ? 'open' : 'closed');
+        setRegistrationMode(mode);
+      })
+      .catch(() => {}); // default to open if check fails
   }, []);
 
   if (loading) return null;
@@ -31,12 +36,17 @@ export default function AuthBar({ onShowForgotPassword }) {
     setSubmitting(true);
 
     try {
-      const fn = isRegister ? register : login;
-      const data = await fn(username, password);
+      let data;
+      if (isRegister) {
+        data = await register(username, password, registrationMode === 'invite' ? inviteCode : undefined);
+      } else {
+        data = await login(username, password);
+      }
       loginUser(data.token, data.user);
       setShowForm(false);
       setUsername('');
       setPassword('');
+      setInviteCode('');
       if (isRegister) {
         toast.success('Account created! You\'re now logged in.');
       }
@@ -113,15 +123,26 @@ export default function AuthBar({ onShowForgotPassword }) {
           aria-label="Password"
           autoComplete={isRegister ? 'new-password' : 'current-password'}
         />
+        {isRegister && registrationMode === 'invite' && (
+          <input
+            type="text"
+            placeholder="Invite Code"
+            value={inviteCode}
+            onChange={e => setInviteCode(e.target.value)}
+            disabled={submitting}
+            aria-label="Invite Code"
+            autoComplete="off"
+          />
+        )}
         {isRegister && <PasswordRequirements password={password} />}
         <button className="auth-bar-btn auth-bar-btn--primary" type="submit" disabled={submitting}>
           {submitting ? '...' : isRegister ? 'Register' : 'Log In'}
         </button>
-        {registrationOpen && (
+        {registrationMode !== 'closed' && (
           <button
             className="auth-bar-btn"
             type="button"
-            onClick={() => { setIsRegister(!isRegister); setError(null); }}
+            onClick={() => { setIsRegister(!isRegister); setError(null); setInviteCode(''); }}
           >
             {isRegister ? 'Have an account?' : 'New user?'}
           </button>
@@ -129,7 +150,7 @@ export default function AuthBar({ onShowForgotPassword }) {
         <button
           className="auth-bar-btn"
           type="button"
-          onClick={() => { setShowForm(false); setError(null); setIsRegister(false); }}
+          onClick={() => { setShowForm(false); setError(null); setIsRegister(false); setInviteCode(''); }}
         >
           Cancel
         </button>

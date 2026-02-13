@@ -5,11 +5,13 @@ import AdminUserList from './AdminUserList';
 import AdminSettings from './AdminSettings';
 import AdminShares from './AdminShares';
 import AdminAuditLog from './AdminAuditLog';
+import AdminInvites from './AdminInvites';
 import './AdminPage.css';
 
 const SECTIONS = [
   { key: 'dashboard', label: 'Dashboard', icon: '📊' },
   { key: 'users', label: 'Users', icon: '👥' },
+  { key: 'invites', label: 'Invites', icon: '🎟️' },
   { key: 'settings', label: 'Settings', icon: '⚙️' },
   { key: 'shares', label: 'Shares', icon: '🔗' },
   { key: 'audit', label: 'Audit Log', icon: '📋' },
@@ -42,6 +44,9 @@ export default function AdminPage() {
       break;
     case 'users':
       content = <AdminUserList currentUserId={user.id} />;
+      break;
+    case 'invites':
+      content = <AdminInvites />;
       break;
     case 'settings':
       content = <AdminSettings />;
