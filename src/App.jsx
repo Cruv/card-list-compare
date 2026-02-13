@@ -10,21 +10,20 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth } from './context/AuthContext';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
-import { collectCardNames, fetchCardData } from './lib/scryfall';
+import { collectCardNames, collectCardIdentifiers, fetchCardData } from './lib/scryfall';
 import { createShare, getShare } from './lib/api';
 import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.4.1';
+const APP_VERSION = '1.5.0';
 const WHATS_NEW = [
+  'Printing info now visible in diffs — set codes, collector numbers, and foil badges shown inline',
+  'Card image tooltips show exact printing artwork (specific art, promos, etc.) instead of generic',
+  'Scryfall lookups use set+collector identifiers for precise printing images',
   'Fixed promo/special printing collector numbers (136p, DDO-20, 2022-3) causing false diffs',
-  'Archidekt export now carries forward printing metadata from the Before deck for cross-source comparisons',
-  'Copy for Archidekt exports in their native text format with full printing metadata',
-  'Commander tagging in Archidekt exports — [Commander{top}] tag included automatically',
-  'Fixed Scryfall lookup for double-faced cards — correct type, mana cost, and card image',
+  'Archidekt export carries forward printing metadata from the Before deck',
   'Multi-printing enrichment carry-forward preserves all artwork printings across snapshots',
-  'Fixed diff for multi-printing cards (e.g. 9 unique Nazgul artworks) collapsing correctly',
 ];
 
 function getResetToken() {
@@ -82,9 +81,10 @@ export default function App() {
     setCardMap(null);
 
     // Fetch card data in the background (non-blocking)
-    const names = collectCardNames(diff);
-    if (names.length > 0) {
-      fetchCardData(names)
+    // Uses identifiers with set+collector when available for exact printing artwork
+    const identifiers = collectCardIdentifiers(diff);
+    if (identifiers.size > 0) {
+      fetchCardData(identifiers)
         .then(setCardMap)
         .catch(() => {}); // Silent fail — cards just won't be grouped by type
     }
@@ -125,10 +125,10 @@ export default function App() {
         const diff = computeDiff(before, after);
         setDiffResult(diff);
 
-        // Fetch card data in the background
-        const names = collectCardNames(diff);
-        if (names.length > 0) {
-          fetchCardData(names)
+        // Fetch card data in the background (with exact printing identifiers)
+        const identifiers = collectCardIdentifiers(diff);
+        if (identifiers.size > 0) {
+          fetchCardData(identifiers)
             .then(setCardMap)
             .catch(() => {});
         }

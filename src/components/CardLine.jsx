@@ -69,7 +69,18 @@ function CardOverlay({ imageUri, name, onClose }) {
   );
 }
 
-export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri }) {
+function PrintingBadge({ setCode, collectorNumber, isFoil }) {
+  if (!setCode && !isFoil) return null;
+  return (
+    <span className="card-line-printing">
+      {setCode && <span className="card-line-set">({setCode.toUpperCase()})</span>}
+      {collectorNumber && <span className="card-line-collector">#{collectorNumber}</span>}
+      {isFoil && <span className="card-line-foil">&#10022;</span>}
+    </span>
+  );
+}
+
+export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil }) {
   const [hovering, setHovering] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const nameRef = useRef(null);
@@ -100,6 +111,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-prefix">+</span>
         <span className="card-line-qty">{quantity}</span>
         <span className="card-line-name" ref={nameRef}>{name}</span>
+        <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
         {tooltip}
         {overlay}
@@ -118,6 +130,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-prefix">-</span>
         <span className="card-line-qty">{quantity}</span>
         <span className="card-line-name" ref={nameRef}>{name}</span>
+        <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
         {tooltip}
         {overlay}
@@ -136,6 +149,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
     >
       <span className="card-line-prefix">~</span>
       <span className="card-line-name" ref={nameRef}>{name}</span>
+      <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
       {manaCost && <ManaCost cost={manaCost} />}
       <span className="card-line-detail">
         {oldQty} &rarr; {newQty} ({sign}{delta})

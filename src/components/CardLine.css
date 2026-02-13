@@ -39,6 +39,24 @@
   white-space: nowrap;
 }
 
+.card-line-printing {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  opacity: 0.55;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.card-line-foil {
+  color: #d4af37;
+}
+
+:root[data-theme="dark"] .card-line-foil {
+  color: #f0d060;
+}
+
 .card-line-detail {
   margin-left: auto;
   opacity: 0.7;

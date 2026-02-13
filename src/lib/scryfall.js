@@ -75,11 +75,14 @@ function getManaCost(card) {
 
 /**
  * Fetch a single batch of cards from Scryfall.
+ * Each entry in batchEntries has { key, identifier } where identifier is
+ * either { name } or { set, collector_number } for Scryfall's collection API.
  * Returns an array of { key, type, manaCost, imageUri } objects.
  */
-async function fetchBatch(batch) {
-  const identifiers = batch.map(name => ({ name }));
+async function fetchBatch(batchEntries) {
+  const identifiers = batchEntries.map(e => e.identifier);
   const results = [];
+  const fallback = { type: 'Other', manaCost: '', imageUri: '' };
 
   try {
     const res = await fetch('/api/scryfall/cards/collection', {
@@ -89,37 +92,53 @@ async function fetchBatch(batch) {
     });
 
     if (!res.ok) {
-      // On failure, mark all as Other with no extra data
-      for (const name of batch) {
-        results.push({ key: name, type: 'Other', manaCost: '', imageUri: '' });
+      for (const e of batchEntries) {
+        results.push({ key: e.key, ...fallback });
       }
       return results;
     }
 
     const data = await res.json();
 
+    // Build a lookup from set+collector → entry key for matching results back
+    const setCollectorToKey = new Map();
+    for (const e of batchEntries) {
+      if (e.identifier.set && e.identifier.collector_number) {
+        setCollectorToKey.set(`${e.identifier.set}|${e.identifier.collector_number}`, e.key);
+      }
+    }
+
     // Map found cards
     for (const card of (data.data || [])) {
-      const key = card.name.toLowerCase();
-      results.push({
-        key,
+      const cardData = {
         type: primaryType(card.type_line),
         manaCost: getManaCost(card),
         imageUri: getImageUri(card),
-      });
+      };
+
+      // Try to match by set+collector first (for specific printing lookups)
+      const scKey = `${card.set}|${card.collector_number}`;
+      const compositeKey = setCollectorToKey.get(scKey);
+      if (compositeKey) {
+        results.push({ key: compositeKey, ...cardData });
+        setCollectorToKey.delete(scKey); // prevent duplicate matching
+      }
+
+      // Always emit under the bare name key (for type grouping, mana cost)
+      const nameKey = card.name.toLowerCase();
+      results.push({ key: nameKey, ...cardData });
     }
 
     // Mark not-found cards
     for (const nf of (data.not_found || [])) {
       const key = (nf.name || '').toLowerCase();
       if (key) {
-        results.push({ key, type: 'Other', manaCost: '', imageUri: '' });
+        results.push({ key, ...fallback });
       }
     }
   } catch {
-    // Network error — mark batch as Other
-    for (const name of batch) {
-      results.push({ key: name, type: 'Other', manaCost: '', imageUri: '' });
+    for (const e of batchEntries) {
+      results.push({ key: e.key, ...fallback });
     }
   }
 
@@ -136,8 +155,12 @@ function dfcFrontFace(name) {
 }
 
 /**
- * Given an array of card names, returns a Map<string, { type, manaCost, imageUri }>
- * mapping lowercased card name → card data.
+ * Given a Map of identifiers (from collectCardIdentifiers) or an array of card names,
+ * returns a Map<string, { type, manaCost, imageUri }> mapping keys → card data.
+ *
+ * Keys can be bare lowercased names or composite "name|collectorNumber" keys.
+ * When identifiers include set+collector_number, Scryfall returns the exact
+ * printing's artwork. Results are stored under both composite and bare name keys.
  *
  * Uses Scryfall Collection API to batch lookup.
  * Batches are fetched in parallel using Promise.allSettled.
@@ -145,28 +168,68 @@ function dfcFrontFace(name) {
  * front face for the Scryfall query, and results are stored under both the
  * full DFC name and the front-face-only name.
  */
-export async function fetchCardData(cardNames) {
+export async function fetchCardData(identifiersOrNames) {
   const cardMap = new Map();
-  if (!cardNames || cardNames.length === 0) return cardMap;
+  if (!identifiersOrNames) return cardMap;
 
-  // Deduplicate and normalize DFC names for lookup
-  const originalNames = [...new Set(cardNames.map(n => n.toLowerCase()))];
-
-  // Build mapping: front-face name → all original names that map to it
-  const frontToOriginals = new Map();
-  for (const name of originalNames) {
-    const front = dfcFrontFace(name);
-    if (!frontToOriginals.has(front)) frontToOriginals.set(front, []);
-    frontToOriginals.get(front).push(name);
+  // Support both Map<string, {name, set?, collector_number?}> and string[]
+  let identifierMap;
+  if (identifiersOrNames instanceof Map) {
+    identifierMap = identifiersOrNames;
+  } else if (Array.isArray(identifiersOrNames)) {
+    // Legacy: array of card name strings
+    identifierMap = new Map();
+    for (const name of identifiersOrNames) {
+      const key = name.toLowerCase();
+      if (!identifierMap.has(key)) {
+        identifierMap.set(key, { name });
+      }
+    }
+  } else {
+    return cardMap;
   }
 
-  // Use front-face names for Scryfall queries
-  const lookupNames = [...frontToOriginals.keys()];
+  if (identifierMap.size === 0) return cardMap;
+
+  // Build batch entries: { key, identifier } for each unique lookup
+  // Separate set+collector lookups (exact printing) from name-only lookups (DFC-normalized)
+  const batchEntries = [];
+  const allKeys = new Set(); // track all keys we need entries for
+  const frontToOriginals = new Map(); // for DFC alias storage
+  const addedNameLookups = new Set(); // track which front-face names already have a query
+
+  for (const [key, info] of identifierMap) {
+    allKeys.add(key);
+
+    if (info.set && info.collector_number) {
+      // Exact printing lookup — send set+collector to Scryfall
+      batchEntries.push({
+        key,
+        identifier: { set: info.set, collector_number: info.collector_number },
+      });
+    } else {
+      // Name-only lookup — normalize DFC to front face
+      const nameLower = info.name.toLowerCase();
+      const front = dfcFrontFace(nameLower);
+
+      if (!frontToOriginals.has(front)) frontToOriginals.set(front, []);
+      frontToOriginals.get(front).push(key);
+
+      // Only add one Scryfall query per front-face name
+      if (!addedNameLookups.has(front)) {
+        addedNameLookups.add(front);
+        batchEntries.push({
+          key: front,
+          identifier: { name: front },
+        });
+      }
+    }
+  }
 
   // Batch into groups of 75
   const batches = [];
-  for (let i = 0; i < lookupNames.length; i += SCRYFALL_BATCH_SIZE) {
-    batches.push(lookupNames.slice(i, i + SCRYFALL_BATCH_SIZE));
+  for (let i = 0; i < batchEntries.length; i += SCRYFALL_BATCH_SIZE) {
+    batches.push(batchEntries.slice(i, i + SCRYFALL_BATCH_SIZE));
   }
 
   // Fetch all batches in parallel
@@ -180,7 +243,7 @@ export async function fetchCardData(cardNames) {
           manaCost: entry.manaCost,
           imageUri: entry.imageUri,
         };
-        // Store under the Scryfall key (front face)
+        // Store under the returned key (could be composite or bare name)
         cardMap.set(entry.key, data);
         // Also store under any original DFC names that mapped to this front face
         const originals = frontToOriginals.get(entry.key) || [];
@@ -191,10 +254,10 @@ export async function fetchCardData(cardNames) {
     }
   }
 
-  // Ensure all requested names have an entry
-  for (const name of originalNames) {
-    if (!cardMap.has(name)) {
-      cardMap.set(name, { type: 'Other', manaCost: '', imageUri: '' });
+  // Ensure all requested keys have an entry
+  for (const key of allKeys) {
+    if (!cardMap.has(key)) {
+      cardMap.set(key, { type: 'Other', manaCost: '', imageUri: '' });
     }
   }
 
@@ -228,6 +291,44 @@ export function collectCardNames(diffResult) {
   }
 
   return [...names];
+}
+
+/**
+ * Collect card identifiers from a diff result, including printing metadata.
+ * Returns Map<string, { name, set?, collector_number? }> where keys are either
+ * bare lowercased names or composite "name|collectorNumber" keys.
+ *
+ * Cards with set+collector get a composite key entry (for exact artwork lookup)
+ * plus a bare name entry (for type/mana cost lookup).
+ */
+export function collectCardIdentifiers(diffResult) {
+  const identifiers = new Map();
+  const { mainboard, sideboard } = diffResult;
+
+  for (const section of [mainboard, sideboard]) {
+    for (const list of [section.cardsIn, section.cardsOut, section.quantityChanges]) {
+      for (const card of list) {
+        const nameLower = card.name.toLowerCase();
+        // If card has set+collector, store under composite key for per-printing lookup
+        if (card.setCode && card.collectorNumber) {
+          const compositeKey = `${nameLower}|${card.collectorNumber}`;
+          if (!identifiers.has(compositeKey)) {
+            identifiers.set(compositeKey, {
+              name: card.name,
+              set: card.setCode.toLowerCase(),
+              collector_number: card.collectorNumber,
+            });
+          }
+        }
+        // Always store bare name for type/manaCost lookup
+        if (!identifiers.has(nameLower)) {
+          identifiers.set(nameLower, { name: card.name });
+        }
+      }
+    }
+  }
+
+  return identifiers;
 }
 
 /**
