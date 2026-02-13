@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _moxfieldToText, _archidektToText, _deckcheckToText } from './fetcher.js';
+import { _moxfieldToText, _archidektToText, _deckcheckToText, detectSite } from './fetcher.js';
 
 // ── Moxfield metadata extraction ─────────────────────────────
 
@@ -250,5 +250,45 @@ describe('deckcheckToText() stats', () => {
     const { stats } = _deckcheckToText(data);
     expect(stats.totalCards).toBe(6); // 1 commander + 1 sol ring + 4 bolts
     expect(stats.cardsWithMeta).toBe(0);
+  });
+});
+
+// ── detectSite() URL detection ──────────────────────────────
+
+describe('detectSite()', () => {
+  it('detects Archidekt URLs', () => {
+    expect(detectSite('https://archidekt.com/decks/12345')).toBe('archidekt');
+    expect(detectSite('https://www.archidekt.com/decks/12345/my-deck')).toBe('archidekt');
+  });
+
+  it('detects Moxfield URLs', () => {
+    expect(detectSite('https://www.moxfield.com/decks/abc-123')).toBe('moxfield');
+    expect(detectSite('https://moxfield.com/decks/xYz_456')).toBe('moxfield');
+  });
+
+  it('detects DeckCheck URLs', () => {
+    expect(detectSite('https://deckcheck.co/app/deckview/abc123')).toBe('deckcheck');
+    expect(detectSite('https://deckcheck.co/deckview/abc123')).toBe('deckcheck');
+  });
+
+  it('detects TappedOut URLs', () => {
+    expect(detectSite('https://tappedout.net/mtg-decks/my-cool-deck/')).toBe('tappedout');
+    expect(detectSite('https://tappedout.net/mtg-decks/atraxa-edh-1/')).toBe('tappedout');
+  });
+
+  it('detects Deckstats URLs', () => {
+    expect(detectSite('https://deckstats.net/decks/12345/67890')).toBe('deckstats');
+    expect(detectSite('https://deckstats.net/decks/12345/67890-my-deck/en')).toBe('deckstats');
+  });
+
+  it('returns null for plain text', () => {
+    expect(detectSite('4 Lightning Bolt')).toBeNull();
+    expect(detectSite('Sol Ring')).toBeNull();
+    expect(detectSite('')).toBeNull();
+  });
+
+  it('returns null for unsupported URLs', () => {
+    expect(detectSite('https://google.com')).toBeNull();
+    expect(detectSite('https://scryfall.com/card/m10/227')).toBeNull();
   });
 });

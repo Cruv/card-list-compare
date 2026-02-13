@@ -4,6 +4,7 @@ import ChangelogOutput from './components/ChangelogOutput';
 import AuthBar from './components/AuthBar';
 import AdminPage from './components/admin/AdminPage';
 import UserSettings from './components/UserSettings';
+import SharedDeckView from './components/SharedDeckView';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -17,10 +18,13 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '2.1.0';
 const WHATS_NEW = [
-  'Full-page Settings — settings now opens as its own page with back navigation instead of an inline panel',
-  'Admin page restyled — fluid spacing, gradient stat cards, tinted badges, hover animations, consistent design language',
+  'URL auto-detect on paste — paste a Moxfield, Archidekt, TappedOut, Deckstats, or DeckCheck URL into the deck textarea to auto-import',
+  'Snapshot timeline — visual history of deck changes with add/remove/change counts per snapshot',
+  'TappedOut & Deckstats import — import decks from TappedOut and Deckstats URLs',
+  'Bulk deck operations — select multiple tracked decks to refresh, export, or untrack in batch',
+  'Shared deck views — share a read-only link to any tracked deck for others to browse snapshots and changelogs',
 ];
 
 function getResetToken() {
@@ -35,7 +39,7 @@ function getVerifyToken() {
 
 export default function App() {
   const { user } = useAuth();
-  const { route, shareId } = useHashRoute();
+  const { route, shareId, deckShareId } = useHashRoute();
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
   const [diffResult, setDiffResult] = useState(null);
@@ -219,6 +223,15 @@ export default function App() {
     );
   }
 
+  // Shared deck view (public, no auth required)
+  if (route === 'deck' && deckShareId) {
+    return (
+      <ErrorBoundary>
+        <SharedDeckView shareId={deckShareId} />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <div className="app" role="main">
       <a href="#deck-inputs" className="sr-only sr-only-focusable">Skip to content</a>
@@ -228,7 +241,7 @@ export default function App() {
         />
         <h1 className="app-title">Card List Compare</h1>
         <p className="app-subtitle">
-          Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield / DeckCheck
+          Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield / TappedOut / Deckstats / DeckCheck
         </p>
       </header>
 

@@ -24,6 +24,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/deckcheck/, ''),
       },
+      '/api/tappedout': {
+        target: 'https://tappedout.net',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/tappedout/, ''),
+      },
+      '/api/deckstats': {
+        target: 'https://deckstats.net',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/deckstats/, ''),
+      },
       '/api/scryfall': {
         target: 'https://api.scryfall.com',
         changeOrigin: true,

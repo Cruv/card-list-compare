@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { fetchDeckFromUrl } from '../lib/fetcher';
+import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
 import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot, createSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
 import { useConfirm } from './ConfirmModal';
@@ -23,6 +23,8 @@ function siteLabel(site) {
   if (site === 'archidekt') return 'Archidekt';
   if (site === 'moxfield') return 'Moxfield';
   if (site === 'deckcheck') return 'DeckCheck';
+  if (site === 'tappedout') return 'TappedOut';
+  if (site === 'deckstats') return 'Deckstats';
   return site;
 }
 
@@ -98,13 +100,12 @@ export default function DeckInput({ label, value, onChange, user }) {
     });
   }
 
-  async function handleUrlImport() {
-    if (!urlInput.trim()) return;
+  async function importFromUrl(url) {
     setLoading(true);
     setError(null);
     setSavePrompt(null);
     try {
-      const { text, site, commanders, stats } = await fetchDeckFromUrl(urlInput.trim());
+      const { text, site, commanders, stats } = await fetchDeckFromUrl(url);
       onChange(text);
       setShowUrl(false);
       setUrlInput('');
@@ -136,6 +137,20 @@ export default function DeckInput({ label, value, onChange, user }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  function handleUrlImport() {
+    if (!urlInput.trim()) return;
+    importFromUrl(urlInput.trim());
+  }
+
+  function handlePaste(e) {
+    const pasted = e.clipboardData?.getData('text/plain')?.trim();
+    if (!pasted || pasted.includes('\n')) return; // Multi-line = deck text, not a URL
+    if (detectSite(pasted)) {
+      e.preventDefault();
+      importFromUrl(pasted);
     }
   }
 
@@ -386,7 +401,7 @@ export default function DeckInput({ label, value, onChange, user }) {
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={handleUrlKeyDown}
-            placeholder="Paste Archidekt, Moxfield, or DeckCheck URL..."
+            placeholder="Paste Archidekt, Moxfield, TappedOut, Deckstats, or DeckCheck URL..."
             autoFocus
             disabled={loading}
           />
@@ -648,6 +663,7 @@ export default function DeckInput({ label, value, onChange, user }) {
         className="deck-input-textarea"
         value={value}
         onChange={(e) => { onChange(e.target.value); setError(null); setSavePrompt(null); }}
+        onPaste={handlePaste}
         placeholder={PLACEHOLDER}
         spellCheck={false}
         aria-label={`${label} deck list`}

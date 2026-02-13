@@ -8,6 +8,7 @@ import ownerRoutes from './routes/owners.js';
 import deckRoutes from './routes/decks.js';
 import snapshotRoutes from './routes/snapshots.js';
 import shareRoutes from './routes/share.js';
+import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
 
 const app = express();
@@ -56,6 +57,7 @@ app.use('/api/owners', ownerRoutes);
 app.use('/api/decks', deckRoutes);
 app.use('/api/decks', snapshotRoutes);
 app.use('/api/share', shareRoutes);
+app.use('/api/shared-deck', sharedDeckRoutes);
 app.use('/api/admin', adminRoutes);
 
 async function start() {

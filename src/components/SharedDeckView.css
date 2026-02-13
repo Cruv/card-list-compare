@@ -1,0 +1,205 @@
+.shared-deck-page {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: var(--space-xl) clamp(12px, 3vw, 20px) 64px;
+}
+
+.shared-deck-error {
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.shared-deck-error h2 {
+  font-size: var(--fs-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-md);
+}
+
+.shared-deck-error p {
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-lg);
+}
+
+.shared-deck-card {
+  background: linear-gradient(135deg, var(--bg-surface) 0%, rgba(92, 107, 192, 0.04) 100%);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.shared-deck-header {
+  margin-bottom: var(--space-lg);
+}
+
+.shared-deck-title {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--fs-lg);
+  color: var(--text-primary);
+}
+
+.shared-deck-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.shared-deck-commanders {
+  font-style: italic;
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.shared-deck-owner {
+  color: var(--text-muted);
+}
+
+.shared-deck-shared-date {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.shared-deck-actions {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-lg);
+}
+
+.shared-deck-compare {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-md);
+}
+
+.shared-deck-compare select {
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-width: clamp(100px, 25vw, 140px);
+}
+
+.shared-deck-section-title {
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: var(--space-lg) 0 var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-color);
+}
+
+.shared-deck-empty {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-md);
+}
+
+.shared-deck-snap-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.shared-deck-snap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+}
+
+.shared-deck-snap--locked {
+  border-left: 3px solid var(--accent-blue);
+  padding-left: calc(var(--space-sm) - 3px);
+}
+
+.shared-deck-snap-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.shared-deck-snap-date {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.shared-deck-snap-nick {
+  font-size: var(--fs-xs);
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.shared-deck-snap-count {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.shared-deck-snap-text {
+  width: 100%;
+  margin-top: var(--space-sm);
+}
+
+.shared-deck-snap-text pre {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: var(--space-md);
+  font-size: var(--fs-xs);
+  font-family: 'Consolas', 'Monaco', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0 0 var(--space-sm);
+}
+
+.shared-deck-changelog {
+  margin-bottom: var(--space-md);
+}
+
+.shared-deck-changelog-header {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.shared-deck-changelog-copy {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+
+@media (max-width: 640px) {
+  .shared-deck-compare {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .shared-deck-compare select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .shared-deck-snap {
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+}

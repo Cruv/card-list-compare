@@ -193,6 +193,54 @@ router.patch('/:deckId/snapshots/:snapshotId/unlock', (req, res) => {
   res.json({ success: true });
 });
 
+// Timeline — summary stats for all consecutive snapshot pairs
+router.get('/:deckId/timeline', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+
+  const snapshots = all(
+    'SELECT id, deck_text, nickname, locked, created_at FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at ASC',
+    [deck.id]
+  );
+
+  const entries = [];
+  for (let i = 0; i < snapshots.length; i++) {
+    const snap = snapshots[i];
+    const parsed = parse(snap.deck_text);
+    // Count total cards across all sections
+    let cardCount = 0;
+    for (const [, qty] of parsed.mainboard) cardCount += qty;
+    for (const [, qty] of parsed.sideboard) cardCount += qty;
+    cardCount += (parsed.commanders || []).length;
+
+    const entry = {
+      snapshotId: snap.id,
+      date: snap.created_at,
+      nickname: snap.nickname,
+      locked: !!snap.locked,
+      cardCount,
+    };
+
+    if (i > 0) {
+      const prevParsed = parse(snapshots[i - 1].deck_text);
+      const diff = computeDiff(prevParsed, parsed);
+      let added = 0, removed = 0, changed = 0;
+      for (const section of ['mainboard', 'sideboard']) {
+        if (diff[section]) {
+          added += (diff[section].added || []).length;
+          removed += (diff[section].removed || []).length;
+          changed += (diff[section].changed || []).length;
+        }
+      }
+      entry.delta = { added, removed, changed };
+    }
+
+    entries.push(entry);
+  }
+
+  res.json({ entries });
+});
+
 router.get('/:deckId/changelog', (req, res) => {
   const deck = verifyDeckOwnership(req, res);
   if (!deck) return;

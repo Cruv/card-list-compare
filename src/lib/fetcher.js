@@ -5,6 +5,8 @@
  *  - Archidekt:  https://archidekt.com/decks/{id}/...
  *  - Moxfield:   https://www.moxfield.com/decks/{publicId}
  *  - DeckCheck:  https://deckcheck.co/app/deckview/{hash}
+ *  - TappedOut:  https://tappedout.net/mtg-decks/{slug}/
+ *  - Deckstats:  https://deckstats.net/decks/{owner_id}/{deck_id}
  *
  * Returns { text: string, site: string, commanders: string[] }
  * where text is a plain-text deck list that our parser can handle,
@@ -38,11 +40,15 @@ function fetchWithTimeout(url, options = {}) {
 const ARCHIDEKT_RE = /archidekt\.com\/decks\/(\d+)/i;
 const MOXFIELD_RE = /moxfield\.com\/decks\/([\w-]+)/i;
 const DECKCHECK_RE = /deckcheck\.co\/(app\/)?deckview\/([\w]+)/i;
+const TAPPEDOUT_RE = /tappedout\.net\/mtg-decks\/([\w-]+)/i;
+const DECKSTATS_RE = /deckstats\.net\/decks\/(\d+)\/(\d+)/i;
 
 export function detectSite(url) {
   if (ARCHIDEKT_RE.test(url)) return 'archidekt';
   if (MOXFIELD_RE.test(url)) return 'moxfield';
   if (DECKCHECK_RE.test(url)) return 'deckcheck';
+  if (TAPPEDOUT_RE.test(url)) return 'tappedout';
+  if (DECKSTATS_RE.test(url)) return 'deckstats';
   return null;
 }
 
@@ -273,6 +279,68 @@ function deckcheckToText(data) {
 }
 
 // ---------------------------------------------------------------------------
+// TappedOut
+// ---------------------------------------------------------------------------
+
+async function fetchTappedOut(url) {
+  const match = url.match(TAPPEDOUT_RE);
+  if (!match) throw new Error('Could not parse TappedOut deck slug from URL.');
+  const slug = match[1];
+
+  const apiUrl = `/api/tappedout/mtg-decks/${slug}/?fmt=txt`;
+
+  const res = await fetchWithTimeout(apiUrl);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('TappedOut deck not found. Is the URL correct?');
+    if (res.status === 403) throw new Error('TappedOut blocked the request. Try exporting your deck and pasting it instead.');
+    throw new Error(`TappedOut returned status ${res.status}`);
+  }
+
+  const text = (await res.text()).trim();
+  if (!text) throw new Error('TappedOut returned an empty deck list.');
+
+  // Count cards from the plain text
+  let totalCards = 0;
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(\d+)\s/);
+    if (m) totalCards += parseInt(m[1], 10);
+  }
+
+  return { text, commanders: [], stats: { totalCards, cardsWithMeta: 0 } };
+}
+
+// ---------------------------------------------------------------------------
+// Deckstats
+// ---------------------------------------------------------------------------
+
+async function fetchDeckstats(url) {
+  const match = url.match(DECKSTATS_RE);
+  if (!match) throw new Error('Could not parse Deckstats deck ID from URL.');
+  const ownerId = match[1];
+  const deckId = match[2];
+
+  const apiUrl = `/api/deckstats/decks/${ownerId}/${deckId}/en?export_txt=1`;
+
+  const res = await fetchWithTimeout(apiUrl);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('Deckstats deck not found. Is the URL correct?');
+    throw new Error(`Deckstats returned status ${res.status}`);
+  }
+
+  const text = (await res.text()).trim();
+  if (!text) throw new Error('Deckstats returned an empty deck list.');
+
+  // Count cards from the plain text
+  let totalCards = 0;
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(\d+)\s/);
+    if (m) totalCards += parseInt(m[1], 10);
+  }
+
+  return { text, commanders: [], stats: { totalCards, cardsWithMeta: 0 } };
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -300,10 +368,22 @@ export async function fetchDeckFromUrl(url) {
     return { text, site, commanders, stats };
   }
 
+  if (site === 'tappedout') {
+    const { text, commanders, stats } = await fetchTappedOut(url);
+    return { text, site, commanders, stats };
+  }
+
+  if (site === 'deckstats') {
+    const { text, commanders, stats } = await fetchDeckstats(url);
+    return { text, site, commanders, stats };
+  }
+
   throw new Error(
     'Unsupported URL. Supported sites:\n' +
       '• Archidekt (archidekt.com/decks/...)\n' +
       '• Moxfield (moxfield.com/decks/...)\n' +
+      '• TappedOut (tappedout.net/mtg-decks/...)\n' +
+      '• Deckstats (deckstats.net/decks/...)\n' +
       '• DeckCheck (deckcheck.co/app/deckview/...)\n\n' +
       'For other sites, export your deck list and paste it directly.'
   );

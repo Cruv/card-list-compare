@@ -28,5 +28,9 @@ export function useHashRoute() {
     const shareId = hash.slice(7);
     return { route: 'share', shareId };
   }
+  if (hash.startsWith('#deck/')) {
+    const deckShareId = hash.slice(6);
+    return { route: 'deck', deckShareId };
+  }
   return { route: 'main' };
 }

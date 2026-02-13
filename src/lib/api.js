@@ -153,6 +153,32 @@ export const updateDeckCommanders = (deckId, commanders) =>
     body: JSON.stringify({ commanders }),
   });
 
+// Timeline
+export const getDeckTimeline = (deckId) =>
+  apiFetch(`/decks/${deckId}/timeline`);
+
+// Batch export
+export const exportDecks = (deckIds) =>
+  apiFetch('/decks/export-batch', { method: 'POST', body: JSON.stringify({ deckIds }) });
+
+// Shared deck views
+export const shareDeck = (deckId) =>
+  apiFetch(`/decks/${deckId}/share`, { method: 'POST' });
+
+export const unshareDeck = (deckId) =>
+  apiFetch(`/decks/${deckId}/share`, { method: 'DELETE' });
+
+export const getSharedDeck = (shareId) =>
+  apiFetch(`/shared-deck/${shareId}`);
+
+export const getSharedDeckChangelog = (shareId, a, b) => {
+  const params = a && b ? `?a=${a}&b=${b}` : '';
+  return apiFetch(`/shared-deck/${shareId}/changelog${params}`);
+};
+
+export const getSharedDeckSnapshot = (shareId, snapshotId) =>
+  apiFetch(`/shared-deck/${shareId}/snapshot/${snapshotId}`);
+
 // Sharing
 export const createShare = (beforeText, afterText, title) =>
   apiFetch('/share', { method: 'POST', body: JSON.stringify({ beforeText, afterText, title }) });

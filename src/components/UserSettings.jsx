@@ -10,6 +10,8 @@ import {
   getDeckChangelog, updateDeckCommanders, resendVerification,
   lockSnapshot, unlockSnapshot,
   createInviteCode, getMyInvites, deleteInviteCode,
+  getDeckTimeline, exportDecks, getSnapshot,
+  shareDeck, unshareDeck,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -328,6 +330,10 @@ function DeckTrackerSettings({ confirm }) {
   const [deckSearch, setDeckSearch] = useState('');
   const [collapsedOwners, setCollapsedOwners] = useState(new Set());
 
+  // Bulk mode
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selectedDecks, setSelectedDecks] = useState(new Set());
+
   // Per-deck expanded snapshots
   const [expandedDeckId, setExpandedDeckId] = useState(null);
   const [deckSnapshots, setDeckSnapshots] = useState([]);
@@ -568,6 +574,122 @@ function DeckTrackerSettings({ confirm }) {
     }
   }
 
+  // Bulk operations
+  function toggleBulkMode() {
+    setBulkMode(!bulkMode);
+    setSelectedDecks(new Set());
+  }
+
+  function toggleDeckSelection(deckId) {
+    setSelectedDecks(prev => {
+      const next = new Set(prev);
+      if (next.has(deckId)) next.delete(deckId);
+      else next.add(deckId);
+      return next;
+    });
+  }
+
+  function toggleOwnerSelection(ownerDecks) {
+    const allSelected = ownerDecks.every(d => selectedDecks.has(d.id));
+    setSelectedDecks(prev => {
+      const next = new Set(prev);
+      for (const d of ownerDecks) {
+        if (allSelected) next.delete(d.id);
+        else next.add(d.id);
+      }
+      return next;
+    });
+  }
+
+  function selectAllDecks() {
+    setSelectedDecks(new Set(trackedDecks.map(d => d.id)));
+  }
+
+  function deselectAllDecks() {
+    setSelectedDecks(new Set());
+  }
+
+  async function handleBulkRefresh() {
+    const ids = [...selectedDecks];
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        await refreshDeck(id);
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    if (fail > 0) {
+      toast(`Refreshed ${ok} decks, ${fail} failed`, 'error');
+    } else {
+      toast.success(`Refreshed ${ok} decks`);
+    }
+    await refresh();
+  }
+
+  async function handleBulkExport() {
+    const ids = [...selectedDecks];
+    try {
+      const data = await exportDecks(ids);
+      const text = data.decks.map(d => `// ${d.name}${d.commanders ? ' — ' + d.commanders : ''}\n${d.text}`).join('\n\n---\n\n');
+      await navigator.clipboard.writeText(text);
+      toast.success(`${data.decks.length} decks copied to clipboard`);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleBulkUntrack() {
+    const ids = [...selectedDecks];
+    const confirmed = await confirm({
+      title: `Untrack ${ids.length} decks?`,
+      message: 'All snapshots for these decks will be permanently deleted.',
+      confirmLabel: `Untrack ${ids.length}`,
+      danger: true,
+    });
+    if (!confirmed) return;
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try {
+        await untrackDeck(id);
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    if (fail > 0) {
+      toast(`Untracked ${ok} decks, ${fail} failed`, 'error');
+    } else {
+      toast.success(`Untracked ${ok} decks`);
+    }
+    setSelectedDecks(new Set());
+    await refresh();
+  }
+
+  // Share
+  async function handleShareDeck(deckId) {
+    try {
+      const data = await shareDeck(deckId);
+      const url = `${window.location.origin}${window.location.pathname}#deck/${data.shareId}`;
+      await navigator.clipboard.writeText(url);
+      toast.success('Share link copied to clipboard');
+      await refresh();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleUnshareDeck(deckId) {
+    try {
+      await unshareDeck(deckId);
+      toast.success('Deck is no longer shared');
+      await refresh();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
   async function handleCompareSnapshots(deckId) {
     if (!compareA || !compareB) return;
     try {
@@ -732,15 +854,48 @@ function DeckTrackerSettings({ confirm }) {
         <div className="settings-tracker-decks">
           <div className="settings-tracker-decks-header">
             <h4>Tracked Decks</h4>
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={handleRefreshAll}
-              disabled={refreshingAll}
-              type="button"
-            >
-              {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.length})`}
-            </button>
+            <div className="settings-tracker-decks-header-actions">
+              <button
+                className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
+                onClick={toggleBulkMode}
+                type="button"
+              >
+                {bulkMode ? 'Cancel Select' : 'Select'}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleRefreshAll}
+                disabled={refreshingAll}
+                type="button"
+              >
+                {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.length})`}
+              </button>
+            </div>
           </div>
+
+          {/* Bulk action bar */}
+          {bulkMode && (
+            <div className="settings-tracker-bulk-bar">
+              <div className="settings-tracker-bulk-bar-left">
+                <button className="btn btn-secondary btn-sm" onClick={selectAllDecks} type="button">All</button>
+                <button className="btn btn-secondary btn-sm" onClick={deselectAllDecks} type="button">None</button>
+                <span className="settings-tracker-bulk-count">{selectedDecks.size} selected</span>
+              </div>
+              {selectedDecks.size > 0 && (
+                <div className="settings-tracker-bulk-bar-right">
+                  <button className="btn btn-primary btn-sm" onClick={handleBulkRefresh} type="button">
+                    Refresh ({selectedDecks.size})
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleBulkExport} type="button">
+                    Export ({selectedDecks.size})
+                  </button>
+                  <button className="btn btn-secondary btn-sm btn-danger" onClick={handleBulkUntrack} type="button">
+                    Untrack ({selectedDecks.size})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Search filter */}
           {trackedDecks.length > 3 && (
@@ -777,16 +932,27 @@ function DeckTrackerSettings({ confirm }) {
 
             return (
               <div key={ownerName} className="settings-tracker-owner-group">
-                <button
-                  className="settings-tracker-owner-group-header"
-                  onClick={() => toggleOwnerCollapse(ownerName)}
-                  type="button"
-                  aria-expanded={!isCollapsed}
-                >
-                  <span className="settings-tracker-owner-group-arrow">{isCollapsed ? '\u25B6' : '\u25BC'}</span>
-                  <span className="settings-tracker-owner-group-name">{ownerName}</span>
-                  <span className="settings-tracker-owner-group-count">{decks.length}</span>
-                </button>
+                <div className="settings-tracker-owner-group-header-row">
+                  {bulkMode && (
+                    <input
+                      type="checkbox"
+                      className="settings-tracker-bulk-checkbox"
+                      checked={decks.every(d => selectedDecks.has(d.id))}
+                      onChange={() => toggleOwnerSelection(decks)}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  )}
+                  <button
+                    className="settings-tracker-owner-group-header"
+                    onClick={() => toggleOwnerCollapse(ownerName)}
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                  >
+                    <span className="settings-tracker-owner-group-arrow">{isCollapsed ? '\u25B6' : '\u25BC'}</span>
+                    <span className="settings-tracker-owner-group-name">{ownerName}</span>
+                    <span className="settings-tracker-owner-group-count">{decks.length}</span>
+                  </button>
+                </div>
                 {!isCollapsed && (
                   <div className="settings-tracker-owner-group-decks">
                     {decks.map(deck => {
@@ -831,6 +997,11 @@ function DeckTrackerSettings({ confirm }) {
                           handleDeleteSnapshot={handleDeleteSnapshot}
                           handleToggleLock={handleToggleLock}
                           formatDate={formatDate}
+                          bulkMode={bulkMode}
+                          isSelected={selectedDecks.has(deck.id)}
+                          onToggleSelect={() => toggleDeckSelection(deck.id)}
+                          handleShareDeck={handleShareDeck}
+                          handleUnshareDeck={handleUnshareDeck}
                         />
                       );
                     })}
@@ -875,38 +1046,70 @@ function DeckCard({
   handleDeleteSnapshot,
   handleToggleLock,
   formatDate,
+  bulkMode, isSelected, onToggleSelect,
+  handleShareDeck, handleUnshareDeck,
 }) {
+  const [timelineData, setTimelineData] = useState(null);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+
+  async function handleShowTimeline() {
+    if (showTimeline) { setShowTimeline(false); return; }
+    setTimelineLoading(true);
+    setShowTimeline(true);
+    try {
+      const data = await getDeckTimeline(deck.id);
+      setTimelineData(data.entries);
+    } catch {
+      toast.error('Failed to load timeline');
+      setShowTimeline(false);
+    } finally {
+      setTimelineLoading(false);
+    }
+  }
+
   return (
-    <div className="settings-tracker-deck">
+    <div className={`settings-tracker-deck${isSelected ? ' settings-tracker-deck--selected' : ''}`}>
       <div className="settings-tracker-deck-header">
+        {bulkMode && (
+          <input
+            type="checkbox"
+            className="settings-tracker-bulk-checkbox"
+            checked={isSelected}
+            onChange={onToggleSelect}
+          />
+        )}
         <button
           className="settings-tracker-deck-name"
-          onClick={() => handleExpandDeckSnapshots(deck.id)}
+          onClick={() => bulkMode ? onToggleSelect() : handleExpandDeckSnapshots(deck.id)}
           type="button"
           aria-expanded={expandedDeckId === deck.id}
         >
-          {expandedDeckId === deck.id ? '\u25BC' : '\u25B6'} {deck.deck_name}
+          {!bulkMode && (expandedDeckId === deck.id ? '\u25BC' : '\u25B6')} {deck.deck_name}
         </button>
         <span className="settings-tracker-deck-meta">
           {deck.snapshot_count} snapshot{deck.snapshot_count !== 1 ? 's' : ''}
+          {deck.share_id && <span className="settings-tracker-shared-badge" title="Shared">Shared</span>}
         </span>
-        <div className="settings-tracker-deck-actions">
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={() => handleRefreshDeck(deck.id)}
-            disabled={refreshingDeck === deck.id}
-            type="button"
-          >
-            {refreshingDeck === deck.id ? '...' : 'Refresh'}
-          </button>
-          <button
-            className="btn btn-secondary btn-sm btn-danger"
-            onClick={() => handleUntrackDeck(deck.id)}
-            type="button"
-          >
-            Untrack
-          </button>
-        </div>
+        {!bulkMode && (
+          <div className="settings-tracker-deck-actions">
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => handleRefreshDeck(deck.id)}
+              disabled={refreshingDeck === deck.id}
+              type="button"
+            >
+              {refreshingDeck === deck.id ? '...' : 'Refresh'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm btn-danger"
+              onClick={() => handleUntrackDeck(deck.id)}
+              type="button"
+            >
+              Untrack
+            </button>
+          </div>
+        )}
       </div>
       <div className="settings-tracker-deck-commanders">
         {editingCommanderDeckId === deck.id ? (
@@ -970,6 +1173,13 @@ function DeckCard({
               View Latest Changelog
             </button>
             <button
+              className={`btn btn-secondary btn-sm${showTimeline ? ' btn--active' : ''}`}
+              onClick={handleShowTimeline}
+              type="button"
+            >
+              {timelineLoading ? '...' : 'Timeline'}
+            </button>
+            <button
               className={`btn btn-secondary btn-sm${compareMode && changelogDeckId === deck.id ? ' btn--active' : ''}`}
               onClick={() => { setCompareMode(!compareMode); setChangelog(null); setChangelogDeckId(deck.id); setCompareA(''); setCompareB(''); }}
               type="button"
@@ -981,7 +1191,18 @@ function DeckCard({
                 Archidekt
               </a>
             )}
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => deck.share_id ? handleUnshareDeck(deck.id) : handleShareDeck(deck.id)}
+              type="button"
+            >
+              {deck.share_id ? 'Unshare' : 'Share'}
+            </button>
           </div>
+
+          {showTimeline && (
+            <SnapshotTimeline entries={timelineData} loading={timelineLoading} />
+          )}
 
           {compareMode && changelogDeckId === deck.id && (
             <div className="settings-tracker-compare">
@@ -1291,6 +1512,52 @@ function ChangelogSection({ title, section }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Snapshot Timeline ---
+
+function SnapshotTimeline({ entries, loading }) {
+  if (loading) return <Skeleton lines={4} />;
+  if (!entries || entries.length === 0) return <p className="settings-tracker-empty">No snapshots to show.</p>;
+
+  function formatTimelineDate(iso) {
+    if (!iso) return '';
+    return new Date(iso + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  return (
+    <div className="settings-timeline">
+      {entries.map((entry, i) => (
+        <div key={entry.snapshotId} className="settings-timeline-entry">
+          <div className="settings-timeline-left">
+            <div className="settings-timeline-dot" />
+            {i < entries.length - 1 && <div className="settings-timeline-line" />}
+          </div>
+          <div className="settings-timeline-content">
+            <div className="settings-timeline-info">
+              <span className="settings-timeline-date">{formatTimelineDate(entry.date)}</span>
+              {entry.nickname && <span className="settings-timeline-nick">{entry.nickname}</span>}
+              {entry.locked && <span className="settings-timeline-lock" title="Locked">{'\uD83D\uDD12'}</span>}
+            </div>
+            <div className="settings-timeline-stats">
+              <span className="settings-timeline-card-count">{entry.cardCount} cards</span>
+              {entry.delta && (
+                <span className="settings-timeline-delta">
+                  {entry.delta.added > 0 && <span className="delta-add">+{entry.delta.added}</span>}
+                  {entry.delta.removed > 0 && <span className="delta-remove">-{entry.delta.removed}</span>}
+                  {entry.delta.changed > 0 && <span className="delta-change">~{entry.delta.changed}</span>}
+                  {entry.delta.added === 0 && entry.delta.removed === 0 && entry.delta.changed === 0 && (
+                    <span className="delta-none">no changes</span>
+                  )}
+                </span>
+              )}
+              {!entry.delta && <span className="settings-timeline-baseline">baseline</span>}
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

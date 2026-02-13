@@ -269,6 +269,17 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // Shared deck views table (public read-only links to tracked decks)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS shared_deck_views (
+      id TEXT PRIMARY KEY,
+      tracked_deck_id INTEGER NOT NULL REFERENCES tracked_decks(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_deck_views_deck ON shared_deck_views(tracked_deck_id)');
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');

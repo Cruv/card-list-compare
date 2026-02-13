@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { all, get, run } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { archidektLimiter } from '../middleware/rateLimit.js';
@@ -17,9 +18,11 @@ router.get('/', (req, res) => {
     SELECT d.*,
       (SELECT MAX(s.created_at) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as latest_snapshot_at,
       (SELECT COUNT(*) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as snapshot_count,
-      o.archidekt_username
+      o.archidekt_username,
+      sdv.id as share_id
     FROM tracked_decks d
     JOIN tracked_owners o ON d.tracked_owner_id = o.id
+    LEFT JOIN shared_deck_views sdv ON sdv.tracked_deck_id = d.id
     WHERE d.user_id = ?
     ORDER BY d.deck_name ASC
   `, [req.user.userId]);
@@ -224,6 +227,81 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
     console.error('Refresh error:', err);
     res.status(502).json({ error: `Failed to refresh from Archidekt: ${err.message}` });
   }
+});
+
+// Batch export (for bulk operations)
+router.post('/export-batch', (req, res) => {
+  const { deckIds } = req.body;
+  if (!Array.isArray(deckIds) || deckIds.length === 0) {
+    return res.status(400).json({ error: 'deckIds must be a non-empty array' });
+  }
+  if (deckIds.length > 100) {
+    return res.status(400).json({ error: 'Too many decks (max 100)' });
+  }
+
+  const results = [];
+  for (const deckId of deckIds) {
+    const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [deckId, req.user.userId]);
+    if (!deck) continue;
+
+    const snap = get(
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      [deck.id]
+    );
+
+    let cmds = '';
+    try { cmds = JSON.parse(deck.commanders || '[]').join(' / '); } catch { /* ignore */ }
+
+    results.push({
+      id: deck.id,
+      name: deck.deck_name,
+      commanders: cmds,
+      text: snap?.deck_text || '',
+    });
+  }
+
+  res.json({ decks: results });
+});
+
+// Share a deck (create shared view)
+router.post('/:id/share', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  if (!deck) {
+    return res.status(404).json({ error: 'Tracked deck not found' });
+  }
+
+  // Check if already shared
+  const existing = get('SELECT id FROM shared_deck_views WHERE tracked_deck_id = ?', [id]);
+  if (existing) {
+    return res.json({ shareId: existing.id });
+  }
+
+  // Generate unique 8-char ID
+  const shareId = crypto.randomBytes(6).toString('base64url');
+
+  run(
+    'INSERT INTO shared_deck_views (id, tracked_deck_id, user_id) VALUES (?, ?, ?)',
+    [shareId, id, req.user.userId]
+  );
+
+  res.status(201).json({ shareId });
+});
+
+// Unshare a deck (remove shared view)
+router.delete('/:id/share', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  if (!deck) {
+    return res.status(404).json({ error: 'Tracked deck not found' });
+  }
+
+  run('DELETE FROM shared_deck_views WHERE tracked_deck_id = ? AND user_id = ?', [id, req.user.userId]);
+  res.json({ success: true });
 });
 
 export default router;
