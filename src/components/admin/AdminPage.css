@@ -639,6 +639,23 @@
     padding: var(--space-lg);
   }
 
+  .admin-dashboard-header {
+    gap: var(--space-sm);
+  }
+
+  .admin-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .admin-stat-card {
+    padding: var(--space-md) var(--space-sm);
+  }
+
+  .admin-stat-value {
+    font-size: var(--fs-lg);
+  }
+
   .admin-user-row {
     flex-direction: column;
     align-items: flex-start;
