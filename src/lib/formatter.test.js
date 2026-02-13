@@ -459,4 +459,63 @@ describe('formatForArchidekt', () => {
     const result = formatForArchidekt('3 Nazgul');
     expect(result).toBe('3x Nazgul');
   });
+
+  // ── beforeText carry-forward ──────────────────────────────
+
+  it('carries forward metadata from beforeText when afterText has none', () => {
+    const afterText = '1 Sol Ring\n1 Lightning Bolt';
+    const beforeText = '1 Sol Ring (ltc) [284]\n1 Lightning Bolt (m10) [227]';
+    const result = formatForArchidekt(afterText, [], beforeText);
+    const lines = result.split('\n');
+    expect(lines[0]).toBe('1x Sol Ring (ltc) 284');
+    expect(lines[1]).toBe('1x Lightning Bolt (m10) 227');
+  });
+
+  it('preserves afterText metadata over beforeText metadata', () => {
+    const afterText = '1 Sol Ring (fdn) [355]';
+    const beforeText = '1 Sol Ring (ltc) [284]';
+    const result = formatForArchidekt(afterText, [], beforeText);
+    expect(result).toBe('1x Sol Ring (fdn) 355');
+  });
+
+  it('carries forward foil status from beforeText', () => {
+    const afterText = '1 Black Market Connections';
+    const beforeText = '1 Black Market Connections (acr) [161] *F*';
+    const result = formatForArchidekt(afterText, [], beforeText);
+    expect(result).toBe('1x Black Market Connections (acr) 161 *F*');
+  });
+
+  it('handles multi-printing cards (Nazgul) from beforeText', () => {
+    const afterText = '1 Nazgul\n1 Nazgul\n1 Nazgul';
+    const beforeText = '1 Nazgul (ltr) [551]\n1 Nazgul (ltr) [723]\n1 Nazgul (ltr) [724]';
+    const result = formatForArchidekt(afterText, [], beforeText);
+    const lines = result.split('\n');
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe('1x Nazgul (ltr) 551');
+    expect(lines[1]).toBe('1x Nazgul (ltr) 723');
+    expect(lines[2]).toBe('1x Nazgul (ltr) 724');
+  });
+
+  it('handles card in after but not in before gracefully', () => {
+    const afterText = '1 Lightning Bolt\n1 New Card';
+    const beforeText = '1 Lightning Bolt (m10) [227]';
+    const result = formatForArchidekt(afterText, [], beforeText);
+    const lines = result.split('\n');
+    expect(lines[0]).toBe('1x Lightning Bolt (m10) 227');
+    expect(lines[1]).toBe('1x New Card');
+  });
+
+  it('works normally when beforeText is null', () => {
+    const result = formatForArchidekt('1 Sol Ring', [], null);
+    expect(result).toBe('1x Sol Ring');
+  });
+
+  it('carries forward commander tag with beforeText metadata', () => {
+    const afterText = '1 Sauron, the Dark Lord\n1 Sol Ring';
+    const beforeText = '1 Sauron, the Dark Lord (ltr) [675] *F*\n1 Sol Ring (ltc) [284]';
+    const result = formatForArchidekt(afterText, ['Sauron, the Dark Lord'], beforeText);
+    const lines = result.split('\n');
+    expect(lines[0]).toBe('1x Sauron, the Dark Lord (ltr) 675 *F* [Commander{top}]');
+    expect(lines[1]).toBe('1x Sol Ring (ltc) 284');
+  });
 });

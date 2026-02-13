@@ -21,7 +21,7 @@ function filterSection(section, query) {
   };
 }
 
-export default function ChangelogOutput({ diffResult, cardMap, onShare, afterText }) {
+export default function ChangelogOutput({ diffResult, cardMap, onShare, afterText, beforeText }) {
   const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -98,7 +98,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} label="Copy Changelog" />}
           {afterText && (
             <CopyButton
-              getText={() => formatForArchidekt(afterText, commanders)}
+              getText={() => formatForArchidekt(afterText, commanders, beforeText)}
               label="Copy for Archidekt"
               className="copy-btn copy-btn--archidekt"
             />

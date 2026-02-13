@@ -209,12 +209,45 @@ export function formatReddit(diffResult, typeMap) {
 }
 
 /**
+ * Build a metadata lookup from parsed deck data.
+ * Returns Map<string(lowercased name), Array<{ setCode, collectorNumber, isFoil, quantity }>>
+ * Stores all printings per card name to support multi-printing cards (e.g. Nazgul).
+ */
+function buildMetadataLookup(parsed) {
+  const lookup = new Map();
+
+  function addEntries(map) {
+    for (const [, entry] of map) {
+      const key = entry.displayName.toLowerCase();
+      if (entry.setCode || entry.collectorNumber) {
+        if (!lookup.has(key)) lookup.set(key, []);
+        lookup.get(key).push({
+          setCode: entry.setCode,
+          collectorNumber: entry.collectorNumber,
+          isFoil: entry.isFoil || false,
+          quantity: entry.quantity,
+        });
+      }
+    }
+  }
+
+  addEntries(parsed.mainboard);
+  addEntries(parsed.sideboard);
+  return lookup;
+}
+
+/**
  * Format a deck list text for Archidekt import.
- * Commander cards get an inline "//COMMANDER" tag so Archidekt
+ * Commander cards get an inline "[Commander{top}]" tag so Archidekt
  * auto-assigns them to the command zone on import.
  * Converts "Sideboard" header to "# Sideboard".
+ *
+ * When beforeText is provided, cards in the after text that lack printing
+ * metadata will inherit set codes, collector numbers, and foil status from
+ * matching cards in the before text. This mirrors the server-side
+ * carry-forward enrichment pattern and handles multi-printing cards.
  */
-export function formatForArchidekt(text, commanders = []) {
+export function formatForArchidekt(text, commanders = [], beforeText = null) {
   if (!text || !text.trim()) return '';
 
   const parsed = parse(text);
@@ -224,28 +257,97 @@ export function formatForArchidekt(text, commanders = []) {
     ...parsed.commanders.map(c => c.toLowerCase()),
   ]);
 
-  function formatEntry(entry) {
-    // Archidekt text format: 1x Name (set) collectorNum *F* [Category]
-    let line = `${entry.quantity}x ${entry.displayName}`;
-    if (entry.setCode) line += ` (${entry.setCode})`;
-    if (entry.collectorNumber) line += ` ${entry.collectorNumber}`;
-    if (entry.isFoil) line += ` *F*`;
-    if (allCommanders.has(entry.displayName.toLowerCase())) {
+  // Build metadata lookup from beforeText for carry-forward
+  const beforeLookup = beforeText ? buildMetadataLookup(parse(beforeText)) : new Map();
+  // Track consumption of multi-printing metadata (e.g. 9 unique Nazgul artworks)
+  const consumed = new Map(); // key → number of printings already consumed
+
+  /**
+   * Get carry-forward metadata for a card entry that has no metadata of its own.
+   * For multi-printing cards, returns printings sequentially to distribute artworks.
+   * Returns an array of { setCode, collectorNumber, isFoil, quantity } entries
+   * that cover the requested quantity, or null if no metadata is available.
+   */
+  function getBeforeMetadata(entry) {
+    const key = entry.displayName.toLowerCase();
+    const printings = beforeLookup.get(key);
+    if (!printings || printings.length === 0) return null;
+
+    const offset = consumed.get(key) || 0;
+
+    if (printings.length === 1) {
+      // Single printing — use for all copies
+      return [{ ...printings[0], quantity: entry.quantity }];
+    }
+
+    // Multi-printing — distribute across artworks
+    const result = [];
+    let remaining = entry.quantity;
+    let idx = offset;
+
+    for (let i = 0; i < printings.length && remaining > 0; i++) {
+      const pIdx = (idx + i) % printings.length;
+      const p = printings[pIdx < printings.length ? pIdx : 0];
+      // For sequential consumption, take up to the original quantity per printing
+      const take = Math.min(p.quantity, remaining);
+      if (take > 0) {
+        result.push({ ...p, quantity: take });
+        remaining -= take;
+      }
+    }
+
+    // If we still have remaining, assign to first printing
+    if (remaining > 0) {
+      if (result.length > 0) {
+        result[0] = { ...result[0], quantity: result[0].quantity + remaining };
+      } else {
+        result.push({ ...printings[0], quantity: remaining });
+      }
+    }
+
+    consumed.set(key, offset + entry.quantity);
+    return result;
+  }
+
+  function formatLine(qty, displayName, setCode, collectorNumber, isFoil) {
+    let line = `${qty}x ${displayName}`;
+    if (setCode) line += ` (${setCode})`;
+    if (collectorNumber) line += ` ${collectorNumber}`;
+    if (isFoil) line += ` *F*`;
+    if (allCommanders.has(displayName.toLowerCase())) {
       line += ` [Commander{top}]`;
     }
     return line;
   }
 
+  function formatEntry(entry) {
+    // If the entry already has metadata, use it directly
+    if (entry.setCode || entry.collectorNumber) {
+      return [formatLine(entry.quantity, entry.displayName, entry.setCode, entry.collectorNumber, entry.isFoil)];
+    }
+
+    // Try carry-forward from beforeText
+    const beforeMeta = getBeforeMetadata(entry);
+    if (beforeMeta) {
+      return beforeMeta.map(m =>
+        formatLine(m.quantity, entry.displayName, m.setCode, m.collectorNumber, m.isFoil)
+      );
+    }
+
+    // No metadata available — output bare name
+    return [formatLine(entry.quantity, entry.displayName, '', '', false)];
+  }
+
   const result = [];
 
   for (const [, entry] of parsed.mainboard) {
-    result.push(formatEntry(entry));
+    result.push(...formatEntry(entry));
   }
 
   if (parsed.sideboard.size > 0) {
     result.push('# Sideboard');
     for (const [, entry] of parsed.sideboard) {
-      result.push(formatEntry(entry));
+      result.push(...formatEntry(entry));
     }
   }
 
