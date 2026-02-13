@@ -16,15 +16,15 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.4.1';
 const WHATS_NEW = [
-  'Copy for Archidekt now exports in their native text format with full printing metadata',
+  'Fixed promo/special printing collector numbers (136p, DDO-20, 2022-3) causing false diffs',
+  'Archidekt export now carries forward printing metadata from the Before deck for cross-source comparisons',
+  'Copy for Archidekt exports in their native text format with full printing metadata',
   'Commander tagging in Archidekt exports — [Commander{top}] tag included automatically',
   'Fixed Scryfall lookup for double-faced cards — correct type, mana cost, and card image',
   'Multi-printing enrichment carry-forward preserves all artwork printings across snapshots',
   'Fixed diff for multi-printing cards (e.g. 9 unique Nazgul artworks) collapsing correctly',
-  'Fixed diff matching double-faced cards (e.g. Sheoldred // The True Scriptures)',
-  'Cleaner button layout — Copy Changelog, Copy for Archidekt, Copy MPCFill',
 ];
 
 function getResetToken() {
