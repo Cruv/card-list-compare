@@ -48,9 +48,9 @@ router.get('/:id', (req, res) => {
     if (snap?.deck_text) {
       try {
         const parsed = parse(snap.deck_text);
+        // Commanders are already merged into mainboard by the parser
         for (const [, card] of parsed.mainboard) cardCount += card.quantity;
         for (const [, card] of parsed.sideboard) cardCount += card.quantity;
-        cardCount += (parsed.commanders || []).length;
       } catch { /* ignore */ }
     }
     return {

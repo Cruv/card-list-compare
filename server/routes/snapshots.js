@@ -208,10 +208,10 @@ router.get('/:deckId/timeline', (req, res) => {
     const snap = snapshots[i];
     const parsed = parse(snap.deck_text);
     // Count total cards across all sections — map values are { quantity, ... } objects
+    // Note: commanders are already merged into mainboard by the parser, so don't add them again
     let cardCount = 0;
     for (const [, card] of parsed.mainboard) cardCount += card.quantity;
     for (const [, card] of parsed.sideboard) cardCount += card.quantity;
-    cardCount += (parsed.commanders || []).length;
 
     const entry = {
       snapshotId: snap.id,
