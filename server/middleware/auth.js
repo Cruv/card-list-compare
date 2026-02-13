@@ -21,6 +21,16 @@ export function requireAuth(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     req.user = { userId: payload.userId, username: payload.username, isAdmin: !!payload.isAdmin };
+
+    // Check if user account still exists and is not suspended
+    const dbUser = get('SELECT suspended FROM users WHERE id = ?', [payload.userId]);
+    if (!dbUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    if (dbUser.suspended) {
+      return res.status(403).json({ error: 'Account suspended' });
+    }
+
     next();
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });

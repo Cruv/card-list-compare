@@ -153,7 +153,36 @@ export async function initDb() {
     }
   }
 
+  // Migration: add last_login_at column to users
+  try {
+    db.run('ALTER TABLE users ADD COLUMN last_login_at TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add suspended column to users
+  try {
+    db.run('ALTER TABLE users ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Admin audit log table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_user_id INTEGER NOT NULL,
+      admin_username TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_user_id INTEGER,
+      target_username TEXT,
+      details TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+
   // Indexes
+  db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON admin_audit_log(created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_user ON tracked_decks(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_owner ON tracked_decks(tracked_owner_id)');

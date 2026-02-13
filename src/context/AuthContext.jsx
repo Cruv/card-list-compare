@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getMe } from '../lib/api';
+import { toast } from '../components/Toast';
 
 const AuthContext = createContext(null);
 
@@ -16,7 +17,13 @@ export function AuthProvider({ children }) {
 
     getMe()
       .then(data => setUser(data.user))
-      .catch(() => localStorage.removeItem('clc-auth-token'))
+      .catch((err) => {
+        localStorage.removeItem('clc-auth-token');
+        // If account was suspended, show a clear message
+        if (err.message && err.message.toLowerCase().includes('suspended')) {
+          toast.error('Your account has been suspended. Please contact an admin.');
+        }
+      })
       .finally(() => setLoading(false));
   }, []);
 

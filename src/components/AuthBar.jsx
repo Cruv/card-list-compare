@@ -5,7 +5,7 @@ import { login, register, getRegistrationStatus } from '../lib/api';
 import { toast } from './Toast';
 import './AuthBar.css';
 
-export default function AuthBar({ onShowSettings, onShowForgotPassword, onShowAdmin }) {
+export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
   const { user, loading, loginUser, logoutUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [showForm, setShowForm] = useState(false);
@@ -64,7 +64,7 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword, onShowAd
         {themeToggle}
         <span className="auth-bar-user">{user.username}</span>
         {user.isAdmin && (
-          <button className="auth-bar-btn" onClick={onShowAdmin} type="button" title="Admin Panel">
+          <button className="auth-bar-btn" onClick={() => { window.location.hash = '#admin'; }} type="button" title="Admin Panel">
             Admin
           </button>
         )}

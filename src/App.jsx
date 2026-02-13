@@ -2,12 +2,13 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import DeckInput from './components/DeckInput';
 import ChangelogOutput from './components/ChangelogOutput';
 import AuthBar from './components/AuthBar';
-import AdminPanel from './components/AdminPanel';
+import AdminPage from './components/admin/AdminPage';
 import UserSettings from './components/UserSettings';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useAuth } from './context/AuthContext';
+import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
 import { collectCardNames, collectCardIdentifiers, fetchCardData } from './lib/scryfall';
@@ -16,14 +17,14 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const WHATS_NEW = [
-  'Printing info now visible in diffs — set codes, collector numbers, and foil badges shown inline',
-  'Card image tooltips show exact printing artwork (specific art, promos, etc.) instead of generic',
-  'Scryfall lookups use set+collector identifiers for precise printing images',
-  'Fixed promo/special printing collector numbers (136p, DDO-20, 2022-3) causing false diffs',
-  'Archidekt export carries forward printing metadata from the Before deck',
-  'Multi-printing enrichment carry-forward preserves all artwork printings across snapshots',
+  'Full-page admin panel with sidebar navigation — replaces the old modal overlay',
+  'User search, sort, and pagination in admin user management',
+  'Account suspension — admins can suspend/unsuspend users, blocking login and API access',
+  'Last login tracking — see when each user was last active',
+  'Admin audit log — every admin action (resets, deletions, promotions) is tracked and viewable',
+  'Enhanced dashboard with active users, suspended count, and recent activity feed',
 ];
 
 function getResetToken() {
@@ -33,12 +34,12 @@ function getResetToken() {
 
 export default function App() {
   const { user } = useAuth();
+  const { route, shareId } = useHashRoute();
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
   const [diffResult, setDiffResult] = useState(null);
   const [cardMap, setCardMap] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
@@ -110,11 +111,8 @@ export default function App() {
 
   // Load shared comparison from URL hash (e.g. #share/abc123)
   useEffect(() => {
-    async function loadFromHash() {
-      const hash = window.location.hash;
-      if (!hash.startsWith('#share/')) return;
-      const shareId = hash.slice(7);
-      if (!shareId) return;
+    if (route !== 'share' || !shareId) return;
+    async function loadShare() {
       try {
         const data = await getShare(shareId);
         setBeforeText(data.beforeText || '');
@@ -136,8 +134,8 @@ export default function App() {
         toast.error('Failed to load shared comparison. The link may be invalid or expired.');
       }
     }
-    loadFromHash();
-  }, []);
+    loadShare();
+  }, [route, shareId]);
 
   async function handleShare() {
     const commanders = diffResult?.commanders || [];
@@ -186,26 +184,28 @@ export default function App() {
     );
   }
 
+  // Full-page admin panel (replaces main compare UI)
+  if (route === 'admin') {
+    return (
+      <ErrorBoundary>
+        <AdminPage />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <div className="app" role="main">
       <a href="#deck-inputs" className="sr-only sr-only-focusable">Skip to content</a>
       <header className="app-header">
         <AuthBar
-          onShowSettings={() => { setShowSettings(true); setShowAdmin(false); setShowForgotPassword(false); }}
-          onShowAdmin={() => { setShowAdmin(true); setShowSettings(false); setShowForgotPassword(false); }}
-          onShowForgotPassword={() => { setShowForgotPassword(true); setShowSettings(false); setShowAdmin(false); }}
+          onShowSettings={() => { setShowSettings(true); setShowForgotPassword(false); }}
+          onShowForgotPassword={() => { setShowForgotPassword(true); setShowSettings(false); }}
         />
         <h1 className="app-title">Card List Compare</h1>
         <p className="app-subtitle">
           Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield / DeckCheck
         </p>
       </header>
-
-      {showAdmin && user?.isAdmin && (
-        <ErrorBoundary>
-          <AdminPanel onClose={() => setShowAdmin(false)} />
-        </ErrorBoundary>
-      )}
 
       {showSettings && user && (
         <ErrorBoundary>

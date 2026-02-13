@@ -148,7 +148,16 @@ export const getRegistrationStatus = () => apiFetch('/auth/registration-status')
 // Admin
 export const getAdminStats = () => apiFetch('/admin/stats');
 
-export const getAdminUsers = () => apiFetch('/admin/users');
+export const getAdminUsers = ({ search, sort, order, page, limit } = {}) => {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (sort) params.set('sort', sort);
+  if (order) params.set('order', order);
+  if (page) params.set('page', String(page));
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return apiFetch(`/admin/users${qs ? `?${qs}` : ''}`);
+};
 
 export const adminResetPassword = (userId, newPassword) =>
   apiFetch(`/admin/users/${userId}/reset-password`, {
@@ -162,6 +171,12 @@ export const adminDeleteUser = (userId) =>
 export const adminToggleAdmin = (userId) =>
   apiFetch(`/admin/users/${userId}/toggle-admin`, { method: 'PATCH' });
 
+export const adminSuspendUser = (userId) =>
+  apiFetch(`/admin/users/${userId}/suspend`, { method: 'PATCH' });
+
+export const adminUnsuspendUser = (userId) =>
+  apiFetch(`/admin/users/${userId}/unsuspend`, { method: 'PATCH' });
+
 export const getAdminSettings = () => apiFetch('/admin/settings');
 
 export const updateAdminSetting = (key, value) =>
@@ -174,3 +189,12 @@ export const getAdminShares = () => apiFetch('/admin/shares');
 
 export const adminDeleteShare = (shareId) =>
   apiFetch(`/admin/shares/${shareId}`, { method: 'DELETE' });
+
+export const getAdminAuditLog = ({ page, limit, action } = {}) => {
+  const params = new URLSearchParams();
+  if (page) params.set('page', String(page));
+  if (limit) params.set('limit', String(limit));
+  if (action) params.set('action', action);
+  const qs = params.toString();
+  return apiFetch(`/admin/audit-log${qs ? `?${qs}` : ''}`);
+};

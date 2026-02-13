@@ -59,10 +59,17 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
+    if (user.suspended) {
+      return res.status(403).json({ error: 'Your account has been suspended. Contact an administrator.' });
+    }
+
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
+
+    // Track last login time
+    run("UPDATE users SET last_login_at = datetime('now') WHERE id = ?", [user.id]);
 
     const token = createToken(user);
     res.json({ token, user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin } });
@@ -73,11 +80,11 @@ router.post('/login', authLimiter, async (req, res) => {
 });
 
 router.get('/me', requireAuth, (req, res) => {
-  const user = get('SELECT id, username, email, is_admin, created_at FROM users WHERE id = ?', [req.user.userId]);
+  const user = get('SELECT id, username, email, is_admin, created_at, last_login_at FROM users WHERE id = ?', [req.user.userId]);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
-  res.json({ user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin, createdAt: user.created_at } });
+  res.json({ user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin, createdAt: user.created_at, lastLoginAt: user.last_login_at || null } });
 });
 
 // Change password (requires current password)
