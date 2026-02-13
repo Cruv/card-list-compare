@@ -48,8 +48,8 @@ router.get('/:id', (req, res) => {
     if (snap?.deck_text) {
       try {
         const parsed = parse(snap.deck_text);
-        for (const [, qty] of parsed.mainboard) cardCount += qty;
-        for (const [, qty] of parsed.sideboard) cardCount += qty;
+        for (const [, card] of parsed.mainboard) cardCount += card.quantity;
+        for (const [, card] of parsed.sideboard) cardCount += card.quantity;
         cardCount += (parsed.commanders || []).length;
       } catch { /* ignore */ }
     }

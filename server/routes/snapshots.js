@@ -207,10 +207,10 @@ router.get('/:deckId/timeline', (req, res) => {
   for (let i = 0; i < snapshots.length; i++) {
     const snap = snapshots[i];
     const parsed = parse(snap.deck_text);
-    // Count total cards across all sections
+    // Count total cards across all sections — map values are { quantity, ... } objects
     let cardCount = 0;
-    for (const [, qty] of parsed.mainboard) cardCount += qty;
-    for (const [, qty] of parsed.sideboard) cardCount += qty;
+    for (const [, card] of parsed.mainboard) cardCount += card.quantity;
+    for (const [, card] of parsed.sideboard) cardCount += card.quantity;
     cardCount += (parsed.commanders || []).length;
 
     const entry = {
@@ -227,9 +227,9 @@ router.get('/:deckId/timeline', (req, res) => {
       let added = 0, removed = 0, changed = 0;
       for (const section of ['mainboard', 'sideboard']) {
         if (diff[section]) {
-          added += (diff[section].added || []).length;
-          removed += (diff[section].removed || []).length;
-          changed += (diff[section].changed || []).length;
+          added += (diff[section].cardsIn || []).length;
+          removed += (diff[section].cardsOut || []).length;
+          changed += (diff[section].quantityChanges || []).length;
         }
       }
       entry.delta = { added, removed, changed };
