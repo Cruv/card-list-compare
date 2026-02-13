@@ -18,6 +18,7 @@ import './UserSettings.css';
 export default function UserSettings() {
   const { user, logoutUser, loginUser } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
+  const [activeTab, setActiveTab] = useState('account');
 
   // Account info
   const [email, setEmail] = useState('');
@@ -136,6 +137,26 @@ export default function UserSettings() {
           <h2>Account Settings</h2>
         </div>
 
+        <nav className="user-settings-tabs">
+          <button
+            className={`user-settings-tab${activeTab === 'account' ? ' user-settings-tab--active' : ''}`}
+            onClick={() => setActiveTab('account')}
+            type="button"
+          >
+            Account
+          </button>
+          <button
+            className={`user-settings-tab${activeTab === 'deck-tracker' ? ' user-settings-tab--active' : ''}`}
+            onClick={() => setActiveTab('deck-tracker')}
+            type="button"
+          >
+            Deck Tracker
+          </button>
+        </nav>
+
+      {activeTab === 'account' && (
+        <div className="user-settings-panel">
+
       {/* Account Info */}
       <section className="user-settings-section">
         <h3>Account Info</h3>
@@ -228,13 +249,6 @@ export default function UserSettings() {
         </form>
       </section>
 
-      {/* Deck Tracker */}
-      <section className="user-settings-section">
-        <h3>Deck Tracker</h3>
-        <p className="user-settings-desc">Track Archidekt users and their decks to build snapshot history.</p>
-        <DeckTrackerSettings confirm={confirm} />
-      </section>
-
       {/* Danger Zone */}
       <section className="user-settings-section user-settings-danger">
         <h3>Danger Zone</h3>
@@ -261,6 +275,16 @@ export default function UserSettings() {
           </div>
         </form>
       </section>
+
+        </div>
+      )}
+
+      {activeTab === 'deck-tracker' && (
+        <div className="user-settings-panel">
+          <DeckTrackerSettings confirm={confirm} />
+        </div>
+      )}
+
       </div>
     </div>
   );

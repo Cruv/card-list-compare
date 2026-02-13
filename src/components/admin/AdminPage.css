@@ -644,8 +644,9 @@
   }
 
   .admin-stats-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: var(--space-sm);
+    margin-bottom: var(--space-lg);
   }
 
   .admin-stat-card {
@@ -656,6 +657,11 @@
     font-size: var(--fs-lg);
   }
 
+  .admin-stat-label {
+    font-size: 9px;
+    margin-top: 2px;
+  }
+
   .admin-user-row {
     flex-direction: column;
     align-items: flex-start;
@@ -663,5 +669,24 @@
 
   .admin-user-actions {
     width: 100%;
+  }
+}
+
+@media (max-width: 400px) {
+  .admin-stats-grid {
+    gap: var(--space-xs);
+  }
+
+  .admin-stat-card {
+    padding: var(--space-sm) var(--space-xs);
+  }
+
+  .admin-stat-value {
+    font-size: var(--fs-md);
+  }
+
+  .admin-stat-label {
+    font-size: 8px;
+    letter-spacing: 0.3px;
   }
 }

@@ -42,6 +42,47 @@
   color: var(--text-primary);
 }
 
+/* ── Settings Tabs ──────────────────────────────────── */
+
+.user-settings-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 0;
+}
+
+.user-settings-tab {
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--fs-base);
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+
+.user-settings-tab:hover {
+  color: var(--text-primary);
+}
+
+.user-settings-tab--active {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--accent-blue);
+}
+
+.user-settings-panel {
+  padding-top: var(--space-lg);
+}
+
+.user-settings-panel > .user-settings-section:first-child {
+  border-top: none;
+}
+
 .user-settings-section {
   padding: var(--space-lg) 0;
   border-top: 1px solid var(--border-color);
@@ -523,6 +564,22 @@
 }
 
 @media (max-width: 640px) {
+  .user-settings-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .user-settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .user-settings-tab {
+    padding: var(--space-md) var(--space-md);
+    font-size: var(--fs-sm);
+  }
+
   .user-settings-field {
     flex-direction: column;
     align-items: flex-start;
