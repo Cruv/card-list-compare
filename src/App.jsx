@@ -16,15 +16,15 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '1.4.0';
 const WHATS_NEW = [
+  'Copy for Archidekt now exports in their native text format with full printing metadata',
+  'Commander tagging in Archidekt exports — [Commander{top}] tag included automatically',
+  'Fixed Scryfall lookup for double-faced cards — correct type, mana cost, and card image',
+  'Multi-printing enrichment carry-forward preserves all artwork printings across snapshots',
   'Fixed diff for multi-printing cards (e.g. 9 unique Nazgul artworks) collapsing correctly',
   'Fixed diff matching double-faced cards (e.g. Sheoldred // The True Scriptures)',
-  'Printing metadata preserved through Archidekt imports (set, collector number, foil)',
-  'Export for Archidekt split button — copy text or download CSV with full metadata',
-  'Changelog buttons consolidated into a cleaner layout with More dropdown',
-  'Admin delete safety — type username to confirm account deletion',
-  'Fixed diff showing entire deck as changed when comparing plain text vs enriched lists',
+  'Cleaner button layout — Copy Changelog, Copy for Archidekt, Copy MPCFill',
 ];
 
 function getResetToken() {

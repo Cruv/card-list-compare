@@ -141,13 +141,17 @@ cp ./data/cardlistcompare.db ./backups/cardlistcompare-$(date +%Y%m%d).db
 - **Deck comparison** &mdash; paste, upload, or import two deck lists and instantly see what changed
 - **Multi-format parser** &mdash; Arena/MTGO exports, CSV, plain text, `SB:` prefix notation
 - **URL import** &mdash; pull decks from Archidekt, Moxfield, and DeckCheck links
-- **Set code preservation** &mdash; captures edition codes from Archidekt so printings round-trip
+- **Printing metadata preservation** &mdash; set codes, collector numbers, and foil status survive the full round-trip (import &rarr; diff &rarr; export)
+- **Archidekt re-import** &mdash; "Copy for Archidekt" exports in Archidekt's native text format with full printing metadata and commander tags
+- **Multi-printing card support** &mdash; cards that allow multiples (Nazgul, Hare Apparent, etc.) with different artworks diff correctly across printings
+- **Double-faced card matching** &mdash; "Sheoldred // The True Scriptures" correctly matches "Sheoldred, the Apocalypse" across deck sources
+- **Server-side enrichment** &mdash; plain text deck imports are enriched with printing metadata via Scryfall, with carry-forward from previous snapshots
 - **Deck tracker** &mdash; track Archidekt users/decks with automatic snapshot history
 - **Card image tooltips** &mdash; hover any card name to see the Scryfall image
 - **Mana cost display** &mdash; inline colored mana symbols from Scryfall
 - **Card type grouping** &mdash; changelogs grouped by creature, instant, sorcery, etc.
 - **Search & filter** &mdash; real-time card name filtering across all sections
-- **Export formats** &mdash; plain text, Reddit markdown, MPCFill, JSON, Archidekt re-import
+- **Export formats** &mdash; plain text, Reddit markdown, MPCFill, JSON, Archidekt text
 - **Dark / light mode** &mdash; theme toggle with localStorage persistence
 - **Share links** &mdash; generate shareable URLs for any comparison
 - **Mobile friendly** &mdash; responsive layout, touch-aware tooltips, installable as PWA
@@ -195,8 +199,7 @@ src/
 server/
   routes/        # Express API routes (auth, decks, snapshots, admin)
   middleware/     # Rate limiting, validation, auth
-  lib/           # Server-side deck fetching
-  db.js          # SQLite via sql.js
+  lib/           # Scryfall client, deck enrichment, Archidekt conversion
 nginx.conf       # Production reverse proxy config
 Dockerfile       # Multi-stage build
 docker-compose.yml
