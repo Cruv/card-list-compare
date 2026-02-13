@@ -17,14 +17,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 const WHATS_NEW = [
-  'Database backup download — admins can download a full SQLite backup from the dashboard',
-  'Server health monitoring — uptime, memory usage, and Node version in admin stats (auto-refreshes)',
-  'User export — download all users as CSV from maintenance section',
-  'Token cleanup — one-click removal of expired password reset and email verification tokens',
-  'Audit log cleanup — purge old audit entries by age (configurable days)',
-  'Emergency lockdown — instantly suspend all non-admin users',
+  'Moxfield printing metadata — set codes, collector numbers, and foil status now extracted from Moxfield imports',
+  'Import feedback toast — shows card count and metadata coverage after URL imports',
+  'Enrichment test suite — server-side enrichment pipeline verified with mocked Scryfall data',
 ];
 
 function getResetToken() {

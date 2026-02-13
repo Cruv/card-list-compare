@@ -104,10 +104,20 @@ export default function DeckInput({ label, value, onChange, user }) {
     setError(null);
     setSavePrompt(null);
     try {
-      const { text, site, commanders } = await fetchDeckFromUrl(urlInput.trim());
+      const { text, site, commanders, stats } = await fetchDeckFromUrl(urlInput.trim());
       onChange(text);
       setShowUrl(false);
       setUrlInput('');
+
+      // Show metadata coverage feedback
+      if (stats && stats.totalCards > 0) {
+        const pct = Math.round((stats.cardsWithMeta / stats.totalCards) * 100);
+        if (stats.cardsWithMeta > 0) {
+          toast.success(`Imported ${stats.totalCards} cards from ${siteLabel(site)} \u2014 ${pct}% with printing info`);
+        } else {
+          toast.info(`Imported ${stats.totalCards} cards from ${siteLabel(site)} (no printing info available)`);
+        }
+      }
 
       // Check for tracked deck commander match
       if (user && commanders && commanders.length > 0) {

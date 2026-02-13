@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.{js,jsx}'],
+    include: ['src/**/*.test.{js,jsx}', 'server/**/*.test.{js,jsx}'],
     environment: 'node',
     globals: false,
     testTimeout: 10_000,

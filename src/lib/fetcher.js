@@ -73,6 +73,8 @@ function archidektToText(data) {
   const sideLines = [];
   const commanderLines = [];
   const commanderNames = [];
+  let totalCards = 0;
+  let cardsWithMeta = 0;
 
   const cards = data.cards || [];
 
@@ -86,6 +88,13 @@ function archidektToText(data) {
       typeof c === 'string' ? c.toLowerCase() : (c.name || '').toLowerCase()
     );
 
+    if (categories.includes('maybeboard') || categories.includes('considering')) {
+      continue;
+    }
+
+    totalCards += qty;
+    if (setCode && collectorNumber) cardsWithMeta += qty;
+
     let line = `${qty} ${name}`;
     if (setCode) line += ` (${setCode})`;
     if (collectorNumber) line += ` [${collectorNumber}]`;
@@ -96,9 +105,6 @@ function archidektToText(data) {
       commanderNames.push(name);
     } else if (categories.includes('sideboard')) {
       sideLines.push(line);
-    } else if (categories.includes('maybeboard') || categories.includes('considering')) {
-      // Skip maybeboard cards
-      continue;
     } else {
       mainLines.push(line);
     }
@@ -117,7 +123,7 @@ function archidektToText(data) {
     text += '\n\nSideboard\n' + sideLines.join('\n');
   }
 
-  return { text, commanders: commanderNames };
+  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta } };
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +159,8 @@ function moxfieldToText(data) {
     companions: [],
   };
   const commanderNames = [];
+  let totalCards = 0;
+  let cardsWithMeta = 0;
 
   // Moxfield organizes cards by board name
   const boards = data.boards || {};
@@ -161,10 +169,23 @@ function moxfieldToText(data) {
     const cards = board.cards || {};
     const target = boardName.toLowerCase();
 
+    if (target === 'maybeboard' || target === 'considering') continue;
+
     for (const [, cardEntry] of Object.entries(cards)) {
       const name = cardEntry.card?.name || 'Unknown';
       const qty = cardEntry.quantity || 1;
-      const line = `${qty} ${name}`;
+      const setCode = cardEntry.card?.set || '';
+      const collectorNumber = cardEntry.card?.cn || '';
+      const finish = cardEntry.finish || '';
+      const isFoil = cardEntry.isFoil || finish === 'foil' || finish === 'etched';
+
+      totalCards += qty;
+      if (setCode && collectorNumber) cardsWithMeta += qty;
+
+      let line = `${qty} ${name}`;
+      if (setCode) line += ` (${setCode})`;
+      if (collectorNumber) line += ` [${collectorNumber}]`;
+      if (isFoil) line += ` *F*`;
 
       if (target === 'commanders' || target === 'commander') {
         sections.commanders.push(line);
@@ -175,7 +196,7 @@ function moxfieldToText(data) {
         sections.companions.push(line);
       } else if (target === 'mainboard' || target === 'main' || target === 'deck') {
         sections.mainboard.push(line);
-      } else if (target !== 'maybeboard' && target !== 'considering') {
+      } else {
         // Unknown board — treat as mainboard
         sections.mainboard.push(line);
       }
@@ -197,7 +218,7 @@ function moxfieldToText(data) {
     text += '\n\nSideboard\n' + sections.sideboard.join('\n');
   }
 
-  return { text, commanders: commanderNames };
+  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta } };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +265,11 @@ function deckcheckToText(data) {
 
   text += mainLines.join('\n');
 
-  return { text, commanders: commanderNames };
+  let totalCards = commanderNames.length;
+  for (const [, qty] of Object.entries(cards)) {
+    if (typeof qty === 'number') totalCards += qty;
+  }
+  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta: 0 } };
 }
 
 // ---------------------------------------------------------------------------
@@ -253,25 +278,26 @@ function deckcheckToText(data) {
 
 /**
  * Fetch a deck list from a URL.
- * Returns { text: string, site: string, commanders: string[] }
+ * Returns { text, site, commanders, stats? }
+ * stats: { totalCards: number, cardsWithMeta: number } — metadata coverage info
  * Throws Error with user-friendly message on failure.
  */
 export async function fetchDeckFromUrl(url) {
   const site = detectSite(url);
 
   if (site === 'archidekt') {
-    const { text, commanders } = await fetchArchidekt(url);
-    return { text, site, commanders };
+    const { text, commanders, stats } = await fetchArchidekt(url);
+    return { text, site, commanders, stats };
   }
 
   if (site === 'moxfield') {
-    const { text, commanders } = await fetchMoxfield(url);
-    return { text, site, commanders };
+    const { text, commanders, stats } = await fetchMoxfield(url);
+    return { text, site, commanders, stats };
   }
 
   if (site === 'deckcheck') {
-    const { text, commanders } = await fetchDeckcheck(url);
-    return { text, site, commanders };
+    const { text, commanders, stats } = await fetchDeckcheck(url);
+    return { text, site, commanders, stats };
   }
 
   throw new Error(
@@ -282,3 +308,6 @@ export async function fetchDeckFromUrl(url) {
       'For other sites, export your deck list and paste it directly.'
   );
 }
+
+// Exported for testing
+export { archidektToText as _archidektToText, moxfieldToText as _moxfieldToText, deckcheckToText as _deckcheckToText };
