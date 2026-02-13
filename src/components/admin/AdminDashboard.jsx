@@ -121,7 +121,7 @@ export default function AdminDashboard() {
   return (
     <div>
       {ConfirmDialog}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+      <div className="admin-dashboard-header">
         <h3>Dashboard</h3>
         <button
           className="btn btn-secondary btn-sm admin-refresh-btn"
@@ -180,7 +180,7 @@ export default function AdminDashboard() {
 
       {recentAudit.length > 0 && (
         <div>
-          <h4 style={{ margin: '24px 0 12px', fontSize: 14, color: 'var(--text-secondary)', fontWeight: 600 }}>
+          <h4 className="admin-subsection-title">
             Recent Activity
           </h4>
           <ul className="admin-audit-list">

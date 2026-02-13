@@ -6,7 +6,7 @@ import { toast } from './Toast';
 import PasswordRequirements from './PasswordRequirements';
 import './AuthBar.css';
 
-export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
+export default function AuthBar({ onShowForgotPassword }) {
   const { user, loading, loginUser, logoutUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [showForm, setShowForm] = useState(false);
@@ -69,7 +69,7 @@ export default function AuthBar({ onShowSettings, onShowForgotPassword }) {
             Admin
           </button>
         )}
-        <button className="auth-bar-btn" onClick={onShowSettings} type="button" title="Account Settings">
+        <button className="auth-bar-btn" onClick={() => { window.location.hash = '#settings'; }} type="button" title="Account Settings">
           Settings
         </button>
         <button className="auth-bar-btn" onClick={logoutUser} type="button">

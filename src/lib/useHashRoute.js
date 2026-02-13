@@ -21,6 +21,9 @@ export function useHashRoute() {
   if (hash === '#admin' || hash.startsWith('#admin/')) {
     return { route: 'admin' };
   }
+  if (hash === '#settings') {
+    return { route: 'settings' };
+  }
   if (hash.startsWith('#share/')) {
     const shareId = hash.slice(7);
     return { route: 'share', shareId };

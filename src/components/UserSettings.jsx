@@ -15,7 +15,7 @@ import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib
 import Skeleton from './Skeleton';
 import './UserSettings.css';
 
-export default function UserSettings({ onClose }) {
+export default function UserSettings() {
   const { user, logoutUser, loginUser } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
 
@@ -126,12 +126,15 @@ export default function UserSettings({ onClose }) {
     : '...';
 
   return (
-    <div className="user-settings">
-      {ConfirmDialog}
-      <div className="user-settings-header">
-        <h2>Account Settings</h2>
-        <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Close</button>
-      </div>
+    <div className="settings-page">
+      <button className="settings-back-link" onClick={() => { window.location.hash = ''; }} type="button">
+        &larr; Back to Compare
+      </button>
+      <div className="user-settings">
+        {ConfirmDialog}
+        <div className="user-settings-header">
+          <h2>Account Settings</h2>
+        </div>
 
       {/* Account Info */}
       <section className="user-settings-section">
@@ -258,6 +261,7 @@ export default function UserSettings({ onClose }) {
           </div>
         </form>
       </section>
+      </div>
     </div>
   );
 }

@@ -17,11 +17,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 const WHATS_NEW = [
-  'Moxfield printing metadata — set codes, collector numbers, and foil status now extracted from Moxfield imports',
-  'Import feedback toast — shows card count and metadata coverage after URL imports',
-  'Enrichment test suite — server-side enrichment pipeline verified with mocked Scryfall data',
+  'Full-page Settings — settings now opens as its own page with back navigation instead of an inline panel',
+  'Admin page restyled — fluid spacing, gradient stat cards, tinted badges, hover animations, consistent design language',
 ];
 
 function getResetToken() {
@@ -41,7 +40,6 @@ export default function App() {
   const [afterText, setAfterText] = useState('');
   const [diffResult, setDiffResult] = useState(null);
   const [cardMap, setCardMap] = useState(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
@@ -212,25 +210,27 @@ export default function App() {
     );
   }
 
+  // Full-page settings (replaces main compare UI)
+  if (route === 'settings' && user) {
+    return (
+      <ErrorBoundary>
+        <UserSettings />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <div className="app" role="main">
       <a href="#deck-inputs" className="sr-only sr-only-focusable">Skip to content</a>
       <header className="app-header">
         <AuthBar
-          onShowSettings={() => { setShowSettings(true); setShowForgotPassword(false); }}
-          onShowForgotPassword={() => { setShowForgotPassword(true); setShowSettings(false); }}
+          onShowForgotPassword={() => { setShowForgotPassword(true); }}
         />
         <h1 className="app-title">Card List Compare</h1>
         <p className="app-subtitle">
           Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield / DeckCheck
         </p>
       </header>
-
-      {showSettings && user && (
-        <ErrorBoundary>
-          <UserSettings onClose={() => setShowSettings(false)} />
-        </ErrorBoundary>
-      )}
 
       {showForgotPassword && !user && (
         <ErrorBoundary>

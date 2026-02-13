@@ -86,7 +86,7 @@ export default function AdminAuditLog() {
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+        <span className="admin-audit-count">
           {total} {total === 1 ? 'entry' : 'entries'}
         </span>
       </div>
