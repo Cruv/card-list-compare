@@ -229,6 +229,9 @@ export async function initDb() {
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_snapshots_per_deck', '25')`);
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_locked_per_deck', '5')`);
 
+  // Seed price display setting
+  db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('price_display_enabled', 'true')`);
+
   // Migration: convert registration_enabled from boolean to tri-state
   const regSetting = get("SELECT value FROM server_settings WHERE key = 'registration_enabled'");
   if (regSetting) {

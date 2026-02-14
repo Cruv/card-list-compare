@@ -192,6 +192,9 @@ export const getSnapshot = (deckId, snapshotId) =>
 // Registration status (public)
 export const getRegistrationStatus = () => apiFetch('/auth/registration-status');
 
+// App settings (public — non-sensitive settings like price display)
+export const getAppSettings = () => apiFetch('/auth/app-settings');
+
 // Admin
 export const getAdminStats = () => apiFetch('/admin/stats');
 

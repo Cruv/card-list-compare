@@ -9,6 +9,20 @@
   margin-bottom: var(--space-md);
 }
 
+.deck-list-price-summary {
+  font-size: var(--fs-base);
+  color: var(--text-secondary);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+}
+
+.deck-list-price-summary strong {
+  color: var(--text-primary);
+}
+
 .deck-list-section {
   margin-bottom: 24px;
 }

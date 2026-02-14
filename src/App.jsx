@@ -18,12 +18,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const WHATS_NEW = [
-  'Interactive timeline — click any timeline entry to view a rich changelog or full deck list at that snapshot',
-  'Full deck view — see your complete deck sorted by card type with printing info, mana costs, and card image tooltips',
-  'Timeline changes view — detailed diff with type grouping, printing badges, and Scryfall artwork for each snapshot',
-  'Card search in overlay — filter cards by name across both changes and full deck views',
+  'Deck price tracking — per-card prices from Scryfall shown on every card line, with total deck value on full deck views',
+  'Price impact badges — see the cost of each deck change at a glance (+$12.50 / -$8.00) in timeline overlays',
+  'Admin price control — admins can enable/disable price display globally from the settings panel',
 ];
 
 function getResetToken() {

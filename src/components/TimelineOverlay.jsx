@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useAppSettings } from '../context/AppSettingsContext';
 import { getDeckChangelog, getSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
@@ -48,6 +49,7 @@ function filterSection(section, query) {
 }
 
 export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckName, commanders, onClose }) {
+  const { priceDisplayEnabled } = useAppSettings();
   const isBaseline = !prevSnapshotId;
   const [activeTab, setActiveTab] = useState(isBaseline ? 'deck' : 'changes');
   const [searchQuery, setSearchQuery] = useState('');
@@ -150,6 +152,43 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
       [...mb.quantityChanges, ...sb.quantityChanges].some(c => c.delta > 0);
     return { totalIn, totalOut, totalChanged, noChanges: totalIn === 0 && totalOut === 0 && totalChanged === 0, hasAdditions };
   }, [diffResult]);
+
+  // Price impact of changes
+  const priceImpact = useMemo(() => {
+    if (!priceDisplayEnabled || !diffResult || !diffCardMap || diffCardMap.size === 0) return null;
+    let costIn = 0, costOut = 0, hasAny = false;
+
+    function getCardPrice(card) {
+      const nameLower = card.name.toLowerCase();
+      const compositeKey = card.collectorNumber ? `${nameLower}|${card.collectorNumber}` : null;
+      const data = (compositeKey && diffCardMap.get(compositeKey)) || diffCardMap.get(nameLower);
+      if (!data) return null;
+      const isFoil = card.isFoil || false;
+      return isFoil && data.priceUsdFoil != null ? data.priceUsdFoil : data.priceUsd;
+    }
+
+    for (const section of [diffResult.mainboard, diffResult.sideboard]) {
+      for (const card of section.cardsIn) {
+        const p = getCardPrice(card);
+        if (p != null) { costIn += p * card.quantity; hasAny = true; }
+      }
+      for (const card of section.cardsOut) {
+        const p = getCardPrice(card);
+        if (p != null) { costOut += p * card.quantity; hasAny = true; }
+      }
+      for (const card of section.quantityChanges) {
+        const p = getCardPrice(card);
+        if (p != null) {
+          if (card.delta > 0) costIn += p * card.delta;
+          else costOut += p * Math.abs(card.delta);
+          hasAny = true;
+        }
+      }
+    }
+
+    if (!hasAny) return null;
+    return { costIn, costOut, net: costIn - costOut };
+  }, [diffResult, diffCardMap]);
 
   // Build diffResult wrapper for formatter functions
   const diffForExport = useMemo(() => {
@@ -285,6 +324,11 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
                     {totalIn > 0 && <span className="summary-badge summary-badge--in">+{totalIn} in</span>}
                     {totalOut > 0 && <span className="summary-badge summary-badge--out">-{totalOut} out</span>}
                     {totalChanged > 0 && <span className="summary-badge summary-badge--changed">~{totalChanged} changed</span>}
+                    {priceImpact && (
+                      <span className={`summary-badge summary-badge--price${priceImpact.net > 0 ? ' summary-badge--price-up' : priceImpact.net < 0 ? ' summary-badge--price-down' : ''}`}>
+                        {priceImpact.net >= 0 ? '+' : ''}{priceImpact.net < 0 ? '\u2212' : ''}${Math.abs(priceImpact.net).toFixed(2)}
+                      </span>
+                    )}
                   </div>
                   <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={diffCardMap} />
                   {diffResult.hasSideboard && (

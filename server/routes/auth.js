@@ -391,6 +391,12 @@ router.get('/registration-status', (_req, res) => {
   res.json({ registrationMode: mode, registrationEnabled: mode !== 'closed' });
 });
 
+// Public app settings (non-sensitive settings for UI behavior)
+router.get('/app-settings', (_req, res) => {
+  const priceSetting = get("SELECT value FROM server_settings WHERE key = 'price_display_enabled'");
+  res.json({ priceDisplayEnabled: priceSetting?.value !== 'false' });
+});
+
 // --- Invite Code Management ---
 
 // Create invite code (requires can_invite or is_admin)

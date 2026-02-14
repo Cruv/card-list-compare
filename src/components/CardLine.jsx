@@ -1,5 +1,6 @@
 import { memo, useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useAppSettings } from '../context/AppSettingsContext';
 import ManaCost from './ManaCost';
 import './CardLine.css';
 
@@ -80,10 +81,19 @@ function PrintingBadge({ setCode, collectorNumber, isFoil }) {
   );
 }
 
-export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil }) {
+function PriceBadge({ price }) {
+  if (price == null) return null;
+  return <span className="card-line-price">${price.toFixed(2)}</span>;
+}
+
+export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil, priceUsd, priceUsdFoil }) {
+  const { priceDisplayEnabled } = useAppSettings();
   const [hovering, setHovering] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
   const nameRef = useRef(null);
+
+  const unitPrice = isFoil && priceUsdFoil != null ? priceUsdFoil : priceUsd;
+  const totalPrice = priceDisplayEnabled && unitPrice != null && quantity ? unitPrice * quantity : null;
 
   const handleClick = useCallback(() => {
     if (isTouch && imageUri) {
@@ -113,6 +123,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-name" ref={nameRef}>{name}</span>
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
+        <PriceBadge price={totalPrice} />
         {tooltip}
         {overlay}
       </div>
@@ -132,6 +143,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-name" ref={nameRef}>{name}</span>
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
+        <PriceBadge price={totalPrice} />
         {tooltip}
         {overlay}
       </div>
@@ -150,6 +162,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-name" ref={nameRef}>{name}</span>
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
+        <PriceBadge price={totalPrice} />
         {tooltip}
         {overlay}
       </div>
@@ -169,6 +182,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
       <span className="card-line-name" ref={nameRef}>{name}</span>
       <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
       {manaCost && <ManaCost cost={manaCost} />}
+      <PriceBadge price={totalPrice} />
       <span className="card-line-detail">
         {oldQty} &rarr; {newQty} ({sign}{delta})
       </span>

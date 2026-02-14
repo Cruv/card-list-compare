@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import { useAppSettings } from '../context/AppSettingsContext';
 import CardLine from './CardLine';
 import { groupByType } from '../lib/scryfall';
 import './DeckListView.css';
@@ -41,6 +42,8 @@ function DeckSection({ sectionName, cards, cardMap }) {
         setCode={card.setCode}
         collectorNumber={card.collectorNumber}
         isFoil={card.isFoil}
+        priceUsd={data?.priceUsd}
+        priceUsdFoil={data?.priceUsdFoil}
       />
     );
   }
@@ -65,10 +68,37 @@ function DeckSection({ sectionName, cards, cardMap }) {
   );
 }
 
+/** Compute total deck value from a parsed deck and card data map. */
+function computeDeckPrice(parsedDeck, cardMap) {
+  if (!cardMap || cardMap.size === 0) return null;
+  let total = 0;
+  let hasAnyPrice = false;
+
+  for (const section of [parsedDeck.mainboard, parsedDeck.sideboard]) {
+    for (const [, entry] of section) {
+      const nameLower = entry.displayName.toLowerCase();
+      const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
+      const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
+      if (data) {
+        const isFoil = entry.isFoil || false;
+        const unitPrice = isFoil && data.priceUsdFoil != null ? data.priceUsdFoil : data.priceUsd;
+        if (unitPrice != null) {
+          total += unitPrice * entry.quantity;
+          hasAnyPrice = true;
+        }
+      }
+    }
+  }
+  return hasAnyPrice ? total : null;
+}
+
 export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) {
   if (!parsedDeck) return null;
 
+  const { priceDisplayEnabled } = useAppSettings();
   const { mainboard, sideboard, commanders } = parsedDeck;
+
+  const deckPrice = useMemo(() => priceDisplayEnabled ? computeDeckPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
 
   // Filter cards by search query if provided
   const filteredMainboard = useMemo(() => {
@@ -100,6 +130,11 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
       {commanders && commanders.length > 0 && (
         <div className="deck-list-commanders">
           {commanders.join(' / ')}
+        </div>
+      )}
+      {deckPrice != null && (
+        <div className="deck-list-price-summary">
+          Estimated Value: <strong>${deckPrice.toFixed(2)}</strong>
         </div>
       )}
       <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} />

@@ -263,7 +263,7 @@ router.get('/settings', (_req, res) => {
 });
 
 router.put('/settings/:key', (req, res) => {
-  const allowedKeys = ['registration_enabled', 'max_snapshots_per_deck', 'max_locked_per_deck'];
+  const allowedKeys = ['registration_enabled', 'max_snapshots_per_deck', 'max_locked_per_deck', 'price_display_enabled'];
   const { key } = req.params;
   const { value } = req.body;
 
@@ -284,6 +284,11 @@ router.put('/settings/:key', (req, res) => {
     const num = parseInt(value, 10);
     if (isNaN(num) || num < 0 || num > 1000) {
       return res.status(400).json({ error: 'Value must be 0-1000 (0 = unlimited)' });
+    }
+  }
+  if (key === 'price_display_enabled') {
+    if (!['true', 'false'].includes(value)) {
+      return res.status(400).json({ error: 'Price display must be true or false' });
     }
   }
 

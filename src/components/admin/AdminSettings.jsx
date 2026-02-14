@@ -22,6 +22,16 @@ export default function AdminSettings() {
     }
   }
 
+  async function handleToggleSetting(key, value) {
+    try {
+      await updateAdminSetting(key, value);
+      setSettings(prev => ({ ...prev, [key]: value }));
+      toast.success('Setting saved');
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
   async function handleNumericSetting(key, value) {
     const num = parseInt(value, 10);
     if (isNaN(num) || num < 0 || num > 1000) {
@@ -68,6 +78,24 @@ export default function AdminSettings() {
           <option value="open">Open</option>
           <option value="invite">Invite Only</option>
           <option value="closed">Closed</option>
+        </select>
+      </div>
+
+      {/* Price Display */}
+      <div className="admin-setting-row">
+        <div>
+          <div className="admin-setting-label">Price Display</div>
+          <div className="admin-setting-desc">
+            Show Scryfall card prices on card lines, deck summaries, and changelogs.
+          </div>
+        </div>
+        <select
+          className="admin-sort-select"
+          value={settings.price_display_enabled || 'true'}
+          onChange={e => handleToggleSetting('price_display_enabled', e.target.value)}
+        >
+          <option value="true">Enabled</option>
+          <option value="false">Disabled</option>
         </select>
       </div>
 

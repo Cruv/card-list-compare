@@ -24,6 +24,8 @@ function CardGroup({ cards, changeType, cardMap }) {
         setCode={card.setCode}
         collectorNumber={card.collectorNumber}
         isFoil={card.isFoil}
+        priceUsd={data?.priceUsd}
+        priceUsdFoil={data?.priceUsdFoil}
       />
     );
   });

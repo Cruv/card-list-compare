@@ -206,6 +206,21 @@
   flex-wrap: wrap;
 }
 
+/* ── Price badges ────────────────────────────────── */
+
+.summary-badge--price {
+  font-weight: 700;
+  font-size: var(--fs-sm);
+}
+
+.summary-badge--price-up {
+  color: var(--accent-red);
+}
+
+.summary-badge--price-down {
+  color: var(--accent-green);
+}
+
 /* ── Mobile ──────────────────────────────────────── */
 
 @media (max-width: 640px) {

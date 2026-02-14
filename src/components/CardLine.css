@@ -57,8 +57,21 @@
   color: #f0d060;
 }
 
-.card-line-detail {
+.card-line-price {
   margin-left: auto;
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.card-line--in .card-line-price { color: var(--accent-green); }
+.card-line--out .card-line-price { color: var(--accent-red); }
+.card-line--changed .card-line-price { color: var(--accent-yellow); margin-left: 0; }
+.card-line--list .card-line-price { color: var(--text-secondary); }
+
+.card-line-detail {
   opacity: 0.7;
   white-space: nowrap;
   font-size: var(--fs-sm);
