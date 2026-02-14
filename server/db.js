@@ -333,6 +333,23 @@ export async function initDb() {
   `);
   db.run('CREATE INDEX IF NOT EXISTS idx_deck_tags_deck ON deck_tags(tracked_deck_id)');
 
+  // Collection cards table
+  db.run(`
+    CREATE TABLE IF NOT EXISTS collection_cards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      card_name TEXT NOT NULL,
+      set_code TEXT,
+      collector_number TEXT,
+      quantity INTEGER NOT NULL DEFAULT 1,
+      is_foil INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, card_name, set_code, collector_number, is_foil)
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_collection_user ON collection_cards(user_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_collection_name ON collection_cards(user_id, card_name)');
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');

@@ -10,6 +10,7 @@ import snapshotRoutes from './routes/snapshots.js';
 import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
+import collectionRoutes from './routes/collection.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api/decks', snapshotRoutes);
 app.use('/api/share', shareRoutes);
 app.use('/api/shared-deck', sharedDeckRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/collection', collectionRoutes);
 
 async function start() {
   await initDb();

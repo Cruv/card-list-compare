@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.9.0';
 const WHATS_NEW = [
-  'Discord webhook notifications — get deck change alerts posted directly to your Discord channel',
-  'Per-deck webhook URL in the deck tracker — expand a deck and click "Discord" to configure',
+  'Collection tracking — import your card collection and track what you own',
+  'Search, edit quantities, and manage your collection from the Settings page',
 ];
 
 function getResetToken() {
