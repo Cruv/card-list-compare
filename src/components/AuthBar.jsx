@@ -79,6 +79,9 @@ export default function AuthBar({ onShowForgotPassword }) {
             Admin
           </button>
         )}
+        <button className="auth-bar-btn" onClick={() => { window.location.hash = '#library'; }} type="button" title="Deck Library">
+          Decks
+        </button>
         <button className="auth-bar-btn" onClick={() => { window.location.hash = '#settings'; }} type="button" title="Account Settings">
           Settings
         </button>

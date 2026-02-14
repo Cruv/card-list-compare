@@ -4,6 +4,7 @@ import ChangelogOutput from './components/ChangelogOutput';
 import AuthBar from './components/AuthBar';
 import AdminPage from './components/admin/AdminPage';
 import UserSettings from './components/UserSettings';
+import DeckLibrary from './components/DeckLibrary';
 import SharedDeckView from './components/SharedDeckView';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
@@ -18,11 +19,12 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.17.0';
+const APP_VERSION = '2.18.0';
 const WHATS_NEW = [
-  'Fixed deck price checking and recommendation suggestions (server crash)',
-  'Cleaner deck tracker UX — primary actions visible, extra tools in collapsible "More..." row',
-  'Renamed Discord button to Webhook for clarity',
+  'Deck Library — all deck management moved to its own dedicated page',
+  'In-page comparison overlay replaces jarring page navigation for Before/After',
+  'Deck prices shown on deck cards when available',
+  'Settings page simplified to account preferences only',
 ];
 
 function getResetToken() {
@@ -45,33 +47,6 @@ export default function App() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
-
-  // Pick up snapshot restore from sessionStorage (set by UserSettings)
-  useEffect(() => {
-    const restore = sessionStorage.getItem('clc-restore');
-    if (!restore) return;
-    sessionStorage.removeItem('clc-restore');
-    try {
-      const data = JSON.parse(restore);
-      if (data.beforeText !== undefined) setBeforeText(data.beforeText);
-      if (data.afterText !== undefined) setAfterText(data.afterText);
-      // Auto-compare if both sides have text
-      if (data.beforeText && data.afterText) {
-        const before = parse(data.beforeText);
-        const after = parse(data.afterText);
-        const diff = computeDiff(before, after);
-        setDiffResult(diff);
-        setCardMap(null);
-        const identifiers = collectCardIdentifiers(diff);
-        if (identifiers.size > 0) {
-          fetchCardData(identifiers).then(setCardMap).catch(() => {});
-        }
-      } else {
-        setDiffResult(null);
-        setCardMap(null);
-      }
-    } catch { /* ignore corrupt data */ }
-  }, [route]);
 
   // Show "what's new" toast once per version
   useEffect(() => {
@@ -248,6 +223,15 @@ export default function App() {
     );
   }
 
+  // Full-page deck library (replaces main compare UI)
+  if (route === 'library' && user) {
+    return (
+      <ErrorBoundary>
+        <DeckLibrary />
+      </ErrorBoundary>
+    );
+  }
+
   // Shared deck view (public, no auth required)
   if (route === 'deck' && deckShareId) {
     return (
@@ -322,7 +306,7 @@ export default function App() {
             then click <strong>Compare Lists</strong> to generate a changelog.
           </p>
           <p className="app-empty-hint">
-            Track your decks in Settings to automatically snapshot changes and compare versions.
+            Track your decks in the <a href="#library">Deck Library</a> to automatically snapshot changes and compare versions.
           </p>
         </div>
       )}

@@ -24,6 +24,9 @@ export function useHashRoute() {
   if (hash === '#settings') {
     return { route: 'settings' };
   }
+  if (hash === '#library') {
+    return { route: 'library' };
+  }
   if (hash.startsWith('#share/')) {
     const shareId = hash.slice(7);
     return { route: 'share', shareId };
