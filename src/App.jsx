@@ -20,9 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.24.4';
+const APP_VERSION = '2.25.0';
 const WHATS_NEW = [
-  'Fix: Mobile overlays now have a visible back button so you can close them without reloading',
+  'Paper snapshot marker: mark a snapshot as your physical deck for quick swap lists',
+  'Paper vs. Latest comparison button for one-click swap in/out diff',
+  'Paper snapshots auto-lock to prevent pruning, with green visual indicators on timeline and snapshot list',
 ];
 
 function getResetToken() {

@@ -8,7 +8,7 @@ import {
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
   getDeckChangelog, updateDeckCommanders, updateDeckNotify,
-  lockSnapshot, unlockSnapshot,
+  lockSnapshot, unlockSnapshot, setPaperSnapshot, clearPaperSnapshot,
   getDeckTimeline, exportDecks, getSnapshot,
   shareDeck, unshareDeck,
   updateDeckNotes, updateDeckPinned, updateDeckTags,
@@ -533,6 +533,10 @@ function DeckTrackerSettings({ confirm }) {
   async function handleToggleLock(deckId, snapshotId, isLocked) {
     try {
       if (isLocked) {
+        const deck = trackedDecks.find(d => d.id === deckId);
+        if (deck?.paper_snapshot_id === snapshotId) {
+          toast('Warning: unlocking your paper snapshot may allow it to be auto-pruned', 'info', 5000);
+        }
         await unlockSnapshot(deckId, snapshotId);
         toast.success('Snapshot unlocked');
       } else {
@@ -544,6 +548,69 @@ function DeckTrackerSettings({ confirm }) {
     } catch (err) {
       toast.error(err.message);
     }
+  }
+
+  async function handleTogglePaper(deckId, snapshotId, isPaper) {
+    try {
+      if (isPaper) {
+        await clearPaperSnapshot(deckId);
+        toast.success('Paper marker removed');
+      } else {
+        const result = await setPaperSnapshot(deckId, snapshotId);
+        if (result.autoLocked) {
+          toast.success('Marked as paper deck (auto-locked to prevent pruning)');
+        } else {
+          toast.success('Marked as paper deck');
+        }
+      }
+      await refresh();
+      if (expandedDeckId === deckId) {
+        const data = await getDeckSnapshots(deckId);
+        setDeckSnapshots(data.snapshots);
+      }
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleCompareToPaper(deckId) {
+    const deck = trackedDecks.find(d => d.id === deckId);
+    if (!deck?.paper_snapshot_id) return;
+
+    let commanders = [];
+    try { commanders = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
+
+    // Get latest snapshot ID
+    let latestId;
+    if (expandedDeckId === deckId && deckSnapshots.length > 0) {
+      latestId = deckSnapshots[0].id; // snapshots are ordered DESC
+    } else {
+      try {
+        const data = await getDeckSnapshots(deckId);
+        if (data.snapshots.length === 0) {
+          toast.error('No snapshots available');
+          return;
+        }
+        latestId = data.snapshots[0].id;
+      } catch (err) {
+        toast.error(err.message || 'Failed to load snapshots');
+        return;
+      }
+    }
+
+    if (latestId === deck.paper_snapshot_id) {
+      toast('Paper version is already the latest snapshot — no changes to swap', 'info');
+      return;
+    }
+
+    setComparisonOverlay({
+      beforeDeckId: deckId,
+      afterDeckId: deckId,
+      beforeSnapshotId: deck.paper_snapshot_id,
+      afterSnapshotId: latestId,
+      deckName: `${deck.deck_name} — Paper vs. Latest`,
+      commanders,
+    });
   }
 
   async function handleSaveNickname(deckId, snapshotId) {
@@ -1038,6 +1105,9 @@ function DeckCard({
           {priceDisplayEnabled && deck.last_known_price > 0 && (
             <span className="settings-tracker-price-badge">${deck.last_known_price.toFixed(2)}</span>
           )}
+          {deck.paper_snapshot_id && (
+            <span className="settings-tracker-paper-badge-header" title="Paper deck marked">Paper</span>
+          )}
         </span>
         {!bulkMode && (
           <div className="settings-tracker-deck-actions">
@@ -1188,6 +1258,11 @@ function DeckCard({
             <button className="btn btn-primary btn-sm" onClick={() => handleViewChangelog(deck.id)} type="button">
               View Changelog
             </button>
+            {deck.paper_snapshot_id && (
+              <button className="btn btn-primary btn-sm" onClick={() => handleCompareToPaper(deck.id)} type="button">
+                Paper vs. Latest
+              </button>
+            )}
             <button
               className={`btn btn-secondary btn-sm${showTimeline ? ' btn--active' : ''}`}
               onClick={handleShowTimeline}
@@ -1404,7 +1479,7 @@ function DeckCard({
           )}
 
           {showTimeline && (
-            <SnapshotTimeline entries={timelineData} loading={timelineLoading} onEntryClick={handleTimelineEntryClick} />
+            <SnapshotTimeline entries={timelineData} loading={timelineLoading} onEntryClick={handleTimelineEntryClick} paperSnapshotId={deck.paper_snapshot_id} />
           )}
 
           {overlayEntry && (
@@ -1453,7 +1528,7 @@ function DeckCard({
           ) : (
             <ul className="settings-tracker-snap-list">
               {deckSnapshots.map(snap => (
-                <li key={snap.id} className={`settings-tracker-snap${snap.locked ? ' settings-tracker-snap--locked' : ''}`}>
+                <li key={snap.id} className={`settings-tracker-snap${snap.locked ? ' settings-tracker-snap--locked' : ''}${deck.paper_snapshot_id === snap.id ? ' settings-tracker-snap--paper' : ''}`}>
                   <div className="settings-tracker-snap-info">
                     {editingNickname === snap.id ? (
                       <span className="settings-tracker-snap-edit">
@@ -1475,6 +1550,9 @@ function DeckCard({
                       <>
                         <span className="settings-tracker-snap-date">{formatDate(snap.created_at)}</span>
                         {snap.nickname && <span className="settings-tracker-snap-nick">{snap.nickname}</span>}
+                        {deck.paper_snapshot_id === snap.id && (
+                          <span className="settings-tracker-snap-paper-badge" title="Paper deck">Paper</span>
+                        )}
                       </>
                     )}
                   </div>
@@ -1486,6 +1564,14 @@ function DeckCard({
                       title={snap.locked ? 'Unlock snapshot (allow auto-pruning)' : 'Lock snapshot (prevent auto-pruning)'}
                     >
                       {snap.locked ? '\uD83D\uDD12' : '\uD83D\uDD13'}
+                    </button>
+                    <button
+                      className={`settings-tracker-paper-btn${deck.paper_snapshot_id === snap.id ? ' settings-tracker-paper-btn--active' : ''}`}
+                      onClick={() => handleTogglePaper(deck.id, snap.id, deck.paper_snapshot_id === snap.id)}
+                      type="button"
+                      title={deck.paper_snapshot_id === snap.id ? 'Remove paper marker' : 'Mark as paper deck'}
+                    >
+                      {'\uD83D\uDCCB'}
                     </button>
                     <button
                       className="settings-tracker-snap-icon-btn"
@@ -1798,7 +1884,7 @@ function DeckOverlapAnalysis() {
 
 // --- Snapshot Timeline ---
 
-function SnapshotTimeline({ entries, loading, onEntryClick }) {
+function SnapshotTimeline({ entries, loading, onEntryClick, paperSnapshotId }) {
   if (loading) return <Skeleton lines={4} />;
   if (!entries || entries.length === 0) return <p className="settings-tracker-empty">No snapshots to show.</p>;
 
@@ -1822,7 +1908,7 @@ function SnapshotTimeline({ entries, loading, onEntryClick }) {
           onKeyDown={onEntryClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onEntryClick(entry, originalIndex); } } : undefined}
         >
           <div className="settings-timeline-left">
-            <div className="settings-timeline-dot" />
+            <div className={`settings-timeline-dot${paperSnapshotId === entry.snapshotId ? ' settings-timeline-dot--paper' : ''}`} />
             {i < displayed.length - 1 && <div className="settings-timeline-line" />}
           </div>
           <div className="settings-timeline-content">
@@ -1830,6 +1916,7 @@ function SnapshotTimeline({ entries, loading, onEntryClick }) {
               <span className="settings-timeline-date">{formatTimelineDate(entry.date)}</span>
               {entry.nickname && <span className="settings-timeline-nick">{entry.nickname}</span>}
               {entry.locked && <span className="settings-timeline-lock" title="Locked">{'\uD83D\uDD12'}</span>}
+              {paperSnapshotId === entry.snapshotId && <span className="settings-timeline-paper" title="Paper deck">{'\uD83D\uDCCB'}</span>}
             </div>
             <div className="settings-timeline-stats">
               <span className="settings-timeline-card-count">{entry.cardCount} cards</span>

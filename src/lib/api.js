@@ -159,6 +159,12 @@ export const lockSnapshot = (deckId, snapshotId) =>
 export const unlockSnapshot = (deckId, snapshotId) =>
   apiFetch(`/decks/${deckId}/snapshots/${snapshotId}/unlock`, { method: 'PATCH' });
 
+export const setPaperSnapshot = (deckId, snapshotId) =>
+  apiFetch(`/decks/${deckId}/snapshots/${snapshotId}/paper`, { method: 'PATCH' });
+
+export const clearPaperSnapshot = (deckId) =>
+  apiFetch(`/decks/${deckId}/paper`, { method: 'DELETE' });
+
 export const updateDeckCommanders = (deckId, commanders) =>
   apiFetch(`/decks/${deckId}`, {
     method: 'PATCH',

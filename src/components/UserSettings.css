@@ -701,6 +701,65 @@
   opacity: 1;
 }
 
+/* ── Paper Marker ──────────────────────────────── */
+
+.settings-tracker-snap--paper {
+  border-left: 3px solid var(--accent-green);
+  padding-left: calc(var(--space-sm) - 3px);
+}
+
+.settings-tracker-snap--locked.settings-tracker-snap--paper {
+  border-left-color: var(--accent-green);
+}
+
+.settings-tracker-paper-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  padding: 2px 4px;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.settings-tracker-paper-btn:hover {
+  opacity: 1;
+}
+
+.settings-tracker-paper-btn--active {
+  opacity: 1;
+}
+
+.settings-tracker-snap-paper-badge {
+  font-size: var(--fs-xs);
+  color: var(--accent-green);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: var(--space-xs);
+}
+
+.settings-tracker-paper-badge-header {
+  font-size: var(--fs-xs);
+  color: var(--accent-green);
+  font-weight: 600;
+  background: rgba(76, 175, 80, 0.12);
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: var(--space-xs);
+}
+
+.settings-timeline-paper {
+  font-size: var(--fs-xs);
+  margin-left: 2px;
+}
+
+.settings-timeline-dot--paper {
+  background: var(--accent-green) !important;
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.3);
+}
+
 /* ── Invite Management ──────────────────────────────── */
 
 .settings-invite-create {

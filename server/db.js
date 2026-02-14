@@ -369,6 +369,13 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // Migration: add paper_snapshot_id column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN paper_snapshot_id INTEGER');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Playgroups tables removed — future TapTogether integration planned
 
   // Indexes

@@ -118,6 +118,12 @@ router.delete('/:deckId/snapshots/:snapshotId', (req, res) => {
   }
 
   run('DELETE FROM deck_snapshots WHERE id = ?', [snapshotId]);
+
+  // Clear paper marker if this was the paper snapshot
+  if (deck.paper_snapshot_id === snapshotId) {
+    run('UPDATE tracked_decks SET paper_snapshot_id = NULL WHERE id = ?', [deck.id]);
+  }
+
   res.json({ success: true });
 });
 
@@ -190,6 +196,49 @@ router.patch('/:deckId/snapshots/:snapshotId/unlock', (req, res) => {
   }
 
   run('UPDATE deck_snapshots SET locked = 0 WHERE id = ?', [snapshotId]);
+  res.json({ success: true });
+});
+
+// Mark a snapshot as the paper (physical) deck version
+router.patch('/:deckId/snapshots/:snapshotId/paper', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+  const snapshotId = requireIntParam(req, res, 'snapshotId');
+  if (snapshotId === null) return;
+
+  const snapshot = get('SELECT * FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
+    [snapshotId, deck.id]);
+  if (!snapshot) {
+    return res.status(404).json({ error: 'Snapshot not found' });
+  }
+
+  // Set paper marker (clears any previous)
+  run('UPDATE tracked_decks SET paper_snapshot_id = ? WHERE id = ?', [snapshotId, deck.id]);
+
+  // Auto-lock the paper snapshot to protect from pruning
+  let autoLocked = false;
+  if (!snapshot.locked) {
+    const lockSetting = get("SELECT value FROM server_settings WHERE key = 'max_locked_per_deck'");
+    const maxLocked = parseInt(lockSetting?.value, 10) || 5;
+    const lockedCount = get(
+      'SELECT COUNT(*) as count FROM deck_snapshots WHERE tracked_deck_id = ? AND locked = 1',
+      [deck.id]
+    );
+    if (maxLocked <= 0 || lockedCount.count < maxLocked) {
+      run('UPDATE deck_snapshots SET locked = 1 WHERE id = ?', [snapshotId]);
+      autoLocked = true;
+    }
+  }
+
+  res.json({ success: true, autoLocked });
+});
+
+// Clear the paper marker from a deck
+router.delete('/:deckId/paper', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+
+  run('UPDATE tracked_decks SET paper_snapshot_id = NULL WHERE id = ?', [deck.id]);
   res.json({ success: true });
 });
 
