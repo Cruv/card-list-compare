@@ -19,10 +19,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.22.1';
+const APP_VERSION = '2.23.0';
 const WHATS_NEW = [
-  'Fixed deck overlap matrix diagonal — now shows total card count instead of unique names',
-  'Fixed Deck Library link color contrast on dark background',
+  'Mana symbols now use official Scryfall SVGs instead of CSS circles',
+  'Fixed deck overlap matrix diagonal — shows total card count instead of unique names',
 ];
 
 function getResetToken() {

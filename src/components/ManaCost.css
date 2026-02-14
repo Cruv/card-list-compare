@@ -1,77 +1,16 @@
 .mana-cost {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   flex-shrink: 0;
   margin-left: 4px;
 }
 
 .mana-symbol {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
-  font-size: 9px;
-  font-weight: 800;
-  line-height: 1;
-  color: #000;
-  text-shadow: none;
   flex-shrink: 0;
-}
-
-/* White */
-.mana--w {
-  background: linear-gradient(135deg, #f9faf4, #e8e4d4);
-  color: #333;
-}
-
-/* Blue */
-.mana--u {
-  background: linear-gradient(135deg, #a8d8ea, #0e68ab);
-  color: #fff;
-}
-
-/* Black */
-.mana--b {
-  background: linear-gradient(135deg, #968a82, #3b3131);
-  color: #e0d0c0;
-}
-
-/* Red */
-.mana--r {
-  background: linear-gradient(135deg, #f5a68e, #d3202a);
-  color: #fff;
-}
-
-/* Green */
-.mana--g {
-  background: linear-gradient(135deg, #a4d78e, #196b24);
-  color: #fff;
-}
-
-/* Colorless / Snow */
-.mana--c {
-  background: linear-gradient(135deg, #c8c8c8, #8a8a8a);
-  color: #333;
-}
-
-/* Generic */
-.mana--generic {
-  background: linear-gradient(135deg, #c8c8c8, #8a8a8a);
-  color: #333;
-}
-
-/* X / Y / Z */
-.mana--x {
-  background: linear-gradient(135deg, #c8c8c8, #8a8a8a);
-  color: #333;
-}
-
-/* Hybrid */
-.mana--hybrid {
-  background: linear-gradient(135deg, #d4af37, #c09020);
-  color: #333;
-  font-size: 7px;
+  vertical-align: middle;
+  /* Prevent browser drag-ghost on the tiny icons */
+  pointer-events: none;
 }

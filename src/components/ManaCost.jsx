@@ -2,39 +2,20 @@ import { memo } from 'react';
 import './ManaCost.css';
 
 /**
- * Mana symbol color mapping for CSS classes.
- * Scryfall format: {W}, {U}, {B}, {R}, {G}, {C}, {1}, {2}, etc.
- * Hybrid: {W/U}, {2/W}, etc.
- * Phyrexian: {W/P}, {U/P}, etc.
- * Generic: {0}, {1}, {2}, ..., {X}, {Y}, {Z}
+ * Convert a mana symbol string (from Scryfall's {X} notation) to
+ * the Scryfall SVG filename. Scryfall hosts official MTG mana symbols
+ * at https://svgs.scryfall.io/card-symbols/{SYMBOL}.svg
+ *
+ * Examples:
+ *   "W"   → "W.svg"
+ *   "2"   → "2.svg"
+ *   "W/U" → "WU.svg"   (hybrid — slash removed)
+ *   "W/P" → "WP.svg"   (phyrexian — slash removed)
+ *   "2/W" → "2W.svg"   (generic hybrid)
  */
-const SYMBOL_CLASSES = {
-  W: 'mana--w',
-  U: 'mana--u',
-  B: 'mana--b',
-  R: 'mana--r',
-  G: 'mana--g',
-  C: 'mana--c',
-  S: 'mana--c', // Snow
-  X: 'mana--x',
-  Y: 'mana--x',
-  Z: 'mana--x',
-};
-
-function getSymbolClass(symbol) {
-  // Generic numbers
-  if (/^\d+$/.test(symbol)) return 'mana--generic';
-  // Hybrid mana (e.g. "W/U", "2/W")
-  if (symbol.includes('/')) return 'mana--hybrid';
-  return SYMBOL_CLASSES[symbol] || 'mana--generic';
-}
-
-function getSymbolLabel(symbol) {
-  // Clean display for common symbols
-  if (symbol.includes('/')) {
-    return symbol.replace('/', '');
-  }
-  return symbol;
+function symbolToSvgUrl(symbol) {
+  const filename = symbol.replace('/', '');
+  return `https://svgs.scryfall.io/card-symbols/${filename}.svg`;
 }
 
 /**
@@ -60,13 +41,16 @@ export default memo(function ManaCost({ cost }) {
   return (
     <span className="mana-cost" aria-label={`Mana cost: ${cost}`}>
       {symbols.map((sym, i) => (
-        <span
+        <img
           key={i}
-          className={`mana-symbol ${getSymbolClass(sym)}`}
+          className="mana-symbol"
+          src={symbolToSvgUrl(sym)}
+          alt={`{${sym}}`}
           title={`{${sym}}`}
-        >
-          {getSymbolLabel(sym)}
-        </span>
+          width="16"
+          height="16"
+          loading="lazy"
+        />
       ))}
     </span>
   );
