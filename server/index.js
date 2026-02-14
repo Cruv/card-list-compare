@@ -10,6 +10,7 @@ import snapshotRoutes from './routes/snapshots.js';
 import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
+import { startNotificationScheduler } from './lib/notificationScheduler.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -64,6 +65,7 @@ async function start() {
   await initDb();
   app.listen(PORT, () => {
     console.log(`CardListCompare server running on port ${PORT}`);
+    startNotificationScheduler();
   });
 }
 

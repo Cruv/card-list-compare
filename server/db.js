@@ -283,6 +283,24 @@ export async function initDb() {
   `);
   db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_deck_views_deck ON shared_deck_views(tracked_deck_id)');
 
+  // Migration: add notify_on_change column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN notify_on_change INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add last_notified_at column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN last_notified_at TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Seed notification settings
+  db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('notifications_enabled', 'true')`);
+  db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('notification_check_interval_hours', '6')`);
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');

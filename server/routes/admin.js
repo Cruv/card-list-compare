@@ -263,7 +263,7 @@ router.get('/settings', (_req, res) => {
 });
 
 router.put('/settings/:key', (req, res) => {
-  const allowedKeys = ['registration_enabled', 'max_snapshots_per_deck', 'max_locked_per_deck', 'price_display_enabled'];
+  const allowedKeys = ['registration_enabled', 'max_snapshots_per_deck', 'max_locked_per_deck', 'price_display_enabled', 'notifications_enabled', 'notification_check_interval_hours'];
   const { key } = req.params;
   const { value } = req.body;
 
@@ -286,9 +286,15 @@ router.put('/settings/:key', (req, res) => {
       return res.status(400).json({ error: 'Value must be 0-1000 (0 = unlimited)' });
     }
   }
-  if (key === 'price_display_enabled') {
+  if (key === 'price_display_enabled' || key === 'notifications_enabled') {
     if (!['true', 'false'].includes(value)) {
-      return res.status(400).json({ error: 'Price display must be true or false' });
+      return res.status(400).json({ error: 'Value must be true or false' });
+    }
+  }
+  if (key === 'notification_check_interval_hours') {
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 1 || num > 168) {
+      return res.status(400).json({ error: 'Check interval must be 1-168 hours' });
     }
   }
 

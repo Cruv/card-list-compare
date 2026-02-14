@@ -153,6 +153,12 @@ export const updateDeckCommanders = (deckId, commanders) =>
     body: JSON.stringify({ commanders }),
   });
 
+export const updateDeckNotify = (deckId, notifyOnChange) =>
+  apiFetch(`/decks/${deckId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ notifyOnChange }),
+  });
+
 // Timeline
 export const getDeckTimeline = (deckId) =>
   apiFetch(`/decks/${deckId}/timeline`);

@@ -7,7 +7,7 @@ import {
   getOwners, addOwner, removeOwner, getOwnerDecks,
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
-  getDeckChangelog, updateDeckCommanders, resendVerification,
+  getDeckChangelog, updateDeckCommanders, updateDeckNotify, resendVerification,
   lockSnapshot, unlockSnapshot,
   createInviteCode, getMyInvites, deleteInviteCode,
   getDeckTimeline, exportDecks, getSnapshot,
@@ -1003,6 +1003,7 @@ function DeckTrackerSettings({ confirm }) {
                           onToggleSelect={() => toggleDeckSelection(deck.id)}
                           handleShareDeck={handleShareDeck}
                           handleUnshareDeck={handleUnshareDeck}
+                          handleRefreshTrackedDecks={refresh}
                         />
                       );
                     })}
@@ -1049,6 +1050,7 @@ function DeckCard({
   formatDate,
   bulkMode, isSelected, onToggleSelect,
   handleShareDeck, handleUnshareDeck,
+  handleRefreshTrackedDecks,
 }) {
   const [timelineData, setTimelineData] = useState(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -1204,6 +1206,20 @@ function DeckCard({
               type="button"
             >
               {deck.share_id ? 'Unshare' : 'Share'}
+            </button>
+            <button
+              className={`btn btn-secondary btn-sm${deck.notify_on_change ? ' btn--active' : ''}`}
+              onClick={async () => {
+                try {
+                  await updateDeckNotify(deck.id, !deck.notify_on_change);
+                  toast.success(deck.notify_on_change ? 'Notifications disabled' : 'Notifications enabled');
+                  if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+                } catch (err) { toast.error(err.message); }
+              }}
+              type="button"
+              title={deck.notify_on_change ? 'Email notifications enabled — click to disable' : 'Enable email notifications for changes'}
+            >
+              {deck.notify_on_change ? 'Notify: On' : 'Notify: Off'}
             </button>
           </div>
 

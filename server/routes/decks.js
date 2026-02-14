@@ -167,7 +167,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const { commanders } = req.body;
+  const { commanders, notifyOnChange } = req.body;
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -177,6 +177,9 @@ router.patch('/:id', (req, res) => {
     }
     const cleaned = commanders.map(c => c.trim()).filter(Boolean);
     run('UPDATE tracked_decks SET commanders = ? WHERE id = ?', [JSON.stringify(cleaned), id]);
+  }
+  if (notifyOnChange !== undefined) {
+    run('UPDATE tracked_decks SET notify_on_change = ? WHERE id = ?', [notifyOnChange ? 1 : 0, id]);
   }
 
   const updated = get('SELECT * FROM tracked_decks WHERE id = ?', [id]);

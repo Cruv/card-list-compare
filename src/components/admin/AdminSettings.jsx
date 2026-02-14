@@ -99,6 +99,43 @@ export default function AdminSettings() {
         </select>
       </div>
 
+      {/* Notifications */}
+      <div className="admin-setting-row">
+        <div>
+          <div className="admin-setting-label">Deck Change Notifications</div>
+          <div className="admin-setting-desc">
+            Automatically check tracked decks for changes and email users who opted in.
+          </div>
+        </div>
+        <select
+          className="admin-sort-select"
+          value={settings.notifications_enabled || 'true'}
+          onChange={e => handleToggleSetting('notifications_enabled', e.target.value)}
+        >
+          <option value="true">Enabled</option>
+          <option value="false">Disabled</option>
+        </select>
+      </div>
+
+      <div className="admin-setting-row">
+        <div>
+          <div className="admin-setting-label">Notification Check Interval (hours)</div>
+          <div className="admin-setting-desc">
+            How often to check tracked decks for changes. Minimum 1 hour, maximum 168 (1 week).
+          </div>
+        </div>
+        <input
+          type="number"
+          className="admin-setting-number"
+          min="1"
+          max="168"
+          value={settings.notification_check_interval_hours || '6'}
+          onChange={e => setSettings(prev => ({ ...prev, notification_check_interval_hours: e.target.value }))}
+          onBlur={e => handleNumericSetting('notification_check_interval_hours', e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleNumericSetting('notification_check_interval_hours', e.target.value); }}
+        />
+      </div>
+
       {/* Snapshot Limits */}
       <div className="admin-setting-row">
         <div>
