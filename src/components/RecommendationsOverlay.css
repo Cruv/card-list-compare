@@ -269,10 +269,28 @@
   white-space: nowrap;
 }
 
-/* ── Mobile back button (hidden on desktop) ─────── */
+/* ── Back button ─────────────────────────────────── */
 
 .recs-overlay-mobile-back {
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.recs-overlay-mobile-back:hover,
+.recs-overlay-mobile-back:active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 /* ── Mobile ───────────────────────────────────────── */
@@ -300,28 +318,11 @@
     flex-wrap: wrap;
   }
 
-  .recs-overlay-mobile-back {
+  .recs-overlay-close {
+    min-width: 44px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: none;
-    border: none;
-    font-size: 1.25rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 8px;
-    flex-shrink: 0;
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  .recs-overlay-mobile-back:active {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .recs-overlay-close {
-    display: none;
   }
 }
