@@ -19,10 +19,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.22.0';
+const APP_VERSION = '2.22.1';
 const WHATS_NEW = [
   'Fixed deck overlap matrix diagonal — now shows total card count instead of unique names',
-  'Commander decks correctly show 100 on the diagonal where X and Y axes meet',
+  'Fixed Deck Library link color contrast on dark background',
 ];
 
 function getResetToken() {
