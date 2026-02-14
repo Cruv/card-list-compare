@@ -19,12 +19,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.19.0';
+const APP_VERSION = '2.20.0';
 const WHATS_NEW = [
-  'Streamlined deck card UI with dropdown menu for secondary actions',
-  'Removed cross-deck comparison (use main page for that)',
-  'Softer destructive button styling throughout',
-  'Snapshot rows use compact icon buttons',
+  'Removed Playgroups feature (future TapTogether integration planned)',
+  'Cleaned up unused playgroup backend routes and database tables',
 ];
 
 function getResetToken() {

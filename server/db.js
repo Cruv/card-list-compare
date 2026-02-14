@@ -369,41 +369,7 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
-  // Playgroups
-  db.run(`
-    CREATE TABLE IF NOT EXISTS playgroups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      invite_code TEXT NOT NULL UNIQUE,
-      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    )
-  `);
-  db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_playgroups_code ON playgroups(invite_code)');
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS playgroup_members (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      playgroup_id INTEGER NOT NULL REFERENCES playgroups(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role TEXT NOT NULL DEFAULT 'member',
-      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(playgroup_id, user_id)
-    )
-  `);
-  db.run('CREATE INDEX IF NOT EXISTS idx_playgroup_members_user ON playgroup_members(user_id)');
-
-  db.run(`
-    CREATE TABLE IF NOT EXISTS playgroup_decks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      playgroup_id INTEGER NOT NULL REFERENCES playgroups(id) ON DELETE CASCADE,
-      tracked_deck_id INTEGER NOT NULL REFERENCES tracked_decks(id) ON DELETE CASCADE,
-      shared_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      shared_at TEXT NOT NULL DEFAULT (datetime('now')),
-      UNIQUE(playgroup_id, tracked_deck_id)
-    )
-  `);
-  db.run('CREATE INDEX IF NOT EXISTS idx_playgroup_decks_group ON playgroup_decks(playgroup_id)');
+  // Playgroups tables removed — future TapTogether integration planned
 
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
