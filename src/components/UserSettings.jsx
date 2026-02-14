@@ -1217,6 +1217,7 @@ function DeckCard({
               entry={overlayEntry.entry}
               prevSnapshotId={overlayEntry.prevSnapshotId}
               deckName={deck.deck_name}
+              commanders={deckCommanders}
               onClose={() => setOverlayEntry(null)}
             />
           )}
@@ -1544,20 +1545,23 @@ function SnapshotTimeline({ entries, loading, onEntryClick }) {
     return new Date(iso + 'Z').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
+  // Display newest first, but keep original indices for prev-snapshot lookup
+  const displayed = entries.map((entry, originalIndex) => ({ entry, originalIndex })).reverse();
+
   return (
     <div className="settings-timeline">
-      {entries.map((entry, i) => (
+      {displayed.map(({ entry, originalIndex }, i) => (
         <div
           key={entry.snapshotId}
           className={`settings-timeline-entry${onEntryClick ? ' settings-timeline-entry--clickable' : ''}`}
-          onClick={onEntryClick ? () => onEntryClick(entry, i) : undefined}
+          onClick={onEntryClick ? () => onEntryClick(entry, originalIndex) : undefined}
           role={onEntryClick ? 'button' : undefined}
           tabIndex={onEntryClick ? 0 : undefined}
-          onKeyDown={onEntryClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onEntryClick(entry, i); } } : undefined}
+          onKeyDown={onEntryClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onEntryClick(entry, originalIndex); } } : undefined}
         >
           <div className="settings-timeline-left">
             <div className="settings-timeline-dot" />
-            {i < entries.length - 1 && <div className="settings-timeline-line" />}
+            {i < displayed.length - 1 && <div className="settings-timeline-line" />}
           </div>
           <div className="settings-timeline-content">
             <div className="settings-timeline-info">

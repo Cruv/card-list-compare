@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import { getDeckChangelog, getSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
 import SectionChangelog from './SectionChangelog';
 import DeckListView from './DeckListView';
+import CopyButton from './CopyButton';
 import Skeleton from './Skeleton';
 import { toast } from './Toast';
 import './TimelineOverlay.css';
@@ -45,7 +47,7 @@ function filterSection(section, query) {
   };
 }
 
-export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckName, onClose }) {
+export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckName, commanders, onClose }) {
   const isBaseline = !prevSnapshotId;
   const [activeTab, setActiveTab] = useState(isBaseline ? 'deck' : 'changes');
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,11 +56,13 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
   const [diffResult, setDiffResult] = useState(null);
   const [diffCardMap, setDiffCardMap] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
+  const [changelogTexts, setChangelogTexts] = useState(null); // { beforeText, afterText }
 
   // Full Deck tab state
   const [parsedDeck, setParsedDeck] = useState(null);
   const [deckCardMap, setDeckCardMap] = useState(null);
   const [deckLoading, setDeckLoading] = useState(false);
+  const [deckText, setDeckText] = useState(null); // raw deck_text for export
 
   // Escape to close
   useEffect(() => {
@@ -80,6 +84,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
     try {
       const data = await getDeckChangelog(deckId, prevSnapshotId, entry.snapshotId);
       setDiffResult(data.diff);
+      setChangelogTexts({ beforeText: data.before.deck_text, afterText: data.after.deck_text });
       const identifiers = collectCardIdentifiers(data.diff);
       if (identifiers.size > 0) {
         const cardMap = await fetchCardData(identifiers);
@@ -98,7 +103,9 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
     setDeckLoading(true);
     try {
       const data = await getSnapshot(deckId, entry.snapshotId);
-      const parsed = parse(data.snapshot.deck_text);
+      const rawText = data.snapshot.deck_text;
+      setDeckText(rawText);
+      const parsed = parse(rawText);
       setParsedDeck(parsed);
       const identifiers = collectDeckIdentifiers(parsed);
       if (identifiers.size > 0) {
@@ -132,15 +139,23 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
   );
 
   // Summary stats
-  const { totalIn, totalOut, totalChanged, noChanges } = useMemo(() => {
-    if (!diffResult) return { totalIn: 0, totalOut: 0, totalChanged: 0, noChanges: true };
+  const { totalIn, totalOut, totalChanged, noChanges, hasAdditions } = useMemo(() => {
+    if (!diffResult) return { totalIn: 0, totalOut: 0, totalChanged: 0, noChanges: true, hasAdditions: false };
     const mb = diffResult.mainboard;
     const sb = diffResult.sideboard;
     const totalIn = mb.cardsIn.length + sb.cardsIn.length;
     const totalOut = mb.cardsOut.length + sb.cardsOut.length;
     const totalChanged = mb.quantityChanges.length + sb.quantityChanges.length;
-    return { totalIn, totalOut, totalChanged, noChanges: totalIn === 0 && totalOut === 0 && totalChanged === 0 };
+    const hasAdditions = totalIn > 0 ||
+      [...mb.quantityChanges, ...sb.quantityChanges].some(c => c.delta > 0);
+    return { totalIn, totalOut, totalChanged, noChanges: totalIn === 0 && totalOut === 0 && totalChanged === 0, hasAdditions };
   }, [diffResult]);
+
+  // Build diffResult wrapper for formatter functions
+  const diffForExport = useMemo(() => {
+    if (!diffResult) return null;
+    return { mainboard: diffResult.mainboard, sideboard: diffResult.sideboard, hasSideboard: diffResult.hasSideboard, commanders: commanders || [] };
+  }, [diffResult, commanders]);
 
   function formatDate(iso) {
     if (!iso) return '';
@@ -199,25 +214,58 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
           </button>
         </div>
 
-        {/* Search */}
-        <div className="timeline-overlay-search">
-          <input
-            type="text"
-            className="changelog-search-input"
-            placeholder="Filter cards by name..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            aria-label="Filter cards"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              className="changelog-search-clear"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
-            >
-              &times;
-            </button>
+        {/* Search + Copy Buttons */}
+        <div className="timeline-overlay-toolbar">
+          <div className="timeline-overlay-search">
+            <input
+              type="text"
+              className="changelog-search-input"
+              placeholder="Filter cards by name..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              aria-label="Filter cards"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="changelog-search-clear"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+              >
+                &times;
+              </button>
+            )}
+          </div>
+
+          {/* Copy buttons for Changes tab */}
+          {activeTab === 'changes' && diffForExport && !noChanges && (
+            <div className="timeline-overlay-buttons">
+              {hasAdditions && (
+                <CopyButton getText={() => formatMpcFill(diffForExport)} label="Copy for MPCFill" className="copy-btn copy-btn--mpc" />
+              )}
+              <CopyButton getText={() => formatChangelog(diffForExport, diffCardMap)} label="Copy Changelog" />
+              {changelogTexts && (
+                <CopyButton
+                  getText={() => formatForArchidekt(changelogTexts.afterText, commanders || [], changelogTexts.beforeText)}
+                  label="Copy for Archidekt"
+                  className="copy-btn copy-btn--archidekt"
+                />
+              )}
+              <CopyButton getText={() => formatReddit(diffForExport, diffCardMap)} label="Copy for Reddit" className="copy-btn copy-btn--reddit" />
+              <CopyButton getText={() => formatJSON(diffForExport)} label="Copy JSON" className="copy-btn copy-btn--json" />
+            </div>
+          )}
+
+          {/* Copy buttons for Full Deck tab */}
+          {activeTab === 'deck' && deckText && (
+            <div className="timeline-overlay-buttons">
+              <CopyButton
+                getText={() => formatForArchidekt(deckText, commanders || [])}
+                label="Copy for Archidekt"
+                className="copy-btn copy-btn--archidekt"
+              />
+              <CopyButton getText={() => deckText} label="Copy Deck Text" />
+            </div>
           )}
         </div>
 

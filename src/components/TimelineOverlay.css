@@ -163,12 +163,24 @@
   background: rgba(92, 107, 192, 0.25);
 }
 
-/* ── Search ──────────────────────────────────────── */
+/* ── Toolbar (search + copy buttons) ─────────────── */
+
+.timeline-overlay-toolbar {
+  padding: var(--space-md) var(--space-lg) 0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
 
 .timeline-overlay-search {
   position: relative;
-  padding: var(--space-md) var(--space-lg) 0;
-  flex-shrink: 0;
+}
+
+.timeline-overlay-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
 }
 
 /* ── Content (scrollable) ────────────────────────── */
