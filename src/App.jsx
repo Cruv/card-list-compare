@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.13.0';
+const APP_VERSION = '2.14.0';
 const WHATS_NEW = [
-  'Import from MTGGoldfish and TCGPlayer — paste a deck URL to import',
-  'Now supports 7 sites: Archidekt, Moxfield, MTGGoldfish, TCGPlayer, TappedOut, Deckstats, DeckCheck',
+  'Auto-snapshot scheduling — set per-deck auto-refresh intervals (6h to 7d)',
+  'Decks refresh automatically in the background and save new snapshots when changes are detected',
 ];
 
 function getResetToken() {

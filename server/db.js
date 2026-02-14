@@ -350,6 +350,13 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_user ON collection_cards(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_name ON collection_cards(user_id, card_name)');
 
+  // Migration: add auto_refresh_hours column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN auto_refresh_hours INTEGER');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Migration: add price_alert_threshold and last_known_price columns to tracked_decks
   try {
     db.run('ALTER TABLE tracked_decks ADD COLUMN price_alert_threshold REAL');

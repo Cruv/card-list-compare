@@ -175,7 +175,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold } = req.body;
+  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold, autoRefreshHours } = req.body;
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -232,6 +232,12 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Price alert threshold must be a positive number or null' });
     }
     run('UPDATE tracked_decks SET price_alert_threshold = ? WHERE id = ?', [priceAlertThreshold, id]);
+  }
+  if (autoRefreshHours !== undefined) {
+    if (autoRefreshHours !== null && (typeof autoRefreshHours !== 'number' || ![6, 12, 24, 48, 168].includes(autoRefreshHours))) {
+      return res.status(400).json({ error: 'Auto-refresh must be 6, 12, 24, 48, or 168 hours (or null to disable)' });
+    }
+    run('UPDATE tracked_decks SET auto_refresh_hours = ? WHERE id = ?', [autoRefreshHours, id]);
   }
 
   const updated = get('SELECT * FROM tracked_decks WHERE id = ?', [id]);

@@ -124,6 +124,9 @@ export const getDeckPrices = (deckId) => apiFetch(`/decks/${deckId}/prices`);
 export const updateDeckPriceAlert = (deckId, priceAlertThreshold) =>
   apiFetch(`/decks/${deckId}`, { method: 'PATCH', body: JSON.stringify({ priceAlertThreshold }) });
 
+export const updateDeckAutoRefresh = (deckId, autoRefreshHours) =>
+  apiFetch(`/decks/${deckId}`, { method: 'PATCH', body: JSON.stringify({ autoRefreshHours }) });
+
 // Snapshots
 export const getDeckSnapshots = (deckId) =>
   apiFetch(`/decks/${deckId}/snapshots`);

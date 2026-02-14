@@ -145,6 +145,70 @@ async function sendDeckChangeEmail(email, username, deckName, deckId) {
 }
 
 /**
+ * Auto-refresh decks that have auto_refresh_hours set.
+ * Only refreshes decks whose last_refreshed_at is older than their interval.
+ */
+async function autoRefreshScheduledDecks() {
+  const decks = all(`
+    SELECT d.id, d.archidekt_deck_id, d.deck_name, d.auto_refresh_hours, d.last_refreshed_at
+    FROM tracked_decks d
+    JOIN users u ON d.user_id = u.id
+    WHERE u.suspended = 0
+      AND d.auto_refresh_hours IS NOT NULL
+  `);
+
+  if (decks.length === 0) return;
+
+  let refreshed = 0;
+  const now = Date.now();
+
+  for (const deck of decks) {
+    if (deck.last_refreshed_at) {
+      const lastRefresh = new Date(deck.last_refreshed_at + 'Z').getTime();
+      const intervalMs = deck.auto_refresh_hours * 60 * 60 * 1000;
+      if (now - lastRefresh < intervalMs) continue;
+    }
+
+    try {
+      const apiData = await fetchDeck(deck.archidekt_deck_id);
+      const { text, commanders } = archidektToText(apiData);
+
+      const latest = get(
+        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+        [deck.id]
+      );
+
+      let enrichedText = text;
+      try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
+
+      if (latest && latest.deck_text === enrichedText) {
+        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
+      } else {
+        run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
+        pruneSnapshots(deck.id);
+        const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
+        if (cmdsJson) {
+          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
+            [apiData.name || deck.deck_name, cmdsJson, deck.id]);
+        } else {
+          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
+            [apiData.name || deck.deck_name, deck.id]);
+        }
+        refreshed++;
+      }
+
+      await new Promise(r => setTimeout(r, 500));
+    } catch (err) {
+      console.error(`[AutoRefresh] Failed for deck ${deck.id}:`, err.message);
+    }
+  }
+
+  if (refreshed > 0) {
+    console.log(`[AutoRefresh] ${refreshed} deck(s) updated`);
+  }
+}
+
+/**
  * Start the notification check scheduler.
  * Reads the interval from server_settings and runs on a setInterval.
  */
@@ -165,7 +229,12 @@ export function startNotificationScheduler() {
       } catch (err) {
         console.error('[Notifications] Scheduler error:', err.message);
       }
-      scheduleNext(); // Re-schedule with potentially updated interval
+      try {
+        await autoRefreshScheduledDecks();
+      } catch (err) {
+        console.error('[AutoRefresh] Scheduler error:', err.message);
+      }
+      scheduleNext();
     }, ms);
   }
 

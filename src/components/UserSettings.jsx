@@ -15,7 +15,7 @@ import {
   updateDeckNotes, updateDeckPinned, updateDeckTags,
   updateDeckDiscordWebhook,
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
-  getDeckOverlap, getDeckPrices, updateDeckPriceAlert,
+  getDeckOverlap, getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -1585,6 +1585,26 @@ function DeckCard({
             >
               {loadingPrices ? '...' : 'Check Prices'}
             </button>
+            <select
+              className="settings-tracker-auto-refresh-select"
+              value={deck.auto_refresh_hours || ''}
+              onChange={async (e) => {
+                const val = e.target.value ? parseInt(e.target.value, 10) : null;
+                try {
+                  await updateDeckAutoRefresh(deck.id, val);
+                  toast.success(val ? `Auto-refresh set to every ${val}h` : 'Auto-refresh disabled');
+                  if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+                } catch (err) { toast.error(err.message); }
+              }}
+              title="Auto-refresh schedule"
+            >
+              <option value="">Auto: Off</option>
+              <option value="6">Auto: 6h</option>
+              <option value="12">Auto: 12h</option>
+              <option value="24">Auto: 24h</option>
+              <option value="48">Auto: 48h</option>
+              <option value="168">Auto: 7d</option>
+            </select>
           </div>
 
           {editingWebhook && (
