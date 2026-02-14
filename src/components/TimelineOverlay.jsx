@@ -224,6 +224,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
         {/* Header */}
         <div className="timeline-overlay-header">
           <div className="timeline-overlay-title-row">
+            <button className="timeline-overlay-mobile-back" onClick={onClose} type="button" aria-label="Back">&larr;</button>
             <h2 className="timeline-overlay-title">{deckName}</h2>
             <button className="timeline-overlay-close" onClick={onClose} type="button" aria-label="Close">&times;</button>
           </div>

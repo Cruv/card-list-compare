@@ -122,6 +122,12 @@
   flex-wrap: wrap;
 }
 
+/* ── Mobile back button (hidden on desktop) ─────── */
+
+.comparison-overlay-mobile-back {
+  display: none;
+}
+
 /* ── Mobile ──────────────────────────────────────── */
 
 @media (max-width: 640px) {
@@ -134,5 +140,30 @@
     max-height: 100vh;
     height: 100vh;
     border-radius: 0;
+  }
+
+  .comparison-overlay-mobile-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .comparison-overlay-mobile-back:active {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .comparison-overlay-close {
+    display: none;
   }
 }

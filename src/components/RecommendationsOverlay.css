@@ -269,15 +269,23 @@
   white-space: nowrap;
 }
 
+/* ── Mobile back button (hidden on desktop) ─────── */
+
+.recs-overlay-mobile-back {
+  display: none;
+}
+
 /* ── Mobile ───────────────────────────────────────── */
 
 @media (max-width: 600px) {
   .recs-overlay {
-    padding: var(--space-sm);
+    padding: 0;
   }
   .recs-overlay-panel {
-    max-height: 95vh;
-    border-radius: 8px;
+    max-width: 100%;
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
   }
   .recs-overlay-header {
     padding: var(--space-md);
@@ -290,5 +298,30 @@
   }
   .recs-card-meta {
     flex-wrap: wrap;
+  }
+
+  .recs-overlay-mobile-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .recs-overlay-mobile-back:active {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .recs-overlay-close {
+    display: none;
   }
 }

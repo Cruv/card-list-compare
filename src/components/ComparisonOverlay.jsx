@@ -211,6 +211,7 @@ export default function ComparisonOverlay({
         {/* Header */}
         <div className="comparison-overlay-header">
           <div className="comparison-overlay-title-row">
+            <button className="comparison-overlay-mobile-back" onClick={onClose} type="button" aria-label="Back">&larr;</button>
             <h2 className="comparison-overlay-title">{deckName || 'Deck Comparison'}</h2>
             <button className="comparison-overlay-close" onClick={onClose} type="button" aria-label="Close">&times;</button>
           </div>
