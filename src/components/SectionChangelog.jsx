@@ -6,10 +6,13 @@ import './SectionChangelog.css';
 function CardGroup({ cards, changeType, cardMap }) {
   return cards.map((card) => {
     // Try composite key first (name|collectorNumber) for per-printing data, fall back to bare name
+    const nameLower = card.name.toLowerCase();
     const compositeKey = card.collectorNumber
-      ? `${card.name.toLowerCase()}|${card.collectorNumber}`
+      ? `${nameLower}|${card.collectorNumber}`
       : null;
-    const data = (compositeKey && cardMap?.get(compositeKey)) || cardMap?.get(card.name.toLowerCase());
+    const compositeData = compositeKey ? cardMap?.get(compositeKey) : null;
+    const bareData = cardMap?.get(nameLower);
+    const data = compositeData || bareData;
     return (
       <CardLine
         key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : card.name}
@@ -26,6 +29,8 @@ function CardGroup({ cards, changeType, cardMap }) {
         isFoil={card.isFoil}
         priceUsd={data?.priceUsd}
         priceUsdFoil={data?.priceUsdFoil}
+        cheapestPriceUsd={bareData?.priceUsd}
+        cheapestPriceUsdFoil={bareData?.priceUsdFoil}
       />
     );
   });

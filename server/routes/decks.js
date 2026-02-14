@@ -9,7 +9,7 @@ import { fetchDeck } from '../lib/archidekt.js';
 import { archidektToText } from '../lib/deckToText.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
 import { pruneSnapshots } from '../lib/pruneSnapshots.js';
-import { fetchCardPrices, fetchCardMetadata } from '../lib/scryfall.js';
+import { fetchCardPrices, fetchCardMetadata, fetchSpecificPrintingPrices } from '../lib/scryfall.js';
 
 const router = Router();
 
@@ -189,7 +189,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold, autoRefreshHours } = req.body;
+  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold, priceAlertMode, autoRefreshHours } = req.body;
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -246,6 +246,12 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Price alert threshold must be a positive number or null' });
     }
     run('UPDATE tracked_decks SET price_alert_threshold = ? WHERE id = ?', [priceAlertThreshold, id]);
+  }
+  if (priceAlertMode !== undefined) {
+    if (priceAlertMode !== null && !['specific', 'cheapest'].includes(priceAlertMode)) {
+      return res.status(400).json({ error: 'Price alert mode must be "specific" or "cheapest"' });
+    }
+    run('UPDATE tracked_decks SET price_alert_mode = ? WHERE id = ?', [priceAlertMode || 'specific', id]);
   }
   if (autoRefreshHours !== undefined) {
     if (autoRefreshHours !== null && (typeof autoRefreshHours !== 'number' || ![6, 12, 24, 48, 168].includes(autoRefreshHours))) {
@@ -403,49 +409,85 @@ router.get('/:id/prices', async (req, res) => {
   try {
     const parsed = parse(snap.deck_text);
     const cardNames = [];
-    for (const [, entry] of parsed.mainboard) cardNames.push(entry.displayName);
+    const cardEntries = [];
+    for (const [, entry] of parsed.mainboard) {
+      cardNames.push(entry.displayName);
+      cardEntries.push({ name: entry.displayName, set: entry.setCode, collectorNumber: entry.collectorNumber, isFoil: entry.isFoil, quantity: entry.quantity });
+    }
     for (const name of parsed.commanders) cardNames.push(name);
 
-    const prices = await fetchCardPrices(cardNames);
+    // Fetch default/cheapest prices (by name) and specific printing prices (by set+collector)
+    const [defaultPrices, specificPrices] = await Promise.all([
+      fetchCardPrices(cardNames),
+      fetchSpecificPrintingPrices(cardEntries),
+    ]);
 
     const cards = [];
     let totalPrice = 0;
+    let budgetPrice = 0;
     const seen = new Set();
 
     for (const [, entry] of parsed.mainboard) {
       const key = entry.displayName.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      const priceData = prices.get(key);
-      const price = entry.isFoil ? (priceData?.priceUsdFoil ?? priceData?.priceUsd ?? 0) : (priceData?.priceUsd ?? 0);
+      const defaultData = defaultPrices.get(key);
+      const specificData = specificPrices.get(key);
+
+      // Cheapest price: always from default (name-only) lookup
+      const cheapestPrice = entry.isFoil
+        ? (defaultData?.priceUsdFoil ?? defaultData?.priceUsd ?? 0)
+        : (defaultData?.priceUsd ?? 0);
+
+      // Specific price: from set+collector lookup if available, else fall back to default
+      const useSpecific = specificData && (entry.setCode && entry.collectorNumber);
+      const price = useSpecific
+        ? (entry.isFoil ? (specificData.priceUsdFoil ?? specificData.priceUsd ?? cheapestPrice) : (specificData.priceUsd ?? cheapestPrice))
+        : cheapestPrice;
+
       const lineTotal = price * entry.quantity;
+      const cheapestTotal = cheapestPrice * entry.quantity;
       totalPrice += lineTotal;
-      if (price > 0) {
-        cards.push({ name: entry.displayName, quantity: entry.quantity, price, total: lineTotal });
+      budgetPrice += cheapestTotal;
+      if (price > 0 || cheapestPrice > 0) {
+        cards.push({
+          name: entry.displayName,
+          quantity: entry.quantity,
+          price,
+          cheapestPrice,
+          total: lineTotal,
+          cheapestTotal,
+        });
       }
     }
     for (const name of parsed.commanders) {
       const key = name.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      const priceData = prices.get(key);
-      const price = priceData?.priceUsd ?? 0;
+      const defaultData = defaultPrices.get(key);
+      const cheapestPrice = defaultData?.priceUsd ?? 0;
+      const price = cheapestPrice; // commanders don't have printing metadata in parsed.commanders
       const lineTotal = price;
       totalPrice += lineTotal;
+      budgetPrice += cheapestPrice;
       if (price > 0) {
-        cards.push({ name, quantity: 1, price, total: lineTotal });
+        cards.push({ name, quantity: 1, price, cheapestPrice, total: lineTotal, cheapestTotal: cheapestPrice });
       }
     }
 
-    // Update last known price
-    run('UPDATE tracked_decks SET last_known_price = ? WHERE id = ?', [totalPrice, deck.id]);
+    // Update last known prices
+    run('UPDATE tracked_decks SET last_known_price = ?, last_known_budget_price = ? WHERE id = ?',
+      [totalPrice, budgetPrice, deck.id]);
 
     cards.sort((a, b) => b.total - a.total);
 
     res.json({
       totalPrice: Math.round(totalPrice * 100) / 100,
+      budgetPrice: Math.round(budgetPrice * 100) / 100,
       previousPrice: deck.last_known_price,
+      previousBudgetPrice: deck.last_known_budget_price,
       threshold: deck.price_alert_threshold,
+      alertMode: deck.price_alert_mode || 'specific',
       cards,
     });
   } catch (err) {

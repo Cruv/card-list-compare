@@ -376,6 +376,18 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // Migration: add budget price tracking and price alert mode to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN last_known_budget_price REAL');
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.run("ALTER TABLE tracked_decks ADD COLUMN price_alert_mode TEXT DEFAULT 'specific'");
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Playgroups tables removed — future TapTogether integration planned
 
   // Indexes

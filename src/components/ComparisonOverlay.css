@@ -146,6 +146,14 @@
   color: var(--text-primary);
 }
 
+/* ── Budget Price Badge ──────────────────────────── */
+
+.summary-badge-budget {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 /* ── Mobile ──────────────────────────────────────── */
 
 @media (max-width: 640px) {

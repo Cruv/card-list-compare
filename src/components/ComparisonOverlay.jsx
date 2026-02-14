@@ -165,7 +165,7 @@ export default function ComparisonOverlay({
   // Price impact
   const priceImpact = useMemo(() => {
     if (!priceDisplayEnabled || !diffResult || !cardMap || cardMap.size === 0) return null;
-    let costIn = 0, costOut = 0, hasAny = false;
+    let costIn = 0, costOut = 0, budgetCostIn = 0, budgetCostOut = 0, hasAny = false;
 
     function getCardPrice(card) {
       const nameLower = card.name.toLowerCase();
@@ -176,27 +176,45 @@ export default function ComparisonOverlay({
       return isFoil && data.priceUsdFoil != null ? data.priceUsdFoil : data.priceUsd;
     }
 
+    function getCheapestPrice(card) {
+      const bareData = cardMap.get(card.name.toLowerCase());
+      if (!bareData) return null;
+      const isFoil = card.isFoil || false;
+      return isFoil && bareData.priceUsdFoil != null ? bareData.priceUsdFoil : bareData.priceUsd;
+    }
+
     for (const section of [diffResult.mainboard, diffResult.sideboard]) {
       for (const card of section.cardsIn) {
         const p = getCardPrice(card);
+        const cp = getCheapestPrice(card);
         if (p != null) { costIn += p * card.quantity; hasAny = true; }
+        if (cp != null) { budgetCostIn += cp * card.quantity; }
       }
       for (const card of section.cardsOut) {
         const p = getCardPrice(card);
+        const cp = getCheapestPrice(card);
         if (p != null) { costOut += p * card.quantity; hasAny = true; }
+        if (cp != null) { budgetCostOut += cp * card.quantity; }
       }
       for (const card of section.quantityChanges) {
         const p = getCardPrice(card);
+        const cp = getCheapestPrice(card);
         if (p != null) {
           if (card.delta > 0) costIn += p * card.delta;
           else costOut += p * Math.abs(card.delta);
           hasAny = true;
         }
+        if (cp != null) {
+          if (card.delta > 0) budgetCostIn += cp * card.delta;
+          else budgetCostOut += cp * Math.abs(card.delta);
+        }
       }
     }
 
     if (!hasAny) return null;
-    return { costIn, costOut, net: costIn - costOut };
+    const net = costIn - costOut;
+    const budgetNet = budgetCostIn - budgetCostOut;
+    return { costIn, costOut, net, budgetNet, hasBudgetDiff: Math.abs(budgetNet - net) >= 0.01 };
   }, [diffResult, cardMap]);
 
   // Export wrapper
@@ -275,6 +293,9 @@ export default function ComparisonOverlay({
                 {priceImpact && (
                   <span className={`summary-badge summary-badge--price${priceImpact.net > 0 ? ' summary-badge--price-up' : priceImpact.net < 0 ? ' summary-badge--price-down' : ''}`}>
                     {priceImpact.net >= 0 ? '+' : ''}{priceImpact.net < 0 ? '\u2212' : ''}${Math.abs(priceImpact.net).toFixed(2)}
+                    {priceImpact.hasBudgetDiff && (
+                      <span className="summary-badge-budget"> ({priceImpact.budgetNet >= 0 ? '+' : ''}{priceImpact.budgetNet < 0 ? '\u2212' : ''}${Math.abs(priceImpact.budgetNet).toFixed(2)})</span>
+                    )}
                   </span>
                 )}
               </div>

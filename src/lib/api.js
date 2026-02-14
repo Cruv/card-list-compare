@@ -121,8 +121,8 @@ export const getDeckOverlap = () => apiFetch('/decks/overlap');
 
 export const getDeckPrices = (deckId) => apiFetch(`/decks/${deckId}/prices`);
 
-export const updateDeckPriceAlert = (deckId, priceAlertThreshold) =>
-  apiFetch(`/decks/${deckId}`, { method: 'PATCH', body: JSON.stringify({ priceAlertThreshold }) });
+export const updateDeckPriceAlert = (deckId, priceAlertThreshold, priceAlertMode) =>
+  apiFetch(`/decks/${deckId}`, { method: 'PATCH', body: JSON.stringify({ priceAlertThreshold, priceAlertMode }) });
 
 export const updateDeckAutoRefresh = (deckId, autoRefreshHours) =>
   apiFetch(`/decks/${deckId}`, { method: 'PATCH', body: JSON.stringify({ autoRefreshHours }) });

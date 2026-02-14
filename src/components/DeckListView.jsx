@@ -258,10 +258,13 @@ function DeckSection({ sectionName, cards, cardMap }) {
   if (cardArray.length === 0) return null;
 
   function renderCard(card) {
+    const nameLower = card.name.toLowerCase();
     const compositeKey = card.collectorNumber
-      ? `${card.name.toLowerCase()}|${card.collectorNumber}`
+      ? `${nameLower}|${card.collectorNumber}`
       : null;
-    const data = (compositeKey && cardMap?.get(compositeKey)) || cardMap?.get(card.name.toLowerCase());
+    const compositeData = compositeKey ? cardMap?.get(compositeKey) : null;
+    const bareData = cardMap?.get(nameLower);
+    const data = compositeData || bareData;
     return (
       <CardLine
         key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : card.name}
@@ -275,6 +278,8 @@ function DeckSection({ sectionName, cards, cardMap }) {
         isFoil={card.isFoil}
         priceUsd={data?.priceUsd}
         priceUsdFoil={data?.priceUsdFoil}
+        cheapestPriceUsd={bareData?.priceUsd}
+        cheapestPriceUsdFoil={bareData?.priceUsdFoil}
       />
     );
   }
@@ -323,6 +328,29 @@ function computeDeckPrice(parsedDeck, cardMap) {
   return hasAnyPrice ? total : null;
 }
 
+/** Compute budget deck value using cheapest/default printing prices (bare-name key only). */
+function computeBudgetPrice(parsedDeck, cardMap) {
+  if (!cardMap || cardMap.size === 0) return null;
+  let total = 0;
+  let hasAnyPrice = false;
+
+  for (const section of [parsedDeck.mainboard, parsedDeck.sideboard]) {
+    for (const [, entry] of section) {
+      const nameLower = entry.displayName.toLowerCase();
+      const data = cardMap.get(nameLower); // Always use bare-name key for cheapest
+      if (data) {
+        const isFoil = entry.isFoil || false;
+        const unitPrice = isFoil && data.priceUsdFoil != null ? data.priceUsdFoil : data.priceUsd;
+        if (unitPrice != null) {
+          total += unitPrice * entry.quantity;
+          hasAnyPrice = true;
+        }
+      }
+    }
+  }
+  return hasAnyPrice ? total : null;
+}
+
 export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) {
   if (!parsedDeck) return null;
 
@@ -331,6 +359,7 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
   const [showAnalytics, setShowAnalytics] = useState(true);
 
   const deckPrice = useMemo(() => priceDisplayEnabled ? computeDeckPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
+  const budgetDeckPrice = useMemo(() => priceDisplayEnabled ? computeBudgetPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
 
   // Filter cards by search query if provided
   const filteredMainboard = useMemo(() => {
@@ -367,6 +396,9 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
       {deckPrice != null && (
         <div className="deck-list-price-summary">
           Estimated Value: <strong>${deckPrice.toFixed(2)}</strong>
+          {budgetDeckPrice != null && Math.abs(budgetDeckPrice - deckPrice) >= 0.01 && (
+            <span className="deck-list-budget-price"> (Budget: ${budgetDeckPrice.toFixed(2)})</span>
+          )}
         </div>
       )}
       {cardMap && cardMap.size > 0 && (

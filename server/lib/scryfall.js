@@ -20,6 +20,7 @@ const PRINTING_TTL = 60 * 60 * 1000; // 60 minutes
 const metadataCache = new Map(); // key -> { data, ts }
 const priceCache = new Map();
 const printingCache = new Map();
+const specificPriceCache = new Map();
 
 function getCached(cache, key, ttl) {
   const entry = cache.get(key);
@@ -245,6 +246,83 @@ export async function fetchCardPrices(cardNames) {
       }
     } catch (err) {
       console.error('Scryfall price fetch error:', err.message);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Fetch USD prices for specific card printings using set + collector number.
+ * Accepts array of { name, set, collectorNumber } objects.
+ * Returns Map<string, { priceUsd: number|null, priceUsdFoil: number|null }>
+ * Keys are lowercased card names.
+ * Cards without set+collectorNumber are skipped.
+ */
+export async function fetchSpecificPrintingPrices(cards) {
+  const result = new Map();
+  if (!cards || cards.length === 0) return result;
+
+  // Only cards with printing metadata
+  const withPrinting = cards.filter(c => c.set && c.collectorNumber);
+  if (withPrinting.length === 0) return result;
+
+  // Deduplicate by set+collector
+  const seen = new Set();
+  const unique = [];
+  for (const card of withPrinting) {
+    const scKey = `${card.set.toLowerCase()}|${card.collectorNumber}`;
+    if (seen.has(scKey)) continue;
+    seen.add(scKey);
+
+    const cached = getCached(specificPriceCache, scKey, PRICE_TTL);
+    if (cached) {
+      result.set(card.name.toLowerCase(), cached);
+    } else {
+      unique.push(card);
+    }
+  }
+  if (unique.length === 0) return result;
+
+  const batches = [];
+  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    batches.push(unique.slice(i, i + BATCH_SIZE));
+  }
+
+  for (let i = 0; i < batches.length; i++) {
+    if (i > 0) await delay(DELAY_MS);
+
+    const identifiers = batches[i].map(c => ({
+      set: c.set.toLowerCase(),
+      collector_number: c.collectorNumber,
+    }));
+
+    try {
+      const res = await fetch(`${SCRYFALL_API}/cards/collection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'CardListCompare/1.0',
+        },
+        body: JSON.stringify({ identifiers }),
+      });
+
+      if (!res.ok) continue;
+
+      const data = await res.json();
+
+      for (const card of (data.data || [])) {
+        const nameKey = card.name.toLowerCase();
+        const scKey = `${card.set}|${card.collector_number}`;
+        const entry = {
+          priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
+          priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
+        };
+        result.set(nameKey, entry);
+        setCache(specificPriceCache, scKey, entry);
+      }
+    } catch (err) {
+      console.error('Scryfall specific price fetch error:', err.message);
     }
   }
 

@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.25.0';
+const APP_VERSION = '2.26.0';
 const WHATS_NEW = [
-  'Paper snapshot marker: mark a snapshot as your physical deck for quick swap lists',
-  'Paper vs. Latest comparison button for one-click swap in/out diff',
-  'Paper snapshots auto-lock to prevent pruning, with green visual indicators on timeline and snapshot list',
+  'Cheapest printing prices: see the lowest cost printing for each card in parentheses alongside specific printing prices',
+  'Budget deck total: full deck value using cheapest available printings shown alongside specific printing total',
+  'Price alert mode: choose whether alerts trigger on your specific printings or cheapest available printings',
 ];
 
 function getResetToken() {

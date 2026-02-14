@@ -957,6 +957,7 @@ function DeckCard({
   // Price alert state
   const [editingPriceAlert, setEditingPriceAlert] = useState(false);
   const [priceAlertValue, setPriceAlertValue] = useState(deck.price_alert_threshold ?? '');
+  const [priceAlertMode, setPriceAlertMode] = useState(deck.price_alert_mode || 'specific');
   const [savingPriceAlert, setSavingPriceAlert] = useState(false);
   const [priceData, setPriceData] = useState(null);
   const [loadingPrices, setLoadingPrices] = useState(false);
@@ -993,8 +994,8 @@ function DeckCard({
     setSavingPriceAlert(true);
     try {
       const threshold = priceAlertValue === '' ? null : parseFloat(priceAlertValue);
-      await updateDeckPriceAlert(deck.id, threshold);
-      toast.success(threshold ? `Price alert set at $${threshold}` : 'Price alert removed');
+      await updateDeckPriceAlert(deck.id, threshold, priceAlertMode);
+      toast.success(threshold ? `Price alert set at $${threshold} (${priceAlertMode} printing)` : 'Price alert removed');
       setEditingPriceAlert(false);
       if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
     } catch (err) {
@@ -1103,7 +1104,12 @@ function DeckCard({
           {deck.snapshot_count} snapshot{deck.snapshot_count !== 1 ? 's' : ''}
           {deck.share_id && <span className="settings-tracker-shared-badge" title="Shared">Shared</span>}
           {priceDisplayEnabled && deck.last_known_price > 0 && (
-            <span className="settings-tracker-price-badge">${deck.last_known_price.toFixed(2)}</span>
+            <span className="settings-tracker-price-badge">
+              ${deck.last_known_price.toFixed(2)}
+              {deck.last_known_budget_price != null && deck.last_known_budget_price > 0 && Math.abs(deck.last_known_budget_price - deck.last_known_price) >= 0.01 && (
+                <span className="settings-tracker-budget-price">(${deck.last_known_budget_price.toFixed(2)})</span>
+              )}
+            </span>
           )}
           {deck.paper_snapshot_id && (
             <span className="settings-tracker-paper-badge-header" title="Paper deck marked">Paper</span>
@@ -1427,6 +1433,31 @@ function DeckCard({
                 step="1"
                 disabled={savingPriceAlert}
               />
+              <div className="settings-tracker-price-alert-mode">
+                <span className="settings-tracker-price-alert-mode-label">Alert based on:</span>
+                <label className="settings-tracker-price-alert-mode-option">
+                  <input
+                    type="radio"
+                    name={`priceAlertMode-${deck.id}`}
+                    value="specific"
+                    checked={priceAlertMode === 'specific'}
+                    onChange={() => setPriceAlertMode('specific')}
+                    disabled={savingPriceAlert}
+                  />
+                  Your printings
+                </label>
+                <label className="settings-tracker-price-alert-mode-option">
+                  <input
+                    type="radio"
+                    name={`priceAlertMode-${deck.id}`}
+                    value="cheapest"
+                    checked={priceAlertMode === 'cheapest'}
+                    onChange={() => setPriceAlertMode('cheapest')}
+                    disabled={savingPriceAlert}
+                  />
+                  Cheapest printings
+                </label>
+              </div>
               <div className="settings-tracker-webhook-actions">
                 <button className="btn btn-primary btn-sm" onClick={handleSavePriceAlert} disabled={savingPriceAlert} type="button">
                   {savingPriceAlert ? '...' : 'Save'}
@@ -1453,6 +1484,9 @@ function DeckCard({
               <div className="settings-tracker-price-header">
                 <span className="settings-tracker-price-total">
                   Total: ${priceData.totalPrice.toFixed(2)}
+                  {priceData.budgetPrice != null && Math.abs(priceData.budgetPrice - priceData.totalPrice) >= 0.01 && (
+                    <span className="settings-tracker-budget-price"> (Budget: ${priceData.budgetPrice.toFixed(2)})</span>
+                  )}
                 </span>
                 {priceData.previousPrice != null && priceData.previousPrice !== priceData.totalPrice && (
                   <span className={`settings-tracker-price-delta ${priceData.totalPrice > priceData.previousPrice ? 'delta-add' : 'delta-remove'}`}>
@@ -1461,11 +1495,19 @@ function DeckCard({
                 )}
                 <button className="btn btn-secondary btn-sm" onClick={() => setPriceData(null)} type="button">&times;</button>
               </div>
+              {priceData.budgetPrice != null && priceData.totalPrice > priceData.budgetPrice + 0.01 && (
+                <div className="settings-tracker-price-savings">
+                  Savings with cheapest printings: <strong>${(priceData.totalPrice - priceData.budgetPrice).toFixed(2)}</strong>
+                </div>
+              )}
               {priceData.cards.length > 0 && (
                 <div className="settings-tracker-price-cards">
                   {priceData.cards.slice(0, 10).map((c, i) => (
                     <span key={i} className="settings-tracker-price-card">
                       {c.quantity > 1 ? `${c.quantity}x ` : ''}{c.name} — ${c.total.toFixed(2)}
+                      {c.cheapestTotal != null && Math.abs(c.cheapestTotal - c.total) >= 0.01 && (
+                        <span className="settings-tracker-budget-price"> (${c.cheapestTotal.toFixed(2)})</span>
+                      )}
                     </span>
                   ))}
                   {priceData.cards.length > 10 && (

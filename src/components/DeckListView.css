@@ -23,6 +23,12 @@
   color: var(--text-primary);
 }
 
+.deck-list-budget-price {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 .deck-list-section {
   margin-bottom: 24px;
 }

@@ -81,12 +81,19 @@ function PrintingBadge({ setCode, collectorNumber, isFoil }) {
   );
 }
 
-function PriceBadge({ price }) {
-  if (price == null) return null;
-  return <span className="card-line-price">${price.toFixed(2)}</span>;
+function PriceBadge({ price, cheapestPrice }) {
+  if (price == null && cheapestPrice == null) return null;
+  const showCheapest = cheapestPrice != null && price != null && Math.abs(cheapestPrice - price) >= 0.01;
+  return (
+    <span className="card-line-price">
+      {price != null ? `$${price.toFixed(2)}` : ''}
+      {showCheapest && <span className="card-line-cheapest-price">(${cheapestPrice.toFixed(2)})</span>}
+      {price == null && cheapestPrice != null ? `$${cheapestPrice.toFixed(2)}` : ''}
+    </span>
+  );
 }
 
-export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil, priceUsd, priceUsdFoil }) {
+export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil, priceUsd, priceUsdFoil, cheapestPriceUsd, cheapestPriceUsdFoil }) {
   const { priceDisplayEnabled } = useAppSettings();
   const [hovering, setHovering] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
@@ -94,6 +101,8 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
 
   const unitPrice = isFoil && priceUsdFoil != null ? priceUsdFoil : priceUsd;
   const totalPrice = priceDisplayEnabled && unitPrice != null && quantity ? unitPrice * quantity : null;
+  const cheapestUnitPrice = cheapestPriceUsd != null ? (isFoil && cheapestPriceUsdFoil != null ? cheapestPriceUsdFoil : cheapestPriceUsd) : null;
+  const cheapestTotalPrice = priceDisplayEnabled && cheapestUnitPrice != null && quantity ? cheapestUnitPrice * quantity : null;
 
   const handleClick = useCallback(() => {
     if (isTouch && imageUri) {
@@ -123,7 +132,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-name" ref={nameRef}>{name}</span>
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
-        <PriceBadge price={totalPrice} />
+        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} />
         {tooltip}
         {overlay}
       </div>
@@ -143,7 +152,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-name" ref={nameRef}>{name}</span>
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
-        <PriceBadge price={totalPrice} />
+        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} />
         {tooltip}
         {overlay}
       </div>
@@ -162,7 +171,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-name" ref={nameRef}>{name}</span>
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
-        <PriceBadge price={totalPrice} />
+        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} />
         {tooltip}
         {overlay}
       </div>
@@ -182,7 +191,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
       <span className="card-line-name" ref={nameRef}>{name}</span>
       <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
       {manaCost && <ManaCost cost={manaCost} />}
-      <PriceBadge price={totalPrice} />
+      <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} />
       <span className="card-line-detail">
         {oldQty} &rarr; {newQty} ({sign}{delta})
       </span>

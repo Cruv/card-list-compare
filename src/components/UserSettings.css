@@ -1836,6 +1836,59 @@
   color: var(--text-muted);
 }
 
+/* ── Budget Price Display ──────────────────────────── */
+
+.settings-tracker-budget-price {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* ── Price Savings Line ───────────────────────────── */
+
+.settings-tracker-price-savings {
+  font-size: var(--fs-xs);
+  color: var(--accent-green);
+  font-weight: 600;
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  background: rgba(76, 175, 80, 0.08);
+  border-radius: var(--radius);
+}
+
+/* ── Price Alert Mode Toggle ──────────────────────── */
+
+.settings-tracker-price-alert-mode {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
+  font-size: var(--fs-sm);
+}
+
+.settings-tracker-price-alert-mode-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: var(--fs-xs);
+  flex-shrink: 0;
+}
+
+.settings-tracker-price-alert-mode-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-tracker-price-alert-mode-option input[type="radio"] {
+  accent-color: var(--accent-blue);
+  margin: 0;
+  cursor: pointer;
+}
+
 /* ── Auto-Refresh Select ───────────────────────────── */
 
 /* Playgroups styles removed — future TapTogether integration planned */
