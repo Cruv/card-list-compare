@@ -9,6 +9,7 @@ import { fetchDeck } from '../lib/archidekt.js';
 import { archidektToText } from '../lib/deckToText.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
 import { pruneSnapshots } from '../lib/pruneSnapshots.js';
+import { fetchCardPrices } from '../lib/scryfall.js';
 
 const router = Router();
 
@@ -174,7 +175,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl } = req.body;
+  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold } = req.body;
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -225,6 +226,12 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Invalid Discord webhook URL' });
     }
     run('UPDATE tracked_decks SET discord_webhook_url = ? WHERE id = ?', [discordWebhookUrl?.trim() || null, id]);
+  }
+  if (priceAlertThreshold !== undefined) {
+    if (priceAlertThreshold !== null && (typeof priceAlertThreshold !== 'number' || priceAlertThreshold < 0)) {
+      return res.status(400).json({ error: 'Price alert threshold must be a positive number or null' });
+    }
+    run('UPDATE tracked_decks SET price_alert_threshold = ? WHERE id = ?', [priceAlertThreshold, id]);
   }
 
   const updated = get('SELECT * FROM tracked_decks WHERE id = ?', [id]);
@@ -353,6 +360,66 @@ router.delete('/:id/share', (req, res) => {
 
   run('DELETE FROM shared_deck_views WHERE tracked_deck_id = ? AND user_id = ?', [id, req.user.userId]);
   res.json({ success: true });
+});
+
+// Price check — fetch current prices from Scryfall for a deck
+router.get('/:id/prices', async (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  if (!deck) {
+    return res.status(404).json({ error: 'Tracked deck not found' });
+  }
+
+  const snap = get(
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    [deck.id]
+  );
+  if (!snap?.deck_text) {
+    return res.json({ totalPrice: 0, cards: [], previousPrice: deck.last_known_price });
+  }
+
+  try {
+    const parsed = parse(snap.deck_text);
+    const cardNames = [];
+    for (const [, entry] of parsed.mainboard) cardNames.push(entry.name);
+    for (const [, entry] of parsed.commanders) cardNames.push(entry.name);
+
+    const prices = await fetchCardPrices(cardNames);
+
+    const cards = [];
+    let totalPrice = 0;
+    const seen = new Set();
+
+    for (const [, entry] of [...parsed.mainboard, ...parsed.commanders]) {
+      const key = entry.name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const priceData = prices.get(key);
+      const price = entry.isFoil ? (priceData?.priceUsdFoil ?? priceData?.priceUsd ?? 0) : (priceData?.priceUsd ?? 0);
+      const lineTotal = price * entry.quantity;
+      totalPrice += lineTotal;
+      if (price > 0) {
+        cards.push({ name: entry.name, quantity: entry.quantity, price, total: lineTotal });
+      }
+    }
+
+    // Update last known price
+    run('UPDATE tracked_decks SET last_known_price = ? WHERE id = ?', [totalPrice, deck.id]);
+
+    cards.sort((a, b) => b.total - a.total);
+
+    res.json({
+      totalPrice: Math.round(totalPrice * 100) / 100,
+      previousPrice: deck.last_known_price,
+      threshold: deck.price_alert_threshold,
+      cards,
+    });
+  } catch (err) {
+    console.error('Price check error:', err);
+    res.status(500).json({ error: 'Failed to fetch prices' });
+  }
 });
 
 // Overlap analysis — find cards shared across tracked decks

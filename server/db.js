@@ -350,6 +350,18 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_user ON collection_cards(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_name ON collection_cards(user_id, card_name)');
 
+  // Migration: add price_alert_threshold and last_known_price columns to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN price_alert_threshold REAL');
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN last_known_price REAL');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');

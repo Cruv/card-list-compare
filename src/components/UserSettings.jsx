@@ -15,7 +15,7 @@ import {
   updateDeckNotes, updateDeckPinned, updateDeckTags,
   updateDeckDiscordWebhook,
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
-  getDeckOverlap,
+  getDeckOverlap, getDeckPrices, updateDeckPriceAlert,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -1213,6 +1213,13 @@ function DeckCard({
   const [webhookValue, setWebhookValue] = useState(deck.discord_webhook_url || '');
   const [savingWebhook, setSavingWebhook] = useState(false);
 
+  // Price alert state
+  const [editingPriceAlert, setEditingPriceAlert] = useState(false);
+  const [priceAlertValue, setPriceAlertValue] = useState(deck.price_alert_threshold ?? '');
+  const [savingPriceAlert, setSavingPriceAlert] = useState(false);
+  const [priceData, setPriceData] = useState(null);
+  const [loadingPrices, setLoadingPrices] = useState(false);
+
   async function handleSaveNotes() {
     setSavingNotes(true);
     try {
@@ -1238,6 +1245,33 @@ function DeckCard({
       toast.error(err.message);
     } finally {
       setSavingWebhook(false);
+    }
+  }
+
+  async function handleSavePriceAlert() {
+    setSavingPriceAlert(true);
+    try {
+      const threshold = priceAlertValue === '' ? null : parseFloat(priceAlertValue);
+      await updateDeckPriceAlert(deck.id, threshold);
+      toast.success(threshold ? `Price alert set at $${threshold}` : 'Price alert removed');
+      setEditingPriceAlert(false);
+      if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSavingPriceAlert(false);
+    }
+  }
+
+  async function handleCheckPrices() {
+    setLoadingPrices(true);
+    try {
+      const data = await getDeckPrices(deck.id);
+      setPriceData(data);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoadingPrices(false);
     }
   }
 
@@ -1534,6 +1568,23 @@ function DeckCard({
             >
               {deck.discord_webhook_url ? 'Discord: On' : 'Discord'}
             </button>
+            <button
+              className={`btn btn-secondary btn-sm${deck.price_alert_threshold ? ' btn--active' : ''}`}
+              onClick={() => { setEditingPriceAlert(!editingPriceAlert); setPriceAlertValue(deck.price_alert_threshold ?? ''); }}
+              type="button"
+              title={deck.price_alert_threshold ? `Price alert at $${deck.price_alert_threshold}` : 'Set price change alert'}
+            >
+              {deck.price_alert_threshold ? `$${deck.price_alert_threshold}` : 'Price Alert'}
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={handleCheckPrices}
+              disabled={loadingPrices}
+              type="button"
+              title="Check current deck prices via Scryfall"
+            >
+              {loadingPrices ? '...' : 'Check Prices'}
+            </button>
           </div>
 
           {editingWebhook && (
@@ -1564,6 +1615,72 @@ function DeckCard({
                   </button>
                 )}
               </div>
+            </div>
+          )}
+
+          {editingPriceAlert && (
+            <div className="settings-tracker-webhook-edit">
+              <label style={{ fontSize: 'var(--fs-xs)', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>
+                Alert when total deck value changes by more than ($):
+              </label>
+              <input
+                type="number"
+                className="settings-tracker-webhook-input"
+                value={priceAlertValue}
+                onChange={e => setPriceAlertValue(e.target.value)}
+                placeholder="e.g. 25"
+                min="0"
+                step="1"
+                disabled={savingPriceAlert}
+              />
+              <div className="settings-tracker-webhook-actions">
+                <button className="btn btn-primary btn-sm" onClick={handleSavePriceAlert} disabled={savingPriceAlert} type="button">
+                  {savingPriceAlert ? '...' : 'Save'}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setEditingPriceAlert(false)} type="button">
+                  Cancel
+                </button>
+                {deck.price_alert_threshold && (
+                  <button
+                    className="btn btn-secondary btn-sm btn-danger"
+                    onClick={() => { setPriceAlertValue(''); handleSavePriceAlert(); }}
+                    disabled={savingPriceAlert}
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {priceData && (
+            <div className="settings-tracker-price-summary">
+              <div className="settings-tracker-price-header">
+                <span className="settings-tracker-price-total">
+                  Total: ${priceData.totalPrice.toFixed(2)}
+                </span>
+                {priceData.previousPrice != null && priceData.previousPrice !== priceData.totalPrice && (
+                  <span className={`settings-tracker-price-delta ${priceData.totalPrice > priceData.previousPrice ? 'delta-add' : 'delta-remove'}`}>
+                    {priceData.totalPrice > priceData.previousPrice ? '+' : ''}${(priceData.totalPrice - priceData.previousPrice).toFixed(2)}
+                  </span>
+                )}
+                <button className="btn btn-secondary btn-sm" onClick={() => setPriceData(null)} type="button">&times;</button>
+              </div>
+              {priceData.cards.length > 0 && (
+                <div className="settings-tracker-price-cards">
+                  {priceData.cards.slice(0, 10).map((c, i) => (
+                    <span key={i} className="settings-tracker-price-card">
+                      {c.quantity > 1 ? `${c.quantity}x ` : ''}{c.name} — ${c.total.toFixed(2)}
+                    </span>
+                  ))}
+                  {priceData.cards.length > 10 && (
+                    <span className="settings-tracker-price-card settings-tracker-price-more">
+                      +{priceData.cards.length - 10} more cards
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

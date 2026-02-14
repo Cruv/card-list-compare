@@ -1592,6 +1592,50 @@
   gap: var(--space-xs);
 }
 
+/* ── Price Summary ──────────────────────────────────── */
+
+.settings-tracker-price-summary {
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(234, 179, 8, 0.06);
+  border: 1px solid rgba(234, 179, 8, 0.2);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-sm);
+}
+
+.settings-tracker-price-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.settings-tracker-price-total {
+  font-weight: 700;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.settings-tracker-price-delta {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.settings-tracker-price-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-tracker-price-card {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.settings-tracker-price-more {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
 .settings-overlap-card {
   font-size: var(--fs-xs);
   padding: 2px 8px;

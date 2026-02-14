@@ -63,3 +63,55 @@ export async function fetchCardPrintings(cardNames) {
 
   return result;
 }
+
+/**
+ * Fetch USD prices for an array of card names.
+ * Returns Map<string, { priceUsd: number|null, priceUsdFoil: number|null }>
+ * Keys are lowercased card names.
+ */
+export async function fetchCardPrices(cardNames) {
+  const result = new Map();
+  if (!cardNames || cardNames.length === 0) return result;
+
+  const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
+
+  const batches = [];
+  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    batches.push(unique.slice(i, i + BATCH_SIZE));
+  }
+
+  for (let i = 0; i < batches.length; i++) {
+    if (i > 0) await delay(DELAY_MS);
+
+    const identifiers = batches[i].map(name => ({ name }));
+
+    try {
+      const res = await fetch(`${SCRYFALL_API}/cards/collection`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'CardListCompare/1.0',
+        },
+        body: JSON.stringify({ identifiers }),
+      });
+
+      if (!res.ok) continue;
+
+      const data = await res.json();
+
+      for (const card of (data.data || [])) {
+        const key = card.name.toLowerCase();
+        if (!result.has(key)) {
+          result.set(key, {
+            priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
+            priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Scryfall price fetch error:', err.message);
+    }
+  }
+
+  return result;
+}

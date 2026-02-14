@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.11.0';
+const APP_VERSION = '2.12.0';
 const WHATS_NEW = [
-  'Power level estimation — heuristic 1-10 rating for Commander decks based on card analysis',
-  'Visible on the Full Deck tab in timeline overlay with breakdown signals',
+  'Bulk price alerts — set a dollar threshold per deck, check current prices from Scryfall',
+  'Top 10 most expensive cards shown inline with total deck value and price delta',
 ];
 
 function getResetToken() {
