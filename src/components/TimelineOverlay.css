@@ -221,10 +221,28 @@
   color: var(--accent-green);
 }
 
-/* ── Mobile back button (hidden on desktop) ─────── */
+/* ── Back button ─────────────────────────────────── */
 
 .timeline-overlay-mobile-back {
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.timeline-overlay-mobile-back:hover,
+.timeline-overlay-mobile-back:active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 /* ── Power Level ─────────────────────────────────── */
@@ -315,28 +333,11 @@
     border-radius: 0;
   }
 
-  .timeline-overlay-mobile-back {
+  .timeline-overlay-close {
+    min-width: 44px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: none;
-    border: none;
-    font-size: 1.25rem;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 8px;
-    border-radius: 8px;
-    flex-shrink: 0;
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  .timeline-overlay-mobile-back:active {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .timeline-overlay-close {
-    display: none;
   }
 }
