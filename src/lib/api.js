@@ -159,6 +159,24 @@ export const updateDeckNotify = (deckId, notifyOnChange) =>
     body: JSON.stringify({ notifyOnChange }),
   });
 
+export const updateDeckNotes = (deckId, notes) =>
+  apiFetch(`/decks/${deckId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ notes }),
+  });
+
+export const updateDeckPinned = (deckId, pinned) =>
+  apiFetch(`/decks/${deckId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ pinned }),
+  });
+
+export const updateDeckTags = (deckId, tags) =>
+  apiFetch(`/decks/${deckId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ tags }),
+  });
+
 // Timeline
 export const getDeckTimeline = (deckId) =>
   apiFetch(`/decks/${deckId}/timeline`);

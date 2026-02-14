@@ -12,6 +12,7 @@ import {
   createInviteCode, getMyInvites, deleteInviteCode,
   getDeckTimeline, exportDecks, getSnapshot,
   shareDeck, unshareDeck,
+  updateDeckNotes, updateDeckPinned, updateDeckTags,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -327,9 +328,10 @@ function DeckTrackerSettings({ confirm }) {
   const [loading, setLoading] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
 
-  // Search + collapse state
+  // Search + collapse + tag filter state
   const [deckSearch, setDeckSearch] = useState('');
   const [collapsedOwners, setCollapsedOwners] = useState(new Set());
+  const [tagFilter, setTagFilter] = useState('');
 
   // Bulk mode
   const [bulkMode, setBulkMode] = useState(false);
@@ -355,6 +357,15 @@ function DeckTrackerSettings({ confirm }) {
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
 
+  // Collect all unique tags across decks
+  const allTags = useMemo(() => {
+    const tags = new Set();
+    for (const deck of trackedDecks) {
+      if (deck.tags) for (const t of deck.tags) tags.add(t);
+    }
+    return [...tags].sort();
+  }, [trackedDecks]);
+
   // Group decks by owner
   const decksByOwner = useMemo(() => {
     const groups = new Map();
@@ -367,20 +378,22 @@ function DeckTrackerSettings({ confirm }) {
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [trackedDecks]);
 
-  // Filter by search
+  // Filter by search and tag
   const filteredDecksByOwner = useMemo(() => {
     const term = deckSearch.trim().toLowerCase();
-    if (!term) return decksByOwner;
+    const tag = tagFilter;
+    if (!term && !tag) return decksByOwner;
     return decksByOwner
       .map(([owner, decks]) => {
-        const filtered = decks.filter(d =>
-          d.deck_name.toLowerCase().includes(term) ||
-          owner.toLowerCase().includes(term)
-        );
+        const filtered = decks.filter(d => {
+          const matchesTerm = !term || d.deck_name.toLowerCase().includes(term) || owner.toLowerCase().includes(term);
+          const matchesTag = !tag || (d.tags && d.tags.includes(tag));
+          return matchesTerm && matchesTag;
+        });
         return [owner, filtered];
       })
       .filter(([, decks]) => decks.length > 0);
-  }, [decksByOwner, deckSearch]);
+  }, [decksByOwner, deckSearch, tagFilter]);
 
   function toggleOwnerCollapse(owner) {
     setCollapsedOwners(prev => {
@@ -898,32 +911,45 @@ function DeckTrackerSettings({ confirm }) {
             </div>
           )}
 
-          {/* Search filter */}
+          {/* Search + tag filter */}
           {trackedDecks.length > 3 && (
-            <div className="settings-tracker-search">
-              <input
-                className="settings-tracker-search-input"
-                type="text"
-                placeholder="Filter decks..."
-                value={deckSearch}
-                onChange={e => setDeckSearch(e.target.value)}
-                aria-label="Filter tracked decks"
-              />
-              {deckSearch && (
-                <button
-                  className="settings-tracker-search-clear"
-                  onClick={() => setDeckSearch('')}
-                  type="button"
-                  aria-label="Clear search"
+            <div className="settings-tracker-filter-row">
+              <div className="settings-tracker-search">
+                <input
+                  className="settings-tracker-search-input"
+                  type="text"
+                  placeholder="Filter decks..."
+                  value={deckSearch}
+                  onChange={e => setDeckSearch(e.target.value)}
+                  aria-label="Filter tracked decks"
+                />
+                {deckSearch && (
+                  <button
+                    className="settings-tracker-search-clear"
+                    onClick={() => setDeckSearch('')}
+                    type="button"
+                    aria-label="Clear search"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+              {allTags.length > 0 && (
+                <select
+                  className="settings-tracker-tag-filter"
+                  value={tagFilter}
+                  onChange={e => setTagFilter(e.target.value)}
+                  aria-label="Filter by tag"
                 >
-                  &times;
-                </button>
+                  <option value="">All tags</option>
+                  {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
               )}
             </div>
           )}
 
           {/* Owner groups */}
-          {filteredDecksByOwner.length === 0 && deckSearch.trim() && (
+          {filteredDecksByOwner.length === 0 && (deckSearch.trim() || tagFilter) && (
             <p className="settings-tracker-empty">No decks matching "{deckSearch}"</p>
           )}
 
@@ -1057,6 +1083,63 @@ function DeckCard({
   const [showTimeline, setShowTimeline] = useState(false);
   const [overlayEntry, setOverlayEntry] = useState(null);
 
+  // Notes editing state
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [notesValue, setNotesValue] = useState(deck.notes || '');
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  // Tag editing state
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagInput, setTagInput] = useState('');
+
+  async function handleSaveNotes() {
+    setSavingNotes(true);
+    try {
+      await updateDeckNotes(deck.id, notesValue.trim() || null);
+      toast.success('Notes saved');
+      setEditingNotes(false);
+      if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSavingNotes(false);
+    }
+  }
+
+  async function handleTogglePin() {
+    try {
+      await updateDeckPinned(deck.id, !deck.pinned);
+      toast.success(deck.pinned ? 'Unpinned' : 'Pinned to top');
+      if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleAddTag(tag) {
+    const trimmed = tag.trim().toLowerCase();
+    if (!trimmed) return;
+    const currentTags = deck.tags || [];
+    if (currentTags.includes(trimmed)) return;
+    try {
+      await updateDeckTags(deck.id, [...currentTags, trimmed]);
+      setTagInput('');
+      if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleRemoveTag(tag) {
+    const currentTags = deck.tags || [];
+    try {
+      await updateDeckTags(deck.id, currentTags.filter(t => t !== tag));
+      if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
   function handleTimelineEntryClick(entry, index) {
     const prevId = index > 0 ? timelineData[index - 1].snapshotId : null;
     setOverlayEntry({ entry, prevSnapshotId: prevId });
@@ -1078,7 +1161,7 @@ function DeckCard({
   }
 
   return (
-    <div className={`settings-tracker-deck${isSelected ? ' settings-tracker-deck--selected' : ''}`}>
+    <div className={`settings-tracker-deck${isSelected ? ' settings-tracker-deck--selected' : ''}${deck.pinned ? ' settings-tracker-deck--pinned' : ''}`}>
       <div className="settings-tracker-deck-header">
         {bulkMode && (
           <input
@@ -1087,6 +1170,16 @@ function DeckCard({
             checked={isSelected}
             onChange={onToggleSelect}
           />
+        )}
+        {!bulkMode && (
+          <button
+            className={`settings-tracker-pin-btn${deck.pinned ? ' settings-tracker-pin-btn--active' : ''}`}
+            onClick={handleTogglePin}
+            type="button"
+            title={deck.pinned ? 'Unpin from top' : 'Pin to top'}
+          >
+            {'\u{1F4CC}'}
+          </button>
         )}
         <button
           className="settings-tracker-deck-name"
@@ -1118,6 +1211,36 @@ function DeckCard({
               Untrack
             </button>
           </div>
+        )}
+      </div>
+      {/* Tags */}
+      <div className="settings-tracker-deck-tags">
+        {(deck.tags || []).map(tag => (
+          <span key={tag} className="deck-tag">
+            {tag}
+            {editingTags && (
+              <button className="deck-tag-remove" onClick={() => handleRemoveTag(tag)} type="button" title="Remove tag">&times;</button>
+            )}
+          </span>
+        ))}
+        {editingTags ? (
+          <span className="deck-tag-input-wrap">
+            <input
+              className="deck-tag-input"
+              type="text"
+              value={tagInput}
+              onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); handleAddTag(tagInput); }
+                if (e.key === 'Escape') setEditingTags(false);
+              }}
+              placeholder="Add tag..."
+              autoFocus
+            />
+            <button className="btn btn-secondary btn-sm" onClick={() => setEditingTags(false)} type="button">Done</button>
+          </span>
+        ) : (
+          <button className="deck-tag-edit-btn" onClick={() => setEditingTags(true)} type="button" title="Edit tags">+ tag</button>
         )}
       </div>
       <div className="settings-tracker-deck-commanders">
@@ -1175,6 +1298,44 @@ function DeckCard({
         )}
       </div>
 
+      {/* Notes */}
+      {(deck.notes || editingNotes) && (
+        <div className="settings-tracker-deck-notes">
+          {editingNotes ? (
+            <div className="settings-tracker-notes-edit">
+              <textarea
+                className="settings-tracker-notes-textarea"
+                value={notesValue}
+                onChange={e => setNotesValue(e.target.value)}
+                placeholder="Deck notes..."
+                rows={3}
+                maxLength={2000}
+                disabled={savingNotes}
+              />
+              <div className="settings-tracker-notes-actions">
+                <button className="btn btn-primary btn-sm" onClick={handleSaveNotes} disabled={savingNotes} type="button">
+                  {savingNotes ? '...' : 'Save'}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => { setEditingNotes(false); setNotesValue(deck.notes || ''); }} type="button">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="settings-tracker-notes-display"
+              onClick={() => { setEditingNotes(true); setNotesValue(deck.notes || ''); }}
+              title="Click to edit notes"
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter') { setEditingNotes(true); setNotesValue(deck.notes || ''); } }}
+            >
+              {deck.notes}
+            </div>
+          )}
+        </div>
+      )}
+
       {expandedDeckId === deck.id && (
         <div className="settings-tracker-snapshots">
           <div className="settings-tracker-changelog-actions">
@@ -1221,6 +1382,15 @@ function DeckCard({
             >
               {deck.notify_on_change ? 'Notify: On' : 'Notify: Off'}
             </button>
+            {!deck.notes && !editingNotes && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => { setEditingNotes(true); setNotesValue(''); }}
+                type="button"
+              >
+                Add Notes
+              </button>
+            )}
           </div>
 
           {showTimeline && (

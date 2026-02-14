@@ -301,6 +301,31 @@ export async function initDb() {
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('notifications_enabled', 'true')`);
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('notification_check_interval_hours', '6')`);
 
+  // Migration: add notes column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN notes TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add pinned column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Deck tags table (many-to-many via separate rows)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS deck_tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tracked_deck_id INTEGER NOT NULL REFERENCES tracked_decks(id) ON DELETE CASCADE,
+      tag TEXT NOT NULL,
+      UNIQUE(tracked_deck_id, tag)
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_deck_tags_deck ON deck_tags(tracked_deck_id)');
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');

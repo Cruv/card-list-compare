@@ -24,8 +24,14 @@ router.get('/', (req, res) => {
     JOIN tracked_owners o ON d.tracked_owner_id = o.id
     LEFT JOIN shared_deck_views sdv ON sdv.tracked_deck_id = d.id
     WHERE d.user_id = ?
-    ORDER BY d.deck_name ASC
+    ORDER BY d.pinned DESC, d.deck_name ASC
   `, [req.user.userId]);
+
+  // Attach tags to each deck
+  for (const deck of decks) {
+    const tags = all('SELECT tag FROM deck_tags WHERE tracked_deck_id = ? ORDER BY tag ASC', [deck.id]);
+    deck.tags = tags.map(t => t.tag);
+  }
 
   res.json({ decks });
 });
@@ -157,7 +163,7 @@ router.delete('/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// Update deck metadata (commanders, etc.)
+// Update deck metadata (commanders, notes, pinned, tags, etc.)
 router.patch('/:id', (req, res) => {
   const id = requireIntParam(req, res, 'id');
   if (id === null) return;
@@ -167,7 +173,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const { commanders, notifyOnChange } = req.body;
+  const { commanders, notifyOnChange, notes, pinned, tags } = req.body;
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -181,8 +187,40 @@ router.patch('/:id', (req, res) => {
   if (notifyOnChange !== undefined) {
     run('UPDATE tracked_decks SET notify_on_change = ? WHERE id = ?', [notifyOnChange ? 1 : 0, id]);
   }
+  if (notes !== undefined) {
+    if (notes !== null && typeof notes !== 'string') {
+      return res.status(400).json({ error: 'Notes must be a string or null' });
+    }
+    if (notes && notes.length > 2000) {
+      return res.status(400).json({ error: 'Notes must be under 2000 characters' });
+    }
+    run('UPDATE tracked_decks SET notes = ? WHERE id = ?', [notes?.trim() || null, id]);
+  }
+  if (pinned !== undefined) {
+    run('UPDATE tracked_decks SET pinned = ? WHERE id = ?', [pinned ? 1 : 0, id]);
+  }
+  if (tags !== undefined) {
+    if (!Array.isArray(tags) || !tags.every(t => typeof t === 'string')) {
+      return res.status(400).json({ error: 'Tags must be an array of strings' });
+    }
+    if (tags.length > 10) {
+      return res.status(400).json({ error: 'Too many tags (max 10)' });
+    }
+    // Replace all tags: delete existing, insert new
+    run('DELETE FROM deck_tags WHERE tracked_deck_id = ?', [id]);
+    const cleaned = [...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))];
+    for (const tag of cleaned) {
+      if (tag.length > 30) {
+        return res.status(400).json({ error: 'Each tag must be under 30 characters' });
+      }
+      run('INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (?, ?)', [id, tag]);
+    }
+  }
 
   const updated = get('SELECT * FROM tracked_decks WHERE id = ?', [id]);
+  // Attach tags
+  const updatedTags = all('SELECT tag FROM deck_tags WHERE tracked_deck_id = ? ORDER BY tag ASC', [id]);
+  updated.tags = updatedTags.map(t => t.tag);
   res.json({ deck: updated });
 });
 
