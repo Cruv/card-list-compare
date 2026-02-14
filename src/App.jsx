@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.14.0';
+const APP_VERSION = '2.15.0';
 const WHATS_NEW = [
-  'Auto-snapshot scheduling — set per-deck auto-refresh intervals (6h to 7d)',
-  'Decks refresh automatically in the background and save new snapshots when changes are detected',
+  'Playgroup shared workspaces — create a group, invite friends, share decks',
+  'View all group members and shared decks in one place from the Playgroups tab',
 ];
 
 function getResetToken() {

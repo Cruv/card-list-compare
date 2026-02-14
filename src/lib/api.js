@@ -210,6 +210,26 @@ export const deleteCollectionCard = (id) =>
 export const clearCollection = () =>
   apiFetch('/collection', { method: 'DELETE' });
 
+// Playgroups
+export const getPlaygroups = () => apiFetch('/playgroups');
+
+export const createPlaygroup = (name) =>
+  apiFetch('/playgroups', { method: 'POST', body: JSON.stringify({ name }) });
+
+export const joinPlaygroup = (inviteCode) =>
+  apiFetch('/playgroups/join', { method: 'POST', body: JSON.stringify({ inviteCode }) });
+
+export const getPlaygroupDetail = (id) => apiFetch(`/playgroups/${id}`);
+
+export const shareToPlaygroup = (playgroupId, deckId) =>
+  apiFetch(`/playgroups/${playgroupId}/decks`, { method: 'POST', body: JSON.stringify({ deckId }) });
+
+export const removeFromPlaygroup = (playgroupId, deckShareId) =>
+  apiFetch(`/playgroups/${playgroupId}/decks/${deckShareId}`, { method: 'DELETE' });
+
+export const leavePlaygroup = (id) =>
+  apiFetch(`/playgroups/${id}/leave`, { method: 'DELETE' });
+
 // Timeline
 export const getDeckTimeline = (deckId) =>
   apiFetch(`/decks/${deckId}/timeline`);

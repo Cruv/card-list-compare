@@ -11,6 +11,7 @@ import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
 import collectionRoutes from './routes/collection.js';
+import playgroupRoutes from './routes/playgroups.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 
 const app = express();
@@ -62,6 +63,7 @@ app.use('/api/share', shareRoutes);
 app.use('/api/shared-deck', sharedDeckRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/collection', collectionRoutes);
+app.use('/api/playgroups', playgroupRoutes);
 
 async function start() {
   await initDb();

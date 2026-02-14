@@ -1638,6 +1638,150 @@
 
 /* ── Auto-Refresh Select ───────────────────────────── */
 
+/* ── Playgroups ──────────────────────────────────────── */
+
+.settings-playgroups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings-playgroups h3 {
+  margin: 0;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.settings-playgroups-actions {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.settings-playgroups-create,
+.settings-playgroups-join {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.settings-playgroups-group {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.settings-playgroups-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-secondary);
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.settings-playgroups-group-header:hover {
+  background: rgba(92, 107, 192, 0.06);
+}
+
+.settings-playgroups-group-name {
+  font-weight: 700;
+}
+
+.settings-playgroups-group-stats {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.settings-playgroups-detail {
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.settings-playgroups-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.settings-playgroups-code {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.settings-playgroups-code code {
+  font-weight: 700;
+  color: var(--accent-blue);
+  background: rgba(92, 107, 192, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.settings-playgroups-members {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+
+.settings-playgroups-member {
+  display: inline-block;
+  padding: 1px 6px;
+  background: rgba(92, 107, 192, 0.08);
+  border-radius: 8px;
+  margin: 0 2px;
+}
+
+.settings-playgroups-share-deck {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.settings-playgroups-deck-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.settings-playgroups-deck-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius);
+  background: rgba(92, 107, 192, 0.04);
+  font-size: var(--fs-xs);
+  flex-wrap: wrap;
+}
+
+.settings-playgroups-deck-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-playgroups-deck-cmdr {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.settings-playgroups-deck-owner {
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.settings-playgroups-deck-snaps {
+  color: var(--text-muted);
+}
+
 .settings-tracker-auto-refresh-select {
   font-size: var(--fs-xs);
   font-family: inherit;

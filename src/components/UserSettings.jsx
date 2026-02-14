@@ -16,6 +16,8 @@ import {
   updateDeckDiscordWebhook,
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
   getDeckOverlap, getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
+  getPlaygroups, createPlaygroup, joinPlaygroup, getPlaygroupDetail,
+  shareToPlaygroup, removeFromPlaygroup, leavePlaygroup,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -179,6 +181,13 @@ export default function UserSettings() {
           >
             Overlap
           </button>
+          <button
+            className={`user-settings-tab${activeTab === 'playgroups' ? ' user-settings-tab--active' : ''}`}
+            onClick={() => setActiveTab('playgroups')}
+            type="button"
+          >
+            Playgroups
+          </button>
           {(canInvite || user?.isAdmin) && (
             <button
               className={`user-settings-tab${activeTab === 'invites' ? ' user-settings-tab--active' : ''}`}
@@ -330,6 +339,12 @@ export default function UserSettings() {
       {activeTab === 'overlap' && (
         <div className="user-settings-panel">
           <DeckOverlapAnalysis />
+        </div>
+      )}
+
+      {activeTab === 'playgroups' && (
+        <div className="user-settings-panel">
+          <PlaygroupManager />
         </div>
       )}
 
@@ -2322,6 +2337,237 @@ function DeckOverlapAnalysis() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Playgroup Manager ---
+
+function PlaygroupManager() {
+  const [groups, setGroups] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [createName, setCreateName] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [myDecks, setMyDecks] = useState([]);
+  const [shareDeckId, setShareDeckId] = useState('');
+
+  const refresh = useCallback(async () => {
+    try {
+      const data = await getPlaygroups();
+      setGroups(data.playgroups);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function handleCreate() {
+    if (!createName.trim()) return;
+    setCreating(true);
+    try {
+      await createPlaygroup(createName.trim());
+      setCreateName('');
+      toast.success('Playgroup created');
+      refresh();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleJoin() {
+    if (!joinCode.trim()) return;
+    setJoining(true);
+    try {
+      await joinPlaygroup(joinCode.trim());
+      setJoinCode('');
+      toast.success('Joined playgroup');
+      refresh();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function handleSelectGroup(groupId) {
+    if (selectedGroup === groupId) { setSelectedGroup(null); setDetail(null); return; }
+    setSelectedGroup(groupId);
+    setDetailLoading(true);
+    try {
+      const [detailData, deckData] = await Promise.all([
+        getPlaygroupDetail(groupId),
+        getTrackedDecks(),
+      ]);
+      setDetail(detailData);
+      setMyDecks(deckData.decks || []);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function handleShareDeck() {
+    if (!shareDeckId || !selectedGroup) return;
+    try {
+      await shareToPlaygroup(selectedGroup, parseInt(shareDeckId, 10));
+      toast.success('Deck shared to playgroup');
+      setShareDeckId('');
+      handleSelectGroup(selectedGroup);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleRemoveDeck(deckShareId) {
+    try {
+      await removeFromPlaygroup(selectedGroup, deckShareId);
+      toast.success('Deck removed from playgroup');
+      handleSelectGroup(selectedGroup);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  async function handleLeave(groupId) {
+    try {
+      await leavePlaygroup(groupId);
+      toast.success('Left playgroup');
+      setSelectedGroup(null);
+      setDetail(null);
+      refresh();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  }
+
+  if (loading) return <Skeleton lines={4} />;
+
+  return (
+    <div className="settings-playgroups">
+      <h3>Playgroups</h3>
+
+      <div className="settings-playgroups-actions">
+        <div className="settings-playgroups-create">
+          <input
+            type="text"
+            placeholder="New playgroup name"
+            value={createName}
+            onChange={e => setCreateName(e.target.value)}
+            className="settings-tracker-search-input"
+            onKeyDown={e => e.key === 'Enter' && handleCreate()}
+          />
+          <button className="btn btn-primary btn-sm" onClick={handleCreate} disabled={creating || !createName.trim()} type="button">
+            {creating ? '...' : 'Create'}
+          </button>
+        </div>
+        <div className="settings-playgroups-join">
+          <input
+            type="text"
+            placeholder="Join code"
+            value={joinCode}
+            onChange={e => setJoinCode(e.target.value)}
+            className="settings-tracker-search-input"
+            style={{ width: '120px' }}
+            onKeyDown={e => e.key === 'Enter' && handleJoin()}
+          />
+          <button className="btn btn-secondary btn-sm" onClick={handleJoin} disabled={joining || !joinCode.trim()} type="button">
+            {joining ? '...' : 'Join'}
+          </button>
+        </div>
+      </div>
+
+      {groups.length === 0 && <p className="settings-tracker-empty">No playgroups yet. Create one or join with a code.</p>}
+
+      {groups.map(g => (
+        <div key={g.id} className="settings-playgroups-group">
+          <button
+            className="settings-playgroups-group-header"
+            onClick={() => handleSelectGroup(g.id)}
+            type="button"
+          >
+            <span className="settings-playgroups-group-name">{selectedGroup === g.id ? '\u25BC' : '\u25B6'} {g.name}</span>
+            <span className="settings-playgroups-group-stats">
+              {g.member_count} member{g.member_count !== 1 ? 's' : ''} &middot; {g.deck_count} deck{g.deck_count !== 1 ? 's' : ''}
+            </span>
+          </button>
+
+          {selectedGroup === g.id && (
+            <div className="settings-playgroups-detail">
+              {detailLoading ? <Skeleton lines={3} /> : detail ? (
+                <>
+                  <div className="settings-playgroups-meta">
+                    <span className="settings-playgroups-code">
+                      Invite code: <code>{detail.playgroup.invite_code}</code>
+                    </span>
+                    <CopyButton getText={() => detail.playgroup.invite_code} label="Copy" className="btn btn-secondary btn-sm" />
+                    <button className="btn btn-secondary btn-sm btn-danger" onClick={() => handleLeave(g.id)} type="button">
+                      Leave
+                    </button>
+                  </div>
+
+                  <div className="settings-playgroups-members">
+                    <strong>Members:</strong>{' '}
+                    {detail.members.map(m => (
+                      <span key={m.user_id} className="settings-playgroups-member">
+                        {m.username}{m.role === 'owner' ? ' (owner)' : ''}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="settings-playgroups-share-deck">
+                    <select value={shareDeckId} onChange={e => setShareDeckId(e.target.value)} className="settings-tracker-auto-refresh-select" style={{ flex: 1, minWidth: 150 }}>
+                      <option value="">Share a deck...</option>
+                      {myDecks.map(d => (
+                        <option key={d.id} value={d.id}>{d.deck_name}</option>
+                      ))}
+                    </select>
+                    <button className="btn btn-primary btn-sm" onClick={handleShareDeck} disabled={!shareDeckId} type="button">
+                      Share
+                    </button>
+                  </div>
+
+                  {detail.decks.length > 0 && (
+                    <div className="settings-playgroups-deck-list">
+                      {detail.decks.map(d => {
+                        let cmds = '';
+                        try { cmds = JSON.parse(d.commanders || '[]').join(' / '); } catch { /* ignore */ }
+                        return (
+                          <div key={d.share_id} className="settings-playgroups-deck-item">
+                            <span className="settings-playgroups-deck-name">{d.deck_name}</span>
+                            {cmds && <span className="settings-playgroups-deck-cmdr">{cmds}</span>}
+                            <span className="settings-playgroups-deck-owner">by {d.shared_by_username}</span>
+                            <span className="settings-playgroups-deck-snaps">{d.snapshot_count} snap</span>
+                            <button
+                              className="btn btn-secondary btn-sm btn-danger"
+                              onClick={() => handleRemoveDeck(d.share_id)}
+                              type="button"
+                              title="Remove from playgroup"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {detail.decks.length === 0 && <p className="settings-tracker-empty">No decks shared yet.</p>}
+                </>
+              ) : null}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
