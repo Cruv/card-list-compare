@@ -18,10 +18,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.16.0';
+const APP_VERSION = '2.17.0';
 const WHATS_NEW = [
-  'Deck recommendations — get card suggestions based on color identity and deck gaps',
-  'Suggestions cover ramp, draw, removal, board wipes, protection, lands, and recursion',
+  'Fixed deck price checking and recommendation suggestions (server crash)',
+  'Cleaner deck tracker UX — primary actions visible, extra tools in collapsible "More..." row',
+  'Renamed Discord button to Webhook for clarity',
 ];
 
 function getResetToken() {
