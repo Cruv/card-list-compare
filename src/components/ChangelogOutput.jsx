@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS } from '../lib/formatter';
 import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
 import './ChangelogOutput.css';
@@ -196,6 +196,30 @@ function MoreMenu({ diffResult, cardMap, afterText, noChanges, onShare, commande
               label="Copy JSON"
               className="more-menu-item"
             />
+          )}
+          {afterText && cardMap && cardMap.size > 0 && (
+            <button
+              type="button"
+              className="more-menu-item"
+              onClick={() => {
+                const json = formatTTS(afterText, cardMap, commanders);
+                if (json) {
+                  const name = (commanders.length > 0 ? commanders[0] : 'deck').replace(/[^a-zA-Z0-9]/g, '_');
+                  const blob = new Blob([json], { type: 'application/json' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `${name}_TTS.json`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  URL.revokeObjectURL(url);
+                  setOpen(false);
+                }
+              }}
+            >
+              Download TTS
+            </button>
           )}
         </div>
       )}

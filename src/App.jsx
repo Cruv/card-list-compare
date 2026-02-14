@@ -18,11 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.7.0';
 const WHATS_NEW = [
-  'Snapshot restore — load any snapshot into Before or After to compare against anything',
-  'Cross-deck comparison — compare two different tracked decks side-by-side',
-  'Non-adjacent snapshot diffs — the timeline already supports comparing any two snapshots via the API',
+  'Tabletop Simulator export — download your full deck as a TTS-ready JSON file with exact printing artwork',
+  'Available from the timeline overlay Full Deck tab and the More menu on changelogs',
 ];
 
 function getResetToken() {

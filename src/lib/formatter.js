@@ -412,6 +412,121 @@ export function formatArchidektCSV(text, commanders = []) {
 }
 
 /**
+ * Generate a Tabletop Simulator saved object JSON for a full deck.
+ * Each card becomes a TTS card with its Scryfall image as a custom face.
+ * cardMap should be a Map<string, { imageUri, ... }> from fetchCardData().
+ *
+ * Returns a JSON string ready to save as a .json file and import into TTS.
+ */
+export function formatTTS(text, cardMap, commanders = []) {
+  if (!text || !text.trim()) return '';
+
+  const parsed = parse(text);
+  const deckCards = [];
+  const cardBack = 'https://backs.scryfall.io/large/59/43/5946ea0e-0ade-4dab-8e25-6e51e0a6f0f3.jpg';
+
+  let cardIdCounter = 100;
+
+  function addEntries(map) {
+    for (const [, entry] of map) {
+      const nameLower = entry.displayName.toLowerCase();
+      const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
+      const data = (compositeKey && cardMap?.get(compositeKey)) || cardMap?.get(nameLower);
+      const faceUrl = data?.imageUri || '';
+
+      for (let i = 0; i < entry.quantity; i++) {
+        deckCards.push({
+          id: cardIdCounter,
+          name: entry.displayName,
+          faceUrl,
+        });
+        cardIdCounter++;
+      }
+    }
+  }
+
+  // Commanders first, then mainboard, then sideboard
+  const commanderSet = new Set([
+    ...commanders.map(c => c.toLowerCase()),
+    ...parsed.commanders.map(c => c.toLowerCase()),
+  ]);
+
+  // Separate commanders from mainboard
+  const mainCards = new Map();
+  const cmdCards = new Map();
+  for (const [key, entry] of parsed.mainboard) {
+    if (commanderSet.has(entry.displayName.toLowerCase())) {
+      cmdCards.set(key, entry);
+    } else {
+      mainCards.set(key, entry);
+    }
+  }
+
+  addEntries(cmdCards);
+  addEntries(mainCards);
+  addEntries(parsed.sideboard);
+
+  if (deckCards.length === 0) return '';
+
+  // Build TTS deck object
+  const containedObjects = deckCards.map((card, idx) => ({
+    CardID: card.id * 100,
+    Name: 'CardCustom',
+    Nickname: card.name,
+    Transform: {
+      posX: 0, posY: 0, posZ: 0,
+      rotX: 0, rotY: 180, rotZ: 180,
+      scaleX: 1, scaleY: 1, scaleZ: 1,
+    },
+    CustomDeck: {
+      [String(card.id)]: {
+        FaceURL: card.faceUrl,
+        BackURL: cardBack,
+        NumWidth: 1,
+        NumHeight: 1,
+        BackIsHidden: true,
+        UniqueBack: false,
+      },
+    },
+  }));
+
+  const customDeck = {};
+  for (const card of deckCards) {
+    customDeck[String(card.id)] = {
+      FaceURL: card.faceUrl,
+      BackURL: cardBack,
+      NumWidth: 1,
+      NumHeight: 1,
+      BackIsHidden: true,
+      UniqueBack: false,
+    };
+  }
+
+  const cmdName = commanders.length > 0
+    ? commanders.join(' / ')
+    : (parsed.commanders.length > 0 ? parsed.commanders.join(' / ') : 'Deck');
+
+  const ttsObject = {
+    SaveName: cmdName,
+    Date: new Date().toISOString(),
+    ObjectStates: [{
+      Name: 'DeckCustom',
+      Nickname: cmdName,
+      DeckIDs: deckCards.map(c => c.id * 100),
+      CustomDeck: customDeck,
+      ContainedObjects: containedObjects,
+      Transform: {
+        posX: 0, posY: 1, posZ: 0,
+        rotX: 0, rotY: 180, rotZ: 180,
+        scaleX: 1, scaleY: 1, scaleZ: 1,
+      },
+    }],
+  };
+
+  return JSON.stringify(ttsObject, null, 2);
+}
+
+/**
  * Format diff as structured JSON for data export.
  */
 export function formatJSON(diffResult) {

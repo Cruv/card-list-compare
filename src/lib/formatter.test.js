@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatArchidektCSV, formatForArchidekt } from './formatter.js';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatArchidektCSV, formatForArchidekt, formatTTS } from './formatter.js';
 
 // Lock Date.now so timestamps are deterministic
 const FAKE_NOW = new Date('2025-06-15T14:30:00Z');
@@ -517,5 +517,54 @@ describe('formatForArchidekt', () => {
     const lines = result.split('\n');
     expect(lines[0]).toBe('1x Sauron, the Dark Lord (ltr) 675 *F* [Commander{top}]');
     expect(lines[1]).toBe('1x Sol Ring (ltc) 284');
+  });
+});
+
+// ── formatTTS ─────────────────────────────────────────────────────
+
+describe('formatTTS', () => {
+  it('returns empty string for empty text', () => {
+    expect(formatTTS('', new Map())).toBe('');
+    expect(formatTTS('  ', new Map())).toBe('');
+  });
+
+  it('generates valid TTS JSON with card entries', () => {
+    const text = '1 Lightning Bolt\n2 Sol Ring';
+    const cardMap = new Map([
+      ['lightning bolt', { type: 'Instant', manaCost: '{R}', imageUri: 'https://example.com/bolt.jpg', priceUsd: 1.5, priceUsdFoil: null }],
+      ['sol ring', { type: 'Artifact', manaCost: '{1}', imageUri: 'https://example.com/sol.jpg', priceUsd: 3.0, priceUsdFoil: null }],
+    ]);
+
+    const json = formatTTS(text, cardMap);
+    const obj = JSON.parse(json);
+
+    expect(obj.ObjectStates).toHaveLength(1);
+    const deck = obj.ObjectStates[0];
+    expect(deck.Name).toBe('DeckCustom');
+    expect(deck.ContainedObjects).toHaveLength(3); // 1 bolt + 2 sol ring
+    expect(deck.DeckIDs).toHaveLength(3);
+    expect(deck.ContainedObjects[0].Nickname).toBe('Lightning Bolt');
+    expect(deck.ContainedObjects[1].Nickname).toBe('Sol Ring');
+    expect(deck.ContainedObjects[2].Nickname).toBe('Sol Ring');
+  });
+
+  it('uses commander name as deck nickname', () => {
+    const text = '1 Atraxa, Praetors\' Voice\n1 Sol Ring';
+    const cardMap = new Map();
+    const json = formatTTS(text, cardMap, ['Atraxa, Praetors\' Voice']);
+    const obj = JSON.parse(json);
+    expect(obj.ObjectStates[0].Nickname).toBe('Atraxa, Praetors\' Voice');
+  });
+
+  it('includes Scryfall image URIs as face URLs', () => {
+    const text = '1 Lightning Bolt';
+    const cardMap = new Map([
+      ['lightning bolt', { type: 'Instant', manaCost: '{R}', imageUri: 'https://cards.scryfall.io/normal/bolt.jpg', priceUsd: null, priceUsdFoil: null }],
+    ]);
+    const json = formatTTS(text, cardMap);
+    const obj = JSON.parse(json);
+    const card = obj.ObjectStates[0].ContainedObjects[0];
+    const deckEntry = Object.values(card.CustomDeck)[0];
+    expect(deckEntry.FaceURL).toBe('https://cards.scryfall.io/normal/bolt.jpg');
   });
 });

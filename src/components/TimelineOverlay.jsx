@@ -4,13 +4,26 @@ import { useAppSettings } from '../context/AppSettingsContext';
 import { getDeckChangelog, getSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS } from '../lib/formatter';
 import SectionChangelog from './SectionChangelog';
 import DeckListView from './DeckListView';
 import CopyButton from './CopyButton';
 import Skeleton from './Skeleton';
 import { toast } from './Toast';
 import './TimelineOverlay.css';
+
+/** Trigger a file download in the browser. */
+function downloadFile(content, filename, mimeType = 'application/json') {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 /** Build Scryfall identifier map from a parsed deck (same pattern as collectCardIdentifiers but for Map entries). */
 function collectDeckIdentifiers(parsedDeck) {
@@ -304,6 +317,22 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
                 className="copy-btn copy-btn--archidekt"
               />
               <CopyButton getText={() => deckText} label="Copy Deck Text" />
+              {deckCardMap && deckCardMap.size > 0 && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={() => {
+                    const json = formatTTS(deckText, deckCardMap, commanders || []);
+                    if (json) {
+                      const name = (commanders && commanders.length > 0 ? commanders[0] : 'deck').replace(/[^a-zA-Z0-9]/g, '_');
+                      downloadFile(json, `${name}_TTS.json`);
+                      toast.success('TTS deck file downloaded');
+                    }
+                  }}
+                >
+                  Download TTS
+                </button>
+              )}
             </div>
           )}
         </div>
