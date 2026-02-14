@@ -1765,7 +1765,7 @@ function DeckOverlapAnalysis() {
                       key={j}
                       className={`settings-overlap-cell${isDiag ? ' settings-overlap-cell--diag' : ''}${val > 0 && !isDiag ? ' settings-overlap-cell--shared' : ''}${isSelected ? ' settings-overlap-cell--selected' : ''}`}
                       onClick={!isDiag && val > 0 ? () => setSelectedPair(i < j ? [i, j] : [j, i]) : undefined}
-                      title={isDiag ? `${val} unique cards` : `${val} shared cards`}
+                      title={isDiag ? `${val} total cards` : `${val} shared cards`}
                     >
                       {val}
                     </td>

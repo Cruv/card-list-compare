@@ -452,7 +452,7 @@ router.get('/overlap', (req, res) => {
   }
 
   // Gather card names per deck from latest snapshot
-  const deckCards = []; // Array of { id, name, commanders, cards: Set<lowerName> }
+  const deckCards = []; // Array of { id, name, commanders, cards: Set<lowerName>, totalCards: number }
   for (const deck of decks) {
     const snap = get(
       'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
@@ -463,11 +463,14 @@ router.get('/overlap', (req, res) => {
     try {
       const parsed = parse(snap.deck_text);
       const cardNames = new Set();
+      let totalCards = 0;
       for (const [, entry] of parsed.mainboard) {
         cardNames.add(entry.displayName.toLowerCase());
+        totalCards += entry.quantity || 1;
       }
       for (const name of parsed.commanders) {
         cardNames.add(name.toLowerCase());
+        totalCards += 1;
       }
       let cmds = [];
       try { cmds = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
@@ -476,6 +479,7 @@ router.get('/overlap', (req, res) => {
         name: deck.deck_name,
         commanders: cmds.join(' / '),
         cards: cardNames,
+        totalCards,
       });
     } catch { /* skip unparseable */ }
   }
@@ -513,13 +517,13 @@ router.get('/overlap', (req, res) => {
     }
   }
 
-  // Diagonal = total unique cards in that deck
+  // Diagonal = total card count in that deck (sum of quantities)
   for (let i = 0; i < n; i++) {
-    matrix[i][i] = deckCards[i].cards.size;
+    matrix[i][i] = deckCards[i].totalCards;
   }
 
   res.json({
-    decks: deckCards.map(d => ({ id: d.id, name: d.name, commanders: d.commanders, totalCards: d.cards.size })),
+    decks: deckCards.map(d => ({ id: d.id, name: d.name, commanders: d.commanders, totalCards: d.totalCards })),
     sharedCards,
     matrix,
   });
