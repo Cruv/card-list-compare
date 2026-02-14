@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.8.0';
 const WHATS_NEW = [
-  'Tabletop Simulator export — download your full deck as a TTS-ready JSON file with exact printing artwork',
-  'Available from the timeline overlay Full Deck tab and the More menu on changelogs',
+  'Discord webhook notifications — get deck change alerts posted directly to your Discord channel',
+  'Per-deck webhook URL in the deck tracker — expand a deck and click "Discord" to configure',
 ];
 
 function getResetToken() {

@@ -13,6 +13,7 @@ import {
   getDeckTimeline, exportDecks, getSnapshot,
   shareDeck, unshareDeck,
   updateDeckNotes, updateDeckPinned, updateDeckTags,
+  updateDeckDiscordWebhook,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -1179,6 +1180,11 @@ function DeckCard({
   const [editingTags, setEditingTags] = useState(false);
   const [tagInput, setTagInput] = useState('');
 
+  // Discord webhook state
+  const [editingWebhook, setEditingWebhook] = useState(false);
+  const [webhookValue, setWebhookValue] = useState(deck.discord_webhook_url || '');
+  const [savingWebhook, setSavingWebhook] = useState(false);
+
   async function handleSaveNotes() {
     setSavingNotes(true);
     try {
@@ -1190,6 +1196,20 @@ function DeckCard({
       toast.error(err.message);
     } finally {
       setSavingNotes(false);
+    }
+  }
+
+  async function handleSaveWebhook() {
+    setSavingWebhook(true);
+    try {
+      await updateDeckDiscordWebhook(deck.id, webhookValue.trim() || null);
+      toast.success(webhookValue.trim() ? 'Discord webhook saved' : 'Discord webhook removed');
+      setEditingWebhook(false);
+      if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSavingWebhook(false);
     }
   }
 
@@ -1478,7 +1498,46 @@ function DeckCard({
                 Add Notes
               </button>
             )}
+            <button
+              className={`btn btn-secondary btn-sm${editingWebhook ? ' btn--active' : ''}`}
+              onClick={() => { setEditingWebhook(!editingWebhook); setWebhookValue(deck.discord_webhook_url || ''); }}
+              type="button"
+              title={deck.discord_webhook_url ? 'Discord webhook configured' : 'Set up Discord webhook'}
+            >
+              {deck.discord_webhook_url ? 'Discord: On' : 'Discord'}
+            </button>
           </div>
+
+          {editingWebhook && (
+            <div className="settings-tracker-webhook-edit">
+              <input
+                type="url"
+                className="settings-tracker-webhook-input"
+                value={webhookValue}
+                onChange={e => setWebhookValue(e.target.value)}
+                placeholder="https://discord.com/api/webhooks/..."
+                disabled={savingWebhook}
+              />
+              <div className="settings-tracker-webhook-actions">
+                <button className="btn btn-primary btn-sm" onClick={handleSaveWebhook} disabled={savingWebhook} type="button">
+                  {savingWebhook ? '...' : 'Save'}
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={() => setEditingWebhook(false)} type="button">
+                  Cancel
+                </button>
+                {deck.discord_webhook_url && (
+                  <button
+                    className="btn btn-secondary btn-sm btn-danger"
+                    onClick={() => { setWebhookValue(''); handleSaveWebhook(); }}
+                    disabled={savingWebhook}
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {showTimeline && (
             <SnapshotTimeline entries={timelineData} loading={timelineLoading} onEntryClick={handleTimelineEntryClick} />

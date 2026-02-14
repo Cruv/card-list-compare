@@ -1300,3 +1300,35 @@
 .settings-tracker-snap-restore:hover {
   opacity: 1;
 }
+
+/* ── Discord Webhook ────────────────────────────────── */
+
+.settings-tracker-webhook-edit {
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(88, 101, 242, 0.06);
+  border: 1px solid rgba(88, 101, 242, 0.2);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-sm);
+}
+
+.settings-tracker-webhook-input {
+  width: 100%;
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: var(--space-xs) var(--space-sm);
+  margin-bottom: var(--space-xs);
+  outline: none;
+}
+
+.settings-tracker-webhook-input:focus {
+  border-color: var(--accent-blue);
+}
+
+.settings-tracker-webhook-actions {
+  display: flex;
+  gap: var(--space-xs);
+}

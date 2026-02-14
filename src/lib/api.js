@@ -177,6 +177,12 @@ export const updateDeckTags = (deckId, tags) =>
     body: JSON.stringify({ tags }),
   });
 
+export const updateDeckDiscordWebhook = (deckId, discordWebhookUrl) =>
+  apiFetch(`/decks/${deckId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ discordWebhookUrl }),
+  });
+
 // Timeline
 export const getDeckTimeline = (deckId) =>
   apiFetch(`/decks/${deckId}/timeline`);

@@ -173,7 +173,7 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const { commanders, notifyOnChange, notes, pinned, tags } = req.body;
+  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl } = req.body;
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -215,6 +215,15 @@ router.patch('/:id', (req, res) => {
       }
       run('INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (?, ?)', [id, tag]);
     }
+  }
+  if (discordWebhookUrl !== undefined) {
+    if (discordWebhookUrl !== null && typeof discordWebhookUrl !== 'string') {
+      return res.status(400).json({ error: 'Discord webhook URL must be a string or null' });
+    }
+    if (discordWebhookUrl && !/^https:\/\/discord(app)?\.com\/api\/webhooks\//.test(discordWebhookUrl)) {
+      return res.status(400).json({ error: 'Invalid Discord webhook URL' });
+    }
+    run('UPDATE tracked_decks SET discord_webhook_url = ? WHERE id = ?', [discordWebhookUrl?.trim() || null, id]);
   }
 
   const updated = get('SELECT * FROM tracked_decks WHERE id = ?', [id]);

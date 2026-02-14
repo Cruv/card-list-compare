@@ -301,6 +301,13 @@ export async function initDb() {
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('notifications_enabled', 'true')`);
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('notification_check_interval_hours', '6')`);
 
+  // Migration: add discord_webhook_url column to tracked_decks
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN discord_webhook_url TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Migration: add notes column to tracked_decks
   try {
     db.run('ALTER TABLE tracked_decks ADD COLUMN notes TEXT');

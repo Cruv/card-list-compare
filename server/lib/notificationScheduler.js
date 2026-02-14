@@ -16,19 +16,17 @@ async function checkDecksForChanges() {
   const enabled = get("SELECT value FROM server_settings WHERE key = 'notifications_enabled'");
   if (enabled?.value === 'false') return;
 
-  if (!isEmailConfigured()) return;
-
-  // Get all decks with notifications enabled where the user has a verified email
+  // Get all decks with notifications enabled (email or Discord webhook)
   const decks = all(`
     SELECT d.id, d.archidekt_deck_id, d.deck_name, d.user_id,
-           u.email, u.username, d.commanders
+           u.email, u.username, d.commanders, d.discord_webhook_url
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
-    WHERE d.notify_on_change = 1
-      AND u.email IS NOT NULL
-      AND u.email != ''
-      AND u.email_verified = 1
-      AND u.suspended = 0
+    WHERE u.suspended = 0
+      AND (
+        (d.notify_on_change = 1 AND u.email IS NOT NULL AND u.email != '' AND u.email_verified = 1)
+        OR (d.discord_webhook_url IS NOT NULL AND d.discord_webhook_url != '')
+      )
   `);
 
   if (decks.length === 0) return;
@@ -69,8 +67,15 @@ async function checkDecksForChanges() {
           [apiData.name || deck.deck_name, deck.id]);
       }
 
-      // Send notification email
-      await sendDeckChangeEmail(deck.email, deck.username, deck.deck_name, deck.id);
+      // Send notification email (if email notifications enabled and email configured)
+      if (deck.notify_on_change && deck.email && isEmailConfigured()) {
+        await sendDeckChangeEmail(deck.email, deck.username, deck.deck_name, deck.id);
+      }
+
+      // Send Discord webhook notification
+      if (deck.discord_webhook_url) {
+        await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders);
+      }
       changed++;
 
       // Rate-limit: small delay between Archidekt API calls
@@ -83,6 +88,38 @@ async function checkDecksForChanges() {
 
   if (changed > 0 || errors > 0) {
     console.log(`[Notifications] Done: ${changed} changed, ${errors} errors out of ${decks.length} decks`);
+  }
+}
+
+async function sendDiscordWebhook(webhookUrl, deckName, commandersJson) {
+  try {
+    let commanders = [];
+    try { commanders = commandersJson ? JSON.parse(commandersJson) : []; } catch { /* ignore */ }
+    const cmdLabel = commanders.length > 0 ? commanders.join(' / ') : deckName;
+    const appUrl = getAppUrl();
+
+    const body = {
+      embeds: [{
+        title: `Deck Updated: ${deckName}`,
+        description: `**${cmdLabel}** has been updated on Archidekt. A new snapshot has been saved.`,
+        color: 0x3b82f6,
+        footer: { text: 'Card List Compare' },
+        timestamp: new Date().toISOString(),
+        ...(appUrl ? { url: `${appUrl}#settings` } : {}),
+      }],
+    };
+
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      console.error(`[Discord] Webhook failed (${res.status}) for deck "${deckName}"`);
+    }
+  } catch (err) {
+    console.error(`[Discord] Webhook error for deck "${deckName}":`, err.message);
   }
 }
 
