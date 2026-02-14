@@ -389,8 +389,8 @@ router.get('/:id/prices', async (req, res) => {
   try {
     const parsed = parse(snap.deck_text);
     const cardNames = [];
-    for (const [, entry] of parsed.mainboard) cardNames.push(entry.name);
-    for (const [, entry] of parsed.commanders) cardNames.push(entry.name);
+    for (const [, entry] of parsed.mainboard) cardNames.push(entry.displayName);
+    for (const name of parsed.commanders) cardNames.push(name);
 
     const prices = await fetchCardPrices(cardNames);
 
@@ -398,8 +398,8 @@ router.get('/:id/prices', async (req, res) => {
     let totalPrice = 0;
     const seen = new Set();
 
-    for (const [, entry] of [...parsed.mainboard, ...parsed.commanders]) {
-      const key = entry.name.toLowerCase();
+    for (const [, entry] of parsed.mainboard) {
+      const key = entry.displayName.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
       const priceData = prices.get(key);
@@ -407,7 +407,19 @@ router.get('/:id/prices', async (req, res) => {
       const lineTotal = price * entry.quantity;
       totalPrice += lineTotal;
       if (price > 0) {
-        cards.push({ name: entry.name, quantity: entry.quantity, price, total: lineTotal });
+        cards.push({ name: entry.displayName, quantity: entry.quantity, price, total: lineTotal });
+      }
+    }
+    for (const name of parsed.commanders) {
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const priceData = prices.get(key);
+      const price = priceData?.priceUsd ?? 0;
+      const lineTotal = price;
+      totalPrice += lineTotal;
+      if (price > 0) {
+        cards.push({ name, quantity: 1, price, total: lineTotal });
       }
     }
 
@@ -452,10 +464,10 @@ router.get('/overlap', (req, res) => {
       const parsed = parse(snap.deck_text);
       const cardNames = new Set();
       for (const [, entry] of parsed.mainboard) {
-        cardNames.add(entry.name.toLowerCase());
+        cardNames.add(entry.displayName.toLowerCase());
       }
-      for (const [, entry] of parsed.commanders) {
-        cardNames.add(entry.name.toLowerCase());
+      for (const name of parsed.commanders) {
+        cardNames.add(name.toLowerCase());
       }
       let cmds = [];
       try { cmds = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
@@ -538,8 +550,8 @@ router.get('/:id/recommendations', async (req, res) => {
 
     // Collect all card names (deck + commanders) for Scryfall lookup
     const cardNames = new Set();
-    for (const [, entry] of parsed.mainboard) cardNames.add(entry.name);
-    for (const [, entry] of parsed.commanders) cardNames.add(entry.name);
+    for (const [, entry] of parsed.mainboard) cardNames.add(entry.displayName);
+    for (const name of parsed.commanders) cardNames.add(name);
     for (const c of commanders) cardNames.add(c);
 
     // Fetch card metadata from Scryfall (type, color identity, prices)

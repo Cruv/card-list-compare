@@ -39,7 +39,7 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
 
         // Also fetch staple card data from Scryfall (client-side) for images + metadata
         const stapleNames = getStapleCardNames();
-        const allNames = [...new Set([...stapleNames, ...Object.keys(data.cardData || {})])];
+        const allNames = [...new Set([...stapleNames, ...Object.keys(data.cardData || {})])].filter(Boolean);
         const fullCardMap = await fetchCardData(allNames);
 
         if (cancelled) return;
@@ -110,7 +110,7 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      list = list.filter(r => r.name.toLowerCase().includes(q) || r.reason.toLowerCase().includes(q));
+      list = list.filter(r => (r.name || '').toLowerCase().includes(q) || (r.reason || '').toLowerCase().includes(q));
     }
     return list;
   }, [recommendations, categoryFilter, searchQuery]);
@@ -198,8 +198,8 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
                     name={rec.name}
                     quantity={1}
                     changeType="list"
-                    manaCost={rec.manaCost || (cardMap?.get(rec.name.toLowerCase())?.manaCost)}
-                    imageUri={cardMap?.get(rec.name.toLowerCase())?.imageUri}
+                    manaCost={rec.manaCost || (rec.name && cardMap?.get(rec.name.toLowerCase())?.manaCost)}
+                    imageUri={rec.name && cardMap?.get(rec.name.toLowerCase())?.imageUri}
                   />
                   <div className="recs-card-meta">
                     <span className="recs-card-category">{rec.category}</span>

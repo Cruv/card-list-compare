@@ -1,0 +1,138 @@
+/* ── Comparison Overlay ──────────────────────────── */
+
+@keyframes comparisonOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes comparisonOverlaySlideIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.comparison-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  animation: comparisonOverlayFadeIn 0.15s ease-out;
+  padding: var(--space-lg);
+}
+
+.comparison-overlay-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 700px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3);
+  animation: comparisonOverlaySlideIn 0.15s ease-out;
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────── */
+
+.comparison-overlay-header {
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.comparison-overlay-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.comparison-overlay-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-overlay-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.1s;
+  flex-shrink: 0;
+}
+
+.comparison-overlay-close:hover {
+  color: var(--text-primary);
+}
+
+/* ── Toolbar (search + copy buttons) ─────────────── */
+
+.comparison-overlay-toolbar {
+  padding: var(--space-md) var(--space-lg) 0;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.comparison-overlay-search {
+  position: relative;
+}
+
+.comparison-overlay-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+/* ── Content (scrollable) ────────────────────────── */
+
+.comparison-overlay-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-lg);
+  min-height: 0;
+}
+
+.comparison-overlay-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.comparison-overlay-summary {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+/* ── Mobile ──────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .comparison-overlay {
+    padding: 0;
+  }
+
+  .comparison-overlay-panel {
+    max-width: 100%;
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+  }
+}

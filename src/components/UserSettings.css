@@ -513,6 +513,12 @@
   margin-bottom: var(--space-md);
 }
 
+.settings-tracker-secondary-actions {
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--border-color);
+  margin-top: calc(-1 * var(--space-xs));
+}
+
 .settings-tracker-compare {
   display: flex;
   gap: var(--space-xs);

@@ -1,15 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useAppSettings } from '../context/AppSettingsContext';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import {
-  getMe, changePassword, updateEmail, deleteAccount,
   getOwners, addOwner, removeOwner, getOwnerDecks,
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
-  getDeckChangelog, updateDeckCommanders, updateDeckNotify, resendVerification,
+  getDeckChangelog, updateDeckCommanders, updateDeckNotify,
   lockSnapshot, unlockSnapshot,
-  createInviteCode, getMyInvites, deleteInviteCode,
   getDeckTimeline, exportDecks, getSnapshot,
   shareDeck, unshareDeck,
   updateDeckNotes, updateDeckPinned, updateDeckTags,
@@ -20,127 +19,17 @@ import {
   shareToPlaygroup, removeFromPlaygroup, leavePlaygroup,
 } from '../lib/api';
 import CopyButton from './CopyButton';
-import PasswordRequirements from './PasswordRequirements';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
 import Skeleton from './Skeleton';
 import TimelineOverlay from './TimelineOverlay';
 import RecommendationsOverlay from './RecommendationsOverlay';
+import ComparisonOverlay from './ComparisonOverlay';
 import './UserSettings.css';
+import './DeckLibrary.css';
 
-export default function UserSettings() {
-  const { user, logoutUser, loginUser } = useAuth();
+export default function DeckLibrary() {
+  const { user } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
-  const [activeTab, setActiveTab] = useState('account');
-
-  // User capabilities
-  const [canInvite, setCanInvite] = useState(false);
-
-  // Account info
-  const [email, setEmail] = useState('');
-  const [createdAt, setCreatedAt] = useState('');
-  const [emailSaving, setEmailSaving] = useState(false);
-  const [emailVerified, setEmailVerified] = useState(false);
-  const [resending, setResending] = useState(false);
-
-  // Change password
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordSaving, setPasswordSaving] = useState(false);
-
-  // Delete account
-  const [deleteUsername, setDeleteUsername] = useState('');
-  const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => {
-    getMe().then(data => {
-      setEmail(data.user.email || '');
-      setCreatedAt(data.user.createdAt || '');
-      setEmailVerified(!!data.user.emailVerified);
-      setCanInvite(!!data.user.canInvite);
-    }).catch(() => {});
-  }, []);
-
-  async function handleEmailSave(e) {
-    e.preventDefault();
-    setEmailSaving(true);
-    try {
-      const data = await updateEmail(email.trim() || null);
-      setEmail(data.user.email || '');
-      setEmailVerified(!!data.user.emailVerified);
-      if (email.trim()) {
-        toast.success('Email updated — check your inbox for a verification link');
-      } else {
-        toast.success('Email removed');
-      }
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setEmailSaving(false);
-    }
-  }
-
-  async function handleResendVerification() {
-    setResending(true);
-    try {
-      await resendVerification();
-      toast.success('Verification email sent — check your inbox');
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setResending(false);
-    }
-  }
-
-  async function handlePasswordChange(e) {
-    e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      toast.error('New passwords do not match');
-      return;
-    }
-    setPasswordSaving(true);
-    try {
-      const data = await changePassword(currentPassword, newPassword);
-      // Update token so current session stays valid after password_changed_at is set
-      if (data.token) {
-        localStorage.setItem('clc-auth-token', data.token);
-      }
-      toast.success('Password changed successfully');
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setPasswordSaving(false);
-    }
-  }
-
-  async function handleDeleteAccount(e) {
-    e.preventDefault();
-    const confirmed = await confirm({
-      title: 'Delete your account?',
-      message: 'This will permanently delete your account and all tracked decks, snapshots, and data. This cannot be undone.',
-      confirmLabel: 'Delete Account',
-      danger: true,
-    });
-    if (!confirmed) return;
-
-    setDeleting(true);
-    try {
-      await deleteAccount(deleteUsername);
-      toast.success('Account deleted');
-      logoutUser();
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  const formattedDate = createdAt
-    ? new Date(createdAt + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
-    : '...';
+  const [activeTab, setActiveTab] = useState('deck-tracker');
 
   return (
     <div className="settings-page">
@@ -150,17 +39,10 @@ export default function UserSettings() {
       <div className="user-settings">
         {ConfirmDialog}
         <div className="user-settings-header">
-          <h2>Account Settings</h2>
+          <h2>Deck Library</h2>
         </div>
 
         <nav className="user-settings-tabs">
-          <button
-            className={`user-settings-tab${activeTab === 'account' ? ' user-settings-tab--active' : ''}`}
-            onClick={() => setActiveTab('account')}
-            type="button"
-          >
-            Account
-          </button>
           <button
             className={`user-settings-tab${activeTab === 'deck-tracker' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('deck-tracker')}
@@ -189,178 +71,38 @@ export default function UserSettings() {
           >
             Playgroups
           </button>
-          {(canInvite || user?.isAdmin) && (
-            <button
-              className={`user-settings-tab${activeTab === 'invites' ? ' user-settings-tab--active' : ''}`}
-              onClick={() => setActiveTab('invites')}
-              type="button"
-            >
-              Invites
-            </button>
-          )}
         </nav>
 
-      {activeTab === 'account' && (
-        <div className="user-settings-panel">
-
-      {/* Account Info */}
-      <section className="user-settings-section">
-        <h3>Account Info</h3>
-        <div className="user-settings-field">
-          <label>Username</label>
-          <span className="user-settings-value">{user?.username}</span>
-        </div>
-        <div className="user-settings-field">
-          <label>Member since</label>
-          <span className="user-settings-value">{formattedDate}</span>
-        </div>
-        <form className="user-settings-form" onSubmit={handleEmailSave}>
-          <label htmlFor="settings-email">Email <span className="user-settings-optional">(optional — needed for password reset)</span></label>
-          <div className="user-settings-input-row">
-            <input
-              id="settings-email"
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              disabled={emailSaving}
-              autoComplete="email"
-            />
-            <button className="btn btn-primary btn-sm" type="submit" disabled={emailSaving}>
-              {emailSaving ? '...' : 'Save'}
-            </button>
+        {activeTab === 'deck-tracker' && (
+          <div className="user-settings-panel">
+            <DeckTrackerSettings confirm={confirm} />
           </div>
-          {email && (
-            <div className="user-settings-email-status">
-              {emailVerified ? (
-                <span className="email-verified">{'\u2713'} Verified</span>
-              ) : (
-                <span className="email-unverified">
-                  Not verified
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
-                    onClick={handleResendVerification}
-                    disabled={resending}
-                  >
-                    {resending ? '...' : 'Resend'}
-                  </button>
-                </span>
-              )}
-            </div>
-          )}
-        </form>
-      </section>
+        )}
 
-      {/* Change Password */}
-      <section className="user-settings-section">
-        <h3>Change Password</h3>
-        <form className="user-settings-form" onSubmit={handlePasswordChange}>
-          <label htmlFor="settings-current-pw">Current Password</label>
-          <input
-            id="settings-current-pw"
-            type="password"
-            value={currentPassword}
-            onChange={e => setCurrentPassword(e.target.value)}
-            disabled={passwordSaving}
-            autoComplete="current-password"
-            required
-          />
-          <label htmlFor="settings-new-pw">New Password</label>
-          <input
-            id="settings-new-pw"
-            type="password"
-            value={newPassword}
-            onChange={e => setNewPassword(e.target.value)}
-            disabled={passwordSaving}
-            autoComplete="new-password"
-            minLength={8}
-            required
-          />
-          <PasswordRequirements password={newPassword} />
-          <label htmlFor="settings-confirm-pw">Confirm New Password</label>
-          <input
-            id="settings-confirm-pw"
-            type="password"
-            value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            disabled={passwordSaving}
-            autoComplete="new-password"
-            minLength={8}
-            required
-          />
-          <button className="btn btn-primary btn-sm" type="submit" disabled={passwordSaving}>
-            {passwordSaving ? '...' : 'Change Password'}
-          </button>
-        </form>
-      </section>
-
-      {/* Danger Zone */}
-      <section className="user-settings-section user-settings-danger">
-        <h3>Danger Zone</h3>
-        <p>Permanently delete your account and all associated data. This action cannot be undone.</p>
-        <form className="user-settings-form" onSubmit={handleDeleteAccount}>
-          <label htmlFor="settings-delete-confirm">Type your username to confirm</label>
-          <div className="user-settings-input-row">
-            <input
-              id="settings-delete-confirm"
-              type="text"
-              placeholder={user?.username}
-              value={deleteUsername}
-              onChange={e => setDeleteUsername(e.target.value)}
-              disabled={deleting}
-              autoComplete="off"
-            />
-            <button
-              className="btn btn-sm btn-danger"
-              type="submit"
-              disabled={deleting || deleteUsername.toLowerCase() !== (user?.username || '').toLowerCase()}
-            >
-              {deleting ? '...' : 'Delete Account'}
-            </button>
+        {activeTab === 'collection' && (
+          <div className="user-settings-panel">
+            <CollectionManager confirm={confirm} />
           </div>
-        </form>
-      </section>
+        )}
 
-        </div>
-      )}
+        {activeTab === 'overlap' && (
+          <div className="user-settings-panel">
+            <DeckOverlapAnalysis />
+          </div>
+        )}
 
-      {activeTab === 'deck-tracker' && (
-        <div className="user-settings-panel">
-          <DeckTrackerSettings confirm={confirm} />
-        </div>
-      )}
-
-      {activeTab === 'collection' && (
-        <div className="user-settings-panel">
-          <CollectionManager confirm={confirm} />
-        </div>
-      )}
-
-      {activeTab === 'overlap' && (
-        <div className="user-settings-panel">
-          <DeckOverlapAnalysis />
-        </div>
-      )}
-
-      {activeTab === 'playgroups' && (
-        <div className="user-settings-panel">
-          <PlaygroupManager />
-        </div>
-      )}
-
-      {activeTab === 'invites' && (canInvite || user?.isAdmin) && (
-        <div className="user-settings-panel">
-          <InviteManagement />
-        </div>
-      )}
+        {activeTab === 'playgroups' && (
+          <div className="user-settings-panel">
+            <PlaygroupManager />
+          </div>
+        )}
 
       </div>
     </div>
   );
 }
 
-// --- Deck Tracker Management (embedded in Settings) ---
+// --- Deck Tracker Management ---
 
 function DeckTrackerSettings({ confirm }) {
   const [owners, setOwners] = useState([]);
@@ -395,17 +137,19 @@ function DeckTrackerSettings({ confirm }) {
   const [commanderValue, setCommanderValue] = useState('');
   const [savingCommander, setSavingCommander] = useState(false);
 
-  // Changelog state
-  const [changelog, setChangelog] = useState(null);
-  const [changelogDeckId, setChangelogDeckId] = useState(null);
+  // Compare mode state (snapshot comparison within a deck)
   const [compareMode, setCompareMode] = useState(false);
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
+  const [changelogDeckId, setChangelogDeckId] = useState(null);
 
   // Cross-deck comparison state
   const [crossDeckMode, setCrossDeckMode] = useState(false);
-  const [crossDeckA, setCrossDeckA] = useState(''); // "deckId:snapshotId" or "deckId" (latest)
+  const [crossDeckA, setCrossDeckA] = useState('');
   const [crossDeckB, setCrossDeckB] = useState('');
+
+  // ComparisonOverlay state
+  const [comparisonOverlay, setComparisonOverlay] = useState(null);
 
   // Collect all unique tags across decks
   const allTags = useMemo(() => {
@@ -424,7 +168,6 @@ function DeckTrackerSettings({ confirm }) {
       if (!groups.has(owner)) groups.set(owner, []);
       groups.get(owner).push(deck);
     }
-    // Sort by owner name alphabetically
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [trackedDecks]);
 
@@ -533,7 +276,6 @@ function DeckTrackerSettings({ confirm }) {
       setOwnerDecks(data.decks);
       await refresh();
 
-      // If no commanders were auto-detected, prompt user to set them
       const tracked = result?.deck;
       if (tracked) {
         let cmds = [];
@@ -628,14 +370,16 @@ function DeckTrackerSettings({ confirm }) {
   }
 
   async function handleViewChangelog(deckId) {
-    try {
-      const data = await getDeckChangelog(deckId);
-      setChangelog(data);
-      setChangelogDeckId(deckId);
-      setCompareMode(false);
-    } catch (err) {
-      toast.error(err.message);
-    }
+    // Open ComparisonOverlay with latest changelog (no specific snapshot IDs)
+    const deck = trackedDecks.find(d => d.id === deckId);
+    let commanders = [];
+    try { commanders = JSON.parse(deck?.commanders || '[]'); } catch { /* ignore */ }
+    setComparisonOverlay({
+      beforeDeckId: deckId,
+      afterDeckId: deckId,
+      deckName: deck?.deck_name || 'Deck',
+      commanders,
+    });
   }
 
   // Bulk operations
@@ -756,63 +500,30 @@ function DeckTrackerSettings({ confirm }) {
 
   async function handleCompareSnapshots(deckId) {
     if (!compareA || !compareB) return;
-    try {
-      const data = await getDeckChangelog(deckId, compareA, compareB);
-      setChangelog(data);
-      setChangelogDeckId(deckId);
-    } catch (err) {
-      toast.error(err.message);
-    }
+    const deck = trackedDecks.find(d => d.id === deckId);
+    let commanders = [];
+    try { commanders = JSON.parse(deck?.commanders || '[]'); } catch { /* ignore */ }
+    setComparisonOverlay({
+      beforeDeckId: deckId,
+      afterDeckId: deckId,
+      beforeSnapshotId: compareA,
+      afterSnapshotId: compareB,
+      deckName: deck?.deck_name || 'Deck',
+      commanders,
+    });
   }
 
-  // Snapshot restore — load a snapshot into the main compare UI
-  async function handleRestoreSnapshot(deckId, snapshotId, side) {
-    try {
-      const data = await getSnapshot(deckId, snapshotId);
-      const text = data.snapshot.deck_text;
-      const restore = {};
-      if (side === 'before') restore.beforeText = text;
-      else restore.afterText = text;
-      sessionStorage.setItem('clc-restore', JSON.stringify(restore));
-      window.location.hash = '';
-    } catch (err) {
-      toast.error(err.message || 'Failed to load snapshot');
-    }
-  }
-
-  // Cross-deck comparison — load two deck snapshots into compare UI
+  // Cross-deck comparison — opens ComparisonOverlay
   async function handleCrossDeckCompare() {
     if (!crossDeckA || !crossDeckB) return;
-    try {
-      // Parse "deckId" or "deckId:snapshotId" format
-      const [deckIdA, snapIdA] = crossDeckA.split(':');
-      const [deckIdB, snapIdB] = crossDeckB.split(':');
-
-      let textA, textB;
-      if (snapIdA) {
-        const data = await getSnapshot(deckIdA, snapIdA);
-        textA = data.snapshot.deck_text;
-      } else {
-        const snaps = await getDeckSnapshots(deckIdA);
-        if (snaps.snapshots.length === 0) throw new Error('No snapshots for first deck');
-        const latest = await getSnapshot(deckIdA, snaps.snapshots[0].id);
-        textA = latest.snapshot.deck_text;
-      }
-      if (snapIdB) {
-        const data = await getSnapshot(deckIdB, snapIdB);
-        textB = data.snapshot.deck_text;
-      } else {
-        const snaps = await getDeckSnapshots(deckIdB);
-        if (snaps.snapshots.length === 0) throw new Error('No snapshots for second deck');
-        const latest = await getSnapshot(deckIdB, snaps.snapshots[0].id);
-        textB = latest.snapshot.deck_text;
-      }
-
-      sessionStorage.setItem('clc-restore', JSON.stringify({ beforeText: textA, afterText: textB }));
-      window.location.hash = '';
-    } catch (err) {
-      toast.error(err.message || 'Failed to load decks for comparison');
-    }
+    const deckA = trackedDecks.find(d => String(d.id) === crossDeckA);
+    const deckB = trackedDecks.find(d => String(d.id) === crossDeckB);
+    setComparisonOverlay({
+      beforeDeckId: parseInt(crossDeckA, 10),
+      afterDeckId: parseInt(crossDeckB, 10),
+      deckName: `${deckA?.deck_name || 'Deck A'} vs ${deckB?.deck_name || 'Deck B'}`,
+      commanders: [],
+    });
   }
 
   async function handleExpandDeckSnapshots(deckId) {
@@ -1137,8 +848,6 @@ function DeckTrackerSettings({ confirm }) {
                           setCompareMode={setCompareMode}
                           changelogDeckId={changelogDeckId}
                           setChangelogDeckId={setChangelogDeckId}
-                          changelog={changelog}
-                          setChangelog={setChangelog}
                           compareA={compareA}
                           setCompareA={setCompareA}
                           compareB={compareB}
@@ -1160,7 +869,6 @@ function DeckTrackerSettings({ confirm }) {
                           handleShareDeck={handleShareDeck}
                           handleUnshareDeck={handleUnshareDeck}
                           handleRefreshTrackedDecks={refresh}
-                          handleRestoreSnapshot={handleRestoreSnapshot}
                         />
                       );
                     })}
@@ -1176,6 +884,18 @@ function DeckTrackerSettings({ confirm }) {
         <p className="settings-tracker-empty">
           No tracked users yet. Enter an Archidekt username above to start tracking their decks.
         </p>
+      )}
+
+      {comparisonOverlay && (
+        <ComparisonOverlay
+          beforeDeckId={comparisonOverlay.beforeDeckId}
+          afterDeckId={comparisonOverlay.afterDeckId}
+          beforeSnapshotId={comparisonOverlay.beforeSnapshotId}
+          afterSnapshotId={comparisonOverlay.afterSnapshotId}
+          deckName={comparisonOverlay.deckName}
+          commanders={comparisonOverlay.commanders}
+          onClose={() => setComparisonOverlay(null)}
+        />
       )}
     </div>
   );
@@ -1194,7 +914,6 @@ function DeckCard({
   handleViewChangelog,
   compareMode, setCompareMode,
   changelogDeckId, setChangelogDeckId,
-  changelog, setChangelog,
   compareA, setCompareA,
   compareB, setCompareB,
   handleCompareSnapshots,
@@ -1208,8 +927,8 @@ function DeckCard({
   bulkMode, isSelected, onToggleSelect,
   handleShareDeck, handleUnshareDeck,
   handleRefreshTrackedDecks,
-  handleRestoreSnapshot,
 }) {
+  const { priceDisplayEnabled } = useAppSettings();
   const [timelineData, setTimelineData] = useState(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
@@ -1379,6 +1098,9 @@ function DeckCard({
         <span className="settings-tracker-deck-meta">
           {deck.snapshot_count} snapshot{deck.snapshot_count !== 1 ? 's' : ''}
           {deck.share_id && <span className="settings-tracker-shared-badge" title="Shared">Shared</span>}
+          {priceDisplayEnabled && deck.last_known_price > 0 && (
+            <span className="settings-tracker-price-badge">${deck.last_known_price.toFixed(2)}</span>
+          )}
         </span>
         {!bulkMode && (
           <div className="settings-tracker-deck-actions">
@@ -1538,7 +1260,7 @@ function DeckCard({
             </button>
             <button
               className={`btn btn-secondary btn-sm${compareMode && changelogDeckId === deck.id ? ' btn--active' : ''}`}
-              onClick={() => { setCompareMode(!compareMode); setChangelog(null); setChangelogDeckId(deck.id); setCompareA(''); setCompareB(''); }}
+              onClick={() => { setCompareMode(!compareMode); setChangelogDeckId(deck.id); setCompareA(''); setCompareB(''); }}
               type="button"
             >
               Compare
@@ -1784,10 +1506,6 @@ function DeckCard({
             </div>
           )}
 
-          {changelog && changelogDeckId === deck.id && (
-            <SettingsChangelogDisplay changelog={changelog} />
-          )}
-
           {snapshotsLoading ? (
             <Skeleton lines={3} />
           ) : deckSnapshots.length === 0 ? (
@@ -1837,22 +1555,6 @@ function DeckCard({
                       {snap.nickname ? 'Rename' : 'Nickname'}
                     </button>
                     <button
-                      className="btn btn-secondary btn-sm settings-tracker-snap-restore"
-                      onClick={() => handleRestoreSnapshot(deck.id, snap.id, 'before')}
-                      type="button"
-                      title="Load this snapshot into the Before panel"
-                    >
-                      Before
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-sm settings-tracker-snap-restore"
-                      onClick={() => handleRestoreSnapshot(deck.id, snap.id, 'after')}
-                      type="button"
-                      title="Load this snapshot into the After panel"
-                    >
-                      After
-                    </button>
-                    <button
                       className="btn btn-secondary btn-sm btn-danger"
                       onClick={() => handleDeleteSnapshot(deck.id, snap.id)}
                       type="button"
@@ -1866,226 +1568,6 @@ function DeckCard({
               ))}
             </ul>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Invite Code Management ---
-
-function InviteManagement() {
-  const [invites, setInvites] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [maxUses, setMaxUses] = useState(1);
-  const [creating, setCreating] = useState(false);
-  const [copiedId, setCopiedId] = useState(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const data = await getMyInvites();
-      setInvites(data.invites);
-    } catch {
-      toast.error('Failed to load invite codes');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function handleCreate(e) {
-    e.preventDefault();
-    setCreating(true);
-    try {
-      await createInviteCode(maxUses);
-      toast.success('Invite code created');
-      await refresh();
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function handleDelete(id) {
-    try {
-      await deleteInviteCode(id);
-      toast.success('Invite code deleted');
-      await refresh();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  function handleCopy(code, id) {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
-  }
-
-  function formatDate(iso) {
-    if (!iso) return '';
-    return new Date(iso + 'Z').toLocaleDateString(undefined, {
-      month: 'short', day: 'numeric', year: 'numeric',
-    });
-  }
-
-  return (
-    <div className="settings-invites">
-      <section className="user-settings-section" style={{ borderTop: 'none' }}>
-        <h3>Invite Codes</h3>
-        <p className="user-settings-desc">
-          Create invite codes to share with others. Each code can be used a limited number of times.
-        </p>
-
-        <form className="settings-invite-create" onSubmit={handleCreate}>
-          <label htmlFor="invite-max-uses">Max uses:</label>
-          <select
-            id="invite-max-uses"
-            value={maxUses}
-            onChange={e => setMaxUses(parseInt(e.target.value, 10))}
-            disabled={creating}
-          >
-            <option value={1}>1</option>
-            <option value={3}>3</option>
-            <option value={5}>5</option>
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-          </select>
-          <button className="btn btn-primary btn-sm" type="submit" disabled={creating}>
-            {creating ? '...' : 'Create Code'}
-          </button>
-        </form>
-
-        {loading ? (
-          <p className="settings-tracker-empty">Loading...</p>
-        ) : invites.length === 0 ? (
-          <p className="settings-tracker-empty">No invite codes yet. Create one above.</p>
-        ) : (
-          <ul className="settings-invite-list">
-            {invites.map(inv => (
-              <li key={inv.id} className="settings-invite-item">
-                <div className="settings-invite-info">
-                  <code className="settings-invite-code">{inv.code}</code>
-                  <button
-                    className="settings-invite-copy"
-                    onClick={() => handleCopy(inv.code, inv.id)}
-                    type="button"
-                    title="Copy code"
-                  >
-                    {copiedId === inv.id ? '\u2713' : 'Copy'}
-                  </button>
-                  <span className="settings-invite-usage">
-                    {inv.use_count}/{inv.max_uses > 0 ? inv.max_uses : '\u221E'} used
-                  </span>
-                  <span className="settings-invite-date">{formatDate(inv.created_at)}</span>
-                </div>
-                <button
-                  className="btn btn-secondary btn-sm btn-danger"
-                  onClick={() => handleDelete(inv.id)}
-                  type="button"
-                >
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}
-
-// --- Inline Changelog with Copy Buttons ---
-
-function SettingsChangelogDisplay({ changelog }) {
-  const { diff } = changelog;
-  const { mainboard, sideboard, hasSideboard } = diff;
-
-  const { hasMainChanges, hasSideChanges, noChanges, hasAdditions } = useMemo(() => {
-    const hasMain =
-      mainboard.cardsIn.length > 0 ||
-      mainboard.cardsOut.length > 0 ||
-      mainboard.quantityChanges.length > 0;
-
-    const hasSide = hasSideboard && (
-      sideboard.cardsIn.length > 0 ||
-      sideboard.cardsOut.length > 0 ||
-      sideboard.quantityChanges.length > 0
-    );
-
-    const none = !hasMain && !hasSide;
-
-    const additions = mainboard.cardsIn.length > 0 ||
-      sideboard.cardsIn.length > 0 ||
-      [...mainboard.quantityChanges, ...sideboard.quantityChanges].some(c => c.delta > 0);
-
-    return { hasMainChanges: hasMain, hasSideChanges: hasSide, noChanges: none, hasAdditions: additions };
-  }, [mainboard, sideboard, hasSideboard]);
-
-  if (noChanges) {
-    return <p className="settings-tracker-empty">No changes detected.</p>;
-  }
-
-  const diffResult = { mainboard, sideboard, hasSideboard, commanders: [] };
-
-  function formatSnapLabel(snap) {
-    const d = snap.created_at ? new Date(snap.created_at + 'Z').toLocaleString() : '';
-    return snap.nickname ? `${snap.nickname} (${d})` : d;
-  }
-
-  return (
-    <div className="settings-tracker-changelog">
-      <div className="settings-tracker-changelog-header">
-        <strong>Changelog:</strong> {formatSnapLabel(changelog.before)} &rarr; {formatSnapLabel(changelog.after)}
-      </div>
-      <div className="settings-tracker-changelog-copy">
-        {hasAdditions && (
-          <CopyButton getText={() => formatMpcFill(diffResult)} label="Copy for MPCFill" className="copy-btn copy-btn--mpc" />
-        )}
-        <CopyButton getText={() => formatChangelog(diffResult)} />
-        <CopyButton getText={() => formatReddit(diffResult)} label="Copy for Reddit" className="copy-btn copy-btn--reddit" />
-        <CopyButton getText={() => formatJSON(diffResult)} label="Copy JSON" className="copy-btn copy-btn--json" />
-      </div>
-      <div className="changelog-inline">
-        {hasMainChanges && <ChangelogSection title="Mainboard" section={mainboard} />}
-        {hasSideChanges && <ChangelogSection title="Sideboard" section={sideboard} />}
-      </div>
-    </div>
-  );
-}
-
-function ChangelogSection({ title, section }) {
-  return (
-    <div className="changelog-section">
-      <div className="changelog-section-title">=== {title} ===</div>
-      {section.cardsIn.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Cards In ---</div>
-          {section.cardsIn.map(c => (
-            <div key={c.name} className="changelog-line changelog-in">+ {c.quantity} {c.name}</div>
-          ))}
-        </div>
-      )}
-      {section.cardsOut.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Cards Out ---</div>
-          {section.cardsOut.map(c => (
-            <div key={c.name} className="changelog-line changelog-out">- {c.quantity} {c.name}</div>
-          ))}
-        </div>
-      )}
-      {section.quantityChanges.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Quantity Changes ---</div>
-          {section.quantityChanges.map(c => (
-            <div key={c.name} className="changelog-line changelog-qty">
-              ~ {c.name} ({c.oldQty} &rarr; {c.newQty}, {c.delta > 0 ? '+' : ''}{c.delta})
-            </div>
-          ))}
         </div>
       )}
     </div>
