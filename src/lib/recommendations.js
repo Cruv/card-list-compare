@@ -181,14 +181,14 @@ function analyzeDeckNeeds(parsed, cardMap) {
     protection: 0,
   };
 
-  const allEntries = [...parsed.mainboard.values(), ...parsed.commanders.values()];
-  const totalCards = allEntries.reduce((s, e) => s + e.quantity, 0);
+  const mainEntries = [...parsed.mainboard.values()];
+  const totalCards = mainEntries.reduce((s, e) => s + e.quantity, 0) + (parsed.commanders || []).length;
 
-  for (const entry of allEntries) {
-    const data = cardMap.get(entry.name.toLowerCase());
+  for (const entry of mainEntries) {
+    const name = (entry.displayName || '').toLowerCase();
+    const data = cardMap.get(name);
     if (!data) continue;
     const type = (data.type || '').toLowerCase();
-    const name = entry.name.toLowerCase();
 
     if (type.includes('land')) {
       categories.lands += entry.quantity;
@@ -238,8 +238,8 @@ export function generateRecommendations(parsed, cardMap, commanders) {
 
   // Build set of cards already in the deck (lowercase names)
   const deckCards = new Set();
-  for (const [, entry] of parsed.mainboard) deckCards.add(entry.name.toLowerCase());
-  for (const [, entry] of parsed.commanders) deckCards.add(entry.name.toLowerCase());
+  for (const [, entry] of parsed.mainboard) deckCards.add((entry.displayName || '').toLowerCase());
+  for (const name of (parsed.commanders || [])) { if (name) deckCards.add(name.toLowerCase()); }
 
   // Filter and score staples
   const recommendations = [];

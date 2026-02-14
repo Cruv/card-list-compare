@@ -110,12 +110,15 @@ export function estimatePowerLevel(parsed, cardMap) {
   // Collect all cards (mainboard + commanders)
   const allCards = [];
   for (const [key, entry] of parsed.mainboard) {
-    const data = cardMap.get(entry.name.toLowerCase()) || {};
-    allCards.push({ ...entry, ...data, key });
+    const name = entry.displayName || '';
+    const data = cardMap.get(name.toLowerCase()) || {};
+    allCards.push({ ...entry, name, ...data, key });
   }
-  for (const [key, entry] of parsed.commanders) {
-    const data = cardMap.get(entry.name.toLowerCase()) || {};
-    allCards.push({ ...entry, ...data, key, isCommander: true });
+  // parsed.commanders is a flat string array, not a Map
+  for (const name of (parsed.commanders || [])) {
+    if (!name) continue;
+    const data = cardMap.get(name.toLowerCase()) || {};
+    allCards.push({ name, quantity: 1, ...data, isCommander: true });
   }
 
   const signals = [];

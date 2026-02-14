@@ -19,12 +19,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.18.0';
+const APP_VERSION = '2.18.1';
 const WHATS_NEW = [
-  'Deck Library — all deck management moved to its own dedicated page',
-  'In-page comparison overlay replaces jarring page navigation for Before/After',
-  'Deck prices shown on deck cards when available',
-  'Settings page simplified to account preferences only',
+  'Fixed crash when opening Full Deck tab on timeline overlay',
+  'Fixed crash in power level estimation and deck recommendations',
+  'Parser property fixes: entry.displayName used consistently across client code',
 ];
 
 function getResetToken() {
