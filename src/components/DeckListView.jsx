@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
 import CardLine from './CardLine';
 import { groupByType, TYPE_ORDER } from '../lib/scryfall';
+import { symbolToSvgUrl } from './ManaCost';
 import './DeckListView.css';
 
 /* ── Mana cost parsing ──────────────────────────── */
@@ -44,7 +45,6 @@ function extractColors(manaCost) {
 
 const COLOR_LABELS = { W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green', C: 'Colorless' };
 const COLOR_CSS = { W: '#f9faf4', U: '#0e68ab', B: '#150b00', R: '#d3202a', G: '#00733e', C: '#ccc2c0' };
-const COLOR_TEXT = { W: '#333', U: '#fff', B: '#fff', R: '#fff', G: '#fff', C: '#333' };
 
 /* ── Analytics component ────────────────────────── */
 
@@ -215,8 +215,15 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
                       style={{ height: `${pct}%`, background: COLOR_CSS[color] }}
                     />
                   </div>
-                  <span className="analytics-bar-label analytics-color-pip" style={{ background: COLOR_CSS[color], color: COLOR_TEXT[color] }}>
-                    {COLOR_LABELS[color]?.[0]}
+                  <span className="analytics-bar-label analytics-color-pip">
+                    <img
+                      className="analytics-color-symbol"
+                      src={symbolToSvgUrl(color)}
+                      alt={COLOR_LABELS[color]}
+                      title={COLOR_LABELS[color]}
+                      width="20"
+                      height="20"
+                    />
                   </span>
                 </div>
               );

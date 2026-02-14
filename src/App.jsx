@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.24.0';
+const APP_VERSION = '2.24.1';
 const WHATS_NEW = [
+  'Color distribution chart now uses official Scryfall mana symbols instead of CSS circles',
   'Performance: Scryfall card data is now cached — overlays load near-instantly on repeat views',
   'Performance: Eliminated N+1 database queries on deck library and overlap pages',
-  'Performance: Mana symbol SVGs are prefetched for instant rendering',
 ];
 
 function getResetToken() {

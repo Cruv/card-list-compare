@@ -13,7 +13,7 @@ import './ManaCost.css';
  *   "W/P" → "WP.svg"   (phyrexian — slash removed)
  *   "2/W" → "2W.svg"   (generic hybrid)
  */
-function symbolToSvgUrl(symbol) {
+export function symbolToSvgUrl(symbol) {
   const filename = symbol.replace('/', '');
   return `https://svgs.scryfall.io/card-symbols/${filename}.svg`;
 }
