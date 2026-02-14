@@ -19,11 +19,12 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.18.2';
+const APP_VERSION = '2.19.0';
 const WHATS_NEW = [
-  'MDFC lands now counted correctly in deck analytics (matches Archidekt)',
-  'MDFC lands excluded from mana curve calculations',
-  'Power level estimation uses corrected land counts',
+  'Streamlined deck card UI with dropdown menu for secondary actions',
+  'Removed cross-deck comparison (use main page for that)',
+  'Softer destructive button styling throughout',
+  'Snapshot rows use compact icon buttons',
 ];
 
 function getResetToken() {

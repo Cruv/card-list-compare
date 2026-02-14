@@ -513,10 +513,134 @@
   margin-bottom: var(--space-md);
 }
 
-.settings-tracker-secondary-actions {
-  padding-top: var(--space-xs);
-  border-top: 1px solid var(--border-color);
-  margin-top: calc(-1 * var(--space-xs));
+/* ── Ghost Danger Button ──────────────────────────── */
+
+.btn-ghost-danger {
+  background: transparent;
+  color: var(--text-destructive);
+  border: 1px solid var(--border-destructive);
+}
+
+.btn-ghost-danger:hover:not(:disabled) {
+  background: var(--bg-destructive-hover);
+  color: var(--text-destructive);
+  border-color: var(--text-destructive);
+}
+
+/* ── Dropdown Menu ────────────────────────────────── */
+
+.settings-tracker-actions-menu {
+  position: relative;
+}
+
+.settings-tracker-menu-trigger {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 8px;
+  min-width: 28px;
+  letter-spacing: 1px;
+}
+
+.settings-tracker-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+
+.settings-tracker-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-xs);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.settings-tracker-dropdown-item {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.settings-tracker-dropdown-item:hover {
+  background: var(--bg-surface);
+}
+
+.settings-tracker-dropdown-item--active {
+  color: var(--accent-blue);
+}
+
+.settings-tracker-dropdown-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: var(--space-xs) 0;
+}
+
+.settings-tracker-dropdown select {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  background: transparent;
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.settings-tracker-dropdown select:hover {
+  background: var(--bg-surface);
+}
+
+/* ── Icon Buttons for Snapshot Rows ───────────────── */
+
+.settings-tracker-snap-icon-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s;
+}
+
+.settings-tracker-snap-icon-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border-color: var(--border-color);
+}
+
+.settings-tracker-snap-icon-btn--delete:hover:not(:disabled) {
+  color: var(--text-destructive);
+  background: var(--bg-destructive-hover);
+  border-color: var(--border-destructive);
+}
+
+.settings-tracker-snap-icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
 .settings-tracker-compare {

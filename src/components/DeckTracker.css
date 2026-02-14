@@ -86,16 +86,7 @@
   font-size: 11px;
 }
 
-.btn-secondary.btn-danger {
-  color: #fff;
-  background: var(--accent-red);
-  border-color: var(--accent-red);
-}
-
-.btn-secondary.btn-danger:hover {
-  background: #d32f2f;
-  border-color: #d32f2f;
-}
+/* btn-ghost-danger styles are in UserSettings.css */
 
 .deck-tracker-browse {
   margin-top: 12px;

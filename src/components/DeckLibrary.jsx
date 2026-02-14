@@ -143,11 +143,6 @@ function DeckTrackerSettings({ confirm }) {
   const [compareB, setCompareB] = useState('');
   const [changelogDeckId, setChangelogDeckId] = useState(null);
 
-  // Cross-deck comparison state
-  const [crossDeckMode, setCrossDeckMode] = useState(false);
-  const [crossDeckA, setCrossDeckA] = useState('');
-  const [crossDeckB, setCrossDeckB] = useState('');
-
   // ComparisonOverlay state
   const [comparisonOverlay, setComparisonOverlay] = useState(null);
 
@@ -513,19 +508,6 @@ function DeckTrackerSettings({ confirm }) {
     });
   }
 
-  // Cross-deck comparison — opens ComparisonOverlay
-  async function handleCrossDeckCompare() {
-    if (!crossDeckA || !crossDeckB) return;
-    const deckA = trackedDecks.find(d => String(d.id) === crossDeckA);
-    const deckB = trackedDecks.find(d => String(d.id) === crossDeckB);
-    setComparisonOverlay({
-      beforeDeckId: parseInt(crossDeckA, 10),
-      afterDeckId: parseInt(crossDeckB, 10),
-      deckName: `${deckA?.deck_name || 'Deck A'} vs ${deckB?.deck_name || 'Deck B'}`,
-      commanders: [],
-    });
-  }
-
   async function handleExpandDeckSnapshots(deckId) {
     if (expandedDeckId === deckId) {
       setExpandedDeckId(null);
@@ -629,7 +611,7 @@ function DeckTrackerSettings({ confirm }) {
                     {loadingOwnerDecks && expandedOwner === owner.id ? 'Loading...' : 'Browse Decks'}
                   </button>
                   <button
-                    className="btn btn-secondary btn-sm btn-danger"
+                    className="btn btn-sm btn-ghost-danger"
                     onClick={() => handleRemoveOwner(owner.id)}
                     type="button"
                   >
@@ -681,13 +663,6 @@ function DeckTrackerSettings({ confirm }) {
             <h4>Tracked Decks</h4>
             <div className="settings-tracker-decks-header-actions">
               <button
-                className={`btn btn-secondary btn-sm${crossDeckMode ? ' btn--active' : ''}`}
-                onClick={() => { setCrossDeckMode(!crossDeckMode); setCrossDeckA(''); setCrossDeckB(''); }}
-                type="button"
-              >
-                {crossDeckMode ? 'Cancel Compare' : 'Compare Decks'}
-              </button>
-              <button
                 className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
                 onClick={toggleBulkMode}
                 type="button"
@@ -705,29 +680,6 @@ function DeckTrackerSettings({ confirm }) {
             </div>
           </div>
 
-          {/* Cross-deck comparison UI */}
-          {crossDeckMode && (
-            <div className="settings-tracker-cross-compare">
-              <select value={crossDeckA} onChange={e => setCrossDeckA(e.target.value)} aria-label="Select first deck">
-                <option value="">Before deck...</option>
-                {trackedDecks.map(d => <option key={d.id} value={String(d.id)}>{d.deck_name}</option>)}
-              </select>
-              <span className="settings-tracker-cross-vs">vs</span>
-              <select value={crossDeckB} onChange={e => setCrossDeckB(e.target.value)} aria-label="Select second deck">
-                <option value="">After deck...</option>
-                {trackedDecks.map(d => <option key={d.id} value={String(d.id)}>{d.deck_name}</option>)}
-              </select>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={handleCrossDeckCompare}
-                disabled={!crossDeckA || !crossDeckB}
-                type="button"
-              >
-                Compare
-              </button>
-            </div>
-          )}
-
           {/* Bulk action bar */}
           {bulkMode && (
             <div className="settings-tracker-bulk-bar">
@@ -744,7 +696,7 @@ function DeckTrackerSettings({ confirm }) {
                   <button className="btn btn-secondary btn-sm" onClick={handleBulkExport} type="button">
                     Export ({selectedDecks.size})
                   </button>
-                  <button className="btn btn-secondary btn-sm btn-danger" onClick={handleBulkUntrack} type="button">
+                  <button className="btn btn-sm btn-ghost-danger" onClick={handleBulkUntrack} type="button">
                     Untrack ({selectedDecks.size})
                   </button>
                 </div>
@@ -934,7 +886,7 @@ function DeckCard({
   const [showTimeline, setShowTimeline] = useState(false);
   const [overlayEntry, setOverlayEntry] = useState(null);
   const [showRecommendations, setShowRecommendations] = useState(false);
-  const [showMoreActions, setShowMoreActions] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Notes editing state
   const [editingNotes, setEditingNotes] = useState(false);
@@ -1113,7 +1065,7 @@ function DeckCard({
               {refreshingDeck === deck.id ? '...' : 'Refresh'}
             </button>
             <button
-              className="btn btn-secondary btn-sm btn-danger"
+              className="btn btn-sm btn-ghost-danger"
               onClick={() => handleUntrackDeck(deck.id)}
               type="button"
             >
@@ -1270,101 +1222,104 @@ function DeckCard({
                 Archidekt
               </a>
             )}
-            <button
-              className={`btn btn-secondary btn-sm settings-tracker-more-btn${showMoreActions ? ' btn--active' : ''}`}
-              onClick={() => setShowMoreActions(!showMoreActions)}
-              type="button"
-            >
-              {showMoreActions ? 'Less' : 'More...'}
-            </button>
-          </div>
-          {showMoreActions && (
-            <div className="settings-tracker-changelog-actions settings-tracker-secondary-actions">
+            <div className="settings-tracker-actions-menu">
               <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => deck.share_id ? handleUnshareDeck(deck.id) : handleShareDeck(deck.id)}
+                className={`btn btn-secondary btn-sm settings-tracker-menu-trigger${menuOpen ? ' btn--active' : ''}`}
+                onClick={() => setMenuOpen(!menuOpen)}
                 type="button"
+                aria-label="More actions"
+                aria-expanded={menuOpen}
               >
-                {deck.share_id ? 'Unshare' : 'Share'}
+                &#x22EE;
               </button>
-              <button
-                className={`btn btn-secondary btn-sm${deck.notify_on_change ? ' btn--active' : ''}`}
-                onClick={async () => {
-                  try {
-                    await updateDeckNotify(deck.id, !deck.notify_on_change);
-                    toast.success(deck.notify_on_change ? 'Notifications disabled' : 'Notifications enabled');
-                    if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
-                  } catch (err) { toast.error(err.message); }
-                }}
-                type="button"
-                title={deck.notify_on_change ? 'Email notifications enabled — click to disable' : 'Enable email notifications for changes'}
-              >
-                {deck.notify_on_change ? 'Notify: On' : 'Notify: Off'}
-              </button>
-              {!deck.notes && !editingNotes && (
-                <button
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => { setEditingNotes(true); setNotesValue(''); }}
-                  type="button"
-                >
-                  Add Notes
-                </button>
+              {menuOpen && (
+                <>
+                  <div className="settings-tracker-menu-backdrop" onClick={() => setMenuOpen(false)} />
+                  <div className="settings-tracker-dropdown">
+                    <button
+                      className="settings-tracker-dropdown-item"
+                      onClick={() => { deck.share_id ? handleUnshareDeck(deck.id) : handleShareDeck(deck.id); setMenuOpen(false); }}
+                      type="button"
+                    >
+                      {deck.share_id ? 'Unshare deck' : 'Share deck'}
+                    </button>
+                    <button
+                      className={`settings-tracker-dropdown-item${deck.notify_on_change ? ' settings-tracker-dropdown-item--active' : ''}`}
+                      onClick={async () => {
+                        try {
+                          await updateDeckNotify(deck.id, !deck.notify_on_change);
+                          toast.success(deck.notify_on_change ? 'Notifications disabled' : 'Notifications enabled');
+                          if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+                        } catch (err) { toast.error(err.message); }
+                        setMenuOpen(false);
+                      }}
+                      type="button"
+                    >
+                      {deck.notify_on_change ? 'Notifications: On' : 'Notifications: Off'}
+                    </button>
+                    <button
+                      className="settings-tracker-dropdown-item"
+                      onClick={() => { setEditingNotes(true); setNotesValue(deck.notes || ''); setMenuOpen(false); }}
+                      type="button"
+                    >
+                      {deck.notes ? 'Edit notes' : 'Add notes'}
+                    </button>
+                    <button
+                      className={`settings-tracker-dropdown-item${deck.discord_webhook_url ? ' settings-tracker-dropdown-item--active' : ''}`}
+                      onClick={() => { setEditingWebhook(!editingWebhook); setWebhookValue(deck.discord_webhook_url || ''); setMenuOpen(false); }}
+                      type="button"
+                    >
+                      {deck.discord_webhook_url ? 'Edit webhook' : 'Set up webhook'}
+                    </button>
+                    <button
+                      className={`settings-tracker-dropdown-item${deck.price_alert_threshold ? ' settings-tracker-dropdown-item--active' : ''}`}
+                      onClick={() => { setEditingPriceAlert(!editingPriceAlert); setPriceAlertValue(deck.price_alert_threshold ?? ''); setMenuOpen(false); }}
+                      type="button"
+                    >
+                      {deck.price_alert_threshold ? `Price alert: $${deck.price_alert_threshold}` : 'Set price alert'}
+                    </button>
+                    <button
+                      className="settings-tracker-dropdown-item"
+                      onClick={() => { handleCheckPrices(); setMenuOpen(false); }}
+                      disabled={loadingPrices}
+                      type="button"
+                    >
+                      {loadingPrices ? 'Checking...' : 'Check prices'}
+                    </button>
+                    <button
+                      className="settings-tracker-dropdown-item"
+                      onClick={() => { setShowRecommendations(true); setMenuOpen(false); }}
+                      type="button"
+                    >
+                      Suggest cards
+                    </button>
+                    <div className="settings-tracker-dropdown-divider" />
+                    <select
+                      className="settings-tracker-auto-refresh-select"
+                      value={deck.auto_refresh_hours || ''}
+                      onChange={async (e) => {
+                        const val = e.target.value ? parseInt(e.target.value, 10) : null;
+                        try {
+                          await updateDeckAutoRefresh(deck.id, val);
+                          toast.success(val ? `Auto-refresh set to every ${val}h` : 'Auto-refresh disabled');
+                          if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
+                        } catch (err) { toast.error(err.message); }
+                        setMenuOpen(false);
+                      }}
+                      title="Auto-refresh schedule"
+                    >
+                      <option value="">Auto-refresh: Off</option>
+                      <option value="6">Auto-refresh: 6h</option>
+                      <option value="12">Auto-refresh: 12h</option>
+                      <option value="24">Auto-refresh: 24h</option>
+                      <option value="48">Auto-refresh: 48h</option>
+                      <option value="168">Auto-refresh: 7d</option>
+                    </select>
+                  </div>
+                </>
               )}
-              <button
-                className={`btn btn-secondary btn-sm${editingWebhook ? ' btn--active' : ''}`}
-                onClick={() => { setEditingWebhook(!editingWebhook); setWebhookValue(deck.discord_webhook_url || ''); }}
-                type="button"
-                title={deck.discord_webhook_url ? 'Discord webhook configured — sends changelog on deck changes' : 'Set up Discord webhook for change notifications'}
-              >
-                {deck.discord_webhook_url ? 'Webhook: On' : 'Webhook'}
-              </button>
-              <button
-                className={`btn btn-secondary btn-sm${deck.price_alert_threshold ? ' btn--active' : ''}`}
-                onClick={() => { setEditingPriceAlert(!editingPriceAlert); setPriceAlertValue(deck.price_alert_threshold ?? ''); }}
-                type="button"
-                title={deck.price_alert_threshold ? `Price alert at $${deck.price_alert_threshold}` : 'Set price change alert'}
-              >
-                {deck.price_alert_threshold ? `Alert: $${deck.price_alert_threshold}` : 'Price Alert'}
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={handleCheckPrices}
-                disabled={loadingPrices}
-                type="button"
-                title="Check current deck prices via Scryfall"
-              >
-                {loadingPrices ? '...' : 'Check Prices'}
-              </button>
-              <select
-                className="settings-tracker-auto-refresh-select"
-                value={deck.auto_refresh_hours || ''}
-                onChange={async (e) => {
-                  const val = e.target.value ? parseInt(e.target.value, 10) : null;
-                  try {
-                    await updateDeckAutoRefresh(deck.id, val);
-                    toast.success(val ? `Auto-refresh set to every ${val}h` : 'Auto-refresh disabled');
-                    if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
-                  } catch (err) { toast.error(err.message); }
-                }}
-                title="Auto-refresh schedule"
-              >
-                <option value="">Auto: Off</option>
-                <option value="6">Auto: 6h</option>
-                <option value="12">Auto: 12h</option>
-                <option value="24">Auto: 24h</option>
-                <option value="48">Auto: 48h</option>
-                <option value="168">Auto: 7d</option>
-              </select>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={() => setShowRecommendations(true)}
-                type="button"
-                title="Get card suggestions based on color identity and deck gaps"
-              >
-                Suggest Cards
-              </button>
             </div>
-          )}
+          </div>
 
           {editingWebhook && (
             <div className="settings-tracker-webhook-edit">
@@ -1385,7 +1340,7 @@ function DeckCard({
                 </button>
                 {deck.discord_webhook_url && (
                   <button
-                    className="btn btn-secondary btn-sm btn-danger"
+                    className="btn btn-sm btn-ghost-danger"
                     onClick={() => { setWebhookValue(''); handleSaveWebhook(); }}
                     disabled={savingWebhook}
                     type="button"
@@ -1421,7 +1376,7 @@ function DeckCard({
                 </button>
                 {deck.price_alert_threshold && (
                   <button
-                    className="btn btn-secondary btn-sm btn-danger"
+                    className="btn btn-sm btn-ghost-danger"
                     onClick={() => { setPriceAlertValue(''); handleSavePriceAlert(); }}
                     disabled={savingPriceAlert}
                     type="button"
@@ -1548,20 +1503,21 @@ function DeckCard({
                       {snap.locked ? '\uD83D\uDD12' : '\uD83D\uDD13'}
                     </button>
                     <button
-                      className="btn btn-secondary btn-sm"
+                      className="settings-tracker-snap-icon-btn"
                       onClick={() => { setEditingNickname(snap.id); setNicknameValue(snap.nickname || ''); }}
                       type="button"
+                      title={snap.nickname ? 'Edit nickname' : 'Add nickname'}
                     >
-                      {snap.nickname ? 'Rename' : 'Nickname'}
+                      &#9998;
                     </button>
                     <button
-                      className="btn btn-secondary btn-sm btn-danger"
+                      className="settings-tracker-snap-icon-btn settings-tracker-snap-icon-btn--delete"
                       onClick={() => handleDeleteSnapshot(deck.id, snap.id)}
                       type="button"
                       disabled={!!snap.locked}
                       title={snap.locked ? 'Unlock to delete' : 'Delete snapshot'}
                     >
-                      Delete
+                      &#10005;
                     </button>
                   </div>
                 </li>
@@ -1675,7 +1631,7 @@ function CollectionManager({ confirm }) {
             {importing ? 'Importing...' : 'Import'}
           </button>
           {cards.length > 0 && (
-            <button className="btn btn-secondary btn-sm btn-danger" onClick={handleClear} type="button">
+            <button className="btn btn-sm btn-ghost-danger" onClick={handleClear} type="button">
               Clear All
             </button>
           )}
@@ -1731,7 +1687,7 @@ function CollectionManager({ confirm }) {
                         </td>
                         <td>
                           <button
-                            className="btn btn-secondary btn-sm btn-danger"
+                            className="btn btn-sm btn-ghost-danger"
                             onClick={() => handleDeleteCard(card.id)}
                             type="button"
                             title="Remove from collection"
@@ -2023,7 +1979,7 @@ function PlaygroupManager() {
                       Invite code: <code>{detail.playgroup.invite_code}</code>
                     </span>
                     <CopyButton getText={() => detail.playgroup.invite_code} label="Copy" className="btn btn-secondary btn-sm" />
-                    <button className="btn btn-secondary btn-sm btn-danger" onClick={() => handleLeave(g.id)} type="button">
+                    <button className="btn btn-sm btn-ghost-danger" onClick={() => handleLeave(g.id)} type="button">
                       Leave
                     </button>
                   </div>
@@ -2061,7 +2017,7 @@ function PlaygroupManager() {
                             <span className="settings-playgroups-deck-owner">by {d.shared_by_username}</span>
                             <span className="settings-playgroups-deck-snaps">{d.snapshot_count} snap</span>
                             <button
-                              className="btn btn-secondary btn-sm btn-danger"
+                              className="btn btn-sm btn-ghost-danger"
                               onClick={() => handleRemoveDeck(d.share_id)}
                               type="button"
                               title="Remove from playgroup"
