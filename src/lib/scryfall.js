@@ -110,8 +110,12 @@ async function fetchBatch(batchEntries) {
 
     // Map found cards
     for (const card of (data.data || [])) {
+      // Check if back face is a land (for MDFC analytics classification)
+      const backTypeLine = card.card_faces?.[1]?.type_line || '';
+      const isBackLand = backTypeLine.includes('Land');
       const cardData = {
         type: primaryType(card.type_line),
+        isBackLand,
         manaCost: getManaCost(card),
         imageUri: getImageUri(card),
         priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,

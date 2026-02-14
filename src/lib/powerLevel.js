@@ -130,7 +130,8 @@ export function estimatePowerLevel(parsed, cardMap) {
   }
 
   // --- Mana Curve ---
-  const nonLands = allCards.filter(c => c.type !== 'Land');
+  // Exclude both lands and MDFCs with land on back face
+  const nonLands = allCards.filter(c => c.type !== 'Land' && !c.isBackLand);
   const cmcValues = nonLands.map(c => parseCmc(c.manaCost));
   const avgCmc = cmcValues.length > 0 ? cmcValues.reduce((a, b) => a + b, 0) / cmcValues.length : 0;
 
@@ -168,7 +169,8 @@ export function estimatePowerLevel(parsed, cardMap) {
   else if (comboCount >= 2) { score += 0.8; signals.push(`${comboCount} combo enablers detected`); }
 
   // --- Land Count ---
-  const landCount = allCards.filter(c => c.type === 'Land').reduce((s, c) => s + c.quantity, 0);
+  // Include MDFCs with land back face (matches Archidekt behavior)
+  const landCount = allCards.filter(c => c.type === 'Land' || c.isBackLand).reduce((s, c) => s + c.quantity, 0);
   const landRatio = landCount / totalCards;
   if (landRatio < 0.30) { score += 0.3; signals.push(`Low land count (${landCount})`); }
   else if (landRatio > 0.42) { score -= 0.3; signals.push(`High land count (${landCount})`); }

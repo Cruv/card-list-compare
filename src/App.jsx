@@ -19,11 +19,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.18.1';
+const APP_VERSION = '2.18.2';
 const WHATS_NEW = [
-  'Fixed crash when opening Full Deck tab on timeline overlay',
-  'Fixed crash in power level estimation and deck recommendations',
-  'Parser property fixes: entry.displayName used consistently across client code',
+  'MDFC lands now counted correctly in deck analytics (matches Archidekt)',
+  'MDFC lands excluded from mana curve calculations',
+  'Power level estimation uses corrected land counts',
 ];
 
 function getResetToken() {

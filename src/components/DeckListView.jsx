@@ -59,7 +59,7 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
         const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
         const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
         if (data) {
-          allCards.push({ ...entry, type: data.type, manaCost: data.manaCost });
+          allCards.push({ ...entry, type: data.type, isBackLand: data.isBackLand || false, manaCost: data.manaCost });
         }
       }
     }
@@ -68,7 +68,7 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
     const totalCards = allCards.reduce((sum, c) => sum + c.quantity, 0);
     const uniqueCards = allCards.length;
 
-    // By type
+    // By type (front face classification for the chart)
     const typeCounts = {};
     for (const t of TYPE_ORDER) typeCounts[t] = 0;
     for (const card of allCards) {
@@ -76,11 +76,15 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
       typeCounts[t] = (typeCounts[t] || 0) + card.quantity;
     }
 
-    const landCount = typeCounts['Land'] || 0;
+    // Land count includes MDFCs with land on back face (matches Archidekt behavior)
+    const mdfcLandCount = allCards
+      .filter(c => c.type !== 'Land' && c.isBackLand)
+      .reduce((sum, c) => sum + c.quantity, 0);
+    const landCount = (typeCounts['Land'] || 0) + mdfcLandCount;
     const creatureCount = typeCounts['Creature'] || 0;
 
-    // Non-land cards for mana curve
-    const nonLandCards = allCards.filter(c => c.type !== 'Land');
+    // Non-land cards for mana curve (exclude both lands and MDFC-lands)
+    const nonLandCards = allCards.filter(c => c.type !== 'Land' && !c.isBackLand);
 
     // CMC distribution
     const cmcCounts = {};
