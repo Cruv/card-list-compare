@@ -500,8 +500,13 @@ router.get('/overlap', (req, res) => {
         totalCards += entry.quantity || 1;
       }
       for (const name of parsed.commanders) {
-        cardNames.add(name.toLowerCase());
-        totalCards += 1;
+        const cmdLower = name.toLowerCase();
+        // Only count commander toward totalCards if not already in mainboard
+        // (Archidekt includes commanders in mainboard, so they'd be double-counted)
+        if (!cardNames.has(cmdLower)) {
+          totalCards += 1;
+        }
+        cardNames.add(cmdLower);
       }
       let cmds = [];
       try { cmds = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
