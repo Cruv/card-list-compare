@@ -5,8 +5,13 @@
  * and what the deck is currently missing. Organized by category
  * (ramp, draw, removal, board wipes, lands, protection).
  *
+ * Flags banned cards (EDHREC banlist) and game changers (EDHREC top
+ * game-warping cards) so users can make informed choices.
+ *
  * Runs client-side against cardMap data from Scryfall.
  */
+
+import { isBannedInCommander, isGameChanger } from './edhrec';
 
 // ── Staple recommendations by color identity ──
 // Each entry: { name, colors (set of required color letters), category, reason }
@@ -273,15 +278,20 @@ export function generateRecommendations(parsed, cardMap, commanders) {
     const data = cardMap.get(staple.name.toLowerCase());
     const priceUsd = data?.priceUsd ?? null;
 
+    const banned = isBannedInCommander(staple.name);
+    const gameChanger = isGameChanger(staple.name);
+
     recommendations.push({
       name: staple.name,
       category: staple.category,
       reason: staple.reason,
       colors: staple.colors,
-      score,
+      score: banned ? score - 1000 : score, // push banned to bottom
       priceUsd,
       type: data?.type || null,
       manaCost: data?.manaCost || null,
+      isBannedInCommander: banned,
+      isGameChanger: gameChanger,
     });
   }
 

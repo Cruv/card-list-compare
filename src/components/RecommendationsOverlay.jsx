@@ -193,7 +193,7 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
           ) : (
             <div className="recs-card-list">
               {filtered.map(rec => (
-                <div key={rec.name} className="recs-card-item">
+                <div key={rec.name} className={`recs-card-item${rec.isBannedInCommander ? ' recs-card-item--banned' : ''}`}>
                   <CardLine
                     name={rec.name}
                     quantity={1}
@@ -203,6 +203,12 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
                   />
                   <div className="recs-card-meta">
                     <span className="recs-card-category">{rec.category}</span>
+                    {rec.isBannedInCommander && (
+                      <span className="recs-card-badge recs-card-badge--banned" title="Banned in Commander">BANNED</span>
+                    )}
+                    {rec.isGameChanger && (
+                      <span className="recs-card-badge recs-card-badge--game-changer" title="EDHREC Game Changer">&#9889; Game Changer</span>
+                    )}
                     <span className="recs-card-reason">{rec.reason}</span>
                     {rec.priceUsd != null && (
                       <span className="recs-card-price">${rec.priceUsd.toFixed(2)}</span>

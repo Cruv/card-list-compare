@@ -19,10 +19,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.20.0';
+const APP_VERSION = '2.21.0';
 const WHATS_NEW = [
-  'Removed Playgroups feature (future TapTogether integration planned)',
-  'Cleaned up unused playgroup backend routes and database tables',
+  'Card suggestions now show BANNED badge for Commander-banned cards (EDHREC banlist)',
+  'Game Changer badge highlights high-impact cards that warp casual games',
+  'Banned cards are dimmed and sorted to bottom of suggestions',
 ];
 
 function getResetToken() {
