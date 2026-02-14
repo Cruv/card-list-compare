@@ -9,7 +9,7 @@ import { fetchDeck } from '../lib/archidekt.js';
 import { archidektToText } from '../lib/deckToText.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
 import { pruneSnapshots } from '../lib/pruneSnapshots.js';
-import { fetchCardPrices } from '../lib/scryfall.js';
+import { fetchCardPrices, fetchCardMetadata } from '../lib/scryfall.js';
 
 const router = Router();
 
@@ -511,6 +511,45 @@ router.get('/overlap', (req, res) => {
     sharedCards,
     matrix,
   });
+});
+
+// Recommendations — suggest staple cards based on color identity and deck gaps
+router.get('/:id/recommendations', async (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  if (!deck) {
+    return res.status(404).json({ error: 'Tracked deck not found' });
+  }
+
+  const snap = get(
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    [deck.id]
+  );
+  if (!snap?.deck_text) {
+    return res.json({ recommendations: [], analysis: null });
+  }
+
+  try {
+    const parsed = parse(snap.deck_text);
+    let commanders = [];
+    try { commanders = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
+
+    // Collect all card names (deck + commanders) for Scryfall lookup
+    const cardNames = new Set();
+    for (const [, entry] of parsed.mainboard) cardNames.add(entry.name);
+    for (const [, entry] of parsed.commanders) cardNames.add(entry.name);
+    for (const c of commanders) cardNames.add(c);
+
+    // Fetch card metadata from Scryfall (type, color identity, prices)
+    const scryfallData = await fetchCardMetadata([...cardNames]);
+
+    res.json({ deckName: deck.deck_name, commanders, cardData: Object.fromEntries(scryfallData) });
+  } catch (err) {
+    console.error('Recommendations error:', err);
+    res.status(500).json({ error: 'Failed to generate recommendations' });
+  }
 });
 
 export default router;

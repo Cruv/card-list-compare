@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.15.0';
+const APP_VERSION = '2.16.0';
 const WHATS_NEW = [
-  'Playgroup shared workspaces — create a group, invite friends, share decks',
-  'View all group members and shared decks in one place from the Playgroups tab',
+  'Deck recommendations — get card suggestions based on color identity and deck gaps',
+  'Suggestions cover ramp, draw, removal, board wipes, protection, lands, and recursion',
 ];
 
 function getResetToken() {

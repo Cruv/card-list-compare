@@ -24,6 +24,7 @@ import PasswordRequirements from './PasswordRequirements';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
 import Skeleton from './Skeleton';
 import TimelineOverlay from './TimelineOverlay';
+import RecommendationsOverlay from './RecommendationsOverlay';
 import './UserSettings.css';
 
 export default function UserSettings() {
@@ -1213,6 +1214,7 @@ function DeckCard({
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [overlayEntry, setOverlayEntry] = useState(null);
+  const [showRecommendations, setShowRecommendations] = useState(false);
 
   // Notes editing state
   const [editingNotes, setEditingNotes] = useState(false);
@@ -1620,6 +1622,14 @@ function DeckCard({
               <option value="48">Auto: 48h</option>
               <option value="168">Auto: 7d</option>
             </select>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowRecommendations(true)}
+              type="button"
+              title="Get card suggestions based on color identity and deck gaps"
+            >
+              Suggest Cards
+            </button>
           </div>
 
           {editingWebhook && (
@@ -1731,6 +1741,14 @@ function DeckCard({
               deckName={deck.deck_name}
               commanders={deckCommanders}
               onClose={() => setOverlayEntry(null)}
+            />
+          )}
+
+          {showRecommendations && (
+            <RecommendationsOverlay
+              deckId={deck.id}
+              deckName={deck.deck_name}
+              onClose={() => setShowRecommendations(false)}
             />
           )}
 

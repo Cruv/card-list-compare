@@ -82,7 +82,7 @@ function getManaCost(card) {
 async function fetchBatch(batchEntries) {
   const identifiers = batchEntries.map(e => e.identifier);
   const results = [];
-  const fallback = { type: 'Other', manaCost: '', imageUri: '', priceUsd: null, priceUsdFoil: null };
+  const fallback = { type: 'Other', manaCost: '', imageUri: '', priceUsd: null, priceUsdFoil: null, colorIdentity: [] };
 
   try {
     const res = await fetch('/api/scryfall/cards/collection', {
@@ -116,6 +116,7 @@ async function fetchBatch(batchEntries) {
         imageUri: getImageUri(card),
         priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
         priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
+        colorIdentity: card.color_identity || [],
       };
 
       // Try to match by set+collector first (for specific printing lookups)
@@ -246,6 +247,7 @@ export async function fetchCardData(identifiersOrNames) {
           imageUri: entry.imageUri,
           priceUsd: entry.priceUsd,
           priceUsdFoil: entry.priceUsdFoil,
+          colorIdentity: entry.colorIdentity,
         };
         // Store under the returned key (could be composite or bare name)
         cardMap.set(entry.key, data);
@@ -261,7 +263,7 @@ export async function fetchCardData(identifiersOrNames) {
   // Ensure all requested keys have an entry
   for (const key of allKeys) {
     if (!cardMap.has(key)) {
-      cardMap.set(key, { type: 'Other', manaCost: '', imageUri: '', priceUsd: null, priceUsdFoil: null });
+      cardMap.set(key, { type: 'Other', manaCost: '', imageUri: '', priceUsd: null, priceUsdFoil: null, colorIdentity: [] });
     }
   }
 
