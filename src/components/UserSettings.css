@@ -902,6 +902,17 @@
 }
 
 @media (max-width: 640px) {
+  .settings-back-link {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: block;
+    background: var(--bg-primary);
+    padding: var(--space-sm) 0;
+    margin: 0 0 var(--space-sm);
+    border-bottom: 1px solid var(--border-color);
+  }
+
   .user-settings-tabs {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
