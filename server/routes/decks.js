@@ -4,6 +4,7 @@ import { all, get, run } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { archidektLimiter } from '../middleware/rateLimit.js';
 import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
+import { parse } from '../../src/lib/parser.js';
 import { fetchDeck } from '../lib/archidekt.js';
 import { archidektToText } from '../lib/deckToText.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
@@ -352,6 +353,91 @@ router.delete('/:id/share', (req, res) => {
 
   run('DELETE FROM shared_deck_views WHERE tracked_deck_id = ? AND user_id = ?', [id, req.user.userId]);
   res.json({ success: true });
+});
+
+// Overlap analysis — find cards shared across tracked decks
+router.get('/overlap', (req, res) => {
+  const decks = all(
+    'SELECT d.id, d.deck_name, d.commanders FROM tracked_decks d WHERE d.user_id = ?',
+    [req.user.userId]
+  );
+
+  if (decks.length < 2) {
+    return res.json({ decks: [], cardIndex: {}, matrix: [] });
+  }
+
+  // Gather card names per deck from latest snapshot
+  const deckCards = []; // Array of { id, name, commanders, cards: Set<lowerName> }
+  for (const deck of decks) {
+    const snap = get(
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      [deck.id]
+    );
+    if (!snap?.deck_text) continue;
+
+    try {
+      const parsed = parse(snap.deck_text);
+      const cardNames = new Set();
+      for (const [, entry] of parsed.mainboard) {
+        cardNames.add(entry.name.toLowerCase());
+      }
+      for (const [, entry] of parsed.commanders) {
+        cardNames.add(entry.name.toLowerCase());
+      }
+      let cmds = [];
+      try { cmds = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
+      deckCards.push({
+        id: deck.id,
+        name: deck.deck_name,
+        commanders: cmds.join(' / '),
+        cards: cardNames,
+      });
+    } catch { /* skip unparseable */ }
+  }
+
+  if (deckCards.length < 2) {
+    return res.json({ decks: [], cardIndex: {}, matrix: [] });
+  }
+
+  // Build card → deck membership index
+  const cardIndex = {}; // lowerName → [deckIndex, ...]
+  for (let i = 0; i < deckCards.length; i++) {
+    for (const card of deckCards[i].cards) {
+      if (!cardIndex[card]) cardIndex[card] = [];
+      cardIndex[card].push(i);
+    }
+  }
+
+  // Filter to only cards that appear in 2+ decks
+  const sharedCards = {};
+  for (const [card, deckIdxs] of Object.entries(cardIndex)) {
+    if (deckIdxs.length >= 2) {
+      sharedCards[card] = deckIdxs;
+    }
+  }
+
+  // Build overlap matrix (how many shared cards between each pair)
+  const n = deckCards.length;
+  const matrix = Array.from({ length: n }, () => Array(n).fill(0));
+  for (const deckIdxs of Object.values(sharedCards)) {
+    for (let i = 0; i < deckIdxs.length; i++) {
+      for (let j = i + 1; j < deckIdxs.length; j++) {
+        matrix[deckIdxs[i]][deckIdxs[j]]++;
+        matrix[deckIdxs[j]][deckIdxs[i]]++;
+      }
+    }
+  }
+
+  // Diagonal = total unique cards in that deck
+  for (let i = 0; i < n; i++) {
+    matrix[i][i] = deckCards[i].cards.size;
+  }
+
+  res.json({
+    decks: deckCards.map(d => ({ id: d.id, name: d.name, commanders: d.commanders, totalCards: d.cards.size })),
+    sharedCards,
+    matrix,
+  });
 });
 
 export default router;

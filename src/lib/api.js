@@ -117,6 +117,8 @@ export const refreshDeck = (id) =>
 export const refreshAllDecks = () =>
   apiFetch('/decks/refresh-all', { method: 'POST', timeout: 60_000 });
 
+export const getDeckOverlap = () => apiFetch('/decks/overlap');
+
 // Snapshots
 export const getDeckSnapshots = (deckId) =>
   apiFetch(`/decks/${deckId}/snapshots`);

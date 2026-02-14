@@ -15,6 +15,7 @@ import {
   updateDeckNotes, updateDeckPinned, updateDeckTags,
   updateDeckDiscordWebhook,
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
+  getDeckOverlap,
 } from '../lib/api';
 import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
@@ -171,6 +172,13 @@ export default function UserSettings() {
           >
             Collection
           </button>
+          <button
+            className={`user-settings-tab${activeTab === 'overlap' ? ' user-settings-tab--active' : ''}`}
+            onClick={() => setActiveTab('overlap')}
+            type="button"
+          >
+            Overlap
+          </button>
           {(canInvite || user?.isAdmin) && (
             <button
               className={`user-settings-tab${activeTab === 'invites' ? ' user-settings-tab--active' : ''}`}
@@ -316,6 +324,12 @@ export default function UserSettings() {
       {activeTab === 'collection' && (
         <div className="user-settings-panel">
           <CollectionManager confirm={confirm} />
+        </div>
+      )}
+
+      {activeTab === 'overlap' && (
+        <div className="user-settings-panel">
+          <DeckOverlapAnalysis />
         </div>
       )}
 
@@ -2069,6 +2083,107 @@ function CollectionManager({ confirm }) {
             )}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// --- Deck Overlap Analysis ---
+
+function DeckOverlapAnalysis() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedPair, setSelectedPair] = useState(null);
+
+  useEffect(() => {
+    getDeckOverlap()
+      .then(setData)
+      .catch(err => toast.error(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Skeleton lines={6} />;
+  if (!data || data.decks.length < 2) {
+    return (
+      <div className="settings-overlap">
+        <h3>Deck Overlap</h3>
+        <p className="settings-tracker-empty">Track at least 2 decks with snapshots to see overlap analysis.</p>
+      </div>
+    );
+  }
+
+  const { decks, sharedCards, matrix } = data;
+  const totalShared = Object.keys(sharedCards).length;
+
+  // Build sorted shared card list for a selected pair
+  let pairCards = [];
+  if (selectedPair) {
+    const [a, b] = selectedPair;
+    pairCards = Object.entries(sharedCards)
+      .filter(([, idxs]) => idxs.includes(a) && idxs.includes(b))
+      .map(([name]) => name)
+      .sort();
+  }
+
+  return (
+    <div className="settings-overlap">
+      <h3>Deck Overlap</h3>
+      <p className="settings-overlap-summary">
+        {totalShared} card{totalShared !== 1 ? 's' : ''} shared across {decks.length} decks
+      </p>
+
+      <div className="settings-overlap-matrix-wrap">
+        <table className="settings-overlap-matrix">
+          <thead>
+            <tr>
+              <th></th>
+              {decks.map((d, i) => (
+                <th key={i} title={d.name}>
+                  <span className="settings-overlap-col-label">{d.name.length > 12 ? d.name.slice(0, 11) + '\u2026' : d.name}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {decks.map((row, i) => (
+              <tr key={i}>
+                <td className="settings-overlap-row-label" title={row.name}>
+                  {row.name.length > 16 ? row.name.slice(0, 15) + '\u2026' : row.name}
+                  {row.commanders && <span className="settings-overlap-cmdr">{row.commanders}</span>}
+                </td>
+                {decks.map((_, j) => {
+                  const val = matrix[i][j];
+                  const isDiag = i === j;
+                  const isSelected = selectedPair && ((selectedPair[0] === i && selectedPair[1] === j) || (selectedPair[0] === j && selectedPair[1] === i));
+                  return (
+                    <td
+                      key={j}
+                      className={`settings-overlap-cell${isDiag ? ' settings-overlap-cell--diag' : ''}${val > 0 && !isDiag ? ' settings-overlap-cell--shared' : ''}${isSelected ? ' settings-overlap-cell--selected' : ''}`}
+                      onClick={!isDiag && val > 0 ? () => setSelectedPair(i < j ? [i, j] : [j, i]) : undefined}
+                      title={isDiag ? `${val} unique cards` : `${val} shared cards`}
+                    >
+                      {val}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {selectedPair && pairCards.length > 0 && (
+        <div className="settings-overlap-detail">
+          <div className="settings-overlap-detail-header">
+            <h4>{matrix[selectedPair[0]][selectedPair[1]]} shared cards: {decks[selectedPair[0]].name} & {decks[selectedPair[1]].name}</h4>
+            <button className="btn btn-secondary btn-sm" onClick={() => setSelectedPair(null)} type="button">&times;</button>
+          </div>
+          <div className="settings-overlap-card-list">
+            {pairCards.map(name => (
+              <span key={name} className="settings-overlap-card">{name}</span>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

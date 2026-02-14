@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.9.0';
+const APP_VERSION = '2.10.0';
 const WHATS_NEW = [
-  'Collection tracking — import your card collection and track what you own',
-  'Search, edit quantities, and manage your collection from the Settings page',
+  'Deck overlap analysis — see which cards are shared across your tracked decks',
+  'Interactive overlap matrix — click any cell to see the shared card list',
 ];
 
 function getResetToken() {
