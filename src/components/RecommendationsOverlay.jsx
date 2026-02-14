@@ -128,6 +128,7 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
         {/* Header */}
         <div className="recs-overlay-header">
           <div className="recs-overlay-title-row">
+            <button className="recs-overlay-mobile-back" onClick={onClose} type="button" aria-label="Back">&larr;</button>
             <h2 className="recs-overlay-title">Suggestions for {deckName}</h2>
             <button className="recs-overlay-close" onClick={onClose} type="button" aria-label="Close">&times;</button>
           </div>

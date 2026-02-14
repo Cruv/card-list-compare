@@ -20,11 +20,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.24.3';
+const APP_VERSION = '2.24.4';
 const WHATS_NEW = [
-  'Updated README with comprehensive feature documentation',
-  'Fix: Overlap matrix diagonal no longer double-counts commanders (101 → 100)',
-  'Color distribution chart now uses official Scryfall mana symbols instead of CSS circles',
+  'Fix: Mobile overlays now have a visible back button so you can close them without reloading',
 ];
 
 function getResetToken() {
