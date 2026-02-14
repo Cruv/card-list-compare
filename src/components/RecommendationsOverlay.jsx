@@ -24,8 +24,11 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
 
     async function load() {
       try {
-        // Fetch deck data + card metadata from server
-        const data = await getDeckRecommendations(deckId);
+        // Fetch deck recommendations + snapshot list in parallel (independent calls)
+        const [data, snapshotsData] = await Promise.all([
+          getDeckRecommendations(deckId),
+          getDeckSnapshots(deckId),
+        ]);
 
         if (cancelled) return;
 
@@ -64,11 +67,7 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
 
         setCardMap(fullCardMap);
 
-        // Fetch latest snapshot to parse the deck client-side
-        const snapshotsData = await getDeckSnapshots(deckId);
-
-        if (cancelled) return;
-
+        // Fetch snapshot detail (depends on snapshotsData result)
         if (snapshotsData.snapshots && snapshotsData.snapshots.length > 0) {
           const latestSnapshot = snapshotsData.snapshots[0];
           const snapDetail = await getSnapshot(deckId, latestSnapshot.id);

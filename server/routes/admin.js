@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { all, get, run, getDb } from '../db.js';
-import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, invalidateAuthCache } from '../middleware/auth.js';
 import { validatePassword } from '../middleware/validate.js';
 
 const router = Router();
@@ -122,6 +122,7 @@ router.post('/users/:id/reset-password', async (req, res) => {
 
   const hash = await bcrypt.hash(newPassword, 10);
   run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ?", [hash, userId]);
+  invalidateAuthCache(userId);
 
   logAdminAction(req.user.userId, req.user.username, 'reset_password', userId, user.username, null);
 
@@ -195,6 +196,7 @@ router.patch('/users/:id/suspend', (req, res) => {
   }
 
   run('UPDATE users SET suspended = 1 WHERE id = ?', [userId]);
+  invalidateAuthCache(userId);
   logAdminAction(req.user.userId, req.user.username, 'suspend_user', userId, user.username, null);
 
   res.json({ success: true });
@@ -212,6 +214,7 @@ router.patch('/users/:id/unsuspend', (req, res) => {
   }
 
   run('UPDATE users SET suspended = 0 WHERE id = ?', [userId]);
+  invalidateAuthCache(userId);
   logAdminAction(req.user.userId, req.user.username, 'unsuspend_user', userId, user.username, null);
 
   res.json({ success: true });
@@ -231,6 +234,7 @@ router.patch('/users/:id/force-logout', (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found' });
 
   run("UPDATE users SET password_changed_at = datetime('now') WHERE id = ?", [userId]);
+  invalidateAuthCache(userId);
   logAdminAction(req.user.userId, req.user.username, 'force_logout', userId, user.username, null);
 
   res.json({ success: true });

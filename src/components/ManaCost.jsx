@@ -32,6 +32,23 @@ function parseManaCost(cost) {
   return symbols;
 }
 
+/**
+ * Prefetch common mana symbol SVGs so they're cached by the browser
+ * before any changelog is opened. Uses <link rel="prefetch"> which
+ * loads at idle priority — does not block rendering.
+ */
+const COMMON_SYMBOLS = ['W', 'U', 'B', 'R', 'G', 'C', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'X'];
+
+export function preloadManaSymbols() {
+  for (const sym of COMMON_SYMBOLS) {
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.as = 'image';
+    link.href = symbolToSvgUrl(sym);
+    document.head.appendChild(link);
+  }
+}
+
 export default memo(function ManaCost({ cost }) {
   if (!cost) return null;
 

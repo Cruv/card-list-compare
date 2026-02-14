@@ -2,11 +2,35 @@
  * Server-side Scryfall client for batch card lookups.
  * Uses the /cards/collection endpoint to fetch set and collector number info.
  * Node 22 has built-in fetch — no extra dependencies needed.
+ *
+ * Includes in-memory TTL caches to avoid redundant API calls for
+ * the same cards within a session (metadata 30m, prices 10m, printings 60m).
  */
 
 const SCRYFALL_API = 'https://api.scryfall.com';
 const BATCH_SIZE = 75; // Scryfall max per request
 const DELAY_MS = 100; // Respect rate limit (~10 req/sec)
+
+// ── TTL Cache ──────────────────────────────────────────────
+
+const METADATA_TTL = 30 * 60 * 1000; // 30 minutes
+const PRICE_TTL = 10 * 60 * 1000;    // 10 minutes
+const PRINTING_TTL = 60 * 60 * 1000; // 60 minutes
+
+const metadataCache = new Map(); // key -> { data, ts }
+const priceCache = new Map();
+const printingCache = new Map();
+
+function getCached(cache, key, ttl) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > ttl) { cache.delete(key); return null; }
+  return entry.data;
+}
+
+function setCache(cache, key, data) {
+  cache.set(key, { data, ts: Date.now() });
+}
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -23,9 +47,21 @@ export async function fetchCardPrintings(cardNames) {
 
   const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
 
+  // Check cache first
+  const uncached = [];
+  for (const name of unique) {
+    const cached = getCached(printingCache, name, PRINTING_TTL);
+    if (cached) {
+      result.set(name, cached);
+    } else {
+      uncached.push(name);
+    }
+  }
+  if (uncached.length === 0) return result;
+
   const batches = [];
-  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
-    batches.push(unique.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+    batches.push(uncached.slice(i, i + BATCH_SIZE));
   }
 
   for (let i = 0; i < batches.length; i++) {
@@ -50,10 +86,12 @@ export async function fetchCardPrintings(cardNames) {
       for (const card of (data.data || [])) {
         const key = card.name.toLowerCase();
         if (!result.has(key)) {
-          result.set(key, {
+          const entry = {
             set: card.set || '',
             collectorNumber: card.collector_number || '',
-          });
+          };
+          result.set(key, entry);
+          setCache(printingCache, key, entry);
         }
       }
     } catch (err) {
@@ -75,9 +113,21 @@ export async function fetchCardMetadata(cardNames) {
 
   const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
 
+  // Check cache first
+  const uncached = [];
+  for (const name of unique) {
+    const cached = getCached(metadataCache, name, METADATA_TTL);
+    if (cached) {
+      result.set(name, cached);
+    } else {
+      uncached.push(name);
+    }
+  }
+  if (uncached.length === 0) return result;
+
   const batches = [];
-  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
-    batches.push(unique.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+    batches.push(uncached.slice(i, i + BATCH_SIZE));
   }
 
   for (let i = 0; i < batches.length; i++) {
@@ -110,13 +160,21 @@ export async function fetchCardMetadata(cardNames) {
             if (front.includes(t)) { type = t; break; }
           }
 
-          result.set(key, {
+          const priceUsd = card.prices?.usd ? parseFloat(card.prices.usd) : null;
+          const priceUsdFoil = card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null;
+
+          const entry = {
             type,
             manaCost: card.mana_cost || (card.card_faces?.[0]?.mana_cost) || '',
             colorIdentity: card.color_identity || [],
-            priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
-            priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
-          });
+            priceUsd,
+            priceUsdFoil,
+          };
+          result.set(key, entry);
+          setCache(metadataCache, key, entry);
+
+          // Also populate price cache from same response (prices come free)
+          setCache(priceCache, key, { priceUsd, priceUsdFoil });
         }
       }
     } catch (err) {
@@ -138,9 +196,21 @@ export async function fetchCardPrices(cardNames) {
 
   const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
 
+  // Check cache first
+  const uncached = [];
+  for (const name of unique) {
+    const cached = getCached(priceCache, name, PRICE_TTL);
+    if (cached) {
+      result.set(name, cached);
+    } else {
+      uncached.push(name);
+    }
+  }
+  if (uncached.length === 0) return result;
+
   const batches = [];
-  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
-    batches.push(unique.slice(i, i + BATCH_SIZE));
+  for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+    batches.push(uncached.slice(i, i + BATCH_SIZE));
   }
 
   for (let i = 0; i < batches.length; i++) {
@@ -165,10 +235,12 @@ export async function fetchCardPrices(cardNames) {
       for (const card of (data.data || [])) {
         const key = card.name.toLowerCase();
         if (!result.has(key)) {
-          result.set(key, {
+          const entry = {
             priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
             priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
-          });
+          };
+          result.set(key, entry);
+          setCache(priceCache, key, entry);
         }
       }
     } catch (err) {

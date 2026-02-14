@@ -7,9 +7,33 @@
  * Rate-limited: Scryfall allows 10 requests/sec — we batch 75 cards
  * per request (Scryfall max) so typically only 1-2 requests needed.
  * Batches are fetched in parallel using Promise.allSettled.
+ *
+ * Includes a session-level in-memory cache so repeated lookups (e.g.
+ * opening timeline then recommendations for the same deck) don't
+ * re-fetch from Scryfall.
  */
 
 const SCRYFALL_BATCH_SIZE = 75;
+const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// Module-scope session cache: cacheKey → { data, ts }
+const cardCache = new Map();
+
+function getCached(key) {
+  const entry = cardCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) { cardCache.delete(key); return null; }
+  return entry.data;
+}
+
+function setCardCache(key, data) {
+  cardCache.set(key, { data, ts: Date.now() });
+}
+
+/** Clear the session cache (for testing or manual reset). */
+export function clearCardCache() {
+  cardCache.clear();
+}
 
 // Canonical type ordering for MTG cards
 const TYPE_ORDER = [
@@ -200,6 +224,7 @@ export async function fetchCardData(identifiersOrNames) {
 
   // Build batch entries: { key, identifier } for each unique lookup
   // Separate set+collector lookups (exact printing) from name-only lookups (DFC-normalized)
+  // Check the session cache first — only uncached entries go to Scryfall.
   const batchEntries = [];
   const allKeys = new Set(); // track all keys we need entries for
   const frontToOriginals = new Map(); // for DFC alias storage
@@ -207,6 +232,13 @@ export async function fetchCardData(identifiersOrNames) {
 
   for (const [key, info] of identifierMap) {
     allKeys.add(key);
+
+    // Check cache first
+    const cached = getCached(key);
+    if (cached) {
+      cardMap.set(key, cached);
+      continue;
+    }
 
     if (info.set && info.collector_number) {
       // Exact printing lookup — send set+collector to Scryfall
@@ -218,6 +250,13 @@ export async function fetchCardData(identifiersOrNames) {
       // Name-only lookup — normalize DFC to front face
       const nameLower = info.name.toLowerCase();
       const front = dfcFrontFace(nameLower);
+
+      // Check cache for front-face key too
+      const cachedFront = getCached(front);
+      if (cachedFront) {
+        cardMap.set(key, cachedFront);
+        continue;
+      }
 
       if (!frontToOriginals.has(front)) frontToOriginals.set(front, []);
       frontToOriginals.get(front).push(key);
@@ -234,31 +273,36 @@ export async function fetchCardData(identifiersOrNames) {
   }
 
   // Batch into groups of 75
-  const batches = [];
-  for (let i = 0; i < batchEntries.length; i += SCRYFALL_BATCH_SIZE) {
-    batches.push(batchEntries.slice(i, i + SCRYFALL_BATCH_SIZE));
-  }
+  if (batchEntries.length > 0) {
+    const batches = [];
+    for (let i = 0; i < batchEntries.length; i += SCRYFALL_BATCH_SIZE) {
+      batches.push(batchEntries.slice(i, i + SCRYFALL_BATCH_SIZE));
+    }
 
-  // Fetch all batches in parallel
-  const settled = await Promise.allSettled(batches.map(fetchBatch));
+    // Fetch all batches in parallel
+    const settled = await Promise.allSettled(batches.map(fetchBatch));
 
-  for (const result of settled) {
-    if (result.status === 'fulfilled') {
-      for (const entry of result.value) {
-        const data = {
-          type: entry.type,
-          manaCost: entry.manaCost,
-          imageUri: entry.imageUri,
-          priceUsd: entry.priceUsd,
-          priceUsdFoil: entry.priceUsdFoil,
-          colorIdentity: entry.colorIdentity,
-        };
-        // Store under the returned key (could be composite or bare name)
-        cardMap.set(entry.key, data);
-        // Also store under any original DFC names that mapped to this front face
-        const originals = frontToOriginals.get(entry.key) || [];
-        for (const orig of originals) {
-          cardMap.set(orig, data);
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        for (const entry of result.value) {
+          const data = {
+            type: entry.type,
+            manaCost: entry.manaCost,
+            imageUri: entry.imageUri,
+            priceUsd: entry.priceUsd,
+            priceUsdFoil: entry.priceUsdFoil,
+            colorIdentity: entry.colorIdentity,
+          };
+          // Store in session cache
+          setCardCache(entry.key, data);
+          // Store under the returned key (could be composite or bare name)
+          cardMap.set(entry.key, data);
+          // Also store under any original DFC names that mapped to this front face
+          const originals = frontToOriginals.get(entry.key) || [];
+          for (const orig of originals) {
+            cardMap.set(orig, data);
+            setCardCache(orig, data);
+          }
         }
       }
     }

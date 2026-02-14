@@ -29,10 +29,24 @@ router.get('/', (req, res) => {
     ORDER BY d.pinned DESC, d.deck_name ASC
   `, [req.user.userId]);
 
-  // Attach tags to each deck
-  for (const deck of decks) {
-    const tags = all('SELECT tag FROM deck_tags WHERE tracked_deck_id = ? ORDER BY tag ASC', [deck.id]);
-    deck.tags = tags.map(t => t.tag);
+  // Batch-load all tags (avoids N+1 query per deck)
+  const deckIds = decks.map(d => d.id);
+  if (deckIds.length > 0) {
+    const placeholders = deckIds.map(() => '?').join(',');
+    const tagRows = all(
+      `SELECT tracked_deck_id, tag FROM deck_tags WHERE tracked_deck_id IN (${placeholders}) ORDER BY tag ASC`,
+      deckIds
+    );
+    const tagMap = new Map();
+    for (const row of tagRows) {
+      if (!tagMap.has(row.tracked_deck_id)) tagMap.set(row.tracked_deck_id, []);
+      tagMap.get(row.tracked_deck_id).push(row.tag);
+    }
+    for (const deck of decks) {
+      deck.tags = tagMap.get(deck.id) || [];
+    }
+  } else {
+    for (const deck of decks) deck.tags = [];
   }
 
   res.json({ decks });
@@ -451,17 +465,34 @@ router.get('/overlap', (req, res) => {
     return res.json({ decks: [], cardIndex: {}, matrix: [] });
   }
 
+  // Batch-fetch latest snapshot per deck (avoids N+1)
+  const overlapDeckIds = decks.map(d => d.id);
+  const overlapPlaceholders = overlapDeckIds.map(() => '?').join(',');
+  const latestSnaps = all(`
+    SELECT ds.tracked_deck_id, ds.deck_text
+    FROM deck_snapshots ds
+    INNER JOIN (
+      SELECT tracked_deck_id, MAX(created_at) as max_created
+      FROM deck_snapshots
+      WHERE tracked_deck_id IN (${overlapPlaceholders})
+      GROUP BY tracked_deck_id
+    ) latest ON ds.tracked_deck_id = latest.tracked_deck_id AND ds.created_at = latest.max_created
+    WHERE ds.tracked_deck_id IN (${overlapPlaceholders})
+  `, [...overlapDeckIds, ...overlapDeckIds]);
+
+  const snapMap = new Map();
+  for (const row of latestSnaps) {
+    snapMap.set(row.tracked_deck_id, row.deck_text);
+  }
+
   // Gather card names per deck from latest snapshot
   const deckCards = []; // Array of { id, name, commanders, cards: Set<lowerName>, totalCards: number }
   for (const deck of decks) {
-    const snap = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
-      [deck.id]
-    );
-    if (!snap?.deck_text) continue;
+    const deckText = snapMap.get(deck.id);
+    if (!deckText) continue;
 
     try {
-      const parsed = parse(snap.deck_text);
+      const parsed = parse(deckText);
       const cardNames = new Set();
       let totalCards = 0;
       for (const [, entry] of parsed.mainboard) {

@@ -376,6 +376,7 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_redemptions_code ON invite_redemptions(invite_code_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON admin_audit_log(created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON admin_audit_log(action)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_user ON tracked_decks(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_owner ON tracked_decks(tracked_owner_id)');

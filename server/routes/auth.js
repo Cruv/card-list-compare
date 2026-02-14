@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { get, run, all } from '../db.js';
-import { createToken, requireAuth } from '../middleware/auth.js';
+import { createToken, requireAuth, invalidateAuthCache } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { validatePassword } from '../middleware/validate.js';
 import { isEmailConfigured, sendPasswordResetEmail, sendVerificationEmail } from '../lib/email.js';
@@ -165,6 +165,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
 
     const hash = await bcrypt.hash(newPassword, 10);
     run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ?", [hash, user.id]);
+    invalidateAuthCache(user.id);
 
     // Issue a new token so the current session stays valid
     const freshUser = get('SELECT * FROM users WHERE id = ?', [user.id]);
@@ -341,6 +342,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     const hash = await bcrypt.hash(newPassword, 10);
     run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ?", [hash, resetToken.user_id]);
+    invalidateAuthCache(resetToken.user_id);
     run('UPDATE password_reset_tokens SET used = 1 WHERE id = ?', [resetToken.id]);
 
     res.json({ success: true });

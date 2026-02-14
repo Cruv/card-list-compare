@@ -16,13 +16,15 @@ import { computeDiff } from './lib/differ';
 import { collectCardNames, collectCardIdentifiers, fetchCardData } from './lib/scryfall';
 import { createShare, getShare, verifyEmail } from './lib/api';
 import { toast } from './components/Toast';
+import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.23.0';
+const APP_VERSION = '2.24.0';
 const WHATS_NEW = [
-  'Mana symbols now use official Scryfall SVGs instead of CSS circles',
-  'Fixed deck overlap matrix diagonal — shows total card count instead of unique names',
+  'Performance: Scryfall card data is now cached — overlays load near-instantly on repeat views',
+  'Performance: Eliminated N+1 database queries on deck library and overlap pages',
+  'Performance: Mana symbol SVGs are prefetched for instant rendering',
 ];
 
 function getResetToken() {
@@ -47,6 +49,9 @@ export default function App() {
   const [showWhatsNew, setShowWhatsNew] = useState(false);
 
   // Show "what's new" toast once per version
+  // Prefetch common mana symbol SVGs at idle priority
+  useEffect(() => { preloadManaSymbols(); }, []);
+
   useEffect(() => {
     const lastSeen = localStorage.getItem('clc-version-seen');
     if (lastSeen === APP_VERSION) return;
