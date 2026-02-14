@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.10.0';
+const APP_VERSION = '2.11.0';
 const WHATS_NEW = [
-  'Deck overlap analysis — see which cards are shared across your tracked decks',
-  'Interactive overlap matrix — click any cell to see the shared card list',
+  'Power level estimation — heuristic 1-10 rating for Commander decks based on card analysis',
+  'Visible on the Full Deck tab in timeline overlay with breakdown signals',
 ];
 
 function getResetToken() {

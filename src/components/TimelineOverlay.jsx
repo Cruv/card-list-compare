@@ -5,6 +5,7 @@ import { getDeckChangelog, getSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS } from '../lib/formatter';
+import { estimatePowerLevel } from '../lib/powerLevel';
 import SectionChangelog from './SectionChangelog';
 import DeckListView from './DeckListView';
 import CopyButton from './CopyButton';
@@ -372,7 +373,28 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
             deckLoading ? (
               <Skeleton lines={12} />
             ) : parsedDeck ? (
-              <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} searchQuery={searchQuery} />
+              <>
+                {deckCardMap && deckCardMap.size > 0 && (() => {
+                  const pl = estimatePowerLevel(parsedDeck, deckCardMap);
+                  if (pl.level === 0) return null;
+                  return (
+                    <div className="timeline-overlay-power-level">
+                      <div className="power-level-header">
+                        <span className={`power-level-badge power-level-badge--${pl.level}`}>{pl.level}</span>
+                        <span className="power-level-label">{pl.label}</span>
+                        <span className="power-level-scale">/ 10</span>
+                      </div>
+                      <div className="power-level-bar">
+                        <div className="power-level-bar-fill" style={{ width: `${pl.level * 10}%` }} />
+                      </div>
+                      <div className="power-level-signals">
+                        {pl.signals.map((s, i) => <span key={i} className="power-level-signal">{s}</span>)}
+                      </div>
+                    </div>
+                  );
+                })()}
+                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} searchQuery={searchQuery} />
+              </>
             ) : null
           )}
         </div>

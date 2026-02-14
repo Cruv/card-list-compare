@@ -223,6 +223,82 @@
 
 /* ── Mobile ──────────────────────────────────────── */
 
+/* ── Power Level ─────────────────────────────────── */
+
+.timeline-overlay-power-level {
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  background: rgba(92, 107, 192, 0.04);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.power-level-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.power-level-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-weight: 800;
+  font-size: var(--fs-base);
+  color: #fff;
+  background: #64748b;
+}
+
+.power-level-badge--1, .power-level-badge--2 { background: #22c55e; }
+.power-level-badge--3, .power-level-badge--4 { background: #84cc16; }
+.power-level-badge--5, .power-level-badge--6 { background: #eab308; }
+.power-level-badge--7, .power-level-badge--8 { background: #f97316; }
+.power-level-badge--9, .power-level-badge--10 { background: #ef4444; }
+
+.power-level-label {
+  font-weight: 700;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+}
+
+.power-level-scale {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.power-level-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.15);
+  margin-bottom: var(--space-sm);
+  overflow: hidden;
+}
+
+.power-level-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);
+  transition: width 0.4s ease;
+}
+
+.power-level-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.power-level-signal {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(92, 107, 192, 0.1);
+  color: var(--text-secondary);
+}
+
 @media (max-width: 640px) {
   .timeline-overlay {
     padding: 0;
