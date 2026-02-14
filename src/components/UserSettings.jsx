@@ -357,6 +357,11 @@ function DeckTrackerSettings({ confirm }) {
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
 
+  // Cross-deck comparison state
+  const [crossDeckMode, setCrossDeckMode] = useState(false);
+  const [crossDeckA, setCrossDeckA] = useState(''); // "deckId:snapshotId" or "deckId" (latest)
+  const [crossDeckB, setCrossDeckB] = useState('');
+
   // Collect all unique tags across decks
   const allTags = useMemo(() => {
     const tags = new Set();
@@ -715,6 +720,56 @@ function DeckTrackerSettings({ confirm }) {
     }
   }
 
+  // Snapshot restore — load a snapshot into the main compare UI
+  async function handleRestoreSnapshot(deckId, snapshotId, side) {
+    try {
+      const data = await getSnapshot(deckId, snapshotId);
+      const text = data.snapshot.deck_text;
+      const restore = {};
+      if (side === 'before') restore.beforeText = text;
+      else restore.afterText = text;
+      sessionStorage.setItem('clc-restore', JSON.stringify(restore));
+      window.location.hash = '';
+    } catch (err) {
+      toast.error(err.message || 'Failed to load snapshot');
+    }
+  }
+
+  // Cross-deck comparison — load two deck snapshots into compare UI
+  async function handleCrossDeckCompare() {
+    if (!crossDeckA || !crossDeckB) return;
+    try {
+      // Parse "deckId" or "deckId:snapshotId" format
+      const [deckIdA, snapIdA] = crossDeckA.split(':');
+      const [deckIdB, snapIdB] = crossDeckB.split(':');
+
+      let textA, textB;
+      if (snapIdA) {
+        const data = await getSnapshot(deckIdA, snapIdA);
+        textA = data.snapshot.deck_text;
+      } else {
+        const snaps = await getDeckSnapshots(deckIdA);
+        if (snaps.snapshots.length === 0) throw new Error('No snapshots for first deck');
+        const latest = await getSnapshot(deckIdA, snaps.snapshots[0].id);
+        textA = latest.snapshot.deck_text;
+      }
+      if (snapIdB) {
+        const data = await getSnapshot(deckIdB, snapIdB);
+        textB = data.snapshot.deck_text;
+      } else {
+        const snaps = await getDeckSnapshots(deckIdB);
+        if (snaps.snapshots.length === 0) throw new Error('No snapshots for second deck');
+        const latest = await getSnapshot(deckIdB, snaps.snapshots[0].id);
+        textB = latest.snapshot.deck_text;
+      }
+
+      sessionStorage.setItem('clc-restore', JSON.stringify({ beforeText: textA, afterText: textB }));
+      window.location.hash = '';
+    } catch (err) {
+      toast.error(err.message || 'Failed to load decks for comparison');
+    }
+  }
+
   async function handleExpandDeckSnapshots(deckId) {
     if (expandedDeckId === deckId) {
       setExpandedDeckId(null);
@@ -870,6 +925,13 @@ function DeckTrackerSettings({ confirm }) {
             <h4>Tracked Decks</h4>
             <div className="settings-tracker-decks-header-actions">
               <button
+                className={`btn btn-secondary btn-sm${crossDeckMode ? ' btn--active' : ''}`}
+                onClick={() => { setCrossDeckMode(!crossDeckMode); setCrossDeckA(''); setCrossDeckB(''); }}
+                type="button"
+              >
+                {crossDeckMode ? 'Cancel Compare' : 'Compare Decks'}
+              </button>
+              <button
                 className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
                 onClick={toggleBulkMode}
                 type="button"
@@ -886,6 +948,29 @@ function DeckTrackerSettings({ confirm }) {
               </button>
             </div>
           </div>
+
+          {/* Cross-deck comparison UI */}
+          {crossDeckMode && (
+            <div className="settings-tracker-cross-compare">
+              <select value={crossDeckA} onChange={e => setCrossDeckA(e.target.value)} aria-label="Select first deck">
+                <option value="">Before deck...</option>
+                {trackedDecks.map(d => <option key={d.id} value={String(d.id)}>{d.deck_name}</option>)}
+              </select>
+              <span className="settings-tracker-cross-vs">vs</span>
+              <select value={crossDeckB} onChange={e => setCrossDeckB(e.target.value)} aria-label="Select second deck">
+                <option value="">After deck...</option>
+                {trackedDecks.map(d => <option key={d.id} value={String(d.id)}>{d.deck_name}</option>)}
+              </select>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={handleCrossDeckCompare}
+                disabled={!crossDeckA || !crossDeckB}
+                type="button"
+              >
+                Compare
+              </button>
+            </div>
+          )}
 
           {/* Bulk action bar */}
           {bulkMode && (
@@ -1030,6 +1115,7 @@ function DeckTrackerSettings({ confirm }) {
                           handleShareDeck={handleShareDeck}
                           handleUnshareDeck={handleUnshareDeck}
                           handleRefreshTrackedDecks={refresh}
+                          handleRestoreSnapshot={handleRestoreSnapshot}
                         />
                       );
                     })}
@@ -1077,6 +1163,7 @@ function DeckCard({
   bulkMode, isSelected, onToggleSelect,
   handleShareDeck, handleUnshareDeck,
   handleRefreshTrackedDecks,
+  handleRestoreSnapshot,
 }) {
   const [timelineData, setTimelineData] = useState(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -1479,6 +1566,22 @@ function DeckCard({
                       type="button"
                     >
                       {snap.nickname ? 'Rename' : 'Nickname'}
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm settings-tracker-snap-restore"
+                      onClick={() => handleRestoreSnapshot(deck.id, snap.id, 'before')}
+                      type="button"
+                      title="Load this snapshot into the Before panel"
+                    >
+                      Before
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm settings-tracker-snap-restore"
+                      onClick={() => handleRestoreSnapshot(deck.id, snap.id, 'after')}
+                      type="button"
+                      title="Load this snapshot into the After panel"
+                    >
+                      After
                     </button>
                     <button
                       className="btn btn-secondary btn-sm btn-danger"

@@ -1253,3 +1253,50 @@
   display: flex;
   gap: var(--space-xs);
 }
+
+/* ── Cross-Deck Comparison ──────────────────────────── */
+
+.settings-tracker-cross-compare {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(92, 107, 192, 0.08);
+  border: 1px solid var(--accent-blue);
+  border-radius: var(--radius);
+  margin-bottom: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.settings-tracker-cross-compare select {
+  flex: 1;
+  min-width: 140px;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.settings-tracker-cross-vs {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ── Snapshot Restore Buttons ───────────────────────── */
+
+.settings-tracker-snap-restore {
+  font-size: 0.7rem !important;
+  padding: 2px 6px !important;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.settings-tracker-snap-restore:hover {
+  opacity: 1;
+}

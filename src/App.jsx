@@ -18,12 +18,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.6.0';
 const WHATS_NEW = [
-  'Deck tags — label your decks (Commander, cEDH, Budget, etc.) with custom tags and filter by them',
-  'Deck notes — add free-text notes to any tracked deck, click to edit inline',
-  'Pin favorites — pin important decks to the top of your deck list',
-  'Tag filter — quickly filter your deck tracker view by tag',
+  'Snapshot restore — load any snapshot into Before or After to compare against anything',
+  'Cross-deck comparison — compare two different tracked decks side-by-side',
+  'Non-adjacent snapshot diffs — the timeline already supports comparing any two snapshots via the API',
 ];
 
 function getResetToken() {
@@ -46,6 +45,33 @@ export default function App() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+
+  // Pick up snapshot restore from sessionStorage (set by UserSettings)
+  useEffect(() => {
+    const restore = sessionStorage.getItem('clc-restore');
+    if (!restore) return;
+    sessionStorage.removeItem('clc-restore');
+    try {
+      const data = JSON.parse(restore);
+      if (data.beforeText !== undefined) setBeforeText(data.beforeText);
+      if (data.afterText !== undefined) setAfterText(data.afterText);
+      // Auto-compare if both sides have text
+      if (data.beforeText && data.afterText) {
+        const before = parse(data.beforeText);
+        const after = parse(data.afterText);
+        const diff = computeDiff(before, after);
+        setDiffResult(diff);
+        setCardMap(null);
+        const identifiers = collectCardIdentifiers(diff);
+        if (identifiers.size > 0) {
+          fetchCardData(identifiers).then(setCardMap).catch(() => {});
+        }
+      } else {
+        setDiffResult(null);
+        setCardMap(null);
+      }
+    } catch { /* ignore corrupt data */ }
+  }, [route]);
 
   // Show "what's new" toast once per version
   useEffect(() => {
