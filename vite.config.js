@@ -34,6 +34,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/deckstats/, ''),
       },
+      '/api/mtggoldfish': {
+        target: 'https://www.mtggoldfish.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/mtggoldfish/, ''),
+      },
+      '/api/tcgplayer': {
+        target: 'https://infinite.tcgplayer.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/tcgplayer/, ''),
+      },
       '/api/scryfall': {
         target: 'https://api.scryfall.com',
         changeOrigin: true,

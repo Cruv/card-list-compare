@@ -42,6 +42,8 @@ const MOXFIELD_RE = /moxfield\.com\/decks\/([\w-]+)/i;
 const DECKCHECK_RE = /deckcheck\.co\/(app\/)?deckview\/([\w]+)/i;
 const TAPPEDOUT_RE = /tappedout\.net\/mtg-decks\/([\w-]+)/i;
 const DECKSTATS_RE = /deckstats\.net\/decks\/(\d+)\/(\d+)/i;
+const MTGGOLDFISH_RE = /mtggoldfish\.com\/deck\/(\d+)/i;
+const TCGPLAYER_RE = /(?:infinite\.)?tcgplayer\.com\/(?:magic\/deck|api\/v1\/decks)\/(?:[\w-]+\/)?(\d+)/i;
 
 export function detectSite(url) {
   if (ARCHIDEKT_RE.test(url)) return 'archidekt';
@@ -49,6 +51,8 @@ export function detectSite(url) {
   if (DECKCHECK_RE.test(url)) return 'deckcheck';
   if (TAPPEDOUT_RE.test(url)) return 'tappedout';
   if (DECKSTATS_RE.test(url)) return 'deckstats';
+  if (MTGGOLDFISH_RE.test(url)) return 'mtggoldfish';
+  if (TCGPLAYER_RE.test(url)) return 'tcgplayer';
   return null;
 }
 
@@ -341,6 +345,101 @@ async function fetchDeckstats(url) {
 }
 
 // ---------------------------------------------------------------------------
+// MTGGoldfish
+// ---------------------------------------------------------------------------
+
+async function fetchMtgGoldfish(url) {
+  const match = url.match(MTGGOLDFISH_RE);
+  if (!match) throw new Error('Could not parse MTGGoldfish deck ID from URL.');
+  const deckId = match[1];
+
+  // MTGGoldfish provides a text download at /deck/download/{id}
+  const apiUrl = `/api/mtggoldfish/deck/download/${deckId}`;
+
+  const res = await fetchWithTimeout(apiUrl);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('MTGGoldfish deck not found. Is the URL correct?');
+    throw new Error(`MTGGoldfish returned status ${res.status}`);
+  }
+
+  const rawText = (await res.text()).trim();
+  if (!rawText) throw new Error('MTGGoldfish returned an empty deck list.');
+
+  // MTGGoldfish txt format: "4 Lightning Bolt\n..." with blank line before sideboard
+  // The format is already compatible with our parser
+  let totalCards = 0;
+  for (const line of rawText.split('\n')) {
+    const m = line.match(/^(\d+)\s/);
+    if (m) totalCards += parseInt(m[1], 10);
+  }
+
+  return { text: rawText, commanders: [], stats: { totalCards, cardsWithMeta: 0 } };
+}
+
+// ---------------------------------------------------------------------------
+// TCGPlayer
+// ---------------------------------------------------------------------------
+
+async function fetchTcgPlayer(url) {
+  const match = url.match(TCGPLAYER_RE);
+  if (!match) throw new Error('Could not parse TCGPlayer deck ID from URL.');
+  const deckId = match[1];
+
+  const apiUrl = `/api/tcgplayer/api/v1/decks/${deckId}`;
+
+  const res = await fetchWithTimeout(apiUrl);
+  if (!res.ok) {
+    if (res.status === 404) throw new Error('TCGPlayer deck not found. Is the URL correct?');
+    if (res.status === 403)
+      throw new Error('TCGPlayer blocked the request. Try exporting your deck and pasting it instead.');
+    throw new Error(`TCGPlayer returned status ${res.status}`);
+  }
+
+  const data = await res.json();
+  return tcgPlayerToText(data);
+}
+
+function tcgPlayerToText(data) {
+  const mainLines = [];
+  const sideLines = [];
+  const commanderLines = [];
+  const commanderNames = [];
+  let totalCards = 0;
+
+  const entries = data.entries || data.cards || [];
+
+  for (const entry of entries) {
+    const name = entry.name || entry.cardName || 'Unknown';
+    const qty = entry.quantity || 1;
+    const boardType = (entry.boardType || entry.board || 'main').toLowerCase();
+
+    totalCards += qty;
+
+    const line = `${qty} ${name}`;
+
+    if (boardType === 'commander' || boardType === 'commanders') {
+      commanderLines.push(line);
+      commanderNames.push(name);
+    } else if (boardType === 'sideboard' || boardType === 'side') {
+      sideLines.push(line);
+    } else {
+      mainLines.push(line);
+    }
+  }
+
+  let text = '';
+  if (commanderLines.length > 0) {
+    text += 'Commander\n' + commanderLines.join('\n') + '\n\n';
+  }
+  text += mainLines.join('\n');
+  if (sideLines.length > 0) {
+    text += '\n\nSideboard\n' + sideLines.join('\n');
+  }
+
+  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta: 0 } };
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -378,10 +477,22 @@ export async function fetchDeckFromUrl(url) {
     return { text, site, commanders, stats };
   }
 
+  if (site === 'mtggoldfish') {
+    const { text, commanders, stats } = await fetchMtgGoldfish(url);
+    return { text, site, commanders, stats };
+  }
+
+  if (site === 'tcgplayer') {
+    const { text, commanders, stats } = await fetchTcgPlayer(url);
+    return { text, site, commanders, stats };
+  }
+
   throw new Error(
     'Unsupported URL. Supported sites:\n' +
       '• Archidekt (archidekt.com/decks/...)\n' +
       '• Moxfield (moxfield.com/decks/...)\n' +
+      '• MTGGoldfish (mtggoldfish.com/deck/...)\n' +
+      '• TCGPlayer (infinite.tcgplayer.com/...)\n' +
       '• TappedOut (tappedout.net/mtg-decks/...)\n' +
       '• Deckstats (deckstats.net/decks/...)\n' +
       '• DeckCheck (deckcheck.co/app/deckview/...)\n\n' +
@@ -390,4 +501,4 @@ export async function fetchDeckFromUrl(url) {
 }
 
 // Exported for testing
-export { archidektToText as _archidektToText, moxfieldToText as _moxfieldToText, deckcheckToText as _deckcheckToText };
+export { archidektToText as _archidektToText, moxfieldToText as _moxfieldToText, deckcheckToText as _deckcheckToText, tcgPlayerToText as _tcgPlayerToText };

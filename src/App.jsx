@@ -18,10 +18,10 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.12.0';
+const APP_VERSION = '2.13.0';
 const WHATS_NEW = [
-  'Bulk price alerts — set a dollar threshold per deck, check current prices from Scryfall',
-  'Top 10 most expensive cards shown inline with total deck value and price delta',
+  'Import from MTGGoldfish and TCGPlayer — paste a deck URL to import',
+  'Now supports 7 sites: Archidekt, Moxfield, MTGGoldfish, TCGPlayer, TappedOut, Deckstats, DeckCheck',
 ];
 
 function getResetToken() {

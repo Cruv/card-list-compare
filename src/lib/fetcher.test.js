@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { _moxfieldToText, _archidektToText, _deckcheckToText, detectSite } from './fetcher.js';
+import { _moxfieldToText, _archidektToText, _deckcheckToText, _tcgPlayerToText, detectSite } from './fetcher.js';
 
 // ── Moxfield metadata extraction ─────────────────────────────
 
@@ -281,6 +281,16 @@ describe('detectSite()', () => {
     expect(detectSite('https://deckstats.net/decks/12345/67890-my-deck/en')).toBe('deckstats');
   });
 
+  it('detects MTGGoldfish URLs', () => {
+    expect(detectSite('https://www.mtggoldfish.com/deck/12345')).toBe('mtggoldfish');
+    expect(detectSite('https://mtggoldfish.com/deck/67890')).toBe('mtggoldfish');
+  });
+
+  it('detects TCGPlayer URLs', () => {
+    expect(detectSite('https://infinite.tcgplayer.com/magic/deck/My-Deck/12345')).toBe('tcgplayer');
+    expect(detectSite('https://infinite.tcgplayer.com/api/v1/decks/12345')).toBe('tcgplayer');
+  });
+
   it('returns null for plain text', () => {
     expect(detectSite('4 Lightning Bolt')).toBeNull();
     expect(detectSite('Sol Ring')).toBeNull();
@@ -290,5 +300,43 @@ describe('detectSite()', () => {
   it('returns null for unsupported URLs', () => {
     expect(detectSite('https://google.com')).toBeNull();
     expect(detectSite('https://scryfall.com/card/m10/227')).toBeNull();
+  });
+});
+
+// ── TCGPlayer conversion ──────────────────────────────────────
+
+describe('tcgPlayerToText()', () => {
+  it('converts basic deck with mainboard and sideboard', () => {
+    const data = {
+      entries: [
+        { name: 'Lightning Bolt', quantity: 4, boardType: 'main' },
+        { name: 'Sol Ring', quantity: 1, boardType: 'main' },
+        { name: 'Fatal Push', quantity: 2, boardType: 'sideboard' },
+      ],
+    };
+    const { text, commanders, stats } = _tcgPlayerToText(data);
+    expect(text).toContain('4 Lightning Bolt');
+    expect(text).toContain('1 Sol Ring');
+    expect(text).toContain('Sideboard\n2 Fatal Push');
+    expect(commanders).toEqual([]);
+    expect(stats.totalCards).toBe(7);
+  });
+
+  it('handles commander board type', () => {
+    const data = {
+      entries: [
+        { name: 'Atraxa, Praetors\' Voice', quantity: 1, boardType: 'commander' },
+        { name: 'Sol Ring', quantity: 1, boardType: 'main' },
+      ],
+    };
+    const { text, commanders } = _tcgPlayerToText(data);
+    expect(text).toContain('Commander\n1 Atraxa');
+    expect(commanders).toEqual(['Atraxa, Praetors\' Voice']);
+  });
+
+  it('handles empty entries', () => {
+    const { text, stats } = _tcgPlayerToText({ entries: [] });
+    expect(text).toBe('');
+    expect(stats.totalCards).toBe(0);
   });
 });
