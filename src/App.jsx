@@ -18,11 +18,11 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 const WHATS_NEW = [
-  'Deck price tracking — per-card prices from Scryfall shown on every card line, with total deck value on full deck views',
-  'Price impact badges — see the cost of each deck change at a glance (+$12.50 / -$8.00) in timeline overlays',
-  'Admin price control — admins can enable/disable price display globally from the settings panel',
+  'Deck analytics — mana curve chart, card type distribution, and color breakdown on the Full Deck tab',
+  'Deck stats summary — total cards, unique cards, average CMC, land count, and creature count at a glance',
+  'Collapsible analytics panel — toggle deck analytics visibility to focus on the card list',
 ];
 
 function getResetToken() {

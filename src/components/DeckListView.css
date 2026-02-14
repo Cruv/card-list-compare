@@ -14,7 +14,7 @@
   color: var(--text-secondary);
   padding: var(--space-sm) var(--space-md);
   margin-bottom: var(--space-md);
-  background: var(--bg-card);
+  background: rgba(92, 107, 192, 0.08);
   border-radius: var(--radius);
   border: 1px solid var(--border-color);
 }
@@ -52,4 +52,238 @@
   color: var(--text-muted);
   letter-spacing: 0;
   text-transform: none;
+}
+
+/* ── Analytics toggle ───────────────────────────── */
+
+.deck-analytics-toggle {
+  margin-bottom: var(--space-md);
+}
+
+.deck-analytics-toggle-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) 0;
+  transition: color 0.15s;
+}
+
+.deck-analytics-toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+.deck-analytics-arrow {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+  display: inline-block;
+}
+
+.deck-analytics-arrow--open {
+  transform: rotate(90deg);
+}
+
+/* ── Analytics container ────────────────────────── */
+
+.deck-analytics {
+  margin-bottom: var(--space-lg);
+  padding: var(--space-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: rgba(92, 107, 192, 0.04);
+}
+
+/* ── Stats summary row ──────────────────────────── */
+
+.deck-analytics-stats {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-lg);
+}
+
+.analytics-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 52px;
+  padding: var(--space-sm) var(--space-xs);
+  background: rgba(92, 107, 192, 0.08);
+  border-radius: var(--radius);
+}
+
+.analytics-stat-value {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.analytics-stat-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Chart sections ─────────────────────────────── */
+
+.deck-analytics-chart {
+  margin-bottom: var(--space-md);
+}
+
+.deck-analytics-chart:last-child {
+  margin-bottom: 0;
+}
+
+.deck-analytics-chart-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0 0 var(--space-sm) 0;
+}
+
+/* ── Vertical bar chart (mana curve, color dist) ── */
+
+.deck-analytics-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  height: 90px;
+}
+
+.analytics-bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.analytics-bar-value {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-height: 14px;
+  line-height: 14px;
+}
+
+.analytics-bar-track {
+  width: 100%;
+  height: 60px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.analytics-bar-fill {
+  width: 100%;
+  max-width: 28px;
+  min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  transition: height 0.3s ease;
+}
+
+.analytics-bar-fill--cmc {
+  background: var(--accent-blue);
+  opacity: 0.8;
+}
+
+.analytics-bar-label {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ── Color pips ─────────────────────────────────── */
+
+.analytics-color-pip {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* ── Horizontal bar chart (card types) ──────────── */
+
+.deck-analytics-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.analytics-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.analytics-row-label {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  min-width: 80px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.analytics-row-track {
+  flex: 1;
+  height: 14px;
+  background: rgba(92, 107, 192, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.analytics-row-fill {
+  height: 100%;
+  background: var(--accent-blue);
+  opacity: 0.6;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+
+.analytics-row-value {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 24px;
+  text-align: right;
+}
+
+/* ── Mobile adjustments ─────────────────────────── */
+
+@media (max-width: 480px) {
+  .analytics-row-label {
+    min-width: 60px;
+    font-size: 10px;
+  }
+
+  .deck-analytics-stats {
+    gap: var(--space-xs);
+  }
+
+  .analytics-stat {
+    min-width: 44px;
+    padding: var(--space-xs);
+  }
+
+  .analytics-stat-value {
+    font-size: var(--fs-md);
+  }
 }
