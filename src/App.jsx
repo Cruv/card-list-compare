@@ -18,13 +18,12 @@ import { toast } from './components/Toast';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 const WHATS_NEW = [
-  'URL auto-detect on paste — paste a Moxfield, Archidekt, TappedOut, Deckstats, or DeckCheck URL into the deck textarea to auto-import',
-  'Snapshot timeline — visual history of deck changes with add/remove/change counts per snapshot',
-  'TappedOut & Deckstats import — import decks from TappedOut and Deckstats URLs',
-  'Bulk deck operations — select multiple tracked decks to refresh, export, or untrack in batch',
-  'Shared deck views — share a read-only link to any tracked deck for others to browse snapshots and changelogs',
+  'Interactive timeline — click any timeline entry to view a rich changelog or full deck list at that snapshot',
+  'Full deck view — see your complete deck sorted by card type with printing info, mana costs, and card image tooltips',
+  'Timeline changes view — detailed diff with type grouping, printing badges, and Scryfall artwork for each snapshot',
+  'Card search in overlay — filter cards by name across both changes and full deck views',
 ];
 
 function getResetToken() {
