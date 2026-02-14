@@ -138,6 +138,24 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
     );
   }
 
+  if (changeType === 'list') {
+    return (
+      <div
+        className="card-line card-line--list"
+        onMouseEnter={isTouch ? undefined : () => setHovering(true)}
+        onMouseLeave={isTouch ? undefined : () => setHovering(false)}
+        onClick={handleClick}
+      >
+        <span className="card-line-qty">{quantity}</span>
+        <span className="card-line-name" ref={nameRef}>{name}</span>
+        <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
+        {manaCost && <ManaCost cost={manaCost} />}
+        {tooltip}
+        {overlay}
+      </div>
+    );
+  }
+
   // changeType === 'changed'
   const sign = delta > 0 ? '+' : '';
   return (

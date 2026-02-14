@@ -17,6 +17,7 @@ import CopyButton from './CopyButton';
 import PasswordRequirements from './PasswordRequirements';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON } from '../lib/formatter';
 import Skeleton from './Skeleton';
+import TimelineOverlay from './TimelineOverlay';
 import './UserSettings.css';
 
 export default function UserSettings() {
@@ -1052,6 +1053,12 @@ function DeckCard({
   const [timelineData, setTimelineData] = useState(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [overlayEntry, setOverlayEntry] = useState(null);
+
+  function handleTimelineEntryClick(entry, index) {
+    const prevId = index > 0 ? timelineData[index - 1].snapshotId : null;
+    setOverlayEntry({ entry, prevSnapshotId: prevId });
+  }
 
   async function handleShowTimeline() {
     if (showTimeline) { setShowTimeline(false); return; }
@@ -1201,7 +1208,17 @@ function DeckCard({
           </div>
 
           {showTimeline && (
-            <SnapshotTimeline entries={timelineData} loading={timelineLoading} />
+            <SnapshotTimeline entries={timelineData} loading={timelineLoading} onEntryClick={handleTimelineEntryClick} />
+          )}
+
+          {overlayEntry && (
+            <TimelineOverlay
+              deckId={deck.id}
+              entry={overlayEntry.entry}
+              prevSnapshotId={overlayEntry.prevSnapshotId}
+              deckName={deck.deck_name}
+              onClose={() => setOverlayEntry(null)}
+            />
           )}
 
           {compareMode && changelogDeckId === deck.id && (
@@ -1518,7 +1535,7 @@ function ChangelogSection({ title, section }) {
 
 // --- Snapshot Timeline ---
 
-function SnapshotTimeline({ entries, loading }) {
+function SnapshotTimeline({ entries, loading, onEntryClick }) {
   if (loading) return <Skeleton lines={4} />;
   if (!entries || entries.length === 0) return <p className="settings-tracker-empty">No snapshots to show.</p>;
 
@@ -1530,7 +1547,14 @@ function SnapshotTimeline({ entries, loading }) {
   return (
     <div className="settings-timeline">
       {entries.map((entry, i) => (
-        <div key={entry.snapshotId} className="settings-timeline-entry">
+        <div
+          key={entry.snapshotId}
+          className={`settings-timeline-entry${onEntryClick ? ' settings-timeline-entry--clickable' : ''}`}
+          onClick={onEntryClick ? () => onEntryClick(entry, i) : undefined}
+          role={onEntryClick ? 'button' : undefined}
+          tabIndex={onEntryClick ? 0 : undefined}
+          onKeyDown={onEntryClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onEntryClick(entry, i); } } : undefined}
+        >
           <div className="settings-timeline-left">
             <div className="settings-timeline-dot" />
             {i < entries.length - 1 && <div className="settings-timeline-line" />}

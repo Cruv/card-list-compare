@@ -1,0 +1,210 @@
+/* ── Timeline Overlay ─────────────────────────────── */
+
+@keyframes timelineOverlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes timelineOverlaySlideIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.timeline-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  animation: timelineOverlayFadeIn 0.15s ease-out;
+  padding: var(--space-lg);
+}
+
+.timeline-overlay-panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 700px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3);
+  animation: timelineOverlaySlideIn 0.15s ease-out;
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────── */
+
+.timeline-overlay-header {
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.timeline-overlay-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.timeline-overlay-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-overlay-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.1s;
+  flex-shrink: 0;
+}
+
+.timeline-overlay-close:hover {
+  color: var(--text-primary);
+}
+
+.timeline-overlay-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-top: var(--space-xs);
+}
+
+.timeline-overlay-date {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+.timeline-overlay-nick {
+  font-size: var(--fs-sm);
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.timeline-overlay-count {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.timeline-overlay-delta {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.timeline-overlay-baseline {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ── Tabs ────────────────────────────────────────── */
+
+.timeline-overlay-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.timeline-overlay-tab {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+}
+
+.timeline-overlay-tab:hover {
+  color: var(--text-primary);
+}
+
+.timeline-overlay-tab--active {
+  color: var(--accent-blue);
+  border-bottom-color: var(--accent-blue);
+}
+
+.timeline-overlay-tab-badge {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  background: rgba(92, 107, 192, 0.15);
+  color: var(--accent-blue);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.timeline-overlay-tab--active .timeline-overlay-tab-badge {
+  background: rgba(92, 107, 192, 0.25);
+}
+
+/* ── Search ──────────────────────────────────────── */
+
+.timeline-overlay-search {
+  position: relative;
+  padding: var(--space-md) var(--space-lg) 0;
+  flex-shrink: 0;
+}
+
+/* ── Content (scrollable) ────────────────────────── */
+
+.timeline-overlay-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-lg);
+  min-height: 0;
+}
+
+.timeline-overlay-empty {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.timeline-overlay-summary {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+/* ── Mobile ──────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .timeline-overlay {
+    padding: 0;
+  }
+
+  .timeline-overlay-panel {
+    max-width: 100%;
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+  }
+}

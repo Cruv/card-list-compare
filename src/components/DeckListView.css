@@ -1,0 +1,41 @@
+.deck-list-view {
+  /* Container for full deck rendering */
+}
+
+.deck-list-commanders {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--accent-blue);
+  margin-bottom: var(--space-md);
+}
+
+.deck-list-section {
+  margin-bottom: 24px;
+}
+
+.deck-list-section:last-child {
+  margin-bottom: 0;
+}
+
+.deck-list-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-primary);
+  padding: 0 0 8px 12px;
+  border-left: 3px solid var(--accent-blue);
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.deck-list-section-count {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 0;
+  text-transform: none;
+}

@@ -76,6 +76,10 @@
   color: var(--accent-yellow);
 }
 
+.card-line--list {
+  color: var(--text-primary);
+}
+
 /* ── Card image tooltip ──────────────────────────────────────── */
 
 .card-tooltip {
