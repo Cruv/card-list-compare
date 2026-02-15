@@ -65,7 +65,7 @@
 }
 
 .mpc-overlay-back {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   background: none;
@@ -708,12 +708,12 @@
     flex: 1;
   }
 
-  .mpc-overlay-close {
-    min-width: 44px;
-    min-height: 44px;
+  .mpc-overlay-back {
     display: flex;
-    align-items: center;
-    justify-content: center;
+  }
+
+  .mpc-overlay-close {
+    display: none;
   }
 
   .mpc-settings-range-row {

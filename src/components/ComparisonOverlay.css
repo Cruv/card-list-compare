@@ -125,7 +125,7 @@
 /* ── Back button ─────────────────────────────────── */
 
 .comparison-overlay-mobile-back {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   background: none;
@@ -168,11 +168,11 @@
     border-radius: 0;
   }
 
-  .comparison-overlay-close {
-    min-width: 44px;
-    min-height: 44px;
+  .comparison-overlay-mobile-back {
     display: flex;
-    align-items: center;
-    justify-content: center;
+  }
+
+  .comparison-overlay-close {
+    display: none;
   }
 }

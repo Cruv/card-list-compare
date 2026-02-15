@@ -224,7 +224,7 @@
 /* ── Back button ─────────────────────────────────── */
 
 .timeline-overlay-mobile-back {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   background: none;
@@ -333,11 +333,11 @@
     border-radius: 0;
   }
 
-  .timeline-overlay-close {
-    min-width: 44px;
-    min-height: 44px;
+  .timeline-overlay-mobile-back {
     display: flex;
-    align-items: center;
-    justify-content: center;
+  }
+
+  .timeline-overlay-close {
+    display: none;
   }
 }

@@ -272,7 +272,7 @@
 /* ── Back button ─────────────────────────────────── */
 
 .recs-overlay-mobile-back {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   background: none;
@@ -318,11 +318,11 @@
     flex-wrap: wrap;
   }
 
-  .recs-overlay-close {
-    min-width: 44px;
-    min-height: 44px;
+  .recs-overlay-mobile-back {
     display: flex;
-    align-items: center;
-    justify-content: center;
+  }
+
+  .recs-overlay-close {
+    display: none;
   }
 }
