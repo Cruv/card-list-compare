@@ -459,4 +459,83 @@ Sideboard
     expect(diff.mainboard.cardsIn).toEqual([]);
     expect(diff.mainboard.cardsOut).toEqual([]);
   });
+
+  // ── Printing changes ─────────────────────────────────────────────
+
+  it('detects printing change when same card swaps collector number', () => {
+    const a = deck('1 Terror of the Peaks (otj) [149]');
+    const b = deck('1 Terror of the Peaks (m21) [164]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.printingChanges).toHaveLength(1);
+    expect(diff.mainboard.printingChanges[0]).toMatchObject({
+      name: 'Terror of the Peaks',
+      quantity: 1,
+      oldSetCode: 'otj',
+      oldCollectorNumber: '149',
+      newSetCode: 'm21',
+      newCollectorNumber: '164',
+    });
+  });
+
+  it('detects printing change when switching to different set', () => {
+    const a = deck('1 Sol Ring (c21) [263]');
+    const b = deck('1 Sol Ring (cmr) [252]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.printingChanges).toHaveLength(1);
+    expect(diff.mainboard.printingChanges[0]).toMatchObject({
+      name: 'Sol Ring',
+      quantity: 1,
+      oldSetCode: 'c21',
+      oldCollectorNumber: '263',
+      newSetCode: 'cmr',
+      newCollectorNumber: '252',
+    });
+  });
+
+  it('does not treat different quantities as printing change', () => {
+    const a = deck('2 Lightning Bolt (m10) [227]');
+    const b = deck('1 Lightning Bolt (m11) [149]');
+    const diff = computeDiff(a, b);
+    // Different quantities — should stay as cardsIn/cardsOut, not printing change
+    expect(diff.mainboard.printingChanges).toEqual([]);
+    expect(diff.mainboard.cardsOut).toHaveLength(1);
+    expect(diff.mainboard.cardsIn).toHaveLength(1);
+  });
+
+  it('handles multiple printing changes in same diff', () => {
+    const a = deck('1 Terror of the Peaks (otj) [149]\n1 Sol Ring (c21) [263]');
+    const b = deck('1 Terror of the Peaks (m21) [164]\n1 Sol Ring (cmr) [252]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.printingChanges).toHaveLength(2);
+    const names = diff.mainboard.printingChanges.map(c => c.name).sort();
+    expect(names).toEqual(['Sol Ring', 'Terror of the Peaks']);
+  });
+
+  it('keeps genuine adds/removes separate from printing changes', () => {
+    const a = deck('1 Terror of the Peaks (otj) [149]\n1 Counterspell');
+    const b = deck('1 Terror of the Peaks (m21) [164]\n1 Lightning Bolt');
+    const diff = computeDiff(a, b);
+    // Terror swaps printing, Counterspell removed, Lightning Bolt added
+    expect(diff.mainboard.printingChanges).toHaveLength(1);
+    expect(diff.mainboard.printingChanges[0].name).toBe('Terror of the Peaks');
+    expect(diff.mainboard.cardsOut).toEqual([
+      expect.objectContaining({ name: 'Counterspell', quantity: 1 }),
+    ]);
+    expect(diff.mainboard.cardsIn).toEqual([
+      expect.objectContaining({ name: 'Lightning Bolt', quantity: 1 }),
+    ]);
+  });
+
+  it('returns empty printingChanges when no printing swaps exist', () => {
+    const a = deck('4 Lightning Bolt');
+    const b = deck('4 Lightning Bolt\n2 Counterspell');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.printingChanges).toEqual([]);
+  });
 });

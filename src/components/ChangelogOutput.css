@@ -73,6 +73,11 @@
   background: rgba(255, 193, 7, 0.2);
 }
 
+.summary-badge--printing {
+  color: var(--accent-blue);
+  background: rgba(33, 150, 243, 0.2);
+}
+
 .summary-badge--unchanged {
   color: var(--text-secondary);
   background: rgba(255, 255, 255, 0.08);

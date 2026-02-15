@@ -69,6 +69,7 @@
 .card-line--in .card-line-price { color: var(--accent-green); }
 .card-line--out .card-line-price { color: var(--accent-red); }
 .card-line--changed .card-line-price { color: var(--accent-yellow); margin-left: 0; }
+.card-line--printing .card-line-price { color: var(--accent-blue); margin-left: 0; }
 .card-line--list .card-line-price { color: var(--text-secondary); }
 
 .card-line-cheapest-price {
@@ -95,6 +96,10 @@
 
 .card-line--changed {
   color: var(--accent-yellow);
+}
+
+.card-line--printing {
+  color: var(--accent-blue);
 }
 
 .card-line--list {

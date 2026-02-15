@@ -19,6 +19,7 @@ function filterSection(section, query) {
     cardsIn: section.cardsIn.filter(c => c.name.toLowerCase().includes(lower)),
     cardsOut: section.cardsOut.filter(c => c.name.toLowerCase().includes(lower)),
     quantityChanges: section.quantityChanges.filter(c => c.name.toLowerCase().includes(lower)),
+    printingChanges: (section.printingChanges || []).filter(c => c.name.toLowerCase().includes(lower)),
     totalUniqueCards: section.totalUniqueCards,
     unchangedCount: section.unchangedCount,
   };
@@ -150,16 +151,17 @@ export default function ComparisonOverlay({
   );
 
   // Summary stats
-  const { totalIn, totalOut, totalChanged, noChanges, hasAdditions } = useMemo(() => {
-    if (!diffResult) return { totalIn: 0, totalOut: 0, totalChanged: 0, noChanges: true, hasAdditions: false };
+  const { totalIn, totalOut, totalChanged, totalPrinting, noChanges, hasAdditions } = useMemo(() => {
+    if (!diffResult) return { totalIn: 0, totalOut: 0, totalChanged: 0, totalPrinting: 0, noChanges: true, hasAdditions: false };
     const mb = diffResult.mainboard;
     const sb = diffResult.sideboard;
     const tIn = mb.cardsIn.length + sb.cardsIn.length;
     const tOut = mb.cardsOut.length + sb.cardsOut.length;
     const tChanged = mb.quantityChanges.length + sb.quantityChanges.length;
+    const tPrinting = (mb.printingChanges || []).length + (sb.printingChanges || []).length;
     const additions = tIn > 0 ||
       [...mb.quantityChanges, ...sb.quantityChanges].some(c => c.delta > 0);
-    return { totalIn: tIn, totalOut: tOut, totalChanged: tChanged, noChanges: tIn === 0 && tOut === 0 && tChanged === 0, hasAdditions: additions };
+    return { totalIn: tIn, totalOut: tOut, totalChanged: tChanged, totalPrinting: tPrinting, noChanges: tIn === 0 && tOut === 0 && tChanged === 0 && tPrinting === 0, hasAdditions: additions };
   }, [diffResult]);
 
   // Price impact
@@ -290,6 +292,7 @@ export default function ComparisonOverlay({
                 {totalIn > 0 && <span className="summary-badge summary-badge--in">+{totalIn} in</span>}
                 {totalOut > 0 && <span className="summary-badge summary-badge--out">-{totalOut} out</span>}
                 {totalChanged > 0 && <span className="summary-badge summary-badge--changed">~{totalChanged} changed</span>}
+                {totalPrinting > 0 && <span className="summary-badge summary-badge--printing">&#8635;{totalPrinting} reprinted</span>}
                 {priceImpact && (
                   <span className={`summary-badge summary-badge--price${priceImpact.net > 0 ? ' summary-badge--price-up' : priceImpact.net < 0 ? ' summary-badge--price-down' : ''}`}>
                     {priceImpact.net >= 0 ? '+' : ''}{priceImpact.net < 0 ? '\u2212' : ''}${Math.abs(priceImpact.net).toFixed(2)}

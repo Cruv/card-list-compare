@@ -7,15 +7,15 @@ function CardGroup({ cards, changeType, cardMap }) {
   return cards.map((card) => {
     // Try composite key first (name|collectorNumber) for per-printing data, fall back to bare name
     const nameLower = card.name.toLowerCase();
-    const compositeKey = card.collectorNumber
-      ? `${nameLower}|${card.collectorNumber}`
+    const compositeKey = card.collectorNumber || card.newCollectorNumber
+      ? `${nameLower}|${card.newCollectorNumber || card.collectorNumber}`
       : null;
     const compositeData = compositeKey ? cardMap?.get(compositeKey) : null;
     const bareData = cardMap?.get(nameLower);
     const data = compositeData || bareData;
     return (
       <CardLine
-        key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : card.name}
+        key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : (card.newCollectorNumber ? `${card.name}|${card.newCollectorNumber}` : card.name)}
         name={card.name}
         quantity={card.quantity}
         changeType={changeType}
@@ -31,6 +31,12 @@ function CardGroup({ cards, changeType, cardMap }) {
         priceUsdFoil={data?.priceUsdFoil}
         cheapestPriceUsd={bareData?.priceUsd}
         cheapestPriceUsdFoil={bareData?.priceUsdFoil}
+        oldSetCode={card.oldSetCode}
+        oldCollectorNumber={card.oldCollectorNumber}
+        oldIsFoil={card.oldIsFoil}
+        newSetCode={card.newSetCode}
+        newCollectorNumber={card.newCollectorNumber}
+        newIsFoil={card.newIsFoil}
       />
     );
   });
@@ -48,8 +54,8 @@ function TypeGroupedCards({ cards, changeType, cardMap }) {
 }
 
 export default memo(function SectionChangelog({ sectionName, changes, cardMap }) {
-  const { cardsIn, cardsOut, quantityChanges } = changes;
-  const isEmpty = cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0;
+  const { cardsIn, cardsOut, quantityChanges, printingChanges = [] } = changes;
+  const isEmpty = cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0 && printingChanges.length === 0;
   const hasTypes = cardMap && cardMap.size > 0;
 
   return (
@@ -96,6 +102,20 @@ export default memo(function SectionChangelog({ sectionName, changes, cardMap })
             <TypeGroupedCards cards={quantityChanges} changeType="changed" cardMap={cardMap} />
           ) : (
             <CardGroup cards={quantityChanges} changeType="changed" cardMap={cardMap} />
+          )}
+        </div>
+      )}
+
+      {printingChanges.length > 0 && (
+        <div className="section-changelog-group">
+          <h4 className="section-changelog-group-title section-changelog-group-title--printing">
+            Printing Changes
+            <span className="section-changelog-count">{printingChanges.length}</span>
+          </h4>
+          {hasTypes ? (
+            <TypeGroupedCards cards={printingChanges} changeType="printing" cardMap={cardMap} />
+          ) : (
+            <CardGroup cards={printingChanges} changeType="printing" cardMap={cardMap} />
           )}
         </div>
       )}

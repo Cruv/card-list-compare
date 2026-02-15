@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.28.1';
+const APP_VERSION = '2.29.0';
 const WHATS_NEW = [
-  'Fix: cheapest printing price now correctly shows the lowest of foil and non-foil prices',
-  'Previously foil cards incorrectly showed the foil cheapest printing price instead of the absolute cheapest',
-  'MPC Autofill search settings: configure DPI, languages, tags, fuzzy search, and source priority',
+  'Printing Changes: swapping a card\'s artwork/printing now shows in a dedicated section instead of appearing as cards in/out',
+  'Blue summary badge shows reprinted card count alongside adds, removes, and quantity changes',
+  'Printing change detection works across all changelogs: main page, timeline overlay, and comparison overlay',
 ];
 
 function getResetToken() {

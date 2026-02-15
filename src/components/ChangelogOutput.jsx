@@ -16,6 +16,7 @@ function filterSection(section, query) {
     cardsIn: section.cardsIn.filter(c => c.name.toLowerCase().includes(lower)),
     cardsOut: section.cardsOut.filter(c => c.name.toLowerCase().includes(lower)),
     quantityChanges: section.quantityChanges.filter(c => c.name.toLowerCase().includes(lower)),
+    printingChanges: (section.printingChanges || []).filter(c => c.name.toLowerCase().includes(lower)),
     totalUniqueCards: section.totalUniqueCards,
     unchangedCount: section.unchangedCount,
   };
@@ -25,11 +26,12 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
   const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
   const [searchQuery, setSearchQuery] = useState('');
 
-  const { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel, unchangedPct } = useMemo(() => {
+  const { totalIn, totalOut, totalChanged, totalPrinting, noChanges, hasAdditions, commanderLabel, unchangedPct } = useMemo(() => {
     const totalIn = mainboard.cardsIn.length + sideboard.cardsIn.length;
     const totalOut = mainboard.cardsOut.length + sideboard.cardsOut.length;
     const totalChanged = mainboard.quantityChanges.length + sideboard.quantityChanges.length;
-    const noChanges = totalIn === 0 && totalOut === 0 && totalChanged === 0;
+    const totalPrinting = (mainboard.printingChanges || []).length + (sideboard.printingChanges || []).length;
+    const noChanges = totalIn === 0 && totalOut === 0 && totalChanged === 0 && totalPrinting === 0;
     const hasAdditions = totalIn > 0 ||
       [...mainboard.quantityChanges, ...sideboard.quantityChanges].some((c) => c.delta > 0);
     const commanderLabel = commanders && commanders.length > 0
@@ -41,7 +43,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
     const totalUnchanged = (mainboard.unchangedCount || 0) + (sideboard.unchangedCount || 0);
     const unchangedPct = totalUnique > 0 ? Math.round((totalUnchanged / totalUnique) * 100) : 0;
 
-    return { totalIn, totalOut, totalChanged, noChanges, hasAdditions, commanderLabel, unchangedPct };
+    return { totalIn, totalOut, totalChanged, totalPrinting, noChanges, hasAdditions, commanderLabel, unchangedPct };
   }, [mainboard, sideboard, commanders]);
 
   // Filtered sections for search
@@ -78,6 +80,11 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
             {totalChanged > 0 && (
               <span className="summary-badge summary-badge--changed">
                 ~{totalChanged} changed
+              </span>
+            )}
+            {totalPrinting > 0 && (
+              <span className="summary-badge summary-badge--printing">
+                &#8635;{totalPrinting} reprinted
               </span>
             )}
             {unchangedPct > 0 && (

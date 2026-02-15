@@ -155,12 +155,52 @@ function diffSection(beforeMap, afterMap) {
     }
   }
 
+  // Detect printing changes: same card name in both cardsIn and cardsOut with same quantity
+  // These are printing/artwork swaps, not actual card additions or removals
+  const printingChanges = [];
+  const outByName = new Map();
+  for (const card of cardsOut) {
+    const key = card.name.toLowerCase();
+    if (!outByName.has(key)) outByName.set(key, []);
+    outByName.get(key).push(card);
+  }
+
+  for (let i = cardsIn.length - 1; i >= 0; i--) {
+    const inCard = cardsIn[i];
+    const key = inCard.name.toLowerCase();
+    const outGroup = outByName.get(key);
+    if (!outGroup || outGroup.length === 0) continue;
+
+    // Find matching out card with same quantity
+    const outIdx = outGroup.findIndex(o => o.quantity === inCard.quantity);
+    if (outIdx === -1) continue;
+
+    const outCard = outGroup[outIdx];
+    printingChanges.push({
+      name: inCard.name,
+      quantity: inCard.quantity,
+      oldSetCode: outCard.setCode,
+      oldCollectorNumber: outCard.collectorNumber,
+      oldIsFoil: outCard.isFoil,
+      newSetCode: inCard.setCode,
+      newCollectorNumber: inCard.collectorNumber,
+      newIsFoil: inCard.isFoil,
+    });
+
+    // Remove from both arrays
+    cardsIn.splice(i, 1);
+    outGroup.splice(outIdx, 1);
+    const globalOutIdx = cardsOut.indexOf(outCard);
+    if (globalOutIdx !== -1) cardsOut.splice(globalOutIdx, 1);
+  }
+
   const byName = (a, b) => a.name.localeCompare(b.name);
   cardsIn.sort(byName);
   cardsOut.sort(byName);
   quantityChanges.sort(byName);
+  printingChanges.sort(byName);
 
-  return { cardsIn, cardsOut, quantityChanges, totalUniqueCards: allKeys.size, unchangedCount };
+  return { cardsIn, cardsOut, quantityChanges, printingChanges, totalUniqueCards: allKeys.size, unchangedCount };
 }
 
 export function computeDiff(before, after) {

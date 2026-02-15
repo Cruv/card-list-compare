@@ -63,10 +63,24 @@ function formatCardsByType(cards, typeMap, lineFormatter) {
   return text;
 }
 
-function formatSection(title, section, typeMap) {
-  const { cardsIn, cardsOut, quantityChanges } = section;
+function formatPrintingDetail(card) {
+  let old = '';
+  if (card.oldSetCode) old += `(${card.oldSetCode.toUpperCase()})`;
+  if (card.oldCollectorNumber) old += ` #${card.oldCollectorNumber}`;
+  if (card.oldIsFoil) old += ' \u2726';
 
-  if (cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0) {
+  let nw = '';
+  if (card.newSetCode) nw += `(${card.newSetCode.toUpperCase()})`;
+  if (card.newCollectorNumber) nw += ` #${card.newCollectorNumber}`;
+  if (card.newIsFoil) nw += ' \u2726';
+
+  return `${old.trim()} \u2192 ${nw.trim()}`;
+}
+
+function formatSection(title, section, typeMap) {
+  const { cardsIn, cardsOut, quantityChanges, printingChanges = [] } = section;
+
+  if (cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0 && printingChanges.length === 0) {
     return `=== ${title} ===\nNo changes.\n`;
   }
 
@@ -89,6 +103,14 @@ function formatSection(title, section, typeMap) {
     text += formatCardsByType(quantityChanges, typeMap, card => {
       const sign = card.delta > 0 ? '+' : '';
       return `~ ${card.name} (${card.oldQty} \u2192 ${card.newQty}, ${sign}${card.delta})\n`;
+    });
+    text += '\n';
+  }
+
+  if (printingChanges.length > 0) {
+    text += '--- Printing Changes ---\n';
+    text += formatCardsByType(printingChanges, typeMap, card => {
+      return `~ ${card.quantity} ${card.name}: ${formatPrintingDetail(card)}\n`;
     });
     text += '\n';
   }
@@ -199,9 +221,9 @@ function formatRedditCardsByType(cards, typeMap, lineFormatter) {
 }
 
 function formatRedditSection(title, section, typeMap) {
-  const { cardsIn, cardsOut, quantityChanges } = section;
+  const { cardsIn, cardsOut, quantityChanges, printingChanges = [] } = section;
 
-  if (cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0) {
+  if (cardsIn.length === 0 && cardsOut.length === 0 && quantityChanges.length === 0 && printingChanges.length === 0) {
     return '';
   }
 
@@ -224,6 +246,14 @@ function formatRedditSection(title, section, typeMap) {
     text += formatRedditCardsByType(quantityChanges, typeMap, card => {
       const sign = card.delta > 0 ? '+' : '';
       return `- ~ [[${card.name}]] (${card.oldQty} \u2192 ${card.newQty}, ${sign}${card.delta})\n`;
+    });
+    text += '\n';
+  }
+
+  if (printingChanges.length > 0) {
+    text += '**Printing Changes:**\n';
+    text += formatRedditCardsByType(printingChanges, typeMap, card => {
+      return `- ~ [[${card.name}]]: ${formatPrintingDetail(card)}\n`;
     });
     text += '\n';
   }
@@ -573,12 +603,14 @@ export function formatJSON(diffResult) {
       cardsIn: mainboard.cardsIn,
       cardsOut: mainboard.cardsOut,
       quantityChanges: mainboard.quantityChanges,
+      printingChanges: mainboard.printingChanges || [],
     },
     ...(hasSideboard ? {
       sideboard: {
         cardsIn: sideboard.cardsIn,
         cardsOut: sideboard.cardsOut,
         quantityChanges: sideboard.quantityChanges,
+        printingChanges: sideboard.printingChanges || [],
       },
     } : {}),
   }, null, 2);

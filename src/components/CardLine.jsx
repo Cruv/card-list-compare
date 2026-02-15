@@ -93,7 +93,7 @@ function PriceBadge({ price, cheapestPrice }) {
   );
 }
 
-export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil, priceUsd, priceUsdFoil, cheapestPriceUsd, cheapestPriceUsdFoil }) {
+export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil, priceUsd, priceUsdFoil, cheapestPriceUsd, cheapestPriceUsdFoil, oldSetCode, oldCollectorNumber, oldIsFoil, newSetCode, newCollectorNumber, newIsFoil }) {
   const { priceDisplayEnabled } = useAppSettings();
   const [hovering, setHovering] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
@@ -177,6 +177,30 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
         <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} />
+        {tooltip}
+        {overlay}
+      </div>
+    );
+  }
+
+  if (changeType === 'printing') {
+    return (
+      <div
+        className="card-line card-line--printing"
+        onMouseEnter={isTouch ? undefined : () => setHovering(true)}
+        onMouseLeave={isTouch ? undefined : () => setHovering(false)}
+        onClick={handleClick}
+      >
+        <span className="card-line-prefix">~</span>
+        <span className="card-line-qty">{quantity}</span>
+        <span className="card-line-name" ref={nameRef}>{name}</span>
+        {manaCost && <ManaCost cost={manaCost} />}
+        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} />
+        <span className="card-line-detail">
+          <PrintingBadge setCode={oldSetCode} collectorNumber={oldCollectorNumber} isFoil={oldIsFoil} />
+          &nbsp;&rarr;&nbsp;
+          <PrintingBadge setCode={newSetCode} collectorNumber={newCollectorNumber} isFoil={newIsFoil} />
+        </span>
         {tooltip}
         {overlay}
       </div>
