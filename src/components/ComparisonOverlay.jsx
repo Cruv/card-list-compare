@@ -8,6 +8,7 @@ import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
 import SectionChangelog from './SectionChangelog';
 import ManaCurveDelta from './ManaCurveDelta';
+import ColorDistributionDelta from './ColorDistributionDelta';
 import CopyButton from './CopyButton';
 import Skeleton from './Skeleton';
 import { toast } from './Toast';
@@ -311,6 +312,7 @@ export default function ComparisonOverlay({
                 </div>
               )}
               <ManaCurveDelta diffResult={diffResult} cardMap={cardMap} />
+              <ColorDistributionDelta diffResult={diffResult} cardMap={cardMap} />
               <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={cardMap} />
               {diffResult.hasSideboard && (
                 <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={cardMap} />

@@ -20,13 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.32.0';
+const APP_VERSION = '2.33.0';
 const WHATS_NEW = [
-  'Price history chart: smooth, stock-tracker-style SVG chart showing deck value over time',
-  'Mana curve delta: visual bar chart showing CMC distribution changes in deck comparisons',
-  'MPC art persistence: custom art selections now saved per deck and survive page reload',
-  'MPC DFC alt picker: back faces are now clickable for alternate art selection',
-  'Smarter notifications: email and Discord webhooks now include card-level change detail',
+  'Auto price tracking: snapshot prices now stamped automatically during deck refreshes',
+  'Color distribution delta: visual chart showing color identity changes in deck comparisons',
+  'Price calculation refactored into shared module for route and scheduler reuse',
 ];
 
 function getResetToken() {

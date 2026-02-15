@@ -6,6 +6,7 @@ import { pruneSnapshots } from './pruneSnapshots.js';
 import { isEmailConfigured, sendEmail, getAppUrl } from './email.js';
 import { parse } from '../../src/lib/parser.js';
 import { computeDiff } from '../../src/lib/differ.js';
+import { computeDeckPrices } from './priceCalculator.js';
 
 let intervalHandle = null;
 
@@ -109,6 +110,9 @@ async function checkDecksForChanges() {
       // Create snapshot
       run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
       pruneSnapshots(deck.id);
+
+      // Auto-stamp prices on new snapshot (non-fatal)
+      try { await computeDeckPrices(deck.id, enrichedText); } catch { /* Scryfall may be down */ }
 
       const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
       if (cmdsJson) {
@@ -300,10 +304,14 @@ async function autoRefreshScheduledDecks() {
       try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
 
       if (latest && latest.deck_text === enrichedText) {
+        // No changes — still stamp prices if snapshot has none yet
+        try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
         run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
       } else {
         run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
         pruneSnapshots(deck.id);
+        // Auto-stamp prices on new snapshot
+        try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
         const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
         if (cmdsJson) {
           run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
