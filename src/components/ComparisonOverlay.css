@@ -146,12 +146,54 @@
   color: var(--text-primary);
 }
 
-/* ── Budget Price Badge ──────────────────────────── */
+/* ── Price Impact Badges ─────────────────────────── */
+
+.summary-badge--price {
+  font-weight: 700;
+  font-size: var(--fs-sm);
+}
+
+.summary-badge--price-up {
+  color: var(--accent-red);
+  background: rgba(244, 67, 54, 0.08);
+}
+
+.summary-badge--price-down {
+  color: var(--accent-green);
+  background: rgba(76, 175, 80, 0.08);
+}
 
 .summary-badge-budget {
   font-size: var(--fs-xs);
   color: var(--text-muted);
   font-weight: 400;
+}
+
+.comparison-price-detail {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--fs-xs);
+  margin-bottom: var(--space-md);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-primary);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+}
+
+.comparison-price-in {
+  color: var(--accent-red);
+  font-weight: 600;
+}
+
+.comparison-price-out {
+  color: var(--accent-green);
+  font-weight: 600;
+}
+
+.comparison-price-divider {
+  color: var(--text-muted);
+  opacity: 0.5;
 }
 
 /* ── Mobile ──────────────────────────────────────── */

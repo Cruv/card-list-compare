@@ -302,6 +302,13 @@ export default function ComparisonOverlay({
                   </span>
                 )}
               </div>
+              {priceImpact && (
+                <div className="comparison-price-detail">
+                  <span className="comparison-price-in">+${priceImpact.costIn.toFixed(2)} added</span>
+                  <span className="comparison-price-divider">/</span>
+                  <span className="comparison-price-out">&minus;${priceImpact.costOut.toFixed(2)} removed</span>
+                </div>
+              )}
               <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={cardMap} />
               {diffResult.hasSideboard && (
                 <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={cardMap} />

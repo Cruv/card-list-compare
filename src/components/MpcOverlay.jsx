@@ -96,6 +96,10 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
   const [metaLoading, setMetaLoading] = useState(false);
   const metaLoaded = useRef(false);
 
+  // DFC back-face state
+  const [dfcPairs, setDfcPairs] = useState({});
+  const [dfcBackResults, setDfcBackResults] = useState([]);
+
   // Alt art picker state
   const [altPickerCard, setAltPickerCard] = useState(null);
   const [altLoading, setAltLoading] = useState(false);
@@ -128,11 +132,56 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
     setOverrides(new Map());
     setAltPickerCard(null);
     setAlternates([]);
+    setDfcPairs({});
+    setDfcBackResults([]);
     try {
       // Only pass settings if non-default (saves bandwidth, uses server defaults)
       const settingsToSend = isNonDefault(settings) ? settings : null;
       const data = await mpcSearch(cards, settingsToSend);
       setResults(data);
+
+      // Store DFC pairs and auto-search for back faces
+      const pairs = data.dfcPairs || {};
+      setDfcPairs(pairs);
+
+      if (Object.keys(pairs).length > 0 && data.results) {
+        // Collect back face names for matched front faces
+        const backFaceNames = [];
+        const frontCardNames = new Set(data.results.filter(r => r.hasMatch).map(r => r.name.toLowerCase()));
+        for (const [front, back] of Object.entries(pairs)) {
+          if (frontCardNames.has(front.toLowerCase())) {
+            backFaceNames.push(back);
+          }
+        }
+
+        if (backFaceNames.length > 0) {
+          // Search for back faces
+          const backCards = backFaceNames.map(name => ({ name, quantity: 1 }));
+          try {
+            const backData = await mpcSearch(backCards, settingsToSend);
+            if (backData.results) {
+              // Mark back face results and link to front face
+              const backResults = backData.results
+                .filter(r => r.hasMatch)
+                .map(r => {
+                  // Find which front face this back belongs to
+                  const frontEntry = Object.entries(pairs).find(
+                    ([, back]) => back.toLowerCase() === r.name.toLowerCase()
+                  );
+                  return {
+                    ...r,
+                    isDfcBack: true,
+                    dfcFrontName: frontEntry ? frontEntry[0] : null,
+                  };
+                });
+              setDfcBackResults(backResults);
+            }
+          } catch {
+            // Non-fatal: back face search failed, front faces still work
+            console.warn('DFC back-face search failed');
+          }
+        }
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -166,13 +215,28 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
       .finally(() => setMetaLoading(false));
   }, [showSettings]);
 
-  // Filter results by search query
+  // Filter results by search query (includes DFC back faces interleaved after their fronts)
   const filteredResults = useMemo(() => {
     if (!results?.results) return [];
-    if (!searchQuery) return results.results;
-    const q = searchQuery.toLowerCase();
-    return results.results.filter(r => r.name.toLowerCase().includes(q));
-  }, [results, searchQuery]);
+    const q = searchQuery ? searchQuery.toLowerCase() : null;
+
+    // Build combined list: front faces with DFC backs inserted after their fronts
+    const combined = [];
+    for (const r of results.results) {
+      if (q && !r.name.toLowerCase().includes(q)) continue;
+      combined.push(r);
+      // Insert DFC back face after its front face
+      if (dfcBackResults.length > 0) {
+        const backFace = dfcBackResults.find(
+          b => b.dfcFrontName && b.dfcFrontName.toLowerCase() === r.name.toLowerCase()
+        );
+        if (backFace && (!q || backFace.name.toLowerCase().includes(q))) {
+          combined.push(backFace);
+        }
+      }
+    }
+    return combined;
+  }, [results, searchQuery, dfcBackResults]);
 
   // Merge overrides into filtered results
   const effectiveResults = useMemo(() => {
@@ -199,10 +263,10 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
     [effectiveResults]
   );
 
-  // Cards with identifiers for download (merges overrides)
+  // Cards with identifiers for download (merges overrides + DFC backs)
   const downloadableCards = useMemo(() => {
     if (!results?.results) return [];
-    return results.results
+    const cards = results.results
       .filter(r => r.hasMatch && r.identifier)
       .map(r => {
         const override = overrides.get(r.name.toLowerCase());
@@ -213,7 +277,22 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
           extension: override?.extension || r.extension || 'png',
         };
       });
-  }, [results, overrides]);
+    // Add DFC back faces (quantity matches their front face)
+    for (const back of dfcBackResults) {
+      if (!back.identifier) continue;
+      const frontCard = results.results.find(
+        r => r.hasMatch && back.dfcFrontName && r.name.toLowerCase() === back.dfcFrontName.toLowerCase()
+      );
+      const override = overrides.get(back.name.toLowerCase());
+      cards.push({
+        name: back.name,
+        quantity: frontCard?.quantity || 1,
+        identifier: override?.identifier || back.identifier,
+        extension: override?.extension || back.extension || 'png',
+      });
+    }
+    return cards;
+  }, [results, overrides, dfcBackResults]);
 
   const handleDownloadXml = useCallback(async () => {
     if (downloadableCards.length === 0) return;
@@ -456,6 +535,11 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
               <span className="mpc-summary-badge mpc-summary-badge--total">
                 {results.totalCards} total
               </span>
+              {dfcBackResults.length > 0 && (
+                <span className="mpc-summary-badge mpc-summary-badge--dfc">
+                  {dfcBackResults.length} back face{dfcBackResults.length !== 1 ? 's' : ''}
+                </span>
+              )}
               {overrides.size > 0 && (
                 <span className="mpc-summary-badge mpc-summary-badge--overrides">
                   {overrides.size} customized
@@ -837,38 +921,44 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                   {/* Matched cards grid */}
                   {matchedResults.length > 0 && (
                     <div className="mpc-card-grid">
-                      {matchedResults.map(card => (
-                        <div
-                          key={card.name}
-                          className={`mpc-card${card.alternateCount > 0 ? ' mpc-card--has-alts' : ''}${overrides.has(card.name.toLowerCase()) ? ' mpc-card--overridden' : ''}`}
-                          onClick={() => handleCardClick(card)}
-                          role={card.alternateCount > 0 ? 'button' : undefined}
-                          tabIndex={card.alternateCount > 0 ? 0 : undefined}
-                          onKeyDown={card.alternateCount > 0 ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(card); } } : undefined}
-                        >
-                          <div className="mpc-card-img-wrap">
-                            <img
-                              src={card.thumbnailUrl}
-                              alt={card.name}
-                              className="mpc-card-img"
-                              loading="lazy"
-                            />
-                            {card.quantity > 1 && (
-                              <span className="mpc-card-qty">&times;{card.quantity}</span>
-                            )}
-                          </div>
-                          <div className="mpc-card-info">
-                            <span className="mpc-card-name">{card.name}</span>
-                            <span className="mpc-card-meta">
-                              {card.sourceName && <span>{card.sourceName}</span>}
-                              {card.dpi > 0 && <span>{card.dpi} DPI</span>}
-                              {card.alternateCount > 0 && (
-                                <span className="mpc-card-alts">+{card.alternateCount} alt{card.alternateCount !== 1 ? 's' : ''}</span>
+                      {matchedResults.map(card => {
+                        const hasAlts = !card.isDfcBack && card.alternateCount > 0;
+                        return (
+                          <div
+                            key={card.isDfcBack ? `dfc-back-${card.name}` : card.name}
+                            className={`mpc-card${hasAlts ? ' mpc-card--has-alts' : ''}${overrides.has(card.name.toLowerCase()) ? ' mpc-card--overridden' : ''}${card.isDfcBack ? ' mpc-card--dfc-back' : ''}`}
+                            onClick={() => handleCardClick(card)}
+                            role={hasAlts ? 'button' : undefined}
+                            tabIndex={hasAlts ? 0 : undefined}
+                            onKeyDown={hasAlts ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(card); } } : undefined}
+                          >
+                            <div className="mpc-card-img-wrap">
+                              <img
+                                src={card.thumbnailUrl}
+                                alt={card.name}
+                                className="mpc-card-img"
+                                loading="lazy"
+                              />
+                              {card.isDfcBack && (
+                                <span className="mpc-card-dfc-badge">Back</span>
                               )}
-                            </span>
+                              {!card.isDfcBack && card.quantity > 1 && (
+                                <span className="mpc-card-qty">&times;{card.quantity}</span>
+                              )}
+                            </div>
+                            <div className="mpc-card-info">
+                              <span className="mpc-card-name">{card.name}</span>
+                              <span className="mpc-card-meta">
+                                {card.sourceName && <span>{card.sourceName}</span>}
+                                {card.dpi > 0 && <span>{card.dpi} DPI</span>}
+                                {!card.isDfcBack && card.alternateCount > 0 && (
+                                  <span className="mpc-card-alts">+{card.alternateCount} alt{card.alternateCount !== 1 ? 's' : ''}</span>
+                                )}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 

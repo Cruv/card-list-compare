@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.30.0';
+const APP_VERSION = '2.31.0';
 const WHATS_NEW = [
-  'Alt art picker: click any card with alternates to browse and select different proxy artwork',
-  'Selected art carries through to XML and ZIP downloads, with a "customized" badge in the summary',
-  'MPC proxy thumbnails now load reliably via server-side proxy',
+  'Per-card unit prices: cards with qty > 1 now show "$X.XX ea" alongside the total price',
+  'MPC DFC auto-pairing: double-faced cards automatically include back face proxy images',
+  'Price impact summary: deck comparisons show cost of cards added/removed with net delta',
 ];
 
 function getResetToken() {

@@ -72,6 +72,14 @@
 .card-line--printing .card-line-price { color: var(--accent-blue); margin-left: 0; }
 .card-line--list .card-line-price { color: var(--text-secondary); }
 
+.card-line-unit-price {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: 4px;
+  opacity: 0.65;
+}
+
 .card-line-cheapest-price {
   font-size: var(--fs-xs);
   color: var(--text-muted);

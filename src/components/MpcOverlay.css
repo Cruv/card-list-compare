@@ -395,6 +395,36 @@
   color: var(--text-muted);
 }
 
+/* ── DFC back-face indicators ────────────────────── */
+
+.mpc-card--dfc-back {
+  border-color: rgba(156, 39, 176, 0.3);
+}
+
+.mpc-card--dfc-back:hover {
+  border-color: rgba(156, 39, 176, 0.6);
+}
+
+.mpc-card-dfc-badge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  background: rgba(156, 39, 176, 0.85);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 8px;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mpc-summary-badge--dfc {
+  color: #9c27b0;
+  background: rgba(156, 39, 176, 0.12);
+}
+
 /* ── Overrides summary badge ─────────────────────── */
 
 .mpc-summary-badge--overrides {
