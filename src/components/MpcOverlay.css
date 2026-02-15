@@ -295,6 +295,113 @@
   font-weight: 600;
 }
 
+/* ── Clickable card indicators ────────────────────── */
+
+.mpc-card--has-alts {
+  cursor: pointer;
+}
+
+.mpc-card--has-alts .mpc-card-img-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(92, 107, 192, 0);
+  transition: background 0.15s;
+  pointer-events: none;
+}
+
+.mpc-card--has-alts:hover .mpc-card-img-wrap::after {
+  background: rgba(92, 107, 192, 0.12);
+}
+
+.mpc-card--overridden {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 1px var(--accent-blue);
+}
+
+/* ── Alt art picker ──────────────────────────────── */
+
+.mpc-alt-picker-hint {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-md);
+}
+
+.mpc-alt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--space-md);
+}
+
+.mpc-alt-card {
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.mpc-alt-card:hover {
+  border-color: var(--accent-blue);
+}
+
+.mpc-alt-card--selected {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(92, 107, 192, 0.3);
+}
+
+.mpc-alt-card-img-wrap {
+  position: relative;
+  aspect-ratio: 488 / 680;
+  background: rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+:root[data-theme="dark"] .mpc-alt-card-img-wrap {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mpc-alt-selected-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--accent-blue);
+  color: #fff;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.mpc-alt-source {
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpc-alt-dpi {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Overrides summary badge ─────────────────────── */
+
+.mpc-summary-badge--overrides {
+  color: var(--accent-blue);
+  background: rgba(92, 107, 192, 0.12);
+}
+
 /* ── Unmatched section ───────────────────────────── */
 
 .mpc-unmatched {
@@ -706,6 +813,11 @@
 
   .mpc-card-grid {
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: var(--space-sm);
+  }
+
+  .mpc-alt-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     gap: var(--space-sm);
   }
 

@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.29.3';
+const APP_VERSION = '2.30.0';
 const WHATS_NEW = [
-  'MPC proxy images now load reliably via server-side thumbnail proxy (no more broken images)',
-  'Tag category group-select: click a category name to toggle all tags in that group at once',
-  'Search settings are browser-local — each device keeps its own preferences',
+  'Alt art picker: click any card with alternates to browse and select different proxy artwork',
+  'Selected art carries through to XML and ZIP downloads, with a "customized" badge in the summary',
+  'MPC proxy thumbnails now load reliably via server-side proxy',
 ];
 
 function getResetToken() {

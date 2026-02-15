@@ -114,6 +114,49 @@ router.get('/tags', async (_req, res) => {
 });
 
 /**
+ * POST /api/mpc/alternates — Fetch all alternate arts for a single card.
+ * Body: { cardName: string, searchSettings? }
+ * Returns: { cardName, alternates: [{ identifier, thumbnailUrl, dpi, sourceName, extension }] }
+ * Leverages cached search results from the initial /search call.
+ */
+router.post('/alternates', mpcLimiter, async (req, res) => {
+  try {
+    const { cardName, searchSettings } = req.body;
+    if (!cardName || typeof cardName !== 'string') {
+      return res.status(400).json({ error: 'cardName is required' });
+    }
+
+    // Re-uses cached search results (1hr TTL)
+    const searchResults = await searchCards([cardName], searchSettings || null);
+    const nameLower = cardName.toLowerCase();
+    const identifiers = searchResults.get(nameLower) || [];
+
+    if (identifiers.length === 0) {
+      return res.json({ cardName, alternates: [] });
+    }
+
+    // Fetch details for ALL identifiers (first one already cached from initial search)
+    const cardDetails = await fetchCardDetails(identifiers);
+
+    const alternates = identifiers.map(id => {
+      const details = cardDetails.get(id);
+      return {
+        identifier: id,
+        thumbnailUrl: details?.thumbnailUrl || `/api/mpc/thumbnail/${id}`,
+        dpi: details?.dpi || null,
+        sourceName: details?.sourceName || null,
+        extension: details?.extension || 'png',
+      };
+    });
+
+    res.json({ cardName, alternates });
+  } catch (err) {
+    console.error('MPC alternates error:', err);
+    res.status(500).json({ error: 'Failed to fetch alternates.' });
+  }
+});
+
+/**
  * POST /api/mpc/search — Search for proxy card images.
  * Body: { cards: [{ name, quantity }], searchSettings? }
  * Returns: { results, dfcPairs, unmatchedCount }

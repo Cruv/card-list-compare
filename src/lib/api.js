@@ -394,6 +394,11 @@ export const mpcHealthCheck = () => apiFetch('/mpc/health');
 export const mpcGetSources = () => apiFetch('/mpc/sources');
 export const mpcGetLanguages = () => apiFetch('/mpc/languages');
 export const mpcGetTags = () => apiFetch('/mpc/tags');
+export const mpcGetAlternates = (cardName, searchSettings) =>
+  apiFetch('/mpc/alternates', {
+    method: 'POST',
+    body: JSON.stringify({ cardName, ...(searchSettings ? { searchSettings } : {}) }),
+  });
 
 export async function mpcDownloadXml(cards, cardstock, foil) {
   const token = getToken();

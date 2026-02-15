@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags } from '../lib/api';
+import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags, mpcGetAlternates } from '../lib/api';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import './MpcOverlay.css';
@@ -96,17 +96,24 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
   const [metaLoading, setMetaLoading] = useState(false);
   const metaLoaded = useRef(false);
 
-  // Escape closes overlay (or settings panel if open)
+  // Alt art picker state
+  const [altPickerCard, setAltPickerCard] = useState(null);
+  const [altLoading, setAltLoading] = useState(false);
+  const [alternates, setAlternates] = useState([]);
+  const [overrides, setOverrides] = useState(new Map());
+
+  // Escape closes overlay (or settings/alt picker panel if open)
   useEffect(() => {
     const handleKey = (e) => {
       if (e.key === 'Escape') {
-        if (showSettings) setShowSettings(false);
+        if (altPickerCard) { setAltPickerCard(null); setAlternates([]); }
+        else if (showSettings) setShowSettings(false);
         else onClose();
       }
     };
     document.addEventListener('keydown', handleKey);
     return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose, showSettings]);
+  }, [onClose, showSettings, altPickerCard]);
 
   // Search MPC Autofill
   const doSearch = useCallback(async (settings) => {
@@ -118,6 +125,9 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
     setLoading(true);
     setError(null);
     setResults(null);
+    setOverrides(new Map());
+    setAltPickerCard(null);
+    setAlternates([]);
     try {
       // Only pass settings if non-default (saves bandwidth, uses server defaults)
       const settingsToSend = isNonDefault(settings) ? settings : null;
@@ -164,27 +174,46 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
     return results.results.filter(r => r.name.toLowerCase().includes(q));
   }, [results, searchQuery]);
 
+  // Merge overrides into filtered results
+  const effectiveResults = useMemo(() => {
+    return filteredResults.map(r => {
+      const override = overrides.get(r.name.toLowerCase());
+      if (!override) return r;
+      return {
+        ...r,
+        identifier: override.identifier,
+        thumbnailUrl: override.thumbnailUrl,
+        dpi: override.dpi,
+        sourceName: override.sourceName,
+        extension: override.extension,
+      };
+    });
+  }, [filteredResults, overrides]);
+
   const matchedResults = useMemo(
-    () => filteredResults.filter(r => r.hasMatch),
-    [filteredResults]
+    () => effectiveResults.filter(r => r.hasMatch),
+    [effectiveResults]
   );
   const unmatchedResults = useMemo(
-    () => filteredResults.filter(r => !r.hasMatch),
-    [filteredResults]
+    () => effectiveResults.filter(r => !r.hasMatch),
+    [effectiveResults]
   );
 
-  // Cards with identifiers for download
+  // Cards with identifiers for download (merges overrides)
   const downloadableCards = useMemo(() => {
     if (!results?.results) return [];
     return results.results
       .filter(r => r.hasMatch && r.identifier)
-      .map(r => ({
-        name: r.name,
-        quantity: r.quantity,
-        identifier: r.identifier,
-        extension: r.extension || 'png',
-      }));
-  }, [results]);
+      .map(r => {
+        const override = overrides.get(r.name.toLowerCase());
+        return {
+          name: r.name,
+          quantity: r.quantity,
+          identifier: override?.identifier || r.identifier,
+          extension: override?.extension || r.extension || 'png',
+        };
+      });
+  }, [results, overrides]);
 
   const handleDownloadXml = useCallback(async () => {
     if (downloadableCards.length === 0) return;
@@ -229,6 +258,42 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
   function handleResetSettings() {
     const defaults = getDefaultSettings();
     setDraftSettings(defaults);
+  }
+
+  // Alt art picker handlers
+  async function handleCardClick(card) {
+    if (!card.hasMatch || card.alternateCount === 0) return;
+    setAltPickerCard(card);
+    setAltLoading(true);
+    setAlternates([]);
+    try {
+      const settingsToSend = isNonDefault(searchSettings) ? searchSettings : null;
+      const data = await mpcGetAlternates(card.name, settingsToSend);
+      setAlternates(data.alternates || []);
+    } catch {
+      toast.error('Failed to load alternate arts.');
+      setAltPickerCard(null);
+    } finally {
+      setAltLoading(false);
+    }
+  }
+
+  function handleSelectAlternate(alt) {
+    if (!altPickerCard) return;
+    const nameLower = altPickerCard.name.toLowerCase();
+    setOverrides(prev => {
+      const next = new Map(prev);
+      next.set(nameLower, {
+        identifier: alt.identifier,
+        thumbnailUrl: alt.thumbnailUrl,
+        dpi: alt.dpi,
+        sourceName: alt.sourceName,
+        extension: alt.extension,
+      });
+      return next;
+    });
+    setAltPickerCard(null);
+    setAlternates([]);
   }
 
   function updateDraft(path, value) {
@@ -346,17 +411,25 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
   const hasCustomSettings = isNonDefault(searchSettings);
 
   return createPortal(
-    <div className="mpc-overlay" onClick={showSettings ? undefined : onClose} role="dialog" aria-modal="true" aria-label="Print Proxies">
+    <div className="mpc-overlay" onClick={showSettings || altPickerCard ? undefined : onClose} role="dialog" aria-modal="true" aria-label="Print Proxies">
       <div className="mpc-overlay-panel" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="mpc-overlay-header">
           <div className="mpc-overlay-title-row">
-            <button className="mpc-overlay-back" onClick={showSettings ? () => setShowSettings(false) : onClose} type="button" aria-label="Back">&larr;</button>
+            <button
+              className="mpc-overlay-back"
+              onClick={altPickerCard ? () => { setAltPickerCard(null); setAlternates([]); } : showSettings ? () => setShowSettings(false) : onClose}
+              type="button"
+              aria-label="Back"
+            >&larr;</button>
             <div className="mpc-overlay-title-group">
-              <h2 className="mpc-overlay-title">{showSettings ? 'Search Settings' : 'Print Proxies'}</h2>
-              {!showSettings && deckName && <span className="mpc-overlay-deck-name">{deckName}</span>}
+              <h2 className="mpc-overlay-title">
+                {altPickerCard ? 'Choose Art' : showSettings ? 'Search Settings' : 'Print Proxies'}
+              </h2>
+              {altPickerCard && <span className="mpc-overlay-deck-name">{altPickerCard.name}</span>}
+              {!altPickerCard && !showSettings && deckName && <span className="mpc-overlay-deck-name">{deckName}</span>}
             </div>
-            {!showSettings && (
+            {!showSettings && !altPickerCard && (
               <button
                 className={`mpc-overlay-settings-btn${hasCustomSettings ? ' mpc-overlay-settings-btn--active' : ''}`}
                 onClick={handleOpenSettings}
@@ -370,7 +443,7 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
             )}
             <button className="mpc-overlay-close" onClick={onClose} type="button" aria-label="Close">&times;</button>
           </div>
-          {!showSettings && !loading && results && (
+          {!showSettings && !altPickerCard && !loading && results && (
             <div className="mpc-overlay-summary">
               <span className="mpc-summary-badge mpc-summary-badge--matched">
                 {results.matchedCards} matched
@@ -383,6 +456,11 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
               <span className="mpc-summary-badge mpc-summary-badge--total">
                 {results.totalCards} total
               </span>
+              {overrides.size > 0 && (
+                <span className="mpc-summary-badge mpc-summary-badge--overrides">
+                  {overrides.size} customized
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -666,8 +744,56 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
           </>
         )}
 
-        {/* Main content (hidden when settings panel is open) */}
-        {!showSettings && (
+        {/* Alt Art Picker */}
+        {altPickerCard && !showSettings && (
+          <div className="mpc-overlay-content">
+            {altLoading ? (
+              <div className="mpc-loading">
+                <Skeleton lines={4} />
+                <p className="mpc-loading-text">Loading alternate arts...</p>
+              </div>
+            ) : (
+              <>
+                <p className="mpc-alt-picker-hint">
+                  {alternates.length} version{alternates.length !== 1 ? 's' : ''} available &mdash; tap to select
+                </p>
+                <div className="mpc-alt-grid">
+                  {alternates.map((alt, i) => {
+                    const currentId = overrides.get(altPickerCard.name.toLowerCase())?.identifier || altPickerCard.identifier;
+                    const isSelected = currentId === alt.identifier;
+                    return (
+                      <div
+                        key={alt.identifier}
+                        className={`mpc-alt-card${isSelected ? ' mpc-alt-card--selected' : ''}`}
+                        onClick={() => handleSelectAlternate(alt)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelectAlternate(alt); } }}
+                      >
+                        <div className="mpc-alt-card-img-wrap">
+                          <img
+                            src={alt.thumbnailUrl}
+                            alt={`${altPickerCard.name} version ${i + 1}`}
+                            className="mpc-card-img"
+                            loading="lazy"
+                          />
+                          {isSelected && <span className="mpc-alt-selected-badge">&#x2713;</span>}
+                        </div>
+                        <div className="mpc-card-info">
+                          {alt.sourceName && <span className="mpc-alt-source">{alt.sourceName}</span>}
+                          {alt.dpi > 0 && <span className="mpc-alt-dpi">{alt.dpi} DPI</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Main content (hidden when settings or alt picker is open) */}
+        {!showSettings && !altPickerCard && (
           <>
             {/* Search filter */}
             {!loading && results && results.results.length > 0 && (
@@ -712,7 +838,14 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                   {matchedResults.length > 0 && (
                     <div className="mpc-card-grid">
                       {matchedResults.map(card => (
-                        <div key={card.name} className="mpc-card">
+                        <div
+                          key={card.name}
+                          className={`mpc-card${card.alternateCount > 0 ? ' mpc-card--has-alts' : ''}${overrides.has(card.name.toLowerCase()) ? ' mpc-card--overridden' : ''}`}
+                          onClick={() => handleCardClick(card)}
+                          role={card.alternateCount > 0 ? 'button' : undefined}
+                          tabIndex={card.alternateCount > 0 ? 0 : undefined}
+                          onKeyDown={card.alternateCount > 0 ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleCardClick(card); } } : undefined}
+                        >
                           <div className="mpc-card-img-wrap">
                             <img
                               src={card.thumbnailUrl}
@@ -728,7 +861,7 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                             <span className="mpc-card-name">{card.name}</span>
                             <span className="mpc-card-meta">
                               {card.sourceName && <span>{card.sourceName}</span>}
-                              {card.dpi && <span>{card.dpi} DPI</span>}
+                              {card.dpi > 0 && <span>{card.dpi} DPI</span>}
                               {card.alternateCount > 0 && (
                                 <span className="mpc-card-alts">+{card.alternateCount} alt{card.alternateCount !== 1 ? 's' : ''}</span>
                               )}
