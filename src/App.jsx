@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.26.0';
+const APP_VERSION = '2.27.0';
 const WHATS_NEW = [
-  'Cheapest printing prices: see the lowest cost printing for each card in parentheses alongside specific printing prices',
-  'Budget deck total: full deck value using cheapest available printings shown alongside specific printing total',
-  'Price alert mode: choose whether alerts trigger on your specific printings or cheapest available printings',
+  'Print proxies via MPC Autofill: generate proxy card images for your entire deck with one click',
+  'Download XML project files for the MPC Autofill desktop tool or download all card images as a ZIP',
+  'Available from the Full Deck tab in timeline overlay and the deck card dropdown menu',
 ];
 
 function getResetToken() {

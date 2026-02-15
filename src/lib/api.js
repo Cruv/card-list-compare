@@ -381,3 +381,60 @@ export const adminCleanupTokens = () =>
 
 export const adminCleanupAuditLog = (days = 90) =>
   apiFetch('/admin/cleanup/audit-log', { method: 'POST', body: JSON.stringify({ days }) });
+
+// MPC Autofill
+export const mpcSearch = (cards) =>
+  apiFetch('/mpc/search', { method: 'POST', body: JSON.stringify({ cards }), timeout: 30_000 });
+
+export const mpcHealthCheck = () => apiFetch('/mpc/health');
+
+export async function mpcDownloadXml(cards, cardstock, foil) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/mpc/xml`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ cards, cardstock, foil }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'XML download failed');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mpc-autofill-project.xml';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export async function mpcDownloadZip(cards) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/mpc/download`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ cards }),
+    signal: AbortSignal.timeout(300_000), // 5 min timeout for large downloads
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'ZIP download failed');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mpc-card-images.zip';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

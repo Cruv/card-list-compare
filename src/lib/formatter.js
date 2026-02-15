@@ -136,6 +136,41 @@ export function formatMpcFill(diffResult) {
 }
 
 /**
+ * Extract all cards from a parsed deck as an array of { name, quantity }.
+ * Used for MPC Autofill proxy search — includes mainboard, sideboard, and commanders.
+ */
+export function formatDeckForMpc(parsedDeck) {
+  const cards = [];
+  if (!parsedDeck) return cards;
+
+  // Mainboard
+  if (parsedDeck.mainboard) {
+    for (const [, entry] of parsedDeck.mainboard) {
+      cards.push({ name: entry.displayName, quantity: entry.quantity });
+    }
+  }
+
+  // Sideboard
+  if (parsedDeck.sideboard) {
+    for (const [, entry] of parsedDeck.sideboard) {
+      cards.push({ name: entry.displayName, quantity: entry.quantity });
+    }
+  }
+
+  // Commanders (flat string array)
+  if (parsedDeck.commanders) {
+    for (const name of parsedDeck.commanders) {
+      // Check if already included (commanders may also be in mainboard)
+      if (!cards.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+        cards.push({ name, quantity: 1 });
+      }
+    }
+  }
+
+  return cards;
+}
+
+/**
  * Format changelog as Reddit-flavored markdown.
  */
 function formatRedditCardsByType(cards, typeMap, lineFormatter) {

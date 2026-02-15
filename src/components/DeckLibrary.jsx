@@ -16,11 +16,14 @@ import {
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
   getDeckOverlap, getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
 } from '../lib/api';
+import { parse } from '../lib/parser';
+import { formatDeckForMpc } from '../lib/formatter';
 import CopyButton from './CopyButton';
 import Skeleton from './Skeleton';
 import TimelineOverlay from './TimelineOverlay';
 import RecommendationsOverlay from './RecommendationsOverlay';
 import ComparisonOverlay from './ComparisonOverlay';
+import MpcOverlay from './MpcOverlay';
 import './UserSettings.css';
 import './DeckLibrary.css';
 
@@ -938,6 +941,8 @@ function DeckCard({
   const [showTimeline, setShowTimeline] = useState(false);
   const [overlayEntry, setOverlayEntry] = useState(null);
   const [showRecommendations, setShowRecommendations] = useState(false);
+  const [showMpc, setShowMpc] = useState(false);
+  const [mpcCards, setMpcCards] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Notes editing state
@@ -1024,6 +1029,28 @@ function DeckCard({
       if (typeof handleRefreshTrackedDecks === 'function') handleRefreshTrackedDecks();
     } catch (err) {
       toast.error(err.message);
+    }
+  }
+
+  async function handlePrintProxies() {
+    try {
+      const snapData = await getDeckSnapshots(deck.id);
+      if (!snapData.snapshots || snapData.snapshots.length === 0) {
+        toast.error('No snapshots available. Refresh the deck first.');
+        return;
+      }
+      const latestSnap = snapData.snapshots[0];
+      const snapshotDetail = await getSnapshot(deck.id, latestSnap.id);
+      const parsed = parse(snapshotDetail.snapshot.deck_text);
+      const cards = formatDeckForMpc(parsed);
+      if (cards.length === 0) {
+        toast.error('No cards found in the deck.');
+        return;
+      }
+      setMpcCards(cards);
+      setShowMpc(true);
+    } catch (err) {
+      toast.error('Failed to load deck for proxy printing');
     }
   }
 
@@ -1359,6 +1386,13 @@ function DeckCard({
                     >
                       Suggest cards
                     </button>
+                    <button
+                      className="settings-tracker-dropdown-item"
+                      onClick={() => { handlePrintProxies(); setMenuOpen(false); }}
+                      type="button"
+                    >
+                      Print proxies
+                    </button>
                     <div className="settings-tracker-dropdown-divider" />
                     <select
                       className="settings-tracker-auto-refresh-select"
@@ -1540,6 +1574,14 @@ function DeckCard({
               deckId={deck.id}
               deckName={deck.deck_name}
               onClose={() => setShowRecommendations(false)}
+            />
+          )}
+
+          {showMpc && mpcCards && (
+            <MpcOverlay
+              cards={mpcCards}
+              deckName={deck.deck_name}
+              onClose={() => { setShowMpc(false); setMpcCards(null); }}
             />
           )}
 

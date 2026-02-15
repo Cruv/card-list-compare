@@ -27,6 +27,15 @@ export const archidektLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Limiter for MPC Autofill API calls
+export const mpcLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // 5 MPC API calls per minute
+  message: { error: 'Too many MPC Autofill requests. Please wait a moment.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Limiter for share creation
 export const shareLimiter = rateLimit({
   windowMs: 60 * 1000,

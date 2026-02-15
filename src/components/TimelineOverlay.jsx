@@ -4,11 +4,12 @@ import { useAppSettings } from '../context/AppSettingsContext';
 import { getDeckChangelog, getSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
-import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS } from '../lib/formatter';
+import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS, formatDeckForMpc } from '../lib/formatter';
 import { estimatePowerLevel } from '../lib/powerLevel';
 import SectionChangelog from './SectionChangelog';
 import DeckListView from './DeckListView';
 import CopyButton from './CopyButton';
+import MpcOverlay from './MpcOverlay';
 import Skeleton from './Skeleton';
 import { toast } from './Toast';
 import './TimelineOverlay.css';
@@ -79,6 +80,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
   const [deckCardMap, setDeckCardMap] = useState(null);
   const [deckLoading, setDeckLoading] = useState(false);
   const [deckText, setDeckText] = useState(null); // raw deck_text for export
+  const [showMpc, setShowMpc] = useState(false);
 
   // Escape to close
   useEffect(() => {
@@ -335,6 +337,15 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
                   Download TTS
                 </button>
               )}
+              {parsedDeck && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  type="button"
+                  onClick={() => setShowMpc(true)}
+                >
+                  Print Proxies
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -399,6 +410,14 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
             ) : null
           )}
         </div>
+
+        {showMpc && parsedDeck && (
+          <MpcOverlay
+            cards={formatDeckForMpc(parsedDeck)}
+            deckName={deckName}
+            onClose={() => setShowMpc(false)}
+          />
+        )}
       </div>
     </div>,
     document.body
