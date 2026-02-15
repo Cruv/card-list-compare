@@ -383,10 +383,17 @@ export const adminCleanupAuditLog = (days = 90) =>
   apiFetch('/admin/cleanup/audit-log', { method: 'POST', body: JSON.stringify({ days }) });
 
 // MPC Autofill
-export const mpcSearch = (cards) =>
-  apiFetch('/mpc/search', { method: 'POST', body: JSON.stringify({ cards }), timeout: 30_000 });
+export const mpcSearch = (cards, searchSettings) =>
+  apiFetch('/mpc/search', {
+    method: 'POST',
+    body: JSON.stringify({ cards, ...(searchSettings ? { searchSettings } : {}) }),
+    timeout: 30_000,
+  });
 
 export const mpcHealthCheck = () => apiFetch('/mpc/health');
+export const mpcGetSources = () => apiFetch('/mpc/sources');
+export const mpcGetLanguages = () => apiFetch('/mpc/languages');
+export const mpcGetTags = () => apiFetch('/mpc/tags');
 
 export async function mpcDownloadXml(cards, cardstock, foil) {
   const token = getToken();

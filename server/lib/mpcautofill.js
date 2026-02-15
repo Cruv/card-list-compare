@@ -13,6 +13,7 @@ const USER_AGENT = 'CardListCompare/1.0';
 const SEARCH_TTL = 60 * 60 * 1000;      // 1 hour
 const CARD_TTL = 60 * 60 * 1000;         // 1 hour
 const DFC_TTL = 24 * 60 * 60 * 1000;     // 24 hours
+const META_TTL = 24 * 60 * 60 * 1000;    // 24 hours (sources, languages, tags)
 const IMAGE_DELAY_MS = 200;              // Delay between image downloads
 const MAX_CONCURRENT_DOWNLOADS = 5;
 
@@ -20,7 +21,10 @@ const MAX_CONCURRENT_DOWNLOADS = 5;
 
 const searchCache = new Map();
 const cardCache = new Map();
-let dfcCache = null; // { data, ts }
+let dfcCache = null;     // { data, ts }
+let sourcesCache = null; // { data, ts }
+let languagesCache = null;
+let tagsCache = null;
 
 function getCached(cache, key, ttl) {
   const entry = cache.get(key);
@@ -82,20 +86,149 @@ export async function getDFCPairs() {
 }
 
 /**
+ * Fetch available image sources from MPC Autofill.
+ * Returns array of { pk, key, name, sourceType, description }.
+ */
+export async function getSources() {
+  if (sourcesCache && Date.now() - sourcesCache.ts < META_TTL) {
+    return sourcesCache.data;
+  }
+  try {
+    const res = await fetch(`${MPC_API}/2/sources/`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const sources = Object.values(data.results || {})
+      .map(s => ({
+        pk: s.pk,
+        key: s.key || '',
+        name: s.name || '',
+        sourceType: s.sourceType || '',
+        description: s.description || '',
+      }))
+      .sort((a, b) => a.pk - b.pk);
+    sourcesCache = { data: sources, ts: Date.now() };
+    return sources;
+  } catch (err) {
+    console.error('MPC Autofill sources error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Fetch available languages from MPC Autofill.
+ * Returns array of { code, name }.
+ */
+export async function getLanguages() {
+  if (languagesCache && Date.now() - languagesCache.ts < META_TTL) {
+    return languagesCache.data;
+  }
+  try {
+    const res = await fetch(`${MPC_API}/2/languages/`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const languages = (data.languages || []).map(l => ({
+      code: l.code || '',
+      name: l.name || '',
+    }));
+    languagesCache = { data: languages, ts: Date.now() };
+    return languages;
+  } catch (err) {
+    console.error('MPC Autofill languages error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Fetch available tags from MPC Autofill.
+ * Returns flattened array of { name, parent, children } for simple UI rendering.
+ */
+export async function getTags() {
+  if (tagsCache && Date.now() - tagsCache.ts < META_TTL) {
+    return tagsCache.data;
+  }
+  try {
+    const res = await fetch(`${MPC_API}/2/tags/`, {
+      headers: { 'User-Agent': USER_AGENT },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    // Flatten tag tree into a simple list
+    const tags = [];
+    function walk(nodes, parentName) {
+      for (const node of nodes) {
+        const childNames = (node.children || []).map(c => c.name);
+        tags.push({
+          name: node.name,
+          parent: parentName,
+          children: childNames,
+        });
+        if (node.children && node.children.length > 0) {
+          walk(node.children, node.name);
+        }
+      }
+    }
+    walk(data.tags || [], null);
+    tagsCache = { data: tags, ts: Date.now() };
+    return tags;
+  } catch (err) {
+    console.error('MPC Autofill tags error:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Create a simple hash of searchSettings for cache key differentiation.
+ */
+function settingsHash(searchSettings) {
+  if (!searchSettings) return 'default';
+  return JSON.stringify(searchSettings);
+}
+
+/**
+ * Build default search settings (backward compatible with previous hardcoded values).
+ */
+function getDefaultSearchSettings() {
+  return {
+    searchTypeSettings: {
+      fuzzySearch: false,
+      filterCardbacks: false,
+    },
+    filterSettings: {
+      minimumDPI: 0,
+      maximumDPI: 1500,
+      maximumSize: 30,
+      languages: [],
+      includesTags: [],
+      excludesTags: ['NSFW'],
+    },
+    sourceSettings: {
+      sources: [],
+    },
+  };
+}
+
+/**
  * Search for card images by name.
- * Accepts array of card name strings.
+ * Accepts array of card name strings and optional searchSettings.
  * Returns Map<cardName, identifier[]> where identifiers are Google Drive file IDs.
  */
-export async function searchCards(cardNames) {
+export async function searchCards(cardNames, searchSettings) {
   const result = new Map();
   if (!cardNames || cardNames.length === 0) return result;
 
   const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
+  const sHash = settingsHash(searchSettings);
 
-  // Check cache first
+  // Check cache first (keyed by name + settings hash)
   const uncached = [];
   for (const name of unique) {
-    const cached = getCached(searchCache, name, SEARCH_TTL);
+    const cacheKey = `${name}|${sHash}`;
+    const cached = getCached(searchCache, cacheKey, SEARCH_TTL);
     if (cached !== null) {
       result.set(name, cached);
     } else {
@@ -110,15 +243,8 @@ export async function searchCards(cardNames) {
     cardType: 'CARD',
   }));
 
-  const searchSettings = {
-    searchTypeSettings: {
-      fuzzySearch: false,
-    },
-    filterSettings: {
-      languages: ['EN'],
-    },
-    sourceSettings: {},
-  };
+  // Use provided settings or defaults
+  const effectiveSettings = searchSettings || getDefaultSearchSettings();
 
   try {
     const res = await fetch(`${MPC_API}/2/editorSearch/`, {
@@ -127,7 +253,7 @@ export async function searchCards(cardNames) {
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
       },
-      body: JSON.stringify({ queries, searchSettings }),
+      body: JSON.stringify({ queries, searchSettings: effectiveSettings }),
     });
 
     if (!res.ok) {
@@ -144,7 +270,7 @@ export async function searchCards(cardNames) {
         const nameLower = query.toLowerCase();
         const identifiers = typeMap.CARD || [];
         result.set(nameLower, identifiers);
-        setCache(searchCache, nameLower, identifiers);
+        setCache(searchCache, `${nameLower}|${sHash}`, identifiers);
       }
     }
 
@@ -152,7 +278,7 @@ export async function searchCards(cardNames) {
     for (const name of uncached) {
       if (!result.has(name)) {
         result.set(name, []);
-        setCache(searchCache, name, []);
+        setCache(searchCache, `${name}|${sHash}`, []);
       }
     }
   } catch (err) {

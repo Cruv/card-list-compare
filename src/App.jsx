@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.27.0';
+const APP_VERSION = '2.28.0';
 const WHATS_NEW = [
-  'Print proxies via MPC Autofill: generate proxy card images for your entire deck with one click',
-  'Download XML project files for the MPC Autofill desktop tool or download all card images as a ZIP',
-  'Available from the Full Deck tab in timeline overlay and the deck card dropdown menu',
+  'MPC Autofill search settings: configure DPI range, languages, tags, fuzzy search, and source priority',
+  'Source ordering: drag sources up/down to control which image providers are searched first',
+  'Settings persist across sessions via localStorage — click the gear icon in the Print Proxies overlay',
 ];
 
 function getResetToken() {

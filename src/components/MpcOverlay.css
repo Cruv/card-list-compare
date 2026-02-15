@@ -383,6 +383,294 @@
   gap: var(--space-xs);
 }
 
+/* ── Settings gear button ────────────────────────── */
+
+.mpc-overlay-settings-btn {
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+  transition: color 0.1s;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.mpc-overlay-settings-btn:hover {
+  color: var(--text-primary);
+}
+
+.mpc-overlay-settings-btn--active {
+  color: var(--accent-blue);
+}
+
+.mpc-settings-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+}
+
+/* ── Settings panel ─────────────────────────────── */
+
+.mpc-settings-content {
+  padding: var(--space-md) var(--space-lg);
+}
+
+.mpc-settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.mpc-settings-section {
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--space-md);
+}
+
+.mpc-settings-section:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.mpc-settings-section-title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-xs);
+}
+
+.mpc-settings-hint {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-sm);
+}
+
+/* Toggle group (Precise / Fuzzy) */
+.mpc-settings-toggle-group {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+  width: fit-content;
+  margin-bottom: var(--space-xs);
+}
+
+.mpc-settings-toggle {
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  font-weight: 600;
+  border: none;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.mpc-settings-toggle--active {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+/* Range inputs row */
+.mpc-settings-range-row {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.mpc-settings-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.mpc-settings-number {
+  width: 80px;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.mpc-settings-number:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+  box-shadow: var(--focus-ring);
+}
+
+/* Chip list (languages, tags) */
+.mpc-settings-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.mpc-settings-chip {
+  padding: 3px 10px;
+  font-size: var(--fs-xs);
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.mpc-settings-chip:hover:not(:disabled) {
+  border-color: var(--accent-blue);
+  color: var(--text-primary);
+}
+
+.mpc-settings-chip--active {
+  background: rgba(92, 107, 192, 0.15);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+.mpc-settings-chip--exclude.mpc-settings-chip--active {
+  background: rgba(244, 67, 54, 0.1);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.mpc-settings-chip--disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Tag groups */
+.mpc-settings-tag-group {
+  margin-bottom: var(--space-sm);
+}
+
+.mpc-settings-tag-group:last-child {
+  margin-bottom: 0;
+}
+
+.mpc-settings-tag-group-label {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Source list */
+.mpc-settings-source-actions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+}
+
+.mpc-settings-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.mpc-settings-source {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-primary);
+  transition: background 0.1s;
+}
+
+.mpc-settings-source:nth-child(even) {
+  background: var(--bg-secondary);
+}
+
+.mpc-settings-source--disabled {
+  opacity: 0.5;
+}
+
+.mpc-settings-source-toggle {
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 34px;
+  text-align: center;
+  transition: all 0.1s;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.mpc-settings-source-toggle--on {
+  background: var(--accent-blue);
+  color: #fff;
+}
+
+.mpc-settings-source-name {
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mpc-settings-source-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.mpc-settings-arrow {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.1s;
+}
+
+.mpc-settings-arrow:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.mpc-settings-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* Settings action bar */
+.mpc-settings-actions {
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
 /* ── Mobile ──────────────────────────────────────── */
 
 @media (max-width: 640px) {
@@ -426,5 +714,28 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .mpc-settings-range-row {
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .mpc-settings-number {
+    width: 100%;
+  }
+
+  .mpc-settings-source-list {
+    max-height: 250px;
+  }
+
+  .mpc-settings-actions {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .mpc-settings-actions .btn {
+    flex: 1;
+    min-width: 80px;
   }
 }

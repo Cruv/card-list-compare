@@ -11,6 +11,9 @@ import {
   searchCards,
   fetchCardDetails,
   getDFCPairs,
+  getSources,
+  getLanguages,
+  getTags,
   generateXml,
   downloadImages,
 } from '../lib/mpcautofill.js';
@@ -32,13 +35,52 @@ router.get('/health', async (_req, res) => {
 });
 
 /**
+ * GET /api/mpc/sources — Available image sources (cached 24hr server-side).
+ */
+router.get('/sources', async (_req, res) => {
+  try {
+    const sources = await getSources();
+    res.json({ sources });
+  } catch (err) {
+    console.error('MPC sources error:', err);
+    res.json({ sources: [] });
+  }
+});
+
+/**
+ * GET /api/mpc/languages — Available languages (cached 24hr server-side).
+ */
+router.get('/languages', async (_req, res) => {
+  try {
+    const languages = await getLanguages();
+    res.json({ languages });
+  } catch (err) {
+    console.error('MPC languages error:', err);
+    res.json({ languages: [] });
+  }
+});
+
+/**
+ * GET /api/mpc/tags — Available tags (cached 24hr server-side).
+ */
+router.get('/tags', async (_req, res) => {
+  try {
+    const tags = await getTags();
+    res.json({ tags });
+  } catch (err) {
+    console.error('MPC tags error:', err);
+    res.json({ tags: [] });
+  }
+});
+
+/**
  * POST /api/mpc/search — Search for proxy card images.
- * Body: { cards: [{ name, quantity }] }
+ * Body: { cards: [{ name, quantity }], searchSettings? }
  * Returns: { results, dfcPairs, unmatchedCount }
  */
 router.post('/search', mpcLimiter, async (req, res) => {
   try {
-    const { cards } = req.body;
+    const { cards, searchSettings } = req.body;
     if (!cards || !Array.isArray(cards) || cards.length === 0) {
       return res.status(400).json({ error: 'cards array is required' });
     }
@@ -46,11 +88,16 @@ router.post('/search', mpcLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Maximum 612 cards per request' });
     }
 
+    // Validate searchSettings shape if provided
+    if (searchSettings && typeof searchSettings !== 'object') {
+      return res.status(400).json({ error: 'searchSettings must be an object' });
+    }
+
     const cardNames = cards.map(c => c.name).filter(Boolean);
 
     // Search and fetch DFC pairs in parallel
     const [searchResults, dfcPairs] = await Promise.all([
-      searchCards(cardNames),
+      searchCards(cardNames, searchSettings || null),
       getDFCPairs(),
     ]);
 
