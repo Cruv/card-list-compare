@@ -101,7 +101,12 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
 
   const unitPrice = isFoil && priceUsdFoil != null ? priceUsdFoil : priceUsd;
   const totalPrice = priceDisplayEnabled && unitPrice != null && quantity ? unitPrice * quantity : null;
-  const cheapestUnitPrice = cheapestPriceUsd != null ? (isFoil && cheapestPriceUsdFoil != null ? cheapestPriceUsdFoil : cheapestPriceUsd) : null;
+  // Cheapest unit price: lowest of foil and non-foil for this card name
+  const cheapestUnitPrice = cheapestPriceUsd != null || cheapestPriceUsdFoil != null
+    ? (cheapestPriceUsd != null && cheapestPriceUsdFoil != null
+        ? Math.min(cheapestPriceUsd, cheapestPriceUsdFoil)
+        : (cheapestPriceUsd ?? cheapestPriceUsdFoil))
+    : null;
   const cheapestTotalPrice = priceDisplayEnabled && cheapestUnitPrice != null && quantity ? cheapestUnitPrice * quantity : null;
 
   const handleClick = useCallback(() => {

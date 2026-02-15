@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.28.0';
+const APP_VERSION = '2.28.1';
 const WHATS_NEW = [
-  'MPC Autofill search settings: configure DPI range, languages, tags, fuzzy search, and source priority',
-  'Source ordering: drag sources up/down to control which image providers are searched first',
-  'Settings persist across sessions via localStorage — click the gear icon in the Print Proxies overlay',
+  'Fix: cheapest printing price now correctly shows the lowest of foil and non-foil prices',
+  'Previously foil cards incorrectly showed the foil cheapest printing price instead of the absolute cheapest',
+  'MPC Autofill search settings: configure DPI, languages, tags, fuzzy search, and source priority',
 ];
 
 function getResetToken() {

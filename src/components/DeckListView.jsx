@@ -339,8 +339,12 @@ function computeBudgetPrice(parsedDeck, cardMap) {
       const nameLower = entry.displayName.toLowerCase();
       const data = cardMap.get(nameLower); // Always use bare-name key for cheapest
       if (data) {
-        const isFoil = entry.isFoil || false;
-        const unitPrice = isFoil && data.priceUsdFoil != null ? data.priceUsdFoil : data.priceUsd;
+        // Budget price = cheapest of foil and non-foil for this card name
+        const nonFoil = data.priceUsd;
+        const foil = data.priceUsdFoil;
+        const unitPrice = (nonFoil != null && foil != null)
+          ? Math.min(nonFoil, foil)
+          : (nonFoil ?? foil);
         if (unitPrice != null) {
           total += unitPrice * entry.quantity;
           hasAnyPrice = true;

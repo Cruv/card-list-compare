@@ -434,10 +434,12 @@ router.get('/:id/prices', async (req, res) => {
       const defaultData = defaultPrices.get(key);
       const specificData = specificPrices.get(key);
 
-      // Cheapest price: always from default (name-only) lookup
-      const cheapestPrice = entry.isFoil
-        ? (defaultData?.priceUsdFoil ?? defaultData?.priceUsd ?? 0)
-        : (defaultData?.priceUsd ?? 0);
+      // Cheapest price: lowest of foil and non-foil from default (name-only) lookup
+      const cheapNonFoil = defaultData?.priceUsd ?? 0;
+      const cheapFoil = defaultData?.priceUsdFoil ?? 0;
+      const cheapestPrice = (cheapNonFoil && cheapFoil)
+        ? Math.min(cheapNonFoil, cheapFoil)
+        : (cheapNonFoil || cheapFoil);
 
       // Specific price: from set+collector lookup if available, else fall back to default
       const useSpecific = specificData && (entry.setCode && entry.collectorNumber);
@@ -465,7 +467,9 @@ router.get('/:id/prices', async (req, res) => {
       if (seen.has(key)) continue;
       seen.add(key);
       const defaultData = defaultPrices.get(key);
-      const cheapestPrice = defaultData?.priceUsd ?? 0;
+      const cNonFoil = defaultData?.priceUsd ?? 0;
+      const cFoil = defaultData?.priceUsdFoil ?? 0;
+      const cheapestPrice = (cNonFoil && cFoil) ? Math.min(cNonFoil, cFoil) : (cNonFoil || cFoil);
       const price = cheapestPrice; // commanders don't have printing metadata in parsed.commanders
       const lineTotal = price;
       totalPrice += lineTotal;
