@@ -14,6 +14,30 @@ const CARDSTOCK_OPTIONS = [
 ];
 
 const SETTINGS_KEY = 'clc-mpc-settings';
+const OVERRIDES_KEY_PREFIX = 'clc-mpc-overrides-';
+
+function loadOverrides(deckId) {
+  if (!deckId) return new Map();
+  try {
+    const stored = localStorage.getItem(OVERRIDES_KEY_PREFIX + deckId);
+    if (!stored) return new Map();
+    const entries = JSON.parse(stored);
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function saveOverrides(deckId, overridesMap) {
+  if (!deckId) return;
+  try {
+    if (overridesMap.size === 0) {
+      localStorage.removeItem(OVERRIDES_KEY_PREFIX + deckId);
+    } else {
+      localStorage.setItem(OVERRIDES_KEY_PREFIX + deckId, JSON.stringify([...overridesMap]));
+    }
+  } catch { /* ignore quota errors */ }
+}
 
 function getDefaultSettings() {
   return {
@@ -75,7 +99,7 @@ function isNonDefault(settings) {
  * MpcOverlay — search MPC Autofill for proxy card images and download
  * XML project files or image ZIPs. Includes configurable search settings.
  */
-export default function MpcOverlay({ cards, deckName, onClose }) {
+export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
@@ -104,7 +128,7 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
   const [altPickerCard, setAltPickerCard] = useState(null);
   const [altLoading, setAltLoading] = useState(false);
   const [alternates, setAlternates] = useState([]);
-  const [overrides, setOverrides] = useState(new Map());
+  const [overrides, setOverrides] = useState(() => loadOverrides(deckId));
 
   // Escape closes overlay (or settings/alt picker panel if open)
   useEffect(() => {
@@ -129,7 +153,7 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
     setLoading(true);
     setError(null);
     setResults(null);
-    setOverrides(new Map());
+    // Don't clear overrides — prune after results arrive
     setAltPickerCard(null);
     setAlternates([]);
     setDfcPairs({});
@@ -139,6 +163,19 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
       const settingsToSend = isNonDefault(settings) ? settings : null;
       const data = await mpcSearch(cards, settingsToSend);
       setResults(data);
+
+      // Prune overrides: keep only cards still in results
+      if (deckId && data.results) {
+        const resultNames = new Set(data.results.map(r => r.name.toLowerCase()));
+        setOverrides(prev => {
+          const pruned = new Map();
+          for (const [key, val] of prev) {
+            if (resultNames.has(key)) pruned.set(key, val);
+          }
+          saveOverrides(deckId, pruned);
+          return pruned;
+        });
+      }
 
       // Store DFC pairs and auto-search for back faces
       const pairs = data.dfcPairs || {};
@@ -369,10 +406,17 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
         sourceName: alt.sourceName,
         extension: alt.extension,
       });
+      saveOverrides(deckId, next);
       return next;
     });
     setAltPickerCard(null);
     setAlternates([]);
+  }
+
+  function handleResetOverrides() {
+    setOverrides(new Map());
+    saveOverrides(deckId, new Map());
+    toast.success('Art choices reset');
   }
 
   function updateDraft(path, value) {
@@ -922,7 +966,7 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                   {matchedResults.length > 0 && (
                     <div className="mpc-card-grid">
                       {matchedResults.map(card => {
-                        const hasAlts = !card.isDfcBack && card.alternateCount > 0;
+                        const hasAlts = card.alternateCount > 0;
                         return (
                           <div
                             key={card.isDfcBack ? `dfc-back-${card.name}` : card.name}
@@ -951,7 +995,7 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                               <span className="mpc-card-meta">
                                 {card.sourceName && <span>{card.sourceName}</span>}
                                 {card.dpi > 0 && <span>{card.dpi} DPI</span>}
-                                {!card.isDfcBack && card.alternateCount > 0 && (
+                                {card.alternateCount > 0 && (
                                   <span className="mpc-card-alts">+{card.alternateCount} alt{card.alternateCount !== 1 ? 's' : ''}</span>
                                 )}
                               </span>
@@ -1005,6 +1049,16 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                   </label>
                 </div>
                 <div className="mpc-actions-buttons">
+                  {overrides.size > 0 && (
+                    <button
+                      className="btn btn-ghost-danger btn-sm"
+                      onClick={handleResetOverrides}
+                      type="button"
+                      title="Reset all custom art selections back to defaults"
+                    >
+                      Reset Art ({overrides.size})
+                    </button>
+                  )}
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={handleDownloadXml}

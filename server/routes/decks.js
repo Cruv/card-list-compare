@@ -483,6 +483,16 @@ router.get('/:id/prices', async (req, res) => {
     run('UPDATE tracked_decks SET last_known_price = ?, last_known_budget_price = ? WHERE id = ?',
       [totalPrice, budgetPrice, deck.id]);
 
+    // Backfill latest snapshot with price data for price history tracking
+    const latestSnap = get(
+      'SELECT id, snapshot_price FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      [deck.id]
+    );
+    if (latestSnap && latestSnap.snapshot_price === null) {
+      run('UPDATE deck_snapshots SET snapshot_price = ?, snapshot_budget_price = ? WHERE id = ?',
+        [Math.round(totalPrice * 100) / 100, Math.round(budgetPrice * 100) / 100, latestSnap.id]);
+    }
+
     cards.sort((a, b) => b.total - a.total);
 
     res.json({
@@ -498,6 +508,40 @@ router.get('/:id/prices', async (req, res) => {
     console.error('Price check error:', err);
     res.status(500).json({ error: 'Failed to fetch prices' });
   }
+});
+
+// Price history — return snapshots with recorded prices for chart rendering
+router.get('/:id/price-history', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  if (!deck) {
+    return res.status(404).json({ error: 'Tracked deck not found' });
+  }
+
+  const snapshots = all(
+    `SELECT id, nickname, created_at, snapshot_price, snapshot_budget_price
+     FROM deck_snapshots
+     WHERE tracked_deck_id = ? AND snapshot_price IS NOT NULL
+     ORDER BY created_at ASC`,
+    [deck.id]
+  );
+
+  const dataPoints = snapshots.map(s => ({
+    snapshotId: s.id,
+    price: s.snapshot_price,
+    budgetPrice: s.snapshot_budget_price,
+    date: s.created_at,
+    nickname: s.nickname || null,
+  }));
+
+  res.json({
+    deckName: deck.deck_name,
+    currentPrice: deck.last_known_price,
+    currentBudgetPrice: deck.last_known_budget_price,
+    dataPoints,
+  });
 });
 
 // Overlap analysis — find cards shared across tracked decks

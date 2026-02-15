@@ -20,11 +20,13 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.31.0';
+const APP_VERSION = '2.32.0';
 const WHATS_NEW = [
-  'Per-card unit prices: cards with qty > 1 now show "$X.XX ea" alongside the total price',
-  'MPC DFC auto-pairing: double-faced cards automatically include back face proxy images',
-  'Price impact summary: deck comparisons show cost of cards added/removed with net delta',
+  'Price history chart: smooth, stock-tracker-style SVG chart showing deck value over time',
+  'Mana curve delta: visual bar chart showing CMC distribution changes in deck comparisons',
+  'MPC art persistence: custom art selections now saved per deck and survive page reload',
+  'MPC DFC alt picker: back faces are now clickable for alternate art selection',
+  'Smarter notifications: email and Discord webhooks now include card-level change detail',
 ];
 
 function getResetToken() {

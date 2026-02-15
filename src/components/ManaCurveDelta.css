@@ -1,0 +1,93 @@
+/* ── Mana Curve Delta Chart ───────────────────────── */
+
+.mana-curve-delta {
+  margin: var(--space-md) 0;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.mana-curve-delta-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: var(--space-xs);
+}
+
+.mana-curve-delta-chart {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100px;
+}
+
+.mana-curve-delta-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  min-width: 0;
+}
+
+.mana-curve-delta-bar-up,
+.mana-curve-delta-bar-down {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+}
+
+.mana-curve-delta-bar-down {
+  align-items: flex-start;
+  border-top: 1px solid var(--border-color);
+}
+
+.mana-curve-delta-bar {
+  width: 80%;
+  max-width: 32px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: height 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  min-height: 2px;
+}
+
+.mana-curve-delta-bar--added {
+  background: var(--accent-green);
+  opacity: 0.75;
+}
+
+.mana-curve-delta-bar--removed {
+  background: var(--accent-red);
+  opacity: 0.75;
+}
+
+.mana-curve-delta-count {
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  font-family: var(--font-mono);
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.mana-curve-delta-cmc {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* Make bars more visible on dark theme */
+:root[data-theme="dark"] .mana-curve-delta-bar--added { opacity: 0.85; }
+:root[data-theme="dark"] .mana-curve-delta-bar--removed { opacity: 0.85; }

@@ -120,6 +120,7 @@ export const refreshAllDecks = () =>
 export const getDeckOverlap = () => apiFetch('/decks/overlap');
 
 export const getDeckPrices = (deckId) => apiFetch(`/decks/${deckId}/prices`);
+export const getDeckPriceHistory = (deckId) => apiFetch(`/decks/${deckId}/price-history`);
 
 export const updateDeckPriceAlert = (deckId, priceAlertThreshold, priceAlertMode) =>
   apiFetch(`/decks/${deckId}`, { method: 'PATCH', body: JSON.stringify({ priceAlertThreshold, priceAlertMode }) });

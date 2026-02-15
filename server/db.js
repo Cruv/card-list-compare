@@ -388,6 +388,18 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // Migration: add price columns to deck_snapshots for price history tracking
+  try {
+    db.run('ALTER TABLE deck_snapshots ADD COLUMN snapshot_price REAL');
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.run('ALTER TABLE deck_snapshots ADD COLUMN snapshot_budget_price REAL');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Playgroups tables removed — future TapTogether integration planned
 
   // Indexes

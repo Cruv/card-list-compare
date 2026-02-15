@@ -1,0 +1,244 @@
+/* ── Price History Chart ─────────────────────────── */
+
+.price-chart {
+  position: relative;
+  width: 100%;
+  user-select: none;
+}
+
+.price-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* ── Grid & Axes ─────────────────────────────────── */
+
+.price-chart-grid {
+  stroke: var(--border-color);
+  stroke-width: 0.5;
+  stroke-dasharray: 4 4;
+  opacity: 0.5;
+}
+
+.price-chart-y-label {
+  font-size: 10px;
+  fill: var(--text-muted);
+  text-anchor: end;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.price-chart-x-label {
+  font-size: 10px;
+  fill: var(--text-muted);
+  text-anchor: middle;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* ── Line & Area (trend-colored) ─────────────────── */
+
+/* Neutral / default (blue tones) */
+.price-chart .price-chart-gradient-start { stop-color: rgba(66, 133, 244, 0.25); }
+.price-chart .price-chart-gradient-end   { stop-color: rgba(66, 133, 244, 0.02); }
+.price-chart .price-chart-line-start     { stop-color: #4285f4; }
+.price-chart .price-chart-line-end       { stop-color: #6aa3f7; }
+
+/* Up trend (red/warm) */
+.price-chart--up .price-chart-gradient-start { stop-color: rgba(244, 67, 54, 0.2); }
+.price-chart--up .price-chart-gradient-end   { stop-color: rgba(244, 67, 54, 0.02); }
+.price-chart--up .price-chart-line-start     { stop-color: #e53935; }
+.price-chart--up .price-chart-line-end       { stop-color: #ef5350; }
+
+/* Down trend (green) */
+.price-chart--down .price-chart-gradient-start { stop-color: rgba(76, 175, 80, 0.2); }
+.price-chart--down .price-chart-gradient-end   { stop-color: rgba(76, 175, 80, 0.02); }
+.price-chart--down .price-chart-line-start     { stop-color: #43a047; }
+.price-chart--down .price-chart-line-end       { stop-color: #66bb6a; }
+
+.price-chart-area {
+  fill: url(#priceAreaGradient);
+  opacity: 0;
+  animation: priceChartFadeIn 0.6s ease-out 0.3s forwards;
+}
+
+.price-chart-line {
+  fill: none;
+  stroke: url(#priceLineGradient);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: priceChartDrawLine 0.8s ease-out forwards;
+}
+
+@keyframes priceChartDrawLine {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes priceChartFadeIn {
+  to { opacity: 1; }
+}
+
+/* ── Data Points ─────────────────────────────────── */
+
+.price-chart-dot {
+  fill: var(--bg-secondary);
+  stroke: url(#priceLineGradient);
+  stroke-width: 2;
+  transition: r 0.15s ease, fill 0.15s ease;
+  opacity: 0;
+  animation: priceChartFadeIn 0.3s ease-out 0.8s forwards;
+}
+
+.price-chart--up .price-chart-dot   { stroke: #e53935; }
+.price-chart--down .price-chart-dot { stroke: #43a047; }
+
+.price-chart-dot--active {
+  fill: url(#priceLineGradient);
+  stroke-width: 2.5;
+}
+
+.price-chart--up .price-chart-dot--active   { fill: #e53935; }
+.price-chart--down .price-chart-dot--active { fill: #43a047; }
+
+.price-chart-dot--min { stroke: var(--accent-green); }
+.price-chart-dot--max { stroke: var(--accent-red); }
+
+/* ── Min/Max Labels ──────────────────────────────── */
+
+.price-chart-extrema-label {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-anchor: middle;
+  opacity: 0;
+  animation: priceChartFadeIn 0.3s ease-out 1s forwards;
+}
+
+.price-chart-extrema--min { fill: var(--accent-green); }
+.price-chart-extrema--max { fill: var(--accent-red); }
+
+/* ── Crosshair ───────────────────────────────────── */
+
+.price-chart-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 0.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ── Tooltip ─────────────────────────────────────── */
+
+.price-chart-tooltip {
+  position: absolute;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 10;
+  min-width: 120px;
+  white-space: nowrap;
+}
+
+.price-chart-tooltip-price {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.price-chart-tooltip-budget {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.price-chart-tooltip-date {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.price-chart-tooltip-nick {
+  font-size: 11px;
+  color: var(--accent-blue);
+  font-style: italic;
+}
+
+.price-chart-tooltip-delta {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+.price-chart-tooltip-delta--up { color: var(--accent-red); }
+.price-chart-tooltip-delta--down { color: var(--accent-green); }
+
+/* ── Empty / Single Point States ─────────────────── */
+
+.price-chart-empty,
+.price-chart-single {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl) var(--space-lg);
+  min-height: 200px;
+  text-align: center;
+}
+
+.price-chart-empty-icon {
+  font-size: 36px;
+  margin-bottom: var(--space-sm);
+  opacity: 0.6;
+}
+
+.price-chart-empty-text {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.price-chart-empty-hint {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  max-width: 300px;
+}
+
+.price-chart-single-value {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.price-chart-single-date {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-top: var(--space-xs);
+}
+
+.price-chart-single-nick {
+  font-size: var(--fs-sm);
+  color: var(--accent-blue);
+  font-style: italic;
+}
+
+/* ── Responsive ──────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .price-chart-tooltip {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
+
+  .price-chart-tooltip-price {
+    font-size: 14px;
+  }
+}

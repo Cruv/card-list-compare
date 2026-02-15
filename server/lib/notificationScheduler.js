@@ -4,8 +4,47 @@ import { archidektToText } from './deckToText.js';
 import { enrichDeckText } from './enrichDeckText.js';
 import { pruneSnapshots } from './pruneSnapshots.js';
 import { isEmailConfigured, sendEmail, getAppUrl } from './email.js';
+import { parse } from '../../src/lib/parser.js';
+import { computeDiff } from '../../src/lib/differ.js';
 
 let intervalHandle = null;
+
+const MAX_CARDS_PER_SECTION = 8;
+
+/**
+ * Build a human-readable change summary from a diff result.
+ * Returns { added: ['2x Lightning Bolt', ...], removed: [...], changed: [...] }
+ */
+function buildChangeSummary(diff) {
+  const added = [];
+  const removed = [];
+  const changed = [];
+
+  for (const section of [diff.mainboard, diff.sideboard]) {
+    for (const card of section.cardsIn) {
+      added.push(`${card.quantity}x ${card.name}`);
+    }
+    for (const card of section.cardsOut) {
+      removed.push(`${card.quantity}x ${card.name}`);
+    }
+    for (const card of section.quantityChanges) {
+      if (card.delta > 0) {
+        changed.push(`${card.name} (+${card.delta})`);
+      } else {
+        changed.push(`${card.name} (${card.delta})`);
+      }
+    }
+  }
+
+  return { added, removed, changed };
+}
+
+function truncateList(items, max = MAX_CARDS_PER_SECTION) {
+  if (items.length <= max) return items;
+  const shown = items.slice(0, max);
+  shown.push(`…and ${items.length - max} more`);
+  return shown;
+}
 
 /**
  * Check all decks with notifications enabled for changes.
@@ -54,7 +93,20 @@ async function checkDecksForChanges() {
         continue;
       }
 
-      // Changes detected — create snapshot
+      // Changes detected — compute structured diff for card-level detail
+      let changeSummary = null;
+      try {
+        if (latest?.deck_text) {
+          const parsedBefore = parse(latest.deck_text);
+          const parsedAfter = parse(enrichedText);
+          const diff = computeDiff(parsedBefore, parsedAfter);
+          changeSummary = buildChangeSummary(diff);
+        }
+      } catch {
+        // Non-fatal — fall back to generic notification
+      }
+
+      // Create snapshot
       run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
       pruneSnapshots(deck.id);
 
@@ -69,12 +121,12 @@ async function checkDecksForChanges() {
 
       // Send notification email (if email notifications enabled and email configured)
       if (deck.notify_on_change && deck.email && isEmailConfigured()) {
-        await sendDeckChangeEmail(deck.email, deck.username, deck.deck_name, deck.id);
+        await sendDeckChangeEmail(deck.email, deck.username, deck.deck_name, deck.id, changeSummary);
       }
 
       // Send Discord webhook notification
       if (deck.discord_webhook_url) {
-        await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders);
+        await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, changeSummary);
       }
       changed++;
 
@@ -91,21 +143,49 @@ async function checkDecksForChanges() {
   }
 }
 
-async function sendDiscordWebhook(webhookUrl, deckName, commandersJson) {
+async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSummary) {
   try {
     let commanders = [];
     try { commanders = commandersJson ? JSON.parse(commandersJson) : []; } catch { /* ignore */ }
     const cmdLabel = commanders.length > 0 ? commanders.join(' / ') : deckName;
     const appUrl = getAppUrl();
 
+    const fields = [];
+    if (changeSummary) {
+      if (changeSummary.added.length > 0) {
+        fields.push({
+          name: `Cards In (+${changeSummary.added.length})`,
+          value: truncateList(changeSummary.added).join('\n'),
+          inline: true,
+        });
+      }
+      if (changeSummary.removed.length > 0) {
+        fields.push({
+          name: `Cards Out (-${changeSummary.removed.length})`,
+          value: truncateList(changeSummary.removed).join('\n'),
+          inline: true,
+        });
+      }
+      if (changeSummary.changed.length > 0) {
+        fields.push({
+          name: `Qty Changed (~${changeSummary.changed.length})`,
+          value: truncateList(changeSummary.changed).join('\n'),
+          inline: true,
+        });
+      }
+    }
+
     const body = {
       embeds: [{
         title: `Deck Updated: ${deckName}`,
-        description: `**${cmdLabel}** has been updated on Archidekt. A new snapshot has been saved.`,
+        description: changeSummary
+          ? `**${cmdLabel}** has been updated on Archidekt.`
+          : `**${cmdLabel}** has been updated on Archidekt. A new snapshot has been saved.`,
         color: 0x3b82f6,
+        fields: fields.length > 0 ? fields : undefined,
         footer: { text: 'Card List Compare' },
         timestamp: new Date().toISOString(),
-        ...(appUrl ? { url: `${appUrl}#settings` } : {}),
+        ...(appUrl ? { url: `${appUrl}#library` } : {}),
       }],
     };
 
@@ -123,21 +203,59 @@ async function sendDiscordWebhook(webhookUrl, deckName, commandersJson) {
   }
 }
 
-async function sendDeckChangeEmail(email, username, deckName, deckId) {
+async function sendDeckChangeEmail(email, username, deckName, deckId, changeSummary) {
   const appUrl = getAppUrl();
-  const settingsUrl = `${appUrl}#settings`;
+  const libraryUrl = `${appUrl}#library`;
+
+  // Build card-level detail HTML if available
+  let changeDetailHtml = '';
+  if (changeSummary) {
+    const sections = [];
+    if (changeSummary.added.length > 0) {
+      sections.push(`
+        <div style="margin-bottom: 8px;">
+          <strong style="color: #4caf50;">Added (${changeSummary.added.length}):</strong>
+          <div style="color: #4caf50; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.added).join('<br>')}</div>
+        </div>
+      `);
+    }
+    if (changeSummary.removed.length > 0) {
+      sections.push(`
+        <div style="margin-bottom: 8px;">
+          <strong style="color: #f44336;">Removed (${changeSummary.removed.length}):</strong>
+          <div style="color: #f44336; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.removed).join('<br>')}</div>
+        </div>
+      `);
+    }
+    if (changeSummary.changed.length > 0) {
+      sections.push(`
+        <div style="margin-bottom: 8px;">
+          <strong style="color: #ff9800;">Changed (${changeSummary.changed.length}):</strong>
+          <div style="color: #ff9800; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.changed).join('<br>')}</div>
+        </div>
+      `);
+    }
+    if (sections.length > 0) {
+      changeDetailHtml = `
+        <div style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin: 16px 0;">
+          ${sections.join('')}
+        </div>
+      `;
+    }
+  }
+
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
       <h2 style="color: #333;">Deck Updated</h2>
       <p>Hi ${username},</p>
       <p>Your tracked deck <strong>${deckName}</strong> has changed on Archidekt.</p>
-      <p>A new snapshot has been saved automatically. View the timeline to see what changed.</p>
+      ${changeDetailHtml || '<p>A new snapshot has been saved automatically.</p>'}
       <p>
-        <a href="${settingsUrl}" style="display: inline-block; padding: 12px 24px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">
+        <a href="${libraryUrl}" style="display: inline-block; padding: 12px 24px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">
           View Timeline
         </a>
       </p>
-      <p style="color: #666; font-size: 13px;">You're receiving this because you enabled notifications for this deck. You can turn them off in your <a href="${settingsUrl}">Settings</a>.</p>
+      <p style="color: #666; font-size: 13px;">You're receiving this because you enabled notifications for this deck. You can turn them off in your <a href="${libraryUrl}">Deck Library</a>.</p>
       <p style="color: #999; font-size: 11px;">Card List Compare</p>
     </div>
   `;

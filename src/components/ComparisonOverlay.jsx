@@ -7,6 +7,7 @@ import { computeDiff } from '../lib/differ';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt } from '../lib/formatter';
 import SectionChangelog from './SectionChangelog';
+import ManaCurveDelta from './ManaCurveDelta';
 import CopyButton from './CopyButton';
 import Skeleton from './Skeleton';
 import { toast } from './Toast';
@@ -309,6 +310,7 @@ export default function ComparisonOverlay({
                   <span className="comparison-price-out">&minus;${priceImpact.costOut.toFixed(2)} removed</span>
                 </div>
               )}
+              <ManaCurveDelta diffResult={diffResult} cardMap={cardMap} />
               <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={cardMap} />
               {diffResult.hasSideboard && (
                 <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={cardMap} />

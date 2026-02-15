@@ -7,6 +7,7 @@ import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS, formatDeckForMpc } from '../lib/formatter';
 import { estimatePowerLevel } from '../lib/powerLevel';
 import SectionChangelog from './SectionChangelog';
+import ManaCurveDelta from './ManaCurveDelta';
 import DeckListView from './DeckListView';
 import CopyButton from './CopyButton';
 import MpcOverlay from './MpcOverlay';
@@ -375,6 +376,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
                       </span>
                     )}
                   </div>
+                  <ManaCurveDelta diffResult={diffResult} cardMap={diffCardMap} />
                   <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={diffCardMap} />
                   {diffResult.hasSideboard && (
                     <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={diffCardMap} />
@@ -418,6 +420,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
           <MpcOverlay
             cards={formatDeckForMpc(parsedDeck)}
             deckName={deckName}
+            deckId={deckId}
             onClose={() => setShowMpc(false)}
           />
         )}

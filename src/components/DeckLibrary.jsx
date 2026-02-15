@@ -24,6 +24,7 @@ import TimelineOverlay from './TimelineOverlay';
 import RecommendationsOverlay from './RecommendationsOverlay';
 import ComparisonOverlay from './ComparisonOverlay';
 import MpcOverlay from './MpcOverlay';
+import PriceHistoryOverlay from './PriceHistoryOverlay';
 import './UserSettings.css';
 import './DeckLibrary.css';
 
@@ -943,6 +944,7 @@ function DeckCard({
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [showMpc, setShowMpc] = useState(false);
   const [mpcCards, setMpcCards] = useState(null);
+  const [showPriceHistory, setShowPriceHistory] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Notes editing state
@@ -1379,6 +1381,15 @@ function DeckCard({
                     >
                       {loadingPrices ? 'Checking...' : 'Check prices'}
                     </button>
+                    {priceDisplayEnabled && deck.last_known_price > 0 && (
+                      <button
+                        className="settings-tracker-dropdown-item"
+                        onClick={() => { setShowPriceHistory(true); setMenuOpen(false); }}
+                        type="button"
+                      >
+                        Price history
+                      </button>
+                    )}
                     <button
                       className="settings-tracker-dropdown-item"
                       onClick={() => { setShowRecommendations(true); setMenuOpen(false); }}
@@ -1581,7 +1592,16 @@ function DeckCard({
             <MpcOverlay
               cards={mpcCards}
               deckName={deck.deck_name}
+              deckId={deck.id}
               onClose={() => { setShowMpc(false); setMpcCards(null); }}
+            />
+          )}
+
+          {showPriceHistory && (
+            <PriceHistoryOverlay
+              deckId={deck.id}
+              deckName={deck.deck_name}
+              onClose={() => setShowPriceHistory(false)}
             />
           )}
 
