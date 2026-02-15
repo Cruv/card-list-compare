@@ -145,7 +145,7 @@ router.post('/search', mpcLimiter, async (req, res) => {
         name: card.name,
         quantity: card.quantity || 1,
         identifier: bestId,
-        thumbnailUrl: details?.thumbnailUrl || `https://drive.google.com/thumbnail?sz=w400-h400&id=${bestId}`,
+        thumbnailUrl: details?.thumbnailUrl || `/api/mpc/thumbnail/${bestId}`,
         dpi: details?.dpi || null,
         sourceName: details?.sourceName || null,
         extension: details?.extension || 'png',
@@ -170,6 +170,42 @@ router.post('/search', mpcLimiter, async (req, res) => {
   } catch (err) {
     console.error('MPC search error:', err);
     res.status(500).json({ error: 'Failed to search MPC Autofill. The service may be unavailable.' });
+  }
+});
+
+/**
+ * GET /api/mpc/thumbnail/:id — Proxy a Google Drive thumbnail.
+ * Avoids CORS issues by fetching server-side and streaming to client.
+ * Cached via standard HTTP cache headers (browser + CDN).
+ */
+router.get('/thumbnail/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id || id.length > 120) {
+      return res.status(400).end();
+    }
+
+    const url = `https://drive.google.com/thumbnail?sz=w400-h400&id=${encodeURIComponent(id)}`;
+    const upstream = await fetch(url, {
+      headers: { 'User-Agent': 'CardListCompare/1.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!upstream.ok) {
+      return res.status(upstream.status).end();
+    }
+
+    const contentType = upstream.headers.get('content-type') || 'image/jpeg';
+    res.set({
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=86400, immutable',
+    });
+
+    // Stream the response body
+    const arrayBuf = await upstream.arrayBuffer();
+    res.send(Buffer.from(arrayBuf));
+  } catch (err) {
+    if (!res.headersSent) res.status(502).end();
   }
 });
 

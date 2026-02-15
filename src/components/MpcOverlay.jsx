@@ -256,6 +256,41 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
     });
   }
 
+  function toggleGroupTags(listPath, groupTagNames, oppositeListPath) {
+    setDraftSettings(prev => {
+      const next = JSON.parse(JSON.stringify(prev));
+      const keys = listPath.split('.');
+      let obj = next;
+      for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]];
+      const list = obj[keys[keys.length - 1]];
+
+      // Get opposite list to filter out disabled tags
+      const oppKeys = oppositeListPath.split('.');
+      let oppObj = next;
+      for (let i = 0; i < oppKeys.length - 1; i++) oppObj = oppObj[oppKeys[i]];
+      const oppList = oppObj[oppKeys[oppKeys.length - 1]];
+
+      // Only consider tags not in the opposite list
+      const eligible = groupTagNames.filter(n => !oppList.includes(n));
+      if (eligible.length === 0) return prev;
+
+      const allSelected = eligible.every(n => list.includes(n));
+      if (allSelected) {
+        // Deselect all eligible
+        for (const n of eligible) {
+          const idx = list.indexOf(n);
+          if (idx >= 0) list.splice(idx, 1);
+        }
+      } else {
+        // Select all eligible that aren't already selected
+        for (const n of eligible) {
+          if (!list.includes(n)) list.push(n);
+        }
+      }
+      return next;
+    });
+  }
+
   function moveSource(index, direction) {
     setDraftSettings(prev => {
       const next = JSON.parse(JSON.stringify(prev));
@@ -458,32 +493,43 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                   {tagsByParent.size > 0 && (
                     <div className="mpc-settings-section">
                       <h3 className="mpc-settings-section-title">Include Tags</h3>
-                      <p className="mpc-settings-hint">Cards must have at least one selected tag</p>
-                      {[...tagsByParent.entries()].map(([parent, tagNames]) => (
-                        <div key={parent} className="mpc-settings-tag-group">
-                          <span className="mpc-settings-tag-group-label">{parent}</span>
-                          <div className="mpc-settings-chip-list">
-                            {tagNames.map(name => {
-                              const selected = draftSettings?.filterSettings.includesTags.includes(name);
-                              const excluded = draftSettings?.filterSettings.excludesTags.includes(name);
-                              return (
-                                <button
-                                  key={name}
-                                  className={`mpc-settings-chip${selected ? ' mpc-settings-chip--active' : ''}${excluded ? ' mpc-settings-chip--disabled' : ''}`}
-                                  onClick={() => {
-                                    if (excluded) return;
-                                    toggleTagInList('filterSettings.includesTags', name);
-                                  }}
-                                  type="button"
-                                  disabled={excluded}
-                                >
-                                  {name}
-                                </button>
-                              );
-                            })}
+                      <p className="mpc-settings-hint">Cards must have at least one selected tag. Click a category name to toggle all.</p>
+                      {[...tagsByParent.entries()].map(([parent, tagNames]) => {
+                        const eligible = tagNames.filter(n => !draftSettings?.filterSettings.excludesTags.includes(n));
+                        const allSelected = eligible.length > 0 && eligible.every(n => draftSettings?.filterSettings.includesTags.includes(n));
+                        return (
+                          <div key={parent} className="mpc-settings-tag-group">
+                            <button
+                              className={`mpc-settings-tag-group-label mpc-settings-tag-group-label--clickable${allSelected ? ' mpc-settings-tag-group-label--active' : ''}`}
+                              onClick={() => toggleGroupTags('filterSettings.includesTags', tagNames, 'filterSettings.excludesTags')}
+                              type="button"
+                              title={allSelected ? `Deselect all ${parent} tags` : `Select all ${parent} tags`}
+                            >
+                              {parent}
+                            </button>
+                            <div className="mpc-settings-chip-list">
+                              {tagNames.map(name => {
+                                const selected = draftSettings?.filterSettings.includesTags.includes(name);
+                                const excluded = draftSettings?.filterSettings.excludesTags.includes(name);
+                                return (
+                                  <button
+                                    key={name}
+                                    className={`mpc-settings-chip${selected ? ' mpc-settings-chip--active' : ''}${excluded ? ' mpc-settings-chip--disabled' : ''}`}
+                                    onClick={() => {
+                                      if (excluded) return;
+                                      toggleTagInList('filterSettings.includesTags', name);
+                                    }}
+                                    type="button"
+                                    disabled={excluded}
+                                  >
+                                    {name}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -491,32 +537,43 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                   {tagsByParent.size > 0 && (
                     <div className="mpc-settings-section">
                       <h3 className="mpc-settings-section-title">Exclude Tags</h3>
-                      <p className="mpc-settings-hint">Cards must not have any selected tag</p>
-                      {[...tagsByParent.entries()].map(([parent, tagNames]) => (
-                        <div key={parent} className="mpc-settings-tag-group">
-                          <span className="mpc-settings-tag-group-label">{parent}</span>
-                          <div className="mpc-settings-chip-list">
-                            {tagNames.map(name => {
-                              const selected = draftSettings?.filterSettings.excludesTags.includes(name);
-                              const included = draftSettings?.filterSettings.includesTags.includes(name);
-                              return (
-                                <button
-                                  key={name}
-                                  className={`mpc-settings-chip mpc-settings-chip--exclude${selected ? ' mpc-settings-chip--active' : ''}${included ? ' mpc-settings-chip--disabled' : ''}`}
-                                  onClick={() => {
-                                    if (included) return;
-                                    toggleTagInList('filterSettings.excludesTags', name);
-                                  }}
-                                  type="button"
-                                  disabled={included}
-                                >
-                                  {name}
-                                </button>
-                              );
-                            })}
+                      <p className="mpc-settings-hint">Cards must not have any selected tag. Click a category name to toggle all.</p>
+                      {[...tagsByParent.entries()].map(([parent, tagNames]) => {
+                        const eligible = tagNames.filter(n => !draftSettings?.filterSettings.includesTags.includes(n));
+                        const allSelected = eligible.length > 0 && eligible.every(n => draftSettings?.filterSettings.excludesTags.includes(n));
+                        return (
+                          <div key={parent} className="mpc-settings-tag-group">
+                            <button
+                              className={`mpc-settings-tag-group-label mpc-settings-tag-group-label--clickable${allSelected ? ' mpc-settings-tag-group-label--active' : ''}`}
+                              onClick={() => toggleGroupTags('filterSettings.excludesTags', tagNames, 'filterSettings.includesTags')}
+                              type="button"
+                              title={allSelected ? `Deselect all ${parent} tags` : `Select all ${parent} tags`}
+                            >
+                              {parent}
+                            </button>
+                            <div className="mpc-settings-chip-list">
+                              {tagNames.map(name => {
+                                const selected = draftSettings?.filterSettings.excludesTags.includes(name);
+                                const included = draftSettings?.filterSettings.includesTags.includes(name);
+                                return (
+                                  <button
+                                    key={name}
+                                    className={`mpc-settings-chip mpc-settings-chip--exclude${selected ? ' mpc-settings-chip--active' : ''}${included ? ' mpc-settings-chip--disabled' : ''}`}
+                                    onClick={() => {
+                                      if (included) return;
+                                      toggleTagInList('filterSettings.excludesTags', name);
+                                    }}
+                                    type="button"
+                                    disabled={included}
+                                  >
+                                    {name}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -662,8 +719,6 @@ export default function MpcOverlay({ cards, deckName, onClose }) {
                               alt={card.name}
                               className="mpc-card-img"
                               loading="lazy"
-                              crossOrigin="anonymous"
-                              referrerPolicy="no-referrer"
                             />
                             {card.quantity > 1 && (
                               <span className="mpc-card-qty">&times;{card.quantity}</span>

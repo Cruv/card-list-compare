@@ -575,6 +575,25 @@
   letter-spacing: 0.03em;
 }
 
+.mpc-settings-tag-group-label--clickable {
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+  font-family: inherit;
+}
+
+.mpc-settings-tag-group-label--clickable:hover {
+  color: var(--accent-blue);
+  background: rgba(92, 107, 192, 0.08);
+}
+
+.mpc-settings-tag-group-label--active {
+  color: var(--accent-blue);
+}
+
 /* Source list */
 .mpc-settings-source-actions {
   display: flex;

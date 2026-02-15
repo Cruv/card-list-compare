@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.29.1';
+const APP_VERSION = '2.29.2';
 const WHATS_NEW = [
-  'Cleaner overlay headers: desktop shows × close, mobile shows ← back — one button per viewport instead of both',
-  'Printing Changes: swapping a card\'s artwork/printing now shows in a dedicated section instead of appearing as cards in/out',
-  'Blue summary badge shows reprinted card count alongside adds, removes, and quantity changes',
+  'MPC proxy images now load reliably via server-side thumbnail proxy (no more broken images)',
+  'Tag category group-select: click a category name to toggle all tags in that group at once',
+  'Search settings are browser-local — each device keeps its own preferences',
 ];
 
 function getResetToken() {

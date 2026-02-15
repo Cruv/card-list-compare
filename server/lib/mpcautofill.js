@@ -335,7 +335,7 @@ export async function fetchCardDetails(identifiers) {
           dpi: card.dpi || 0,
           extension: card.extension || 'png',
           sourceName: card.source_name || card.sourceName || '',
-          thumbnailUrl: `https://drive.google.com/thumbnail?sz=w400-h400&id=${id}`,
+          thumbnailUrl: `/api/mpc/thumbnail/${id}`,
         };
         result.set(id, entry);
         setCache(cardCache, id, entry);
