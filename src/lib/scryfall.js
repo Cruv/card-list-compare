@@ -15,9 +15,59 @@
 
 const SCRYFALL_BATCH_SIZE = 75;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const STORAGE_KEY = 'clc-scryfall-cache';
+const STORAGE_WRITE_DEBOUNCE = 2000; // ms — batch writes to sessionStorage
+const STORAGE_MAX_ENTRIES = 2000; // cap to ~400KB in sessionStorage
 
 // Module-scope session cache: cacheKey → { data, ts }
 const cardCache = new Map();
+
+// Hydrate from sessionStorage on module load (survives page reload)
+try {
+  const stored = sessionStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    const entries = JSON.parse(stored);
+    const now = Date.now();
+    for (const [key, entry] of entries) {
+      if (now - entry.ts < CACHE_TTL) {
+        cardCache.set(key, entry);
+      }
+    }
+  }
+} catch { /* sessionStorage unavailable or corrupt — start fresh */ }
+
+let _storageDirty = false;
+let _storageTimer = null;
+
+function flushToStorage() {
+  if (!_storageDirty) return;
+  try {
+    // Only persist entries that are still within TTL, capped by max entries
+    const now = Date.now();
+    const entries = [];
+    for (const [key, entry] of cardCache) {
+      if (now - entry.ts < CACHE_TTL) {
+        entries.push([key, entry]);
+      }
+    }
+    // If over limit, keep only the most recently accessed entries
+    if (entries.length > STORAGE_MAX_ENTRIES) {
+      entries.sort((a, b) => b[1].ts - a[1].ts);
+      entries.length = STORAGE_MAX_ENTRIES;
+    }
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  } catch { /* quota exceeded — cache is in-memory only */ }
+  _storageDirty = false;
+}
+
+function scheduleFlush() {
+  _storageDirty = true;
+  if (_storageTimer) return;
+  _storageTimer = setTimeout(() => {
+    _storageTimer = null;
+    flushToStorage();
+  }, STORAGE_WRITE_DEBOUNCE);
+}
 
 function getCached(key) {
   const entry = cardCache.get(key);
@@ -28,11 +78,13 @@ function getCached(key) {
 
 function setCardCache(key, data) {
   cardCache.set(key, { data, ts: Date.now() });
+  scheduleFlush();
 }
 
 /** Clear the session cache (for testing or manual reset). */
 export function clearCardCache() {
   cardCache.clear();
+  try { sessionStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 }
 
 // Canonical type ordering for MTG cards

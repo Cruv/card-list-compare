@@ -20,11 +20,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.33.0';
+const APP_VERSION = '2.33.1';
 const WHATS_NEW = [
-  'Auto price tracking: snapshot prices now stamped automatically during deck refreshes',
-  'Color distribution delta: visual chart showing color identity changes in deck comparisons',
-  'Price calculation refactored into shared module for route and scheduler reuse',
+  'Scryfall cache now persists across page reloads via sessionStorage — faster overlay loads',
+  'Cache uses debounced writes, TTL eviction, and 2000-entry cap to stay within storage limits',
 ];
 
 function getResetToken() {
