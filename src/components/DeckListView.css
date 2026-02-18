@@ -104,6 +104,23 @@
   background: rgba(92, 107, 192, 0.04);
 }
 
+/* ── Section label (Mainboard/Sideboard) ───────── */
+
+.deck-analytics-section-label {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--accent-blue);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin: var(--space-md) 0 var(--space-sm) 0;
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.deck-analytics-section-label:first-child {
+  margin-top: 0;
+}
+
 /* ── Stats summary row ──────────────────────────── */
 
 .deck-analytics-stats {

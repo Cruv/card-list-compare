@@ -130,6 +130,9 @@ export const updateDeckAutoRefresh = (deckId, autoRefreshHours) =>
 
 export const getDeckRecommendations = (deckId) => apiFetch(`/decks/${deckId}/recommendations`);
 
+export const getNotificationHistory = (page = 1, limit = 20) =>
+  apiFetch(`/decks/notifications/history?page=${page}&limit=${limit}`);
+
 // Snapshots
 export const getDeckSnapshots = (deckId) =>
   apiFetch(`/decks/${deckId}/snapshots`);

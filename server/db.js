@@ -402,6 +402,22 @@ export async function initDb() {
 
   // Playgroups tables removed — future TapTogether integration planned
 
+  // Notification log table — tracks all notifications sent (deck change, price alert)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tracked_deck_id INTEGER REFERENCES tracked_decks(id) ON DELETE SET NULL,
+      notification_type TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      subject TEXT,
+      details TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_notification_log_user ON notification_log(user_id, created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_notification_log_deck ON notification_log(tracked_deck_id, created_at)');
+
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_creator ON invite_codes(created_by_user_id)');

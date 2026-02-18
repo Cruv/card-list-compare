@@ -20,10 +20,13 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.33.1';
+const APP_VERSION = '2.34.0';
 const WHATS_NEW = [
-  'Scryfall cache now persists across page reloads via sessionStorage — faster overlay loads',
-  'Cache uses debounced writes, TTL eviction, and 2000-entry cap to stay within storage limits',
+  'Price alerts now trigger email and Discord notifications when deck value changes exceed your threshold',
+  'Notification history tab in Deck Library — see all sent notifications with details',
+  'Per-user email rate limiting (max 10/hour) prevents notification spam',
+  'Deck analytics now show mainboard and sideboard stats separately',
+  'Scheduled price alert checks run alongside deck change detection',
 ];
 
 function getResetToken() {

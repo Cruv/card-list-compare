@@ -6,116 +6,106 @@ import { symbolToSvgUrl } from './ManaCost';
 import { parseCMC, extractColors, COLOR_LABELS, COLOR_CSS } from '../lib/analytics';
 import './DeckListView.css';
 
-/* ── Analytics component ────────────────────────── */
+/* ── Analytics helpers ────────────────────────── */
 
-function DeckAnalytics({ parsedDeck, cardMap }) {
-  const analytics = useMemo(() => {
-    if (!cardMap || cardMap.size === 0) return null;
+function computeSectionStats(section, cardMap) {
+  const cards = [];
+  for (const [, entry] of section) {
+    const nameLower = entry.displayName.toLowerCase();
+    const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
+    const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
+    if (data) {
+      cards.push({ ...entry, type: data.type, isBackLand: data.isBackLand || false, manaCost: data.manaCost });
+    }
+  }
 
-    const allCards = [];
-    for (const section of [parsedDeck.mainboard, parsedDeck.sideboard]) {
-      for (const [, entry] of section) {
-        const nameLower = entry.displayName.toLowerCase();
-        const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
-        const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
-        if (data) {
-          allCards.push({ ...entry, type: data.type, isBackLand: data.isBackLand || false, manaCost: data.manaCost });
-        }
+  const totalCards = cards.reduce((sum, c) => sum + c.quantity, 0);
+  const uniqueCards = cards.length;
+
+  const typeCounts = {};
+  for (const t of TYPE_ORDER) typeCounts[t] = 0;
+  for (const card of cards) {
+    const t = card.type || 'Other';
+    typeCounts[t] = (typeCounts[t] || 0) + card.quantity;
+  }
+
+  const mdfcLandCount = cards
+    .filter(c => c.type !== 'Land' && c.isBackLand)
+    .reduce((sum, c) => sum + c.quantity, 0);
+  const landCount = (typeCounts['Land'] || 0) + mdfcLandCount;
+  const creatureCount = typeCounts['Creature'] || 0;
+
+  const nonLandCards = cards.filter(c => c.type !== 'Land' && !c.isBackLand);
+
+  const cmcCounts = {};
+  let cmcSum = 0;
+  let cmcCards = 0;
+  for (const card of nonLandCards) {
+    const cmc = parseCMC(card.manaCost);
+    const key = cmc >= 7 ? '7+' : String(cmc);
+    cmcCounts[key] = (cmcCounts[key] || 0) + card.quantity;
+    cmcSum += cmc * card.quantity;
+    cmcCards += card.quantity;
+  }
+  const avgCMC = cmcCards > 0 ? cmcSum / cmcCards : 0;
+
+  const colorCounts = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  for (const card of nonLandCards) {
+    const colors = extractColors(card.manaCost);
+    if (colors.length === 0 && card.manaCost) {
+      colorCounts.C += card.quantity;
+    } else {
+      for (const c of colors) {
+        colorCounts[c] += card.quantity;
       }
     }
+  }
 
-    // Total & unique
-    const totalCards = allCards.reduce((sum, c) => sum + c.quantity, 0);
-    const uniqueCards = allCards.length;
+  return { totalCards, uniqueCards, landCount, creatureCount, avgCMC, cmcCounts, typeCounts, colorCounts };
+}
 
-    // By type (front face classification for the chart)
-    const typeCounts = {};
-    for (const t of TYPE_ORDER) typeCounts[t] = 0;
-    for (const card of allCards) {
-      const t = card.type || 'Other';
-      typeCounts[t] = (typeCounts[t] || 0) + card.quantity;
-    }
+/* ── Analytics charts ────────────────────────── */
 
-    // Land count includes MDFCs with land on back face (matches Archidekt behavior)
-    const mdfcLandCount = allCards
-      .filter(c => c.type !== 'Land' && c.isBackLand)
-      .reduce((sum, c) => sum + c.quantity, 0);
-    const landCount = (typeCounts['Land'] || 0) + mdfcLandCount;
-    const creatureCount = typeCounts['Creature'] || 0;
+const CMC_KEYS = ['0', '1', '2', '3', '4', '5', '6', '7+'];
+const COLOR_KEYS = ['W', 'U', 'B', 'R', 'G', 'C'];
 
-    // Non-land cards for mana curve (exclude both lands and MDFC-lands)
-    const nonLandCards = allCards.filter(c => c.type !== 'Land' && !c.isBackLand);
-
-    // CMC distribution
-    const cmcCounts = {};
-    let cmcSum = 0;
-    let cmcCards = 0;
-    for (const card of nonLandCards) {
-      const cmc = parseCMC(card.manaCost);
-      const key = cmc >= 7 ? '7+' : String(cmc);
-      cmcCounts[key] = (cmcCounts[key] || 0) + card.quantity;
-      cmcSum += cmc * card.quantity;
-      cmcCards += card.quantity;
-    }
-    const avgCMC = cmcCards > 0 ? cmcSum / cmcCards : 0;
-
-    // Color distribution (by card count, not mana symbols)
-    const colorCounts = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
-    for (const card of nonLandCards) {
-      const colors = extractColors(card.manaCost);
-      if (colors.length === 0 && card.manaCost) {
-        colorCounts.C += card.quantity;
-      } else {
-        for (const c of colors) {
-          colorCounts[c] += card.quantity;
-        }
-      }
-    }
-
-    return {
-      totalCards, uniqueCards, landCount, creatureCount,
-      avgCMC, cmcCounts, typeCounts, colorCounts,
-    };
-  }, [parsedDeck, cardMap]);
-
-  if (!analytics) return null;
-
-  const cmcKeys = ['0', '1', '2', '3', '4', '5', '6', '7+'];
-  const maxCmc = Math.max(...cmcKeys.map(k => analytics.cmcCounts[k] || 0), 1);
+function AnalyticsCharts({ stats, label }) {
+  const maxCmc = Math.max(...CMC_KEYS.map(k => stats.cmcCounts[k] || 0), 1);
 
   const typeEntries = TYPE_ORDER
-    .map(t => ({ type: t, count: analytics.typeCounts[t] || 0 }))
+    .map(t => ({ type: t, count: stats.typeCounts[t] || 0 }))
     .filter(e => e.count > 0);
   const maxType = Math.max(...typeEntries.map(e => e.count), 1);
 
-  const colorKeys = ['W', 'U', 'B', 'R', 'G', 'C'];
-  const colorEntries = colorKeys
-    .map(c => ({ color: c, count: analytics.colorCounts[c] || 0 }))
+  const colorEntries = COLOR_KEYS
+    .map(c => ({ color: c, count: stats.colorCounts[c] || 0 }))
     .filter(e => e.count > 0);
   const maxColor = Math.max(...colorEntries.map(e => e.count), 1);
 
   return (
-    <div className="deck-analytics">
+    <>
+      {label && <h4 className="deck-analytics-section-label">{label}</h4>}
+
       {/* Stats summary */}
       <div className="deck-analytics-stats">
         <div className="analytics-stat">
-          <span className="analytics-stat-value">{analytics.totalCards}</span>
+          <span className="analytics-stat-value">{stats.totalCards}</span>
           <span className="analytics-stat-label">Cards</span>
         </div>
         <div className="analytics-stat">
-          <span className="analytics-stat-value">{analytics.uniqueCards}</span>
+          <span className="analytics-stat-value">{stats.uniqueCards}</span>
           <span className="analytics-stat-label">Unique</span>
         </div>
         <div className="analytics-stat">
-          <span className="analytics-stat-value">{analytics.avgCMC.toFixed(2)}</span>
+          <span className="analytics-stat-value">{stats.avgCMC.toFixed(2)}</span>
           <span className="analytics-stat-label">Avg CMC</span>
         </div>
         <div className="analytics-stat">
-          <span className="analytics-stat-value">{analytics.landCount}</span>
+          <span className="analytics-stat-value">{stats.landCount}</span>
           <span className="analytics-stat-label">Lands</span>
         </div>
         <div className="analytics-stat">
-          <span className="analytics-stat-value">{analytics.creatureCount}</span>
+          <span className="analytics-stat-value">{stats.creatureCount}</span>
           <span className="analytics-stat-label">Creatures</span>
         </div>
       </div>
@@ -124,8 +114,8 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
       <div className="deck-analytics-chart">
         <h4 className="deck-analytics-chart-title">Mana Curve</h4>
         <div className="deck-analytics-bars">
-          {cmcKeys.map(k => {
-            const count = analytics.cmcCounts[k] || 0;
+          {CMC_KEYS.map(k => {
+            const count = stats.cmcCounts[k] || 0;
             const pct = (count / maxCmc) * 100;
             return (
               <div key={k} className="analytics-bar-col">
@@ -190,6 +180,31 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
             })}
           </div>
         </div>
+      )}
+    </>
+  );
+}
+
+/* ── Analytics component ────────────────────────── */
+
+function DeckAnalytics({ parsedDeck, cardMap }) {
+  const { mainStats, sideStats } = useMemo(() => {
+    if (!cardMap || cardMap.size === 0) return { mainStats: null, sideStats: null };
+
+    const mainStats = computeSectionStats(parsedDeck.mainboard, cardMap);
+    const hasSideboard = parsedDeck.sideboard && parsedDeck.sideboard.size > 0;
+    const sideStats = hasSideboard ? computeSectionStats(parsedDeck.sideboard, cardMap) : null;
+
+    return { mainStats, sideStats };
+  }, [parsedDeck, cardMap]);
+
+  if (!mainStats) return null;
+
+  return (
+    <div className="deck-analytics">
+      <AnalyticsCharts stats={mainStats} label={sideStats ? 'Mainboard' : null} />
+      {sideStats && sideStats.totalCards > 0 && (
+        <AnalyticsCharts stats={sideStats} label="Sideboard" />
       )}
     </div>
   );

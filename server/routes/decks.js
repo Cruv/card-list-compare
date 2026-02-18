@@ -612,4 +612,30 @@ router.get('/:id/recommendations', async (req, res) => {
   }
 });
 
+// Notification history for the current user
+router.get('/notifications/history', (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 20));
+  const offset = (page - 1) * limit;
+
+  const countRow = get(
+    'SELECT COUNT(*) as total FROM notification_log WHERE user_id = ?',
+    [req.user.userId]
+  );
+  const total = countRow?.total || 0;
+
+  const notifications = all(
+    `SELECT nl.id, nl.tracked_deck_id, nl.notification_type, nl.channel, nl.subject, nl.details, nl.created_at,
+            d.deck_name
+     FROM notification_log nl
+     LEFT JOIN tracked_decks d ON nl.tracked_deck_id = d.id
+     WHERE nl.user_id = ?
+     ORDER BY nl.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [req.user.userId, limit, offset]
+  );
+
+  res.json({ notifications, total, page, limit });
+});
+
 export default router;

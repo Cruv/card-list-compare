@@ -15,6 +15,7 @@ import {
   updateDeckDiscordWebhook,
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
   getDeckOverlap, getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
+  getNotificationHistory,
 } from '../lib/api';
 import { parse } from '../lib/parser';
 import { formatDeckForMpc } from '../lib/formatter';
@@ -66,6 +67,13 @@ export default function DeckLibrary() {
           >
             Overlap
           </button>
+          <button
+            className={`user-settings-tab${activeTab === 'notifications' ? ' user-settings-tab--active' : ''}`}
+            onClick={() => setActiveTab('notifications')}
+            type="button"
+          >
+            Notifications
+          </button>
         </nav>
 
         {activeTab === 'deck-tracker' && (
@@ -83,6 +91,12 @@ export default function DeckLibrary() {
         {activeTab === 'overlap' && (
           <div className="user-settings-panel">
             <DeckOverlapAnalysis />
+          </div>
+        )}
+
+        {activeTab === 'notifications' && (
+          <div className="user-settings-panel">
+            <NotificationHistory />
           </div>
         )}
 
@@ -2039,6 +2053,129 @@ function SnapshotTimeline({ entries, loading, onEntryClick, paperSnapshotId }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// --- Notification History ---
+
+function NotificationHistory() {
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const limit = 20;
+
+  useEffect(() => {
+    setLoading(true);
+    getNotificationHistory(page, limit)
+      .then(data => {
+        setNotifications(data.notifications);
+        setTotal(data.total);
+      })
+      .catch(() => toast.error('Failed to load notification history'))
+      .finally(() => setLoading(false));
+  }, [page]);
+
+  function formatDate(iso) {
+    if (!iso) return '';
+    return new Date(iso + 'Z').toLocaleDateString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+  }
+
+  function formatDetails(n) {
+    if (!n.details) return null;
+    try {
+      const d = typeof n.details === 'string' ? JSON.parse(n.details) : n.details;
+      if (n.notification_type === 'deck_change') {
+        const parts = [];
+        if (d.added > 0) parts.push(`+${d.added} in`);
+        if (d.removed > 0) parts.push(`-${d.removed} out`);
+        if (d.changed > 0) parts.push(`~${d.changed} changed`);
+        return parts.join(', ') || null;
+      }
+      if (n.notification_type === 'price_alert') {
+        const delta = d.delta || 0;
+        return `$${d.previousPrice?.toFixed(2)} → $${d.currentPrice?.toFixed(2)} (${delta > 0 ? '+' : ''}$${delta.toFixed(2)})`;
+      }
+      return null;
+    } catch { return null; }
+  }
+
+  const totalPages = Math.ceil(total / limit);
+
+  const typeLabels = {
+    deck_change: 'Deck Change',
+    price_alert: 'Price Alert',
+  };
+
+  const channelLabels = {
+    email: 'Email',
+    discord: 'Discord',
+  };
+
+  return (
+    <div>
+      <h3>Notification History</h3>
+      <p className="settings-section-desc">
+        Recent notifications sent for your tracked decks.
+      </p>
+
+      {loading ? (
+        <Skeleton lines={5} />
+      ) : notifications.length === 0 ? (
+        <p className="settings-tracker-empty">No notifications sent yet.</p>
+      ) : (
+        <>
+          <div className="notification-history-list">
+            {notifications.map(n => (
+              <div key={n.id} className="notification-history-item">
+                <div className="notification-history-header">
+                  <span className={`notification-history-type notification-history-type--${n.notification_type}`}>
+                    {typeLabels[n.notification_type] || n.notification_type}
+                  </span>
+                  <span className={`notification-history-channel notification-history-channel--${n.channel}`}>
+                    {channelLabels[n.channel] || n.channel}
+                  </span>
+                  <span className="notification-history-date">{formatDate(n.created_at)}</span>
+                </div>
+                <div className="notification-history-body">
+                  {n.deck_name && <span className="notification-history-deck">{n.deck_name}</span>}
+                  {n.subject && <span className="notification-history-subject">{n.subject}</span>}
+                  {formatDetails(n) && (
+                    <span className="notification-history-details">{formatDetails(n)}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div className="notification-history-pagination">
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={page <= 1}
+                onClick={() => setPage(p => p - 1)}
+                type="button"
+              >
+                Previous
+              </button>
+              <span className="notification-history-page">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage(p => p + 1)}
+                type="button"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
