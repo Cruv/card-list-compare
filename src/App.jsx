@@ -20,13 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.34.0';
+const APP_VERSION = '2.35.0';
 const WHATS_NEW = [
-  'Price alerts now trigger email and Discord notifications when deck value changes exceed your threshold',
-  'Notification history tab in Deck Library — see all sent notifications with details',
-  'Per-user email rate limiting (max 10/hour) prevents notification spam',
-  'Deck analytics now show mainboard and sideboard stats separately',
-  'Scheduled price alert checks run alongside deck change detection',
+  'Download exact Scryfall card images as ZIP for proxy printing — matches your specific printings',
+  'DFC cards include both front and back face images in the download',
+  'One image file per card copy, ready for external PDF proxy tools',
 ];
 
 function getResetToken() {

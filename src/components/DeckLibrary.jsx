@@ -16,6 +16,7 @@ import {
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
   getDeckOverlap, getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
   getNotificationHistory,
+  downloadDeckImages,
 } from '../lib/api';
 import { parse } from '../lib/parser';
 import { formatDeckForMpc } from '../lib/formatter';
@@ -959,6 +960,7 @@ function DeckCard({
   const [showMpc, setShowMpc] = useState(false);
   const [mpcCards, setMpcCards] = useState(null);
   const [showPriceHistory, setShowPriceHistory] = useState(false);
+  const [downloadingImages, setDownloadingImages] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Notes editing state
@@ -1067,6 +1069,19 @@ function DeckCard({
       setShowMpc(true);
     } catch (err) {
       toast.error('Failed to load deck for proxy printing');
+    }
+  }
+
+  async function handleDownloadImages() {
+    setDownloadingImages(true);
+    try {
+      toast.info('Downloading card images... This may take a minute.');
+      await downloadDeckImages(deck.id);
+      toast.success('Card images downloaded!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to download card images');
+    } finally {
+      setDownloadingImages(false);
     }
   }
 
@@ -1417,6 +1432,14 @@ function DeckCard({
                       type="button"
                     >
                       Print proxies
+                    </button>
+                    <button
+                      className="settings-tracker-dropdown-item"
+                      onClick={() => { handleDownloadImages(); setMenuOpen(false); }}
+                      disabled={downloadingImages}
+                      type="button"
+                    >
+                      {downloadingImages ? 'Downloading...' : 'Download images'}
                     </button>
                     <div className="settings-tracker-dropdown-divider" />
                     <select

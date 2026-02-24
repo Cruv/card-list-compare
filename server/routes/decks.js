@@ -2,7 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { all, get, run } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { archidektLimiter } from '../middleware/rateLimit.js';
+import { archidektLimiter, scryfallDownloadLimiter } from '../middleware/rateLimit.js';
 import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { parse } from '../../src/lib/parser.js';
 import { fetchDeck } from '../lib/archidekt.js';
@@ -11,6 +11,7 @@ import { enrichDeckText } from '../lib/enrichDeckText.js';
 import { pruneSnapshots } from '../lib/pruneSnapshots.js';
 import { fetchCardPrices, fetchCardMetadata, fetchSpecificPrintingPrices } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
+import { fetchCardImageUrls, downloadCardImages } from '../lib/scryfallImages.js';
 
 const router = Router();
 
@@ -636,6 +637,92 @@ router.get('/notifications/history', (req, res) => {
   );
 
   res.json({ notifications, total, page, limit });
+});
+
+/**
+ * POST /api/decks/:id/download-images — Download Scryfall card images as ZIP.
+ * Uses exact set+collector identifiers for printing-specific artwork.
+ * Body: { snapshotId? } — defaults to latest snapshot.
+ */
+router.post('/:id/download-images', scryfallDownloadLimiter, async (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?',
+    [id, req.user.userId]);
+  if (!deck) {
+    return res.status(404).json({ error: 'Tracked deck not found' });
+  }
+
+  const { snapshotId } = req.body || {};
+
+  let snap;
+  if (snapshotId) {
+    snap = get('SELECT deck_text FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
+      [snapshotId, deck.id]);
+  } else {
+    snap = get('SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      [deck.id]);
+  }
+
+  if (!snap?.deck_text) {
+    return res.status(404).json({ error: 'No snapshot found. Refresh the deck first.' });
+  }
+
+  const parsed = parse(snap.deck_text);
+
+  // Collect all cards from mainboard + sideboard
+  const cards = [];
+  for (const [, entry] of parsed.mainboard) {
+    cards.push(entry);
+  }
+  for (const [, entry] of parsed.sideboard) {
+    cards.push(entry);
+  }
+  // Commanders are a flat string array; add any not already in mainboard
+  for (const name of parsed.commanders) {
+    if (!cards.some(c => c.displayName.toLowerCase() === name.toLowerCase())) {
+      cards.push({ displayName: name, quantity: 1, setCode: '', collectorNumber: '', isFoil: false });
+    }
+  }
+
+  if (cards.length === 0) {
+    return res.status(400).json({ error: 'No cards found in the deck.' });
+  }
+
+  try {
+    const cardsWithUrls = await fetchCardImageUrls(cards);
+
+    if (cardsWithUrls.length === 0) {
+      return res.status(502).json({ error: 'Failed to fetch card data from Scryfall.' });
+    }
+
+    const { images } = await downloadCardImages(cardsWithUrls);
+
+    if (images.length === 0) {
+      return res.status(502).json({ error: 'Failed to download any images from Scryfall.' });
+    }
+
+    const archiver = (await import('archiver')).default;
+    const archive = archiver('zip', { zlib: { level: 1 } });
+
+    const safeDeckName = deck.deck_name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${safeDeckName}_card_images.zip"`,
+    });
+
+    archive.pipe(res);
+    for (const img of images) {
+      archive.append(img.buffer, { name: img.filename });
+    }
+    await archive.finalize();
+  } catch (err) {
+    console.error('Card image download error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to download card images.' });
+    }
+  }
 });
 
 export default router;

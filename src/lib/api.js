@@ -454,3 +454,32 @@ export async function mpcDownloadZip(cards) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+export async function downloadDeckImages(deckId, snapshotId) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/decks/${deckId}/download-images`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(snapshotId ? { snapshotId } : {}),
+    signal: AbortSignal.timeout(600_000), // 10 min timeout for large decks
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Image download failed');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const disposition = res.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : 'card-images.zip';
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

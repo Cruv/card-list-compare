@@ -36,6 +36,15 @@ export const mpcLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Limiter for Scryfall image downloads (heavy resource usage)
+export const scryfallDownloadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 3, // 3 downloads per 5 minutes per user
+  message: { error: 'Too many image download requests. Please wait a few minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Limiter for share creation
 export const shareLimiter = rateLimit({
   windowMs: 60 * 1000,
