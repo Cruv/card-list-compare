@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAppSettings } from '../context/AppSettingsContext';
 import { useConfirm } from './ConfirmModal';
@@ -16,7 +16,7 @@ import {
   getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
   getDeckOverlap, getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
   getNotificationHistory,
-  downloadDeckImages,
+  submitImageDownload, getDownloadJobStatus, downloadJobFile,
 } from '../lib/api';
 import { parse } from '../lib/parser';
 import { formatDeckForMpc } from '../lib/formatter';
@@ -960,7 +960,8 @@ function DeckCard({
   const [showMpc, setShowMpc] = useState(false);
   const [mpcCards, setMpcCards] = useState(null);
   const [showPriceHistory, setShowPriceHistory] = useState(false);
-  const [downloadingImages, setDownloadingImages] = useState(false);
+  const [downloadJob, setDownloadJob] = useState(null); // { jobId, status, ... }
+  const downloadPollRef = useRef(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Notes editing state
@@ -1072,16 +1073,70 @@ function DeckCard({
     }
   }
 
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (downloadPollRef.current) {
+        clearInterval(downloadPollRef.current);
+        downloadPollRef.current = null;
+      }
+    };
+  }, []);
+
+  function startDownloadPolling(deckId, jobId) {
+    if (downloadPollRef.current) clearInterval(downloadPollRef.current);
+    downloadPollRef.current = setInterval(async () => {
+      try {
+        const status = await getDownloadJobStatus(deckId, jobId);
+        setDownloadJob(status);
+        if (status.status === 'completed') {
+          clearInterval(downloadPollRef.current);
+          downloadPollRef.current = null;
+          try {
+            await downloadJobFile(deckId, jobId, deck.deck_name);
+            toast.success('Card images downloaded!');
+          } catch (dlErr) {
+            toast.error(dlErr.message || 'Failed to download ZIP');
+          }
+          // Clear job state after a short delay so UI returns to normal
+          setTimeout(() => setDownloadJob(null), 2000);
+        } else if (status.status === 'failed') {
+          clearInterval(downloadPollRef.current);
+          downloadPollRef.current = null;
+          toast.error(status.error || 'Image download failed');
+          setTimeout(() => setDownloadJob(null), 3000);
+        }
+      } catch {
+        clearInterval(downloadPollRef.current);
+        downloadPollRef.current = null;
+        toast.error('Lost connection to download job');
+        setDownloadJob(null);
+      }
+    }, 3000);
+  }
+
   async function handleDownloadImages() {
-    setDownloadingImages(true);
     try {
-      toast.info('Downloading card images... This may take a minute.');
-      await downloadDeckImages(deck.id);
-      toast.success('Card images downloaded!');
+      const result = await submitImageDownload(deck.id);
+      setDownloadJob(result);
+
+      // If already completed (cached ZIP), download immediately
+      if (result.status === 'completed' && result.downloadUrl) {
+        try {
+          await downloadJobFile(deck.id, result.jobId, deck.deck_name);
+          toast.success('Card images downloaded!');
+        } catch (dlErr) {
+          toast.error(dlErr.message || 'Failed to download ZIP');
+        }
+        setTimeout(() => setDownloadJob(null), 2000);
+        return;
+      }
+
+      toast.info('Download queued — preparing your card images...');
+      startDownloadPolling(deck.id, result.jobId);
     } catch (err) {
-      toast.error(err.message || 'Failed to download card images');
-    } finally {
-      setDownloadingImages(false);
+      toast.error(err.message || 'Failed to start image download');
+      setDownloadJob(null);
     }
   }
 
@@ -1436,10 +1491,16 @@ function DeckCard({
                     <button
                       className="settings-tracker-dropdown-item"
                       onClick={() => { handleDownloadImages(); setMenuOpen(false); }}
-                      disabled={downloadingImages}
+                      disabled={!!downloadJob}
                       type="button"
                     >
-                      {downloadingImages ? 'Downloading...' : 'Download images'}
+                      {downloadJob
+                        ? downloadJob.status === 'queued' ? 'Queued...'
+                          : downloadJob.status === 'processing'
+                            ? `Downloading ${downloadJob.downloadedImages || 0}/${downloadJob.totalImages || '?'}${downloadJob.cachedImages ? ` (${downloadJob.cachedImages} cached)` : ''}...`
+                            : downloadJob.status === 'completed' ? 'Done!'
+                              : 'Download images'
+                        : 'Download images'}
                     </button>
                     <div className="settings-tracker-dropdown-divider" />
                     <select

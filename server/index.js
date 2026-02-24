@@ -13,6 +13,7 @@ import adminRoutes from './routes/admin.js';
 import collectionRoutes from './routes/collection.js';
 import mpcRoutes from './routes/mpcautofill.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
+import { initDownloadQueue } from './lib/downloadQueue.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -67,6 +68,7 @@ app.use('/api/mpc', mpcRoutes);
 
 async function start() {
   await initDb();
+  initDownloadQueue();
   app.listen(PORT, () => {
     console.log(`CardListCompare server running on port ${PORT}`);
     startNotificationScheduler();

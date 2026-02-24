@@ -20,11 +20,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.35.0';
+const APP_VERSION = '2.36.0';
 const WHATS_NEW = [
-  'Download exact Scryfall card images as ZIP for proxy printing — matches your specific printings',
-  'DFC cards include both front and back face images in the download',
-  'One image file per card copy, ready for external PDF proxy tools',
+  'Background download queue — image downloads no longer block, with live progress reporting',
+  'Persistent image cache — previously downloaded card images are reused across all users and decks',
+  'Completed ZIPs cached for 24 hours — re-clicking delivers instantly without re-downloading',
 ];
 
 function getResetToken() {

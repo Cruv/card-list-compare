@@ -10,7 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 server/data/*.db
+server/data/image-cache/
+server/data/downloads/
 data/*.db
+data/image-cache/
+data/downloads/
 dist-ssr
 *.local
 

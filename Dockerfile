@@ -38,7 +38,7 @@ COPY src/lib/parser.js src/lib/constants.js src/lib/differ.js src/lib/formatter.
 
 # Data directory is mounted as a volume — DO NOT bake data into image
 # DB_PATH defaults to /app/data/cardlistcompare.db (outside server/ to keep image clean)
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/data/image-cache /app/data/downloads
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh

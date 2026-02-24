@@ -2,7 +2,8 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { all, get, run } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
-import { archidektLimiter, scryfallDownloadLimiter } from '../middleware/rateLimit.js';
+import { existsSync, createReadStream } from 'fs';
+import { archidektLimiter } from '../middleware/rateLimit.js';
 import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { parse } from '../../src/lib/parser.js';
 import { fetchDeck } from '../lib/archidekt.js';
@@ -11,7 +12,7 @@ import { enrichDeckText } from '../lib/enrichDeckText.js';
 import { pruneSnapshots } from '../lib/pruneSnapshots.js';
 import { fetchCardPrices, fetchCardMetadata, fetchSpecificPrintingPrices } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
-import { fetchCardImageUrls, downloadCardImages } from '../lib/scryfallImages.js';
+import { submitJob, getJobStatus } from '../lib/downloadQueue.js';
 
 const router = Router();
 
@@ -640,11 +641,11 @@ router.get('/notifications/history', (req, res) => {
 });
 
 /**
- * POST /api/decks/:id/download-images — Download Scryfall card images as ZIP.
- * Uses exact set+collector identifiers for printing-specific artwork.
+ * POST /api/decks/:id/download-images — Submit a background image download job.
+ * Returns job ID for polling. Reuses existing completed/in-progress jobs.
  * Body: { snapshotId? } — defaults to latest snapshot.
  */
-router.post('/:id/download-images', scryfallDownloadLimiter, async (req, res) => {
+router.post('/:id/download-images', async (req, res) => {
   const id = requireIntParam(req, res, 'id');
   if (id === null) return;
 
@@ -656,73 +657,110 @@ router.post('/:id/download-images', scryfallDownloadLimiter, async (req, res) =>
 
   const { snapshotId } = req.body || {};
 
+  // Verify snapshot exists before queueing
   let snap;
   if (snapshotId) {
-    snap = get('SELECT deck_text FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
+    snap = get('SELECT id FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
       [snapshotId, deck.id]);
   } else {
-    snap = get('SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    snap = get('SELECT id FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
       [deck.id]);
   }
-
-  if (!snap?.deck_text) {
+  if (!snap) {
     return res.status(404).json({ error: 'No snapshot found. Refresh the deck first.' });
   }
 
-  const parsed = parse(snap.deck_text);
-
-  // Collect all cards from mainboard + sideboard
-  const cards = [];
-  for (const [, entry] of parsed.mainboard) {
-    cards.push(entry);
-  }
-  for (const [, entry] of parsed.sideboard) {
-    cards.push(entry);
-  }
-  // Commanders are a flat string array; add any not already in mainboard
-  for (const name of parsed.commanders) {
-    if (!cards.some(c => c.displayName.toLowerCase() === name.toLowerCase())) {
-      cards.push({ displayName: name, quantity: 1, setCode: '', collectorNumber: '', isFoil: false });
-    }
-  }
-
-  if (cards.length === 0) {
-    return res.status(400).json({ error: 'No cards found in the deck.' });
-  }
-
   try {
-    const cardsWithUrls = await fetchCardImageUrls(cards);
-
-    if (cardsWithUrls.length === 0) {
-      return res.status(502).json({ error: 'Failed to fetch card data from Scryfall.' });
-    }
-
-    const { images } = await downloadCardImages(cardsWithUrls);
-
-    if (images.length === 0) {
-      return res.status(502).json({ error: 'Failed to download any images from Scryfall.' });
-    }
-
-    const archiver = (await import('archiver')).default;
-    const archive = archiver('zip', { zlib: { level: 1 } });
-
-    const safeDeckName = deck.deck_name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
-    res.set({
-      'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename="${safeDeckName}_card_images.zip"`,
-    });
-
-    archive.pipe(res);
-    for (const img of images) {
-      archive.append(img.buffer, { name: img.filename });
-    }
-    await archive.finalize();
+    const { job, isExisting } = submitJob(req.user.userId, deck.id, snap.id);
+    res.status(isExisting ? 200 : 202).json(formatJobResponse(job, deck.id));
   } catch (err) {
-    console.error('Card image download error:', err);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to download card images.' });
+    if (err.message.includes('pending downloads') || err.message.includes('queue is full')) {
+      return res.status(429).json({ error: err.message });
     }
+    console.error('Download job submission error:', err);
+    res.status(500).json({ error: 'Failed to start download' });
   }
 });
+
+/**
+ * GET /api/decks/:id/download-jobs/:jobId — Poll download job status.
+ */
+router.get('/:id/download-jobs/:jobId', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const { jobId } = req.params;
+  if (!jobId || typeof jobId !== 'string' || jobId.length > 32) {
+    return res.status(400).json({ error: 'Invalid job ID' });
+  }
+
+  const job = getJobStatus(jobId);
+  if (!job || job.user_id !== req.user.userId) {
+    return res.status(404).json({ error: 'Download job not found' });
+  }
+
+  res.json(formatJobResponse(job, id));
+});
+
+/**
+ * GET /api/decks/:id/download-jobs/:jobId/file — Download completed ZIP.
+ */
+router.get('/:id/download-jobs/:jobId/file', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const { jobId } = req.params;
+  const job = getJobStatus(jobId);
+  if (!job || job.user_id !== req.user.userId) {
+    return res.status(404).json({ error: 'Download not found' });
+  }
+
+  if (job.status !== 'completed' || !job.file_path) {
+    return res.status(400).json({ error: 'Download is not ready yet' });
+  }
+
+  if (job.expires_at && new Date(job.expires_at + 'Z') < new Date()) {
+    return res.status(410).json({ error: 'Download has expired. Submit a new request.' });
+  }
+
+  if (!existsSync(job.file_path)) {
+    return res.status(410).json({ error: 'Download file has been cleaned up. Submit a new request.' });
+  }
+
+  const deck = get('SELECT deck_name FROM tracked_decks WHERE id = ?', [job.tracked_deck_id]);
+  const safeName = (deck?.deck_name || 'deck').replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
+
+  res.set({
+    'Content-Type': 'application/zip',
+    'Content-Disposition': `attachment; filename="${safeName}_card_images.zip"`,
+    'Content-Length': job.file_size,
+  });
+
+  createReadStream(job.file_path).pipe(res);
+});
+
+function formatJobResponse(job, deckId) {
+  const response = {
+    jobId: job.id,
+    status: job.status,
+    totalImages: job.total_images || 0,
+    downloadedImages: job.downloaded_images || 0,
+    cachedImages: job.cached_images || 0,
+    createdAt: job.created_at,
+  };
+
+  if (job.status === 'completed') {
+    response.downloadUrl = `/api/decks/${job.tracked_deck_id}/download-jobs/${job.id}/file`;
+    response.fileSize = job.file_size;
+    response.expiresAt = job.expires_at;
+    response.completedAt = job.completed_at;
+  }
+
+  if (job.status === 'failed') {
+    response.error = job.error;
+  }
+
+  return response;
+}
 
 export default router;

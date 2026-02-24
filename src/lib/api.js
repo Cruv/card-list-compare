@@ -455,16 +455,20 @@ export async function mpcDownloadZip(cards) {
   URL.revokeObjectURL(url);
 }
 
-export async function downloadDeckImages(deckId, snapshotId) {
-  const token = getToken();
-  const res = await fetch(`${API_BASE}/decks/${deckId}/download-images`, {
+// Image download queue
+export const submitImageDownload = (deckId, snapshotId) =>
+  apiFetch(`/decks/${deckId}/download-images`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
     body: JSON.stringify(snapshotId ? { snapshotId } : {}),
-    signal: AbortSignal.timeout(600_000), // 10 min timeout for large decks
+  });
+
+export const getDownloadJobStatus = (deckId, jobId) =>
+  apiFetch(`/decks/${deckId}/download-jobs/${jobId}`);
+
+export async function downloadJobFile(deckId, jobId, deckName) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}/decks/${deckId}/download-jobs/${jobId}/file`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -472,12 +476,10 @@ export async function downloadDeckImages(deckId, snapshotId) {
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
-  const disposition = res.headers.get('content-disposition') || '';
-  const match = disposition.match(/filename="?([^"]+)"?/);
-  const filename = match ? match[1] : 'card-images.zip';
+  const safeName = (deckName || 'card-images').replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename;
+  a.download = `${safeName}_images.zip`;
   document.body.appendChild(a);
   a.click();
   a.remove();

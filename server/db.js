@@ -432,6 +432,29 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_reset_tokens_token ON password_reset_tokens(token)');
   db.run('CREATE INDEX IF NOT EXISTS idx_email_verify_token ON email_verification_tokens(token)');
 
+  // Image download jobs (background queue for Scryfall image downloads)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS image_download_jobs (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      tracked_deck_id INTEGER NOT NULL,
+      snapshot_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'queued',
+      total_images INTEGER DEFAULT 0,
+      downloaded_images INTEGER DEFAULT 0,
+      cached_images INTEGER DEFAULT 0,
+      file_path TEXT,
+      file_size INTEGER,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      expires_at TEXT
+    )
+  `);
+  db.run('CREATE INDEX IF NOT EXISTS idx_download_jobs_user ON image_download_jobs(user_id, status)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_download_jobs_expires ON image_download_jobs(expires_at)');
+  db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_image_cache_mb', '500')`);
+
   persist();
   return db;
 }

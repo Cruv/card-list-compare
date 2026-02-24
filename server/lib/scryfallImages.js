@@ -222,12 +222,118 @@ export async function downloadCardImages(cardsWithUrls) {
 }
 
 /**
- * Download an image URL, using a cache to avoid re-fetching identical URLs.
- * Applies rate limiting delay before each actual fetch.
+ * Download all card images using a persistent disk cache.
+ * Checks disk cache before fetching from Scryfall, stores new downloads to cache.
+ * @param {Array} cardsWithUrls — output of fetchCardImageUrls()
+ * @param {Function} [progressCallback] — (downloaded, cached, total) called after each card
+ * @returns {{ images: Array<{filename, buffer}>, totalCards, downloadedCards, cachedCards, failedCards }}
  */
-async function getImage(url, cache) {
-  if (cache.has(url)) return cache.get(url);
+export async function downloadCardImagesWithCache(cardsWithUrls, progressCallback) {
+  const { getCachedImage, getCachedImageByName, cacheImage, cacheImageByName } = await import('./imageCache.js');
 
+  const images = [];
+  let idx = 1;
+  let downloadedCards = 0;
+  let cachedCards = 0;
+  let failedCards = 0;
+  const totalCards = cardsWithUrls.reduce((sum, c) => sum + c.quantity, 0);
+
+  // In-memory URL dedup within this job (avoids re-fetching same URL)
+  const sessionCache = new Map();
+
+  for (const card of cardsWithUrls) {
+    // Resolve front image (disk cache → session cache → Scryfall)
+    let frontBuf = null;
+    let frontWasCached = false;
+
+    if (card.setCode && card.collectorNumber) {
+      frontBuf = getCachedImage(card.setCode, card.collectorNumber, null);
+    } else {
+      frontBuf = getCachedImageByName(card.displayName, null);
+    }
+    frontWasCached = !!frontBuf;
+
+    if (!frontBuf) {
+      frontBuf = sessionCache.get(card.imageUrls.front);
+      if (!frontBuf) {
+        frontBuf = await fetchSingleImage(card.imageUrls.front);
+        if (frontBuf) {
+          sessionCache.set(card.imageUrls.front, frontBuf);
+          // Cache to disk
+          if (card.setCode && card.collectorNumber) {
+            cacheImage(card.setCode, card.collectorNumber, null, frontBuf);
+          } else {
+            cacheImageByName(card.displayName, null, frontBuf);
+          }
+        }
+      }
+    }
+
+    if (!frontBuf) {
+      failedCards += card.quantity;
+      if (progressCallback) progressCallback(downloadedCards, cachedCards, totalCards);
+      continue;
+    }
+
+    // Resolve back face for DFC
+    let backBuf = null;
+    let backWasCached = false;
+    if (card.isDFC && card.imageUrls.back) {
+      if (card.setCode && card.collectorNumber) {
+        backBuf = getCachedImage(card.setCode, card.collectorNumber, 'back');
+      } else {
+        backBuf = getCachedImageByName(card.displayName, 'back');
+      }
+      backWasCached = !!backBuf;
+
+      if (!backBuf) {
+        backBuf = sessionCache.get(card.imageUrls.back);
+        if (!backBuf) {
+          backBuf = await fetchSingleImage(card.imageUrls.back);
+          if (backBuf) {
+            sessionCache.set(card.imageUrls.back, backBuf);
+            if (card.setCode && card.collectorNumber) {
+              cacheImage(card.setCode, card.collectorNumber, 'back', backBuf);
+            } else {
+              cacheImageByName(card.displayName, 'back', backBuf);
+            }
+          }
+        }
+      }
+    }
+
+    // Add one file per card copy
+    for (let copy = 0; copy < card.quantity; copy++) {
+      const suffix = card.isDFC ? 'front' : '';
+      images.push({
+        filename: buildFilename(idx, card.displayName, card.setCode, card.collectorNumber, suffix),
+        buffer: frontBuf,
+      });
+      idx++;
+
+      if (card.isDFC && backBuf) {
+        images.push({
+          filename: buildFilename(idx, card.displayName, card.setCode, card.collectorNumber, 'back'),
+          buffer: backBuf,
+        });
+        idx++;
+      }
+
+      downloadedCards++;
+      if (frontWasCached && (!card.isDFC || backWasCached)) cachedCards++;
+    }
+
+    if (progressCallback) progressCallback(downloadedCards, cachedCards, totalCards);
+  }
+
+  return { images, totalCards, downloadedCards, cachedCards, failedCards };
+}
+
+/**
+ * Fetch a single image from a Scryfall CDN URL with rate limiting.
+ * @returns {Buffer|null}
+ */
+async function fetchSingleImage(url) {
   await delay(IMAGE_DELAY_MS);
 
   try {
@@ -241,11 +347,21 @@ async function getImage(url, cache) {
       return null;
     }
 
-    const buffer = Buffer.from(await res.arrayBuffer());
-    cache.set(url, buffer);
-    return buffer;
+    return Buffer.from(await res.arrayBuffer());
   } catch (err) {
     console.error('Image download error:', err.message);
     return null;
   }
+}
+
+/**
+ * Download an image URL, using an in-memory cache to avoid re-fetching identical URLs.
+ * @deprecated Use downloadCardImagesWithCache for persistent caching.
+ */
+async function getImage(url, cache) {
+  if (cache.has(url)) return cache.get(url);
+
+  const buffer = await fetchSingleImage(url);
+  if (buffer) cache.set(url, buffer);
+  return buffer;
 }
