@@ -37,6 +37,11 @@ function formatDate(dateStr) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
+function formatDateTime(dateStr) {
+  if (!dateStr) return '';
+  return new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z')).toLocaleString();
+}
+
 function filterSection(section, query) {
   if (!query) return section;
   const lower = query.toLowerCase();
@@ -71,11 +76,6 @@ function collectDeckIdentifiers(parsedDeck) {
     }
   }
   return identifiers;
-}
-
-function formatDate(iso) {
-  if (!iso) return '';
-  return new Date(iso + 'Z').toLocaleString();
 }
 
 export default function DeckPage({ deckId }) {
@@ -944,13 +944,13 @@ export default function DeckPage({ deckId }) {
                 <select value={compareA} onChange={e => setCompareA(e.target.value)} aria-label="Select older snapshot">
                   <option value="">Before (older)...</option>
                   {snapshots.map(s => (
-                    <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}</option>
+                    <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDateTime(s.created_at)})` : formatDateTime(s.created_at)}</option>
                   ))}
                 </select>
                 <select value={compareB} onChange={e => setCompareB(e.target.value)} aria-label="Select newer snapshot">
                   <option value="">After (newer)...</option>
                   {snapshots.map(s => (
-                    <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}</option>
+                    <option key={s.id} value={s.id}>{s.nickname ? `${s.nickname} (${formatDateTime(s.created_at)})` : formatDateTime(s.created_at)}</option>
                   ))}
                 </select>
                 <button className="btn btn-primary btn-sm" onClick={handleCompareSnapshots} disabled={!compareA || !compareB || comparisonLoading} type="button">
@@ -1033,7 +1033,7 @@ export default function DeckPage({ deckId }) {
                         </span>
                       ) : (
                         <>
-                          <span className="deck-page-snap-date">{formatDate(snap.created_at)}</span>
+                          <span className="deck-page-snap-date">{formatDateTime(snap.created_at)}</span>
                           {snap.nickname && <span className="deck-page-snap-nick">{snap.nickname}</span>}
                           {deck.paper_snapshot_id === snap.id && (
                             <span className="deck-page-snap-paper-badge">Paper</span>
