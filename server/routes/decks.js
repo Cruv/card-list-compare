@@ -769,10 +769,11 @@ function formatJobResponse(job, deckId) {
  * GET /api/decks/:id/mpc-overrides — Load saved MPC art choices for a deck.
  * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
  */
-router.get('/:id/mpc-overrides', requireIntParam('id'), (req, res) => {
-  const deck = get('SELECT id, user_id, mpc_art_overrides FROM tracked_decks WHERE id = ?', [req.params.id]);
+router.get('/:id/mpc-overrides', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+  const deck = get('SELECT id, user_id, mpc_art_overrides FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
   if (!deck) return res.status(404).json({ error: 'Deck not found' });
-  if (deck.user_id !== req.user.id) return res.status(403).json({ error: 'Not your deck' });
 
   let overrides = [];
   if (deck.mpc_art_overrides) {
@@ -785,10 +786,11 @@ router.get('/:id/mpc-overrides', requireIntParam('id'), (req, res) => {
  * PUT /api/decks/:id/mpc-overrides — Save MPC art choices for a deck.
  * Body: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
  */
-router.put('/:id/mpc-overrides', requireIntParam('id'), (req, res) => {
-  const deck = get('SELECT id, user_id FROM tracked_decks WHERE id = ?', [req.params.id]);
+router.put('/:id/mpc-overrides', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+  const deck = get('SELECT id, user_id FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
   if (!deck) return res.status(404).json({ error: 'Deck not found' });
-  if (deck.user_id !== req.user.id) return res.status(403).json({ error: 'Not your deck' });
 
   const { overrides } = req.body;
   if (!Array.isArray(overrides)) return res.status(400).json({ error: 'overrides must be an array' });
@@ -797,7 +799,7 @@ router.put('/:id/mpc-overrides', requireIntParam('id'), (req, res) => {
   if (overrides.length > 612) return res.status(400).json({ error: 'Too many overrides' });
 
   const json = overrides.length === 0 ? null : JSON.stringify(overrides);
-  run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = ?', [json, req.params.id]);
+  run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = ?', [json, id]);
   res.json({ saved: true, count: overrides.length });
 });
 
