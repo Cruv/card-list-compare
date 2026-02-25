@@ -243,9 +243,62 @@ router.post('/search', mpcLimiter, async (req, res) => {
       dfcPairsObj[front] = back;
     }
 
+    // Auto-search for DFC back faces so the client doesn't need a second request
+    let dfcBackResults = [];
+    const matchedFronts = new Set(results.filter(r => r.hasMatch).map(r => r.name.toLowerCase()));
+    const backFaceNames = [];
+    for (const [front, back] of dfcPairs) {
+      if (matchedFronts.has(front.toLowerCase())) {
+        backFaceNames.push(back);
+      }
+    }
+
+    if (backFaceNames.length > 0) {
+      try {
+        const backSearchResults = await searchCards(backFaceNames, searchSettings || null);
+        const backFirstIds = [];
+        for (const [, ids] of backSearchResults) {
+          if (ids.length > 0) backFirstIds.push(ids[0]);
+        }
+        const backDetails = backFirstIds.length > 0
+          ? await fetchCardDetails(backFirstIds)
+          : new Map();
+
+        for (const backName of backFaceNames) {
+          const nameLower = backName.toLowerCase();
+          const ids = backSearchResults.get(nameLower) || [];
+          if (ids.length === 0) continue;
+
+          const bestId = ids[0];
+          const details = backDetails.get(bestId);
+          const frontEntry = Object.entries(dfcPairsObj).find(
+            ([, back]) => back.toLowerCase() === nameLower
+          );
+
+          dfcBackResults.push({
+            name: backName,
+            quantity: 1,
+            identifier: bestId,
+            thumbnailUrl: details?.thumbnailUrl || `/api/mpc/thumbnail/${bestId}`,
+            dpi: details?.dpi || null,
+            sourceName: details?.sourceName || null,
+            extension: details?.extension || 'png',
+            hasMatch: true,
+            alternateCount: ids.length - 1,
+            isDfcBack: true,
+            dfcFrontName: frontEntry ? frontEntry[0] : null,
+          });
+        }
+      } catch (err) {
+        // Non-fatal: back face search failed, front faces still work
+        console.warn('DFC back-face search failed:', err.message);
+      }
+    }
+
     res.json({
       results,
       dfcPairs: dfcPairsObj,
+      dfcBackResults,
       unmatchedCount,
       totalCards: cards.length,
       matchedCards: cards.length - unmatchedCount,

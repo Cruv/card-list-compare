@@ -177,48 +177,9 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
         });
       }
 
-      // Store DFC pairs and auto-search for back faces
-      const pairs = data.dfcPairs || {};
-      setDfcPairs(pairs);
-
-      if (Object.keys(pairs).length > 0 && data.results) {
-        // Collect back face names for matched front faces
-        const backFaceNames = [];
-        const frontCardNames = new Set(data.results.filter(r => r.hasMatch).map(r => r.name.toLowerCase()));
-        for (const [front, back] of Object.entries(pairs)) {
-          if (frontCardNames.has(front.toLowerCase())) {
-            backFaceNames.push(back);
-          }
-        }
-
-        if (backFaceNames.length > 0) {
-          // Search for back faces
-          const backCards = backFaceNames.map(name => ({ name, quantity: 1 }));
-          try {
-            const backData = await mpcSearch(backCards, settingsToSend);
-            if (backData.results) {
-              // Mark back face results and link to front face
-              const backResults = backData.results
-                .filter(r => r.hasMatch)
-                .map(r => {
-                  // Find which front face this back belongs to
-                  const frontEntry = Object.entries(pairs).find(
-                    ([, back]) => back.toLowerCase() === r.name.toLowerCase()
-                  );
-                  return {
-                    ...r,
-                    isDfcBack: true,
-                    dfcFrontName: frontEntry ? frontEntry[0] : null,
-                  };
-                });
-              setDfcBackResults(backResults);
-            }
-          } catch {
-            // Non-fatal: back face search failed, front faces still work
-            console.warn('DFC back-face search failed');
-          }
-        }
-      }
+      // Store DFC pairs and back-face results (server handles back-face search)
+      setDfcPairs(data.dfcPairs || {});
+      setDfcBackResults(data.dfcBackResults || []);
     } catch (err) {
       setError(err.message);
     } finally {

@@ -30,7 +30,7 @@ export const archidektLimiter = rateLimit({
 // Limiter for MPC Autofill API calls
 export const mpcLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5, // 5 MPC API calls per minute
+  max: 15, // 15 MPC API calls per minute
   message: { error: 'Too many MPC Autofill requests. Please wait a moment.' },
   standardHeaders: true,
   legacyHeaders: false,
