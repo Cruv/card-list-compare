@@ -5,6 +5,7 @@ import AuthBar from './components/AuthBar';
 import AdminPage from './components/admin/AdminPage';
 import UserSettings from './components/UserSettings';
 import DeckLibrary from './components/DeckLibrary';
+import DeckPage from './components/DeckPage';
 import SharedDeckView from './components/SharedDeckView';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
@@ -20,11 +21,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.36.0';
+const APP_VERSION = '2.37.0';
 const WHATS_NEW = [
-  'Background download queue — image downloads no longer block, with live progress reporting',
-  'Persistent image cache — previously downloaded card images are reused across all users and decks',
-  'Completed ZIPs cached for 24 hours — re-clicking delivers instantly without re-downloading',
+  'Deck library grid layout — tracked decks shown as visual cards in a responsive grid',
+  'Individual deck pages — click any deck card to see snapshots, changelog, timeline, full deck, analytics, and settings in a dedicated page',
+  'Cleaner navigation — deck actions organized into tabbed sections instead of inline expansion',
 ];
 
 function getResetToken() {
@@ -39,7 +40,7 @@ function getVerifyToken() {
 
 export default function App() {
   const { user } = useAuth();
-  const { route, shareId, deckShareId } = useHashRoute();
+  const { route, shareId, deckShareId, deckId } = useHashRoute();
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
   const [diffResult, setDiffResult] = useState(null);
@@ -231,6 +232,15 @@ export default function App() {
     return (
       <ErrorBoundary>
         <DeckLibrary />
+      </ErrorBoundary>
+    );
+  }
+
+  // Individual deck page (authenticated)
+  if (route === 'libraryDeck' && user && deckId) {
+    return (
+      <ErrorBoundary>
+        <DeckPage deckId={deckId} />
       </ErrorBoundary>
     );
   }
