@@ -1211,8 +1211,8 @@ export default function DeckPage({ deckId }) {
                     : downloadJob.status === 'processing'
                       ? `Downloading ${downloadJob.downloadedImages || 0}/${downloadJob.totalImages || '?'}...`
                       : downloadJob.status === 'completed' ? 'Done!'
-                        : 'Download Images'
-                  : 'Download Images'}
+                        : 'Download Images (Scryfall)'
+                  : 'Download Images (Scryfall)'}
               </button>
             </div>
 

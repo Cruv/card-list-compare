@@ -21,11 +21,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.37.0';
+const APP_VERSION = '2.37.1';
 const WHATS_NEW = [
   'Deck library grid layout — tracked decks shown as visual cards in a responsive grid',
   'Individual deck pages — click any deck card to see snapshots, changelog, timeline, full deck, analytics, and settings in a dedicated page',
-  'Cleaner navigation — deck actions organized into tabbed sections instead of inline expansion',
+  'Download Images button now labeled "(Scryfall)" to clarify image source',
 ];
 
 function getResetToken() {
