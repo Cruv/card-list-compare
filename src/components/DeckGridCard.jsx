@@ -1,6 +1,23 @@
 import { useAppSettings } from '../context/AppSettingsContext';
 import './DeckGridCard.css';
 
+function formatRelativeDate(dateStr) {
+  if (!dateStr) return null;
+  const now = Date.now();
+  const then = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z')).getTime();
+  const diff = now - then;
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
 export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelect }) {
   const { priceDisplayEnabled } = useAppSettings();
 
@@ -8,6 +25,10 @@ export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelec
   try { commanders = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
 
   const tags = deck.tags || [];
+  const hasBudgetPrice = priceDisplayEnabled && deck.last_known_budget_price != null
+    && deck.last_known_budget_price > 0
+    && deck.last_known_price > 0
+    && Math.abs(deck.last_known_budget_price - deck.last_known_price) >= 0.01;
 
   function handleClick(e) {
     if (bulkMode) {
@@ -38,7 +59,14 @@ export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelec
       <div className="deck-grid-card-header">
         <span className="deck-grid-card-name">{deck.deck_name}</span>
         {priceDisplayEnabled && deck.last_known_price > 0 && (
-          <span className="deck-grid-card-price">${deck.last_known_price.toFixed(2)}</span>
+          <div className="deck-grid-card-prices">
+            <span className="deck-grid-card-price">${deck.last_known_price.toFixed(2)}</span>
+            {hasBudgetPrice && (
+              <span className="deck-grid-card-budget" title="Cheapest available printings">
+                ${deck.last_known_budget_price.toFixed(2)}
+              </span>
+            )}
+          </div>
         )}
       </div>
 
@@ -51,6 +79,11 @@ export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelec
       <div className="deck-grid-card-meta">
         <span className="deck-grid-card-owner">@{deck.archidekt_username}</span>
         <span className="deck-grid-card-snapshots">{deck.snapshot_count} snap{deck.snapshot_count !== 1 ? 's' : ''}</span>
+        {deck.latest_snapshot_at && (
+          <span className="deck-grid-card-date" title={new Date(deck.latest_snapshot_at + (deck.latest_snapshot_at.endsWith('Z') ? '' : 'Z')).toLocaleDateString()}>
+            {formatRelativeDate(deck.latest_snapshot_at)}
+          </span>
+        )}
         {deck.share_id && <span className="deck-grid-card-badge deck-grid-card-badge--shared">Shared</span>}
         {deck.paper_snapshot_id && <span className="deck-grid-card-badge deck-grid-card-badge--paper">Paper</span>}
       </div>

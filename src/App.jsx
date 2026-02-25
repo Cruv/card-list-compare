@@ -21,11 +21,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.38.0';
+const APP_VERSION = '2.38.1';
 const WHATS_NEW = [
-  'Print Proxies: custom art choices now saved to server (persist across browsers/devices)',
-  'Print Proxies: back button in Choose Art panel, longer server-side caching (6hr)',
-  'Fix Print Proxies rate limiting — DFC back-face search moved server-side, rate limit increased',
+  'Deck Library: show last snapshot date on deck cards (relative time with full date tooltip)',
+  'Deck Library: cheapest printing price shown below specific printing price on deck cards',
 ];
 
 function getResetToken() {
