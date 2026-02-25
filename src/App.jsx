@@ -21,11 +21,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.37.3';
+const APP_VERSION = '2.37.4';
 const WHATS_NEW = [
+  'Fix Print Proxies (MPCFill) button on Full Deck tab not opening the overlay',
   'Deck library grid layout — tracked decks shown as visual cards in a responsive grid',
   'Individual deck pages — click any deck card to see snapshots, changelog, timeline, full deck, analytics, and settings in a dedicated page',
-  'Print Proxies (MPCFill) and Download Images (Scryfall) moved to Full Deck tab for discoverability',
 ];
 
 function getResetToken() {

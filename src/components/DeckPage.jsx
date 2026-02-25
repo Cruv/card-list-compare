@@ -1261,9 +1261,6 @@ export default function DeckPage({ deckId }) {
             {showRecommendations && (
               <RecommendationsOverlay deckId={deckId} deckName={deck.deck_name} onClose={() => setShowRecommendations(false)} />
             )}
-            {showMpc && mpcCards && (
-              <MpcOverlay cards={mpcCards} deckName={deck.deck_name} deckId={deckId} onClose={() => { setShowMpc(false); setMpcCards(null); }} />
-            )}
           </div>
         )}
 
@@ -1421,6 +1418,9 @@ export default function DeckPage({ deckId }) {
           </div>
         )}
       </div>
+      {showMpc && mpcCards && (
+        <MpcOverlay cards={mpcCards} deckName={deck.deck_name} deckId={deckId} onClose={() => { setShowMpc(false); setMpcCards(null); }} />
+      )}
     </div>
   );
 }
