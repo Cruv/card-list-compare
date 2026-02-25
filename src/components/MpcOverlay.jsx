@@ -500,12 +500,14 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
         {/* Header */}
         <div className="mpc-overlay-header">
           <div className="mpc-overlay-title-row">
-            <button
-              className="mpc-overlay-back"
-              onClick={altPickerCard ? () => { setAltPickerCard(null); setAlternates([]); } : showSettings ? () => setShowSettings(false) : onClose}
-              type="button"
-              aria-label="Back"
-            >&larr;</button>
+            {(altPickerCard || showSettings) && (
+              <button
+                className="mpc-overlay-back mpc-overlay-back--visible"
+                onClick={altPickerCard ? () => { setAltPickerCard(null); setAlternates([]); } : () => setShowSettings(false)}
+                type="button"
+                aria-label="Back"
+              >&larr;</button>
+            )}
             <div className="mpc-overlay-title-group">
               <h2 className="mpc-overlay-title">
                 {altPickerCard ? 'Choose Art' : showSettings ? 'Search Settings' : 'Print Proxies'}

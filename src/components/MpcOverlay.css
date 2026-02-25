@@ -80,6 +80,10 @@
   min-height: 44px;
 }
 
+.mpc-overlay-back--visible {
+  display: flex;
+}
+
 .mpc-overlay-back:hover {
   background: var(--bg-hover);
   color: var(--text-primary);

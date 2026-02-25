@@ -21,11 +21,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.37.5';
+const APP_VERSION = '2.37.6';
 const WHATS_NEW = [
+  'Print Proxies: back button in Choose Art panel, longer server-side caching (6hr)',
   'Fix Print Proxies rate limiting — DFC back-face search moved server-side, rate limit increased',
   'Fix Print Proxies (MPCFill) button on Full Deck tab not opening the overlay',
-  'Deck library grid layout — tracked decks shown as visual cards in a responsive grid',
 ];
 
 function getResetToken() {

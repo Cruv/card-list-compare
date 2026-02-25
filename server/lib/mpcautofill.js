@@ -3,17 +3,17 @@
  * Searches for community-created proxy card images via the MPC Autofill backend
  * at mpcfill.com, and downloads full-resolution images via Google Apps Script proxy.
  *
- * Uses in-memory TTL caches (1hr for search results, 24hr for DFC pairs).
+ * Uses in-memory TTL caches (6hr for search/card data, 24hr for DFC/metadata).
  */
 
 const MPC_API = 'https://mpcfill.com';
 const IMAGE_PROXY = 'https://script.google.com/macros/s/AKfycbw8laScKBfxda2Wb0g63gkYDBdy8NWNxINoC4xDOwnCQ3JMFdruam1MdmNmN4wI5k4/exec';
 const USER_AGENT = 'CardListCompare/1.0';
 
-const SEARCH_TTL = 60 * 60 * 1000;      // 1 hour
-const CARD_TTL = 60 * 60 * 1000;         // 1 hour
-const DFC_TTL = 24 * 60 * 60 * 1000;     // 24 hours
-const META_TTL = 24 * 60 * 60 * 1000;    // 24 hours (sources, languages, tags)
+const SEARCH_TTL = 6 * 60 * 60 * 1000;  // 6 hours — community images change infrequently
+const CARD_TTL = 6 * 60 * 60 * 1000;    // 6 hours
+const DFC_TTL = 24 * 60 * 60 * 1000;    // 24 hours
+const META_TTL = 24 * 60 * 60 * 1000;   // 24 hours (sources, languages, tags)
 const IMAGE_DELAY_MS = 200;              // Delay between image downloads
 const MAX_CONCURRENT_DOWNLOADS = 5;
 
@@ -33,7 +33,14 @@ function getCached(cache, key, ttl) {
   return entry.data;
 }
 
+const MAX_CACHE_ENTRIES = 2000;
+
 function setCache(cache, key, data) {
+  // Evict oldest entries if cache is too large
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
   cache.set(key, { data, ts: Date.now() });
 }
 
