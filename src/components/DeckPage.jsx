@@ -987,8 +987,8 @@ export default function DeckPage({ deckId }) {
                   <p className="deck-page-empty">No changes between these snapshots.</p>
                 ) : (
                   <>
-                    {filteredCompMain && <SectionChangelog label="Mainboard" section={filteredCompMain} cardMap={comparisonCardMap} />}
-                    {filteredCompSide && comparisonDiff.hasSideboard && <SectionChangelog label="Sideboard" section={filteredCompSide} cardMap={comparisonCardMap} />}
+                    {filteredCompMain && <SectionChangelog sectionName="Mainboard" changes={filteredCompMain} cardMap={comparisonCardMap} />}
+                    {filteredCompSide && comparisonDiff.hasSideboard && <SectionChangelog sectionName="Sideboard" changes={filteredCompSide} cardMap={comparisonCardMap} />}
                   </>
                 )}
               </div>
@@ -1119,8 +1119,8 @@ export default function DeckPage({ deckId }) {
 
                 <ManaCurveDelta diffResult={changelogData} cardMap={changelogCardMap} />
                 <ColorDistributionDelta diffResult={changelogData} cardMap={changelogCardMap} />
-                {filteredChangelogMain && <SectionChangelog label="Mainboard" section={filteredChangelogMain} cardMap={changelogCardMap} />}
-                {filteredChangelogSide && changelogData.hasSideboard && <SectionChangelog label="Sideboard" section={filteredChangelogSide} cardMap={changelogCardMap} />}
+                {filteredChangelogMain && <SectionChangelog sectionName="Mainboard" changes={filteredChangelogMain} cardMap={changelogCardMap} />}
+                {filteredChangelogSide && changelogData.hasSideboard && <SectionChangelog sectionName="Sideboard" changes={filteredChangelogSide} cardMap={changelogCardMap} />}
               </>
             )}
           </div>
