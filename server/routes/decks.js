@@ -763,4 +763,42 @@ function formatJobResponse(job, deckId) {
   return response;
 }
 
+// ── MPC Art Overrides ──────────────────────────────────────
+
+/**
+ * GET /api/decks/:id/mpc-overrides — Load saved MPC art choices for a deck.
+ * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
+ */
+router.get('/:id/mpc-overrides', requireIntParam('id'), (req, res) => {
+  const deck = get('SELECT id, user_id, mpc_art_overrides FROM tracked_decks WHERE id = ?', [req.params.id]);
+  if (!deck) return res.status(404).json({ error: 'Deck not found' });
+  if (deck.user_id !== req.user.id) return res.status(403).json({ error: 'Not your deck' });
+
+  let overrides = [];
+  if (deck.mpc_art_overrides) {
+    try { overrides = JSON.parse(deck.mpc_art_overrides); } catch { /* corrupted — return empty */ }
+  }
+  res.json({ overrides });
+});
+
+/**
+ * PUT /api/decks/:id/mpc-overrides — Save MPC art choices for a deck.
+ * Body: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
+ */
+router.put('/:id/mpc-overrides', requireIntParam('id'), (req, res) => {
+  const deck = get('SELECT id, user_id FROM tracked_decks WHERE id = ?', [req.params.id]);
+  if (!deck) return res.status(404).json({ error: 'Deck not found' });
+  if (deck.user_id !== req.user.id) return res.status(403).json({ error: 'Not your deck' });
+
+  const { overrides } = req.body;
+  if (!Array.isArray(overrides)) return res.status(400).json({ error: 'overrides must be an array' });
+
+  // Validate and cap size (max 612 cards × ~200 bytes each ≈ 120KB)
+  if (overrides.length > 612) return res.status(400).json({ error: 'Too many overrides' });
+
+  const json = overrides.length === 0 ? null : JSON.stringify(overrides);
+  run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = ?', [json, req.params.id]);
+  res.json({ saved: true, count: overrides.length });
+});
+
 export default router;

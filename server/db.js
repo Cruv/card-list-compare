@@ -455,6 +455,13 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_download_jobs_expires ON image_download_jobs(expires_at)');
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_image_cache_mb', '500')`);
 
+  // Migration: store MPC art overrides per deck (JSON blob)
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN mpc_art_overrides TEXT');
+  } catch {
+    // Column already exists — ignore
+  }
+
   persist();
   return db;
 }

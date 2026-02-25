@@ -455,6 +455,14 @@ export async function mpcDownloadZip(cards) {
   URL.revokeObjectURL(url);
 }
 
+// MPC art overrides (server-persisted)
+export const getMpcOverrides = (deckId) => apiFetch(`/decks/${deckId}/mpc-overrides`);
+export const saveMpcOverrides = (deckId, overrides) =>
+  apiFetch(`/decks/${deckId}/mpc-overrides`, {
+    method: 'PUT',
+    body: JSON.stringify({ overrides }),
+  });
+
 // Image download queue
 export const submitImageDownload = (deckId, snapshotId) =>
   apiFetch(`/decks/${deckId}/download-images`, {

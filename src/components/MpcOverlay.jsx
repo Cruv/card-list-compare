@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags, mpcGetAlternates } from '../lib/api';
+import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags, mpcGetAlternates, getMpcOverrides, saveMpcOverrides } from '../lib/api';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import './MpcOverlay.css';
@@ -129,6 +129,36 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   const [altLoading, setAltLoading] = useState(false);
   const [alternates, setAlternates] = useState([]);
   const [overrides, setOverrides] = useState(() => loadOverrides(deckId));
+  const serverSynced = useRef(false);
+
+  // Persist overrides to both localStorage and server
+  const persistOverrides = useCallback((map) => {
+    saveOverrides(deckId, map);
+    if (deckId) saveMpcOverrides(deckId, [...map]).catch(() => {});
+  }, [deckId]);
+
+  // Load overrides from server on mount (migrate localStorage → server if needed)
+  useEffect(() => {
+    if (!deckId || serverSynced.current) return;
+    serverSynced.current = true;
+    getMpcOverrides(deckId).then(data => {
+      const serverOverrides = data.overrides || [];
+      if (serverOverrides.length > 0) {
+        // Server has data — use it as source of truth
+        const map = new Map(serverOverrides);
+        setOverrides(map);
+        saveOverrides(deckId, map); // sync to localStorage cache
+      } else {
+        // Server is empty — migrate localStorage if it has data
+        const local = loadOverrides(deckId);
+        if (local.size > 0) {
+          saveMpcOverrides(deckId, [...local]).catch(() => {});
+        }
+      }
+    }).catch(() => {
+      // Server unavailable — localStorage overrides already loaded
+    });
+  }, [deckId]);
 
   // Escape closes overlay (or settings/alt picker panel if open)
   useEffect(() => {
@@ -172,7 +202,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
           for (const [key, val] of prev) {
             if (resultNames.has(key)) pruned.set(key, val);
           }
-          saveOverrides(deckId, pruned);
+          persistOverrides(pruned);
           return pruned;
         });
       }
@@ -367,7 +397,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
         sourceName: alt.sourceName,
         extension: alt.extension,
       });
-      saveOverrides(deckId, next);
+      persistOverrides(next);
       return next;
     });
     setAltPickerCard(null);
@@ -376,7 +406,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
 
   function handleResetOverrides() {
     setOverrides(new Map());
-    saveOverrides(deckId, new Map());
+    persistOverrides(new Map());
     toast.success('Art choices reset');
   }
 
