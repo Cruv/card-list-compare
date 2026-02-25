@@ -1175,6 +1175,23 @@ export default function DeckPage({ deckId }) {
                       <CopyButton getText={() => formatTTS(deckText, commanders)} label="Copy for TTS" className="copy-btn copy-btn--tts" />
                     </>
                   )}
+                  <button className="btn btn-secondary btn-sm" onClick={handlePrintProxies} type="button">
+                    Print Proxies (MPCFill)
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleDownloadImages}
+                    disabled={!!downloadJob}
+                    type="button"
+                  >
+                    {downloadJob
+                      ? downloadJob.status === 'queued' ? 'Queued...'
+                        : downloadJob.status === 'processing'
+                          ? `Downloading ${downloadJob.downloadedImages || 0}/${downloadJob.totalImages || '?'}...`
+                          : downloadJob.status === 'completed' ? 'Done!'
+                            : 'Download Images (Scryfall)'
+                      : 'Download Images (Scryfall)'}
+                  </button>
                 </div>
                 <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} />
               </>
@@ -1196,23 +1213,6 @@ export default function DeckPage({ deckId }) {
               )}
               <button className="btn btn-secondary btn-sm" onClick={() => setShowRecommendations(true)} type="button">
                 Suggest Cards
-              </button>
-              <button className="btn btn-secondary btn-sm" onClick={handlePrintProxies} type="button">
-                Print Proxies
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={handleDownloadImages}
-                disabled={!!downloadJob}
-                type="button"
-              >
-                {downloadJob
-                  ? downloadJob.status === 'queued' ? 'Queued...'
-                    : downloadJob.status === 'processing'
-                      ? `Downloading ${downloadJob.downloadedImages || 0}/${downloadJob.totalImages || '?'}...`
-                      : downloadJob.status === 'completed' ? 'Done!'
-                        : 'Download Images (Scryfall)'
-                  : 'Download Images (Scryfall)'}
               </button>
             </div>
 

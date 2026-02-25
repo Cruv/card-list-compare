@@ -21,11 +21,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.37.2';
+const APP_VERSION = '2.37.3';
 const WHATS_NEW = [
   'Deck library grid layout — tracked decks shown as visual cards in a responsive grid',
   'Individual deck pages — click any deck card to see snapshots, changelog, timeline, full deck, analytics, and settings in a dedicated page',
-  'Fixed changelog and snapshot comparison crash on deck pages',
+  'Print Proxies (MPCFill) and Download Images (Scryfall) moved to Full Deck tab for discoverability',
 ];
 
 function getResetToken() {
