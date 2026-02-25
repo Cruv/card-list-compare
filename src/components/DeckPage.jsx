@@ -31,6 +31,12 @@ import MpcOverlay from './MpcOverlay';
 import PriceHistoryOverlay from './PriceHistoryOverlay';
 import './DeckPage.css';
 
+function formatDate(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
 function filterSection(section, query) {
   if (!query) return section;
   const lower = query.toLowerCase();
@@ -741,12 +747,12 @@ export default function DeckPage({ deckId }) {
           <h1 className="deck-page-name">{deck.deck_name}</h1>
           <div className="deck-page-header-badges">
             {priceDisplayEnabled && deck.last_known_price > 0 && (
-              <span className="deck-page-price-badge">
-                ${deck.last_known_price.toFixed(2)}
+              <div className="deck-page-prices">
+                <span className="deck-page-price-badge">${deck.last_known_price.toFixed(2)}</span>
                 {deck.last_known_budget_price != null && deck.last_known_budget_price > 0 && Math.abs(deck.last_known_budget_price - deck.last_known_price) >= 0.01 && (
-                  <span className="deck-page-budget-price"> (${deck.last_known_budget_price.toFixed(2)})</span>
+                  <span className="deck-page-budget-price">Cheapest printing: ${deck.last_known_budget_price.toFixed(2)}</span>
                 )}
-              </span>
+              </div>
             )}
             <button
               className={`deck-page-pin-btn${deck.pinned ? ' deck-page-pin-btn--active' : ''}`}
@@ -814,6 +820,12 @@ export default function DeckPage({ deckId }) {
             <>
               <span className="deck-page-meta-sep">&middot;</span>
               <span className="deck-page-paper-badge">Paper</span>
+            </>
+          )}
+          {deck.latest_snapshot_at && (
+            <>
+              <span className="deck-page-meta-sep">&middot;</span>
+              <span className="deck-page-meta-date">Last Updated: {formatDate(deck.latest_snapshot_at)}</span>
             </>
           )}
         </div>

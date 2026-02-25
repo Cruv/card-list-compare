@@ -21,11 +21,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.38.5';
+const APP_VERSION = '2.38.6';
 const WHATS_NEW = [
+  'Deck page header matches grid card: stacked prices + "Last Updated" date',
   'Fix server crash on startup — MPC art override routes used wrong requireIntParam pattern',
-  'Deck Library: stacked price display — green badge + "Cheapest printing:" subtext on deck cards',
-  'Deck Library: show "Last Updated:" date on deck cards',
 ];
 
 function getResetToken() {

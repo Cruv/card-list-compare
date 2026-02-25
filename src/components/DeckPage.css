@@ -72,6 +72,13 @@
   flex-shrink: 0;
 }
 
+.deck-page-prices {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 .deck-page-price-badge {
   font-size: var(--fs-sm);
   font-weight: 600;
@@ -83,9 +90,9 @@
 }
 
 .deck-page-budget-price {
-  font-size: var(--fs-xs);
-  color: var(--text-secondary);
-  font-weight: 400;
+  font-size: 10px;
+  color: var(--text-tertiary, #666);
+  white-space: nowrap;
 }
 
 .deck-page-pin-btn {
@@ -200,6 +207,11 @@
 .deck-page-paper-badge {
   background: rgba(245, 158, 11, 0.12);
   color: #fbbf24;
+}
+
+.deck-page-meta-date {
+  font-style: italic;
+  color: var(--text-tertiary, #666);
 }
 
 /* ── Tags ── */
