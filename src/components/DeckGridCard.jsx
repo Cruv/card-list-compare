@@ -59,14 +59,12 @@ export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelec
       <div className="deck-grid-card-header">
         <span className="deck-grid-card-name">{deck.deck_name}</span>
         {priceDisplayEnabled && deck.last_known_price > 0 && (
-          <div className="deck-grid-card-prices">
-            <span className="deck-grid-card-price">${deck.last_known_price.toFixed(2)}</span>
+          <span className="deck-grid-card-price">
+            ${deck.last_known_price.toFixed(2)}
             {hasBudgetPrice && (
-              <span className="deck-grid-card-budget" title="Cheapest available printings">
-                ${deck.last_known_budget_price.toFixed(2)}
-              </span>
+              <span className="deck-grid-card-budget" title="Cheapest available printings"> (${deck.last_known_budget_price.toFixed(2)})</span>
             )}
-          </div>
+          </span>
         )}
       </div>
 

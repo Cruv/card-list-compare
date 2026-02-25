@@ -21,11 +21,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.38.2';
+const APP_VERSION = '2.38.3';
 const WHATS_NEW = [
   'Fix server crash on startup — MPC art override routes used wrong requireIntParam pattern',
-  'Deck Library: show last snapshot date on deck cards (relative time with full date tooltip)',
-  'Deck Library: cheapest printing price shown below specific printing price on deck cards',
+  'Deck Library: show last snapshot date and cheapest printing price on deck cards',
 ];
 
 function getResetToken() {

@@ -61,14 +61,6 @@
   -webkit-box-orient: vertical;
 }
 
-.deck-grid-card-prices {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
-  flex-shrink: 0;
-}
-
 .deck-grid-card-price {
   font-size: var(--fs-xs);
   font-weight: 600;
@@ -77,14 +69,12 @@
   padding: 1px 6px;
   border-radius: 4px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .deck-grid-card-budget {
-  font-size: 10px;
-  font-weight: 500;
-  color: #facc15;
-  white-space: nowrap;
-  padding: 0 6px;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 
 /* Commander */
