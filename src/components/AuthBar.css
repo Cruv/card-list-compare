@@ -87,6 +87,10 @@
   font-size: clamp(16px, 3.5vw, 18px);
   padding: var(--space-xs) var(--space-md);
   line-height: 1;
+}
+
+/* Guide button sits next to theme toggle, then auto-margin pushes the rest right */
+.auth-bar-guide {
   margin-right: auto;
 }
 

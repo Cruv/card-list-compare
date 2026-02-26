@@ -71,7 +71,7 @@ export default function AuthBar({ onShowForgotPassword }) {
 
   const guideButton = (
     <button
-      className="auth-bar-btn"
+      className="auth-bar-btn auth-bar-guide"
       onClick={() => { window.location.hash = '#guide'; }}
       type="button"
       title="How to use this app"
