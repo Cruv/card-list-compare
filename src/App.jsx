@@ -24,9 +24,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.3';
+const APP_VERSION = '2.39.4';
 const WHATS_NEW = [
-  'Performance: React.lazy code splitting (main bundle -41%), Scryfall cache LRU eviction limits',
+  'Performance: DeckGridCard React.memo, stable useCallback handlers to prevent unnecessary re-renders',
 ];
 
 function getResetToken() {

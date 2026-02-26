@@ -150,14 +150,14 @@ function DeckTrackerSettings({ confirm }) {
       .filter(([, decks]) => decks.length > 0);
   }, [decksByOwner, deckSearch, tagFilter]);
 
-  function toggleOwnerCollapse(owner) {
+  const toggleOwnerCollapse = useCallback((owner) => {
     setCollapsedOwners(prev => {
       const next = new Set(prev);
       if (next.has(owner)) next.delete(owner);
       else next.add(owner);
       return next;
     });
-  }
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -257,18 +257,18 @@ function DeckTrackerSettings({ confirm }) {
     setSelectedDecks(new Set());
   }
 
-  function toggleDeckSelection(deckId) {
+  const toggleDeckSelection = useCallback((deckId) => {
     setSelectedDecks(prev => {
       const next = new Set(prev);
       if (next.has(deckId)) next.delete(deckId);
       else next.add(deckId);
       return next;
     });
-  }
+  }, []);
 
-  function toggleOwnerSelection(ownerDecks) {
-    const allSelected = ownerDecks.every(d => selectedDecks.has(d.id));
+  const toggleOwnerSelection = useCallback((ownerDecks) => {
     setSelectedDecks(prev => {
+      const allSelected = ownerDecks.every(d => prev.has(d.id));
       const next = new Set(prev);
       for (const d of ownerDecks) {
         if (allSelected) next.delete(d.id);
@@ -276,7 +276,7 @@ function DeckTrackerSettings({ confirm }) {
       }
       return next;
     });
-  }
+  }, []);
 
   function selectAllDecks() {
     setSelectedDecks(new Set(trackedDecks.map(d => d.id)));
@@ -569,7 +569,7 @@ function DeckTrackerSettings({ confirm }) {
                         deck={deck}
                         bulkMode={bulkMode}
                         isSelected={selectedDecks.has(deck.id)}
-                        onToggleSelect={() => toggleDeckSelection(deck.id)}
+                        onToggleSelect={toggleDeckSelection}
                       />
                     ))}
                   </div>

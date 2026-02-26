@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
 import './DeckGridCard.css';
 
@@ -7,7 +8,7 @@ function formatDate(dateStr) {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelect }) {
+export default memo(function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelect }) {
   const { priceDisplayEnabled } = useAppSettings();
 
   let commanders = [];
@@ -21,7 +22,7 @@ export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelec
 
   function handleClick(e) {
     if (bulkMode) {
-      onToggleSelect();
+      onToggleSelect(deck.id);
       return;
     }
     window.location.hash = '#library/' + deck.id;
@@ -40,7 +41,7 @@ export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelec
           type="checkbox"
           className="deck-grid-card-checkbox"
           checked={isSelected}
-          onChange={onToggleSelect}
+          onChange={() => onToggleSelect(deck.id)}
           onClick={e => e.stopPropagation()}
         />
       )}
@@ -85,4 +86,4 @@ export default function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelec
       )}
     </div>
   );
-}
+})
