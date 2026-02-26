@@ -41,14 +41,20 @@ router.get('/:id', (req, res) => {
     [share.tracked_deck_id]
   );
 
-  // Count cards in each snapshot
+  // Batch-fetch all snapshot texts in one query (avoids N+1)
+  const snapshotIds = snapshots.map(s => s.id);
+  const placeholders = snapshotIds.map(() => '?').join(',');
+  const snapshotTexts = snapshotIds.length > 0
+    ? all(`SELECT id, deck_text FROM deck_snapshots WHERE id IN (${placeholders})`, snapshotIds)
+    : [];
+  const textMap = new Map(snapshotTexts.map(s => [s.id, s.deck_text]));
+
   const snapshotList = snapshots.map(s => {
-    const snap = get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [s.id]);
     let cardCount = 0;
-    if (snap?.deck_text) {
+    const deckText = textMap.get(s.id);
+    if (deckText) {
       try {
-        const parsed = parse(snap.deck_text);
-        // Commanders are already merged into mainboard by the parser
+        const parsed = parse(deckText);
         for (const [, card] of parsed.mainboard) cardCount += card.quantity;
         for (const [, card] of parsed.sideboard) cardCount += card.quantity;
       } catch { /* ignore */ }

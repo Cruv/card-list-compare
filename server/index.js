@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import helmet from 'helmet';
 import { initDb } from './db.js';
 import { apiLimiter } from './middleware/rateLimit.js';
@@ -31,6 +32,9 @@ if (!process.env.JWT_SECRET) {
 
 // Trust first proxy (nginx/reverse proxy) for correct IP in rate limiting
 app.set('trust proxy', 1);
+
+// Gzip compression for API responses (before routes, after trust proxy)
+app.use(compression({ level: 6, threshold: 512 }));
 
 // Security headers
 app.use(helmet({

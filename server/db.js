@@ -417,6 +417,7 @@ export async function initDb() {
   `);
   db.run('CREATE INDEX IF NOT EXISTS idx_notification_log_user ON notification_log(user_id, created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_notification_log_deck ON notification_log(tracked_deck_id, created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_notification_log_user_channel ON notification_log(user_id, channel, created_at)');
 
   // Indexes
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code)');
@@ -424,13 +425,17 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_invite_redemptions_code ON invite_redemptions(invite_code_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_created ON admin_audit_log(created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON admin_audit_log(action)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_audit_log_admin ON admin_audit_log(admin_user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_owners_user ON tracked_owners(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_user ON tracked_decks(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_owner ON tracked_decks(tracked_owner_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_deck_snapshots_deck ON deck_snapshots(tracked_deck_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_deck_snapshots_created ON deck_snapshots(tracked_deck_id, created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_reset_tokens_token ON password_reset_tokens(token)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_reset_tokens_user ON password_reset_tokens(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_email_verify_token ON email_verification_tokens(token)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_email_verify_user ON email_verification_tokens(user_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_tracked_decks_user_pinned ON tracked_decks(user_id, pinned, deck_name)');
 
   // Image download jobs (background queue for Scryfall image downloads)
   db.run(`
