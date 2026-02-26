@@ -90,7 +90,8 @@ export async function enrichDeckText(newText, previousText) {
 
   // Regex to parse a card line: qty name (set) [num] *F*
   // Collector numbers can be alphanumeric with hyphens (e.g. 136p, DDO-20, 2022-3)
-  const CARD_LINE_RE = /^(\d+)\s*x?\s+(.+?)(?:\s+\([A-Za-z0-9]+\))?(?:\s+\[[\w-]+\])?(?:\s+\*F\*)?\s*$/;
+  // Capture groups: 1=qty, 2=name, 3=setCode, 4=collectorNumber, 5=foil
+  const CARD_LINE_RE = /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\))?(?:\s+\[([\w-]+)\])?(\s+\*F\*)?\s*$/;
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
@@ -113,21 +114,12 @@ export async function enrichDeckText(newText, previousText) {
     // Normalize name for lookup
     const key = rawName.toLowerCase().replace(/\s+/g, ' ').replace(/['\u2018\u2019`\u2032]/g, "'");
 
-    // Re-parse the original line to get existing metadata
-    const origParsed = parse(`${trimmed}`);
-    let existingEntry = null;
-    for (const [, e] of origParsed.mainboard) {
-      existingEntry = e;
-      break;
-    }
-    if (!existingEntry) {
-      for (const [, e] of origParsed.sideboard) {
-        existingEntry = e;
-        break;
-      }
-    }
+    // Extract metadata directly from regex groups (avoids re-parsing each line)
+    const lineSetCode = match[3] || null;
+    const lineCollectorNumber = match[4] || null;
+    const lineIsFoil = !!match[5];
 
-    const hasFullMeta = existingEntry?.setCode && existingEntry?.collectorNumber;
+    const hasFullMeta = lineSetCode && lineCollectorNumber;
     if (hasFullMeta) {
       // Already enriched — keep as-is
       result.push(rawLine);
@@ -137,31 +129,28 @@ export async function enrichDeckText(newText, previousText) {
     // Try carry-forward from previous snapshot
     const prevPrintings = prevLookup.get(key);
     if (prevPrintings && prevPrintings.length > 0) {
-      const displayName = existingEntry?.displayName || rawName;
-
       if (prevPrintings.length === 1) {
         // Single printing — apply to the whole quantity
         const p = prevPrintings[0];
-        const isFoil = existingEntry?.isFoil || p.isFoil;
-        result.push(buildLine(qty, displayName, p.setCode, p.collectorNumber, isFoil));
+        const isFoil = lineIsFoil || p.isFoil;
+        result.push(buildLine(qty, rawName, p.setCode, p.collectorNumber, isFoil));
       } else {
         // Multiple printings — expand into separate lines, matching previous quantities.
         // If the new total differs from the previous total, distribute: use previous
         // quantities for as many as we can, then assign any remainder to the first printing.
-        const prevTotal = prevPrintings.reduce((sum, p) => sum + p.quantity, 0);
         let remaining = qty;
 
         for (const p of prevPrintings) {
           if (remaining <= 0) break;
           const lineQty = Math.min(p.quantity, remaining);
-          result.push(buildLine(lineQty, displayName, p.setCode, p.collectorNumber, p.isFoil));
+          result.push(buildLine(lineQty, rawName, p.setCode, p.collectorNumber, p.isFoil));
           remaining -= lineQty;
         }
 
         // If new quantity exceeds previous total, add remainder to first printing
         if (remaining > 0) {
           const p = prevPrintings[0];
-          result.push(buildLine(remaining, displayName, p.setCode, p.collectorNumber, p.isFoil));
+          result.push(buildLine(remaining, rawName, p.setCode, p.collectorNumber, p.isFoil));
         }
       }
       continue;
@@ -170,8 +159,7 @@ export async function enrichDeckText(newText, previousText) {
     // Try Scryfall fallback
     const sfMeta = scryfallData.get(key);
     if (sfMeta) {
-      const isFoil = existingEntry?.isFoil || false;
-      result.push(buildLine(qty, existingEntry?.displayName || rawName, sfMeta.set, sfMeta.collectorNumber, isFoil));
+      result.push(buildLine(qty, rawName, sfMeta.set, sfMeta.collectorNumber, lineIsFoil));
       continue;
     }
 

@@ -22,9 +22,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.1';
+const APP_VERSION = '2.39.2';
 const WHATS_NEW = [
-  'Security hardening: fetch timeouts, JWT algorithm pinning, trust proxy, HTML-escaped emails, parameterized SQL, dependency CVE fixes',
+  'Performance: scheduler parallelization with overlap protection, enrichDeckText O(n) optimization',
 ];
 
 function getResetToken() {

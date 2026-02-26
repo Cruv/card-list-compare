@@ -9,9 +9,11 @@ import { computeDiff } from '../../src/lib/differ.js';
 import { computeDeckPrices } from './priceCalculator.js';
 
 let intervalHandle = null;
+let isRunning = false; // Overlap protection — prevents concurrent scheduler runs
 
 const MAX_CARDS_PER_SECTION = 8;
 const MAX_EMAILS_PER_HOUR = 10; // per user
+const MAX_CONCURRENT_FETCHES = 3; // Archidekt API concurrency limit
 
 /** Escape HTML special characters to prevent injection in email templates. */
 function escapeHtml(str) {
@@ -87,12 +89,113 @@ function logNotification(userId, deckId, type, channel, subject, details) {
  * Check all decks with notifications enabled for changes.
  * For each deck that has changed, create a snapshot and send an email.
  */
+/**
+ * Process a single deck: fetch from Archidekt, compare, snapshot, notify.
+ * Returns { changed: boolean } or throws on error.
+ */
+async function processSingleDeck(deck) {
+  const apiData = await fetchDeck(deck.archidekt_deck_id);
+  const { text, commanders } = archidektToText(apiData);
+
+  const latest = get(
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    [deck.id]
+  );
+
+  let enrichedText = text;
+  try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
+
+  if (latest && latest.deck_text === enrichedText) {
+    run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
+    return { changed: false };
+  }
+
+  // Changes detected — compute structured diff for card-level detail
+  let changeSummary = null;
+  try {
+    if (latest?.deck_text) {
+      const parsedBefore = parse(latest.deck_text);
+      const parsedAfter = parse(enrichedText);
+      const diff = computeDiff(parsedBefore, parsedAfter);
+      changeSummary = buildChangeSummary(diff);
+    }
+  } catch { /* Non-fatal */ }
+
+  run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
+  pruneSnapshots(deck.id);
+
+  let priceResult = null;
+  try { priceResult = await computeDeckPrices(deck.id, enrichedText); } catch { /* Scryfall may be down */ }
+
+  const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
+  if (cmdsJson) {
+    run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ?, last_notified_at = datetime("now") WHERE id = ?',
+      [apiData.name || deck.deck_name, cmdsJson, deck.id]);
+  } else {
+    run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, last_notified_at = datetime("now") WHERE id = ?',
+      [apiData.name || deck.deck_name, deck.id]);
+  }
+
+  if (deck.notify_on_change && deck.email && isEmailConfigured() && canSendEmail(deck.user_id)) {
+    const sent = await sendDeckChangeEmail(deck.email, deck.username, deck.deck_name, deck.id, changeSummary);
+    if (sent) {
+      logNotification(deck.user_id, deck.id, 'deck_change', 'email',
+        `Deck Updated: ${deck.deck_name}`,
+        changeSummary ? { added: changeSummary.added.length, removed: changeSummary.removed.length, changed: changeSummary.changed.length } : null
+      );
+    }
+  }
+
+  if (deck.discord_webhook_url) {
+    const sent = await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, changeSummary);
+    if (sent) {
+      logNotification(deck.user_id, deck.id, 'deck_change', 'discord',
+        `Deck Updated: ${deck.deck_name}`,
+        changeSummary ? { added: changeSummary.added.length, removed: changeSummary.removed.length, changed: changeSummary.changed.length } : null
+      );
+    }
+  }
+
+  if (priceResult && deck.price_alert_threshold) {
+    await checkPriceAlert(deck, priceResult);
+  }
+
+  return { changed: true };
+}
+
+/**
+ * Run async tasks in batches with controlled concurrency.
+ * Processes up to `concurrency` items at a time, with a delay between batches.
+ */
+async function runWithConcurrency(items, concurrency, delayMs, fn) {
+  let successCount = 0;
+  let errorCount = 0;
+
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const results = await Promise.allSettled(batch.map(fn));
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        if (result.value?.changed) successCount++;
+      } else {
+        errorCount++;
+      }
+    }
+
+    // Delay between batches to respect API rate limits
+    if (i + concurrency < items.length) {
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+
+  return { successCount, errorCount };
+}
+
 async function checkDecksForChanges() {
-  // Check global setting
   const enabled = get("SELECT value FROM server_settings WHERE key = 'notifications_enabled'");
   if (enabled?.value === 'false') return;
 
-  // Get all decks with notifications enabled (email or Discord webhook)
   const decks = all(`
     SELECT d.id, d.archidekt_deck_id, d.deck_name, d.user_id,
            u.email, u.username, d.commanders, d.discord_webhook_url,
@@ -110,97 +213,23 @@ async function checkDecksForChanges() {
   if (decks.length === 0) return;
 
   console.log(`[Notifications] Checking ${decks.length} decks for changes...`);
-  let changed = 0;
-  let errors = 0;
 
-  for (const deck of decks) {
-    try {
-      const apiData = await fetchDeck(deck.archidekt_deck_id);
-      const { text, commanders } = archidektToText(apiData);
-
-      const latest = get(
-        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
-        [deck.id]
-      );
-
-      let enrichedText = text;
-      try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
-
-      if (latest && latest.deck_text === enrichedText) {
-        // No changes — update last_refreshed_at only
-        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-        continue;
-      }
-
-      // Changes detected — compute structured diff for card-level detail
-      let changeSummary = null;
+  const { successCount, errorCount } = await runWithConcurrency(
+    decks,
+    MAX_CONCURRENT_FETCHES,
+    500,
+    async (deck) => {
       try {
-        if (latest?.deck_text) {
-          const parsedBefore = parse(latest.deck_text);
-          const parsedAfter = parse(enrichedText);
-          const diff = computeDiff(parsedBefore, parsedAfter);
-          changeSummary = buildChangeSummary(diff);
-        }
-      } catch {
-        // Non-fatal — fall back to generic notification
+        return await processSingleDeck(deck);
+      } catch (err) {
+        console.error(`[Notifications] Failed to check deck ${deck.id}:`, err.message);
+        throw err;
       }
-
-      // Create snapshot
-      run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-      pruneSnapshots(deck.id);
-
-      // Auto-stamp prices on new snapshot (non-fatal)
-      let priceResult = null;
-      try { priceResult = await computeDeckPrices(deck.id, enrichedText); } catch { /* Scryfall may be down */ }
-
-      const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-      if (cmdsJson) {
-        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ?, last_notified_at = datetime("now") WHERE id = ?',
-          [apiData.name || deck.deck_name, cmdsJson, deck.id]);
-      } else {
-        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, last_notified_at = datetime("now") WHERE id = ?',
-          [apiData.name || deck.deck_name, deck.id]);
-      }
-
-      // Send deck change notification email (if email notifications enabled and email configured)
-      if (deck.notify_on_change && deck.email && isEmailConfigured() && canSendEmail(deck.user_id)) {
-        const sent = await sendDeckChangeEmail(deck.email, deck.username, deck.deck_name, deck.id, changeSummary);
-        if (sent) {
-          logNotification(deck.user_id, deck.id, 'deck_change', 'email',
-            `Deck Updated: ${deck.deck_name}`,
-            changeSummary ? { added: changeSummary.added.length, removed: changeSummary.removed.length, changed: changeSummary.changed.length } : null
-          );
-        }
-      }
-
-      // Send Discord webhook notification
-      if (deck.discord_webhook_url) {
-        const sent = await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, changeSummary);
-        if (sent) {
-          logNotification(deck.user_id, deck.id, 'deck_change', 'discord',
-            `Deck Updated: ${deck.deck_name}`,
-            changeSummary ? { added: changeSummary.added.length, removed: changeSummary.removed.length, changed: changeSummary.changed.length } : null
-          );
-        }
-      }
-
-      // Check price alert threshold
-      if (priceResult && deck.price_alert_threshold) {
-        await checkPriceAlert(deck, priceResult);
-      }
-
-      changed++;
-
-      // Rate-limit: small delay between Archidekt API calls
-      await new Promise(r => setTimeout(r, 500));
-    } catch (err) {
-      console.error(`[Notifications] Failed to check deck ${deck.id}:`, err.message);
-      errors++;
     }
-  }
+  );
 
-  if (changed > 0 || errors > 0) {
-    console.log(`[Notifications] Done: ${changed} changed, ${errors} errors out of ${decks.length} decks`);
+  if (successCount > 0 || errorCount > 0) {
+    console.log(`[Notifications] Done: ${successCount} changed, ${errorCount} errors out of ${decks.length} decks`);
   }
 }
 
@@ -519,56 +548,61 @@ async function autoRefreshScheduledDecks() {
 
   if (decks.length === 0) return;
 
-  let refreshed = 0;
+  // Pre-filter decks that are due for refresh
   const now = Date.now();
+  const dueDecks = decks.filter(deck => {
+    if (!deck.last_refreshed_at) return true;
+    const lastRefresh = new Date(deck.last_refreshed_at + 'Z').getTime();
+    const intervalMs = deck.auto_refresh_hours * 60 * 60 * 1000;
+    return now - lastRefresh >= intervalMs;
+  });
 
-  for (const deck of decks) {
-    if (deck.last_refreshed_at) {
-      const lastRefresh = new Date(deck.last_refreshed_at + 'Z').getTime();
-      const intervalMs = deck.auto_refresh_hours * 60 * 60 * 1000;
-      if (now - lastRefresh < intervalMs) continue;
-    }
+  if (dueDecks.length === 0) return;
 
-    try {
-      const apiData = await fetchDeck(deck.archidekt_deck_id);
-      const { text, commanders } = archidektToText(apiData);
+  const { successCount } = await runWithConcurrency(
+    dueDecks,
+    MAX_CONCURRENT_FETCHES,
+    500,
+    async (deck) => {
+      try {
+        const apiData = await fetchDeck(deck.archidekt_deck_id);
+        const { text, commanders } = archidektToText(apiData);
 
-      const latest = get(
-        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
-        [deck.id]
-      );
+        const latest = get(
+          'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+          [deck.id]
+        );
 
-      let enrichedText = text;
-      try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
+        let enrichedText = text;
+        try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
 
-      if (latest && latest.deck_text === enrichedText) {
-        // No changes — still stamp prices if snapshot has none yet
-        try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
-        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-      } else {
-        run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-        pruneSnapshots(deck.id);
-        // Auto-stamp prices on new snapshot
-        try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
-        const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-        if (cmdsJson) {
-          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
-            [apiData.name || deck.deck_name, cmdsJson, deck.id]);
+        if (latest && latest.deck_text === enrichedText) {
+          try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
+          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
+          return { changed: false };
         } else {
-          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-            [apiData.name || deck.deck_name, deck.id]);
+          run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
+          pruneSnapshots(deck.id);
+          try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
+          const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
+          if (cmdsJson) {
+            run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
+              [apiData.name || deck.deck_name, cmdsJson, deck.id]);
+          } else {
+            run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
+              [apiData.name || deck.deck_name, deck.id]);
+          }
+          return { changed: true };
         }
-        refreshed++;
+      } catch (err) {
+        console.error(`[AutoRefresh] Failed for deck ${deck.id}:`, err.message);
+        throw err;
       }
-
-      await new Promise(r => setTimeout(r, 500));
-    } catch (err) {
-      console.error(`[AutoRefresh] Failed for deck ${deck.id}:`, err.message);
     }
-  }
+  );
 
-  if (refreshed > 0) {
-    console.log(`[AutoRefresh] ${refreshed} deck(s) updated`);
+  if (successCount > 0) {
+    console.log(`[AutoRefresh] ${successCount} deck(s) updated`);
   }
 }
 
@@ -588,6 +622,12 @@ export function startNotificationScheduler() {
   function scheduleNext() {
     const ms = getIntervalMs();
     intervalHandle = setTimeout(async () => {
+      if (isRunning) {
+        console.warn('[Scheduler] Previous run still in progress, skipping this cycle');
+        scheduleNext();
+        return;
+      }
+      isRunning = true;
       try {
         await checkDecksForChanges();
       } catch (err) {
@@ -603,6 +643,7 @@ export function startNotificationScheduler() {
       } catch (err) {
         console.error('[PriceAlerts] Scheduler error:', err.message);
       }
+      isRunning = false;
       scheduleNext();
     }, ms);
   }
