@@ -28,7 +28,8 @@ export function pruneSnapshots(trackedDeckId) {
   if (toDelete.length === 0) return 0;
 
   const ids = toDelete.map(s => s.id);
-  run(`DELETE FROM deck_snapshots WHERE id IN (${ids.join(',')})`, []);
+  const placeholders = ids.map(() => '?').join(',');
+  run(`DELETE FROM deck_snapshots WHERE id IN (${placeholders})`, ids);
 
   return ids.length;
 }

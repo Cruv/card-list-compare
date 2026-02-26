@@ -3,7 +3,7 @@ const ARCHIDEKT_BASE = 'https://archidekt.com/api';
 export async function fetchOwnerDecks(archidektUsername) {
   // Step 1: Look up the user's numeric ID via the users endpoint
   const usersUrl = `${ARCHIDEKT_BASE}/users/?username=${encodeURIComponent(archidektUsername)}`;
-  const usersRes = await fetch(usersUrl);
+  const usersRes = await fetch(usersUrl, { signal: AbortSignal.timeout(15000) });
   if (!usersRes.ok) {
     throw new Error(`Archidekt users API returned status ${usersRes.status}`);
   }
@@ -17,7 +17,7 @@ export async function fetchOwnerDecks(archidektUsername) {
 
   // Step 2: Fetch the user's decks by their numeric ID
   const decksUrl = `${ARCHIDEKT_BASE}/users/${exactMatch.id}/decks/`;
-  const decksRes = await fetch(decksUrl);
+  const decksRes = await fetch(decksUrl, { signal: AbortSignal.timeout(15000) });
   if (!decksRes.ok) {
     throw new Error(`Archidekt decks API returned status ${decksRes.status}`);
   }
@@ -35,7 +35,7 @@ export async function fetchOwnerDecks(archidektUsername) {
 
 export async function fetchDeck(deckId) {
   const url = `${ARCHIDEKT_BASE}/decks/${deckId}/`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) {
     if (res.status === 404) throw new Error('Deck not found on Archidekt');
     throw new Error(`Archidekt returned status ${res.status}`);

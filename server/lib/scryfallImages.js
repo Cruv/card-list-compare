@@ -98,6 +98,7 @@ export async function fetchCardImageUrls(cards) {
           'User-Agent': 'CardListCompare/1.0',
         },
         body: JSON.stringify({ identifiers }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!res.ok) {

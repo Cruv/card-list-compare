@@ -33,7 +33,7 @@ export function requireAuth(req, res, next) {
 
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
     req.user = { userId: payload.userId, username: payload.username, isAdmin: !!payload.isAdmin };
 
     // Check if user account still exists, is not suspended, and session is still valid

@@ -22,10 +22,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.0';
+const APP_VERSION = '2.39.1';
 const WHATS_NEW = [
-  'In-app Guide page with how-to docs, feature walkthrough, and FAQ',
-  'README rewritten with full feature coverage',
+  'Security hardening: fetch timeouts, JWT algorithm pinning, trust proxy, HTML-escaped emails, parameterized SQL, dependency CVE fixes',
 ];
 
 function getResetToken() {

@@ -480,7 +480,7 @@ router.post('/cleanup/tokens', (req, res) => {
 
 router.post('/cleanup/audit-log', (req, res) => {
   const days = Math.max(1, parseInt(req.body.days, 10) || 90);
-  const result = run(`DELETE FROM admin_audit_log WHERE created_at < datetime('now', '-${days} days')`);
+  const result = run(`DELETE FROM admin_audit_log WHERE created_at < datetime('now', '-' || ? || ' days')`, [String(days)]);
 
   logAdminAction(req.user.userId, req.user.username, 'cleanup_audit_log', null, null, `${result.changes} entries older than ${days}d`);
 

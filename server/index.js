@@ -19,10 +19,18 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const startTime = Date.now();
 
-// Warn about insecure JWT secret
+// Block startup if JWT secret is missing or a known default in production
+const KNOWN_WEAK_SECRETS = ['dev-secret-do-not-use-in-production', 'secret', 'changeme', 'password', 'jwt_secret'];
+if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || KNOWN_WEAK_SECRETS.includes(process.env.JWT_SECRET))) {
+  console.error('FATAL: JWT_SECRET must be set to a strong, unique value in production. Exiting.');
+  process.exit(1);
+}
 if (!process.env.JWT_SECRET) {
   console.warn('WARNING: JWT_SECRET not set. Using insecure dev fallback. Set JWT_SECRET in production!');
 }
+
+// Trust first proxy (nginx/reverse proxy) for correct IP in rate limiting
+app.set('trust proxy', 1);
 
 // Security headers
 app.use(helmet({

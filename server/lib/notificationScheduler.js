@@ -13,6 +13,16 @@ let intervalHandle = null;
 const MAX_CARDS_PER_SECTION = 8;
 const MAX_EMAILS_PER_HOUR = 10; // per user
 
+/** Escape HTML special characters to prevent injection in email templates. */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Build a human-readable change summary from a diff result.
  * Returns { added: ['2x Lightning Bolt', ...], removed: [...], changed: [...] }
@@ -240,8 +250,8 @@ async function sendPriceAlertEmail(email, username, deckName, currentPrice, prev
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
       <h2 style="color: #333;">Price Alert</h2>
-      <p>Hi ${username},</p>
-      <p>Your tracked deck <strong>${deckName}</strong> has ${direction} in value.</p>
+      <p>Hi ${escapeHtml(username)},</p>
+      <p>Your tracked deck <strong>${escapeHtml(deckName)}</strong> has ${direction} in value.</p>
       <div style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px 16px; margin: 16px 0;">
         <div style="margin-bottom: 8px;">
           <strong>Previous:</strong> $${previousPrice.toFixed(2)}
@@ -292,6 +302,7 @@ async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, curre
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!res.ok) {
@@ -355,6 +366,7 @@ async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSu
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!res.ok) {
@@ -380,7 +392,7 @@ async function sendDeckChangeEmail(email, username, deckName, deckId, changeSumm
       sections.push(`
         <div style="margin-bottom: 8px;">
           <strong style="color: #4caf50;">Added (${changeSummary.added.length}):</strong>
-          <div style="color: #4caf50; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.added).join('<br>')}</div>
+          <div style="color: #4caf50; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.added).map(escapeHtml).join('<br>')}</div>
         </div>
       `);
     }
@@ -388,7 +400,7 @@ async function sendDeckChangeEmail(email, username, deckName, deckId, changeSumm
       sections.push(`
         <div style="margin-bottom: 8px;">
           <strong style="color: #f44336;">Removed (${changeSummary.removed.length}):</strong>
-          <div style="color: #f44336; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.removed).join('<br>')}</div>
+          <div style="color: #f44336; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.removed).map(escapeHtml).join('<br>')}</div>
         </div>
       `);
     }
@@ -396,7 +408,7 @@ async function sendDeckChangeEmail(email, username, deckName, deckId, changeSumm
       sections.push(`
         <div style="margin-bottom: 8px;">
           <strong style="color: #ff9800;">Changed (${changeSummary.changed.length}):</strong>
-          <div style="color: #ff9800; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.changed).join('<br>')}</div>
+          <div style="color: #ff9800; font-size: 13px; padding-left: 8px;">${truncateList(changeSummary.changed).map(escapeHtml).join('<br>')}</div>
         </div>
       `);
     }
@@ -412,8 +424,8 @@ async function sendDeckChangeEmail(email, username, deckName, deckId, changeSumm
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
       <h2 style="color: #333;">Deck Updated</h2>
-      <p>Hi ${username},</p>
-      <p>Your tracked deck <strong>${deckName}</strong> has changed on Archidekt.</p>
+      <p>Hi ${escapeHtml(username)},</p>
+      <p>Your tracked deck <strong>${escapeHtml(deckName)}</strong> has changed on Archidekt.</p>
       ${changeDetailHtml || '<p>A new snapshot has been saved automatically.</p>'}
       <p>
         <a href="${libraryUrl}" style="display: inline-block; padding: 12px 24px; background: #3b82f6; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600;">

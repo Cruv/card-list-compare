@@ -55,6 +55,7 @@ export async function checkHealth() {
   try {
     const res = await fetch(`${MPC_API}/2/searchEngineHealth/`, {
       headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return { online: false };
     const data = await res.json();
@@ -76,6 +77,7 @@ export async function getDFCPairs() {
   try {
     const res = await fetch(`${MPC_API}/2/DFCPairs/`, {
       headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return new Map();
     const data = await res.json();
@@ -103,6 +105,7 @@ export async function getSources() {
   try {
     const res = await fetch(`${MPC_API}/2/sources/`, {
       headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -134,6 +137,7 @@ export async function getLanguages() {
   try {
     const res = await fetch(`${MPC_API}/2/languages/`, {
       headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -160,6 +164,7 @@ export async function getTags() {
   try {
     const res = await fetch(`${MPC_API}/2/tags/`, {
       headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15000),
     });
     if (!res.ok) return [];
     const data = await res.json();
@@ -261,6 +266,7 @@ export async function searchCards(cardNames, searchSettings) {
         'User-Agent': USER_AGENT,
       },
       body: JSON.stringify({ queries, searchSettings: effectiveSettings }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {
@@ -325,6 +331,7 @@ export async function fetchCardDetails(identifiers) {
         'User-Agent': USER_AGENT,
       },
       body: JSON.stringify({ identifiers: uncached }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {
@@ -365,6 +372,7 @@ export async function downloadImage(identifier, extension = 'png') {
     const res = await fetch(`${IMAGE_PROXY}?id=${identifier}`, {
       headers: { 'User-Agent': USER_AGENT },
       redirect: 'follow',
+      signal: AbortSignal.timeout(30000),
     });
 
     if (!res.ok) {

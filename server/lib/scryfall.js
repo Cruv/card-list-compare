@@ -78,6 +78,7 @@ export async function fetchCardPrintings(cardNames) {
           'User-Agent': 'CardListCompare/1.0',
         },
         body: JSON.stringify({ identifiers }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!res.ok) continue;
@@ -144,6 +145,7 @@ export async function fetchCardMetadata(cardNames) {
           'User-Agent': 'CardListCompare/1.0',
         },
         body: JSON.stringify({ identifiers }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!res.ok) continue;
@@ -227,6 +229,7 @@ export async function fetchCardPrices(cardNames) {
           'User-Agent': 'CardListCompare/1.0',
         },
         body: JSON.stringify({ identifiers }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!res.ok) continue;
@@ -305,6 +308,7 @@ export async function fetchSpecificPrintingPrices(cards) {
           'User-Agent': 'CardListCompare/1.0',
         },
         body: JSON.stringify({ identifiers }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!res.ok) continue;
