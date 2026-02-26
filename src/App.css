@@ -4,6 +4,15 @@
   padding: var(--space-xl) clamp(12px, 3vw, 20px) 64px;
 }
 
+.app-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  color: var(--text-secondary);
+  font-size: var(--fs-base);
+}
+
 .app-header {
   text-align: center;
   margin-bottom: var(--space-xl);

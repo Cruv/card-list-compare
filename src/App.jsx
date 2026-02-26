@@ -1,16 +1,18 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import DeckInput from './components/DeckInput';
 import ChangelogOutput from './components/ChangelogOutput';
 import AuthBar from './components/AuthBar';
-import AdminPage from './components/admin/AdminPage';
-import UserSettings from './components/UserSettings';
-import DeckLibrary from './components/DeckLibrary';
-import DeckPage from './components/DeckPage';
-import SharedDeckView from './components/SharedDeckView';
-import GuidePage from './components/GuidePage';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import ErrorBoundary from './components/ErrorBoundary';
+
+// Lazy-loaded page components (code-split into separate chunks)
+const AdminPage = lazy(() => import('./components/admin/AdminPage'));
+const UserSettings = lazy(() => import('./components/UserSettings'));
+const DeckLibrary = lazy(() => import('./components/DeckLibrary'));
+const DeckPage = lazy(() => import('./components/DeckPage'));
+const SharedDeckView = lazy(() => import('./components/SharedDeckView'));
+const GuidePage = lazy(() => import('./components/GuidePage'));
 import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
@@ -22,9 +24,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.2';
+const APP_VERSION = '2.39.3';
 const WHATS_NEW = [
-  'Performance: scheduler parallelization with overlap protection, enrichDeckText O(n) optimization',
+  'Performance: React.lazy code splitting (main bundle -41%), Scryfall cache LRU eviction limits',
 ];
 
 function getResetToken() {
@@ -212,7 +214,9 @@ export default function App() {
   if (route === 'guide') {
     return (
       <ErrorBoundary>
-        <GuidePage />
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <GuidePage />
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -221,7 +225,9 @@ export default function App() {
   if (route === 'admin') {
     return (
       <ErrorBoundary>
-        <AdminPage />
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <AdminPage />
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -230,7 +236,9 @@ export default function App() {
   if (route === 'settings' && user) {
     return (
       <ErrorBoundary>
-        <UserSettings />
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <UserSettings />
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -239,7 +247,9 @@ export default function App() {
   if (route === 'library' && user) {
     return (
       <ErrorBoundary>
-        <DeckLibrary />
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <DeckLibrary />
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -248,7 +258,9 @@ export default function App() {
   if (route === 'libraryDeck' && user && deckId) {
     return (
       <ErrorBoundary>
-        <DeckPage deckId={deckId} />
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <DeckPage deckId={deckId} />
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -257,7 +269,9 @@ export default function App() {
   if (route === 'deck' && deckShareId) {
     return (
       <ErrorBoundary>
-        <SharedDeckView shareId={deckShareId} />
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <SharedDeckView shareId={deckShareId} />
+        </Suspense>
       </ErrorBoundary>
     );
   }

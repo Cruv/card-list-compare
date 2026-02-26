@@ -16,6 +16,7 @@ const DELAY_MS = 100; // Respect rate limit (~10 req/sec)
 const METADATA_TTL = 30 * 60 * 1000; // 30 minutes
 const PRICE_TTL = 10 * 60 * 1000;    // 10 minutes
 const PRINTING_TTL = 60 * 60 * 1000; // 60 minutes
+const MAX_CACHE_ENTRIES = 2000;       // Per-cache entry limit
 
 const metadataCache = new Map(); // key -> { data, ts }
 const priceCache = new Map();
@@ -26,10 +27,18 @@ function getCached(cache, key, ttl) {
   const entry = cache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.ts > ttl) { cache.delete(key); return null; }
+  // LRU: move to end on access
+  cache.delete(key);
+  cache.set(key, entry);
   return entry.data;
 }
 
 function setCache(cache, key, data) {
+  // Evict oldest entries if cache is full
+  if (cache.size >= MAX_CACHE_ENTRIES) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
   cache.set(key, { data, ts: Date.now() });
 }
 
