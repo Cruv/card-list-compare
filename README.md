@@ -142,12 +142,13 @@ Admins can also download a database backup directly from the admin dashboard.
 
 ### Deck Comparison
 
-- **Side-by-side diff** &mdash; paste, upload, or import two deck lists and instantly see cards added, removed, and quantity changes
-- **Multi-format parser** &mdash; Arena/MTGO exports, CSV, plain text, `SB:` prefix notation
-- **URL import** &mdash; pull decks from Archidekt, Moxfield, and DeckCheck links with metadata coverage feedback
-- **Card type grouping** &mdash; changelogs grouped by creature, instant, sorcery, artifact, enchantment, land, etc.
+- **Side-by-side diff** &mdash; paste, upload, or import two deck lists and instantly see cards added, removed, quantity changes, and printing swaps
+- **Multi-format parser** &mdash; Arena/MTGO exports, CSV, plain text, `SB:` prefix notation, with set codes `(M10)`, collector numbers `[227]`, and foil `*F*` markers
+- **URL import** &mdash; pull decks from Archidekt, Moxfield, DeckCheck, TappedOut, and Deckstats links with metadata coverage feedback
+- **Card type grouping** &mdash; changelogs grouped by Creature, Instant, Sorcery, Artifact, Enchantment, Land, Planeswalker, Battle
 - **Search & filter** &mdash; real-time card name filtering across all sections
 - **Share links** &mdash; generate shareable URLs for any comparison
+- **Keyboard shortcuts** &mdash; Ctrl+Enter to compare
 
 ### Printing Metadata
 
@@ -161,15 +162,38 @@ Admins can also download a database backup directly from the admin dashboard.
 ### Deck Library
 
 - **Deck tracker** &mdash; track Archidekt users and decks with automatic snapshot history
+- **Deck pages** &mdash; full-page view per deck with tabs for Snapshots, Changelog, Timeline, Full Deck, Analytics, and Settings
+- **Grid layout** &mdash; deck cards in a responsive grid showing name, commander, price, tags, and last updated date
 - **Interactive timeline** &mdash; clickable snapshot history with changes tab (what changed) and full deck tab (complete list at that point)
 - **Snapshot comparison** &mdash; compare any two snapshots of the same deck in an in-page overlay
-- **Cross-deck comparison** &mdash; compare any two tracked decks side-by-side
+- **Paper tracking** &mdash; mark a snapshot as your physical deck, compare paper version vs latest digital changes
 - **Deck overlap matrix** &mdash; see how many cards are shared across all your decks
-- **Deck analytics** &mdash; mana curve, color distribution (with official Scryfall mana symbols), card type breakdown, and summary stats
-- **Price tracking** &mdash; per-deck price display via Scryfall, with price alerts and price impact in changelogs
 - **Tags & organization** &mdash; user-defined tags, deck notes, pinning, and filter-by-tag
 - **Collapsible owner groups** &mdash; decks grouped by Archidekt username with search filtering
 - **Snapshot management** &mdash; lock important snapshots to prevent auto-pruning, configurable snapshot limits
+- **Auto-refresh** &mdash; schedule automatic Archidekt checks per deck (6h, 12h, or 24h intervals)
+- **Deck sharing** &mdash; generate public share links for tracked decks with snapshot comparison
+
+### Deck Analytics
+
+- **Price checking** &mdash; fetch current Scryfall prices with per-card breakdown, total, and top-10 most expensive cards
+- **Budget prices** &mdash; cheapest printing totals alongside owned printing totals, with savings calculation
+- **Price history** &mdash; smooth SVG chart showing deck value over time across snapshots
+- **Price alerts** &mdash; set thresholds to be notified when deck price crosses a target
+- **Power level** &mdash; heuristic estimate (1&ndash;10 scale) based on fast mana, tutors, combo enablers, and mana curve
+- **Mana curve** &mdash; CMC distribution visualization and comparison between snapshots
+- **Color distribution** &mdash; color identity breakdown with official Scryfall mana symbols
+- **Card type breakdown** &mdash; summary of creature, spell, land, and artifact counts
+
+### Proxy Printing
+
+- **MPC Autofill integration** &mdash; search the MPC Autofill database for proxy-quality art for every card in your deck
+- **Per-card art overrides** &mdash; browse and select alternative artwork; overrides persist per deck and sync to server
+- **Advanced filters** &mdash; DPI range, language, source priority, tag includes/excludes, fuzzy search toggle
+- **Cardstock selection** &mdash; Standard Smooth, Superior Smooth, Smooth, Linen, Plastic
+- **XML & ZIP export** &mdash; download XML for the MPC Autofill browser extension, or download a ZIP of all card images
+- **Scryfall image downloads** &mdash; download a ZIP of all Scryfall card images for a deck (background job with progress tracking)
+- **DFC auto-pairing** &mdash; double-faced cards automatically include both front and back face images
 
 ### Card Display
 
@@ -185,6 +209,14 @@ Admins can also download a database backup directly from the admin dashboard.
 - **Plain text changelog** &mdash; human-readable diff summary
 - **JSON** &mdash; structured diff data
 - **Full deck text** &mdash; raw deck list from any snapshot
+- **Tabletop Simulator** &mdash; TTS JSON deck import with Scryfall images, proper zones, and commander placement
+
+### Card Recommendations
+
+- **Staple suggestions** &mdash; category-based recommendations: Ramp, Card Draw, Removal, Board Wipe, Protection, Lands, Recursion
+- **Color-aware** &mdash; suggestions filtered by deck color identity
+- **EDHREC badges** &mdash; Commander-banned cards flagged with red "BANNED" badge, high-impact cards with gold "Game Changer" badge
+- **Search & filter** &mdash; search within suggestions, filter by category
 
 ### User Accounts & Security
 
@@ -208,6 +240,7 @@ Admins can also download a database backup directly from the admin dashboard.
 
 ### General
 
+- **In-app guide** &mdash; comprehensive how-to documentation, feature walkthrough, and FAQ accessible to all users
 - **Dark / light mode** &mdash; theme toggle with localStorage persistence
 - **Mobile friendly** &mdash; responsive layout, touch-aware tooltips, installable as PWA
 - **Performance** &mdash; client and server-side Scryfall caching, batched database queries, mana symbol prefetching

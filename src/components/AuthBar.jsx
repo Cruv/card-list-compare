@@ -69,10 +69,22 @@ export default function AuthBar({ onShowForgotPassword }) {
     </button>
   );
 
+  const guideButton = (
+    <button
+      className="auth-bar-btn"
+      onClick={() => { window.location.hash = '#guide'; }}
+      type="button"
+      title="How to use this app"
+    >
+      Guide
+    </button>
+  );
+
   if (user) {
     return (
       <div className="auth-bar">
         {themeToggle}
+        {guideButton}
         <span className="auth-bar-user">{user.username}</span>
         {user.isAdmin && (
           <button className="auth-bar-btn" onClick={() => { window.location.hash = '#admin'; }} type="button" title="Admin Panel">
@@ -96,6 +108,7 @@ export default function AuthBar({ onShowForgotPassword }) {
     return (
       <div className="auth-bar">
         {themeToggle}
+        {guideButton}
         <button className="auth-bar-btn" onClick={() => setShowForm(true)} type="button">
           Log In
         </button>
@@ -106,6 +119,7 @@ export default function AuthBar({ onShowForgotPassword }) {
   return (
     <div className="auth-bar">
       {themeToggle}
+      {guideButton}
       <form className="auth-bar-form" onSubmit={handleSubmit} aria-label="Authentication">
         <input
           type="text"

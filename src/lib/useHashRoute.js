@@ -24,6 +24,9 @@ export function useHashRoute() {
   if (hash === '#settings') {
     return { route: 'settings' };
   }
+  if (hash === '#guide') {
+    return { route: 'guide' };
+  }
   if (hash.startsWith('#library/')) {
     const deckId = hash.slice(9);
     return { route: 'libraryDeck', deckId: parseInt(deckId, 10) };

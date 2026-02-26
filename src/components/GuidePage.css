@@ -1,0 +1,297 @@
+/* ── Guide Page Layout ────────────────────────────────── */
+
+.guide-page {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+
+.guide-sidebar {
+  background: linear-gradient(180deg, var(--bg-surface) 0%, rgba(92, 107, 192, 0.05) 100%);
+  border-right: 1px solid var(--border-color);
+  padding: var(--space-xl) 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.guide-sidebar-header {
+  padding: 0 var(--space-lg) var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.guide-sidebar-title {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.guide-back-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  color: var(--accent-blue);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.guide-back-link:hover {
+  opacity: 0.8;
+}
+
+.guide-sidebar-nav {
+  padding: var(--space-md) 0;
+  flex: 1;
+}
+
+.guide-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  font-size: var(--fs-base);
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.guide-nav-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  transform: translateX(2px);
+}
+
+.guide-nav-item--active {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  font-weight: 600;
+  border-right: 3px solid var(--accent-blue);
+}
+
+/* ── Content Area ────────────────────────────────────── */
+
+.guide-content {
+  padding: var(--space-xl);
+  max-width: 800px;
+  width: 100%;
+}
+
+.guide-content h3 {
+  margin: 0 0 var(--space-lg);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ── Section Typography ──────────────────────────────── */
+
+.guide-section {
+  margin-bottom: var(--space-xl);
+}
+
+.guide-section h4 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: var(--space-lg) 0 var(--space-sm);
+}
+
+.guide-section p {
+  font-size: var(--fs-base);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin: 0 0 var(--space-md);
+}
+
+.guide-section ul,
+.guide-section ol {
+  padding-left: var(--space-xl);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin: 0 0 var(--space-md);
+}
+
+.guide-section li {
+  margin-bottom: var(--space-sm);
+}
+
+.guide-section strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.guide-section code {
+  background: var(--bg-secondary);
+  padding: 1px var(--space-xs);
+  border-radius: 3px;
+  font-size: var(--fs-sm);
+  color: var(--accent-blue);
+}
+
+/* ── Tip Callout ─────────────────────────────────────── */
+
+.guide-tip {
+  background: rgba(92, 107, 192, 0.06);
+  border-left: 3px solid var(--accent-blue);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: var(--space-md) 0;
+}
+
+.guide-tip-label {
+  font-weight: 600;
+  color: var(--accent-blue);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.guide-tip p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ── Steps ───────────────────────────────────────────── */
+
+.guide-steps {
+  counter-reset: guide-step;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 var(--space-md);
+}
+
+.guide-steps li {
+  counter-increment: guide-step;
+  position: relative;
+  padding-left: calc(var(--space-xl) + var(--space-sm));
+  margin-bottom: var(--space-md);
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.guide-steps li::before {
+  content: counter(guide-step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  background: var(--accent-blue);
+  color: #fff;
+  border-radius: 50%;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── FAQ ─────────────────────────────────────────────── */
+
+.guide-faq-item {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.guide-faq-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.guide-faq-q {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-sm);
+}
+
+.guide-faq-a {
+  font-size: var(--fs-base);
+  color: var(--text-secondary);
+  line-height: 1.65;
+  margin: 0;
+}
+
+/* ── Keyboard Shortcut Badge ─────────────────────────── */
+
+.guide-kbd {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 1px var(--space-xs);
+  font-size: var(--fs-xs);
+  font-family: inherit;
+}
+
+/* ── Responsive ──────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .guide-page {
+    grid-template-columns: 1fr;
+  }
+
+  .guide-sidebar {
+    position: static;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    padding: var(--space-md) 0;
+  }
+
+  .guide-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-lg) var(--space-md);
+  }
+
+  .guide-sidebar-title {
+    margin: 0;
+  }
+
+  .guide-sidebar-nav {
+    display: flex;
+    overflow-x: auto;
+    padding: 0 var(--space-md);
+    gap: var(--space-xs);
+  }
+
+  .guide-nav-item {
+    padding: var(--space-md) var(--space-md);
+    white-space: nowrap;
+    font-size: var(--fs-sm);
+    border-right: none;
+    border-radius: 0;
+  }
+
+  .guide-nav-item:hover {
+    transform: none;
+  }
+
+  .guide-nav-item--active {
+    border-right: none;
+    border-bottom: 2px solid var(--accent-blue);
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .guide-content {
+    padding: var(--space-lg);
+  }
+}

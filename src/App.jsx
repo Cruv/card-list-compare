@@ -7,6 +7,7 @@ import UserSettings from './components/UserSettings';
 import DeckLibrary from './components/DeckLibrary';
 import DeckPage from './components/DeckPage';
 import SharedDeckView from './components/SharedDeckView';
+import GuidePage from './components/GuidePage';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -21,10 +22,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.38.6';
+const APP_VERSION = '2.39.0';
 const WHATS_NEW = [
-  'Deck page header matches grid card: stacked prices + "Last Updated" date',
-  'Fix server crash on startup — MPC art override routes used wrong requireIntParam pattern',
+  'In-app Guide page with how-to docs, feature walkthrough, and FAQ',
+  'README rewritten with full feature coverage',
 ];
 
 function getResetToken() {
@@ -205,6 +206,15 @@ export default function App() {
           }}
         />
       </div>
+    );
+  }
+
+  // Full-page guide (public, no auth required)
+  if (route === 'guide') {
+    return (
+      <ErrorBoundary>
+        <GuidePage />
+      </ErrorBoundary>
     );
   }
 
