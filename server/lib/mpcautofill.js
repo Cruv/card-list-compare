@@ -339,7 +339,7 @@ export async function fetchCardDetails(identifiers) {
         'Content-Type': 'application/json',
         'User-Agent': USER_AGENT,
       },
-      body: JSON.stringify({ identifiers: uncached }),
+      body: JSON.stringify({ cardIdentifiers: uncached }),
       signal: AbortSignal.timeout(15000),
     });
 

@@ -24,9 +24,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.6';
+const APP_VERSION = '2.39.7';
 const WHATS_NEW = [
-  'Fix MPC Autofill DFC pairs parsing for updated API response format',
+  'Fix MPC Autofill API: updated field names for DFC pairs and card details endpoints',
 ];
 
 function getResetToken() {
