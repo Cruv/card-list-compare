@@ -83,8 +83,17 @@ export async function getDFCPairs() {
     const data = await res.json();
 
     const pairs = new Map();
-    for (const [front, back] of data) {
-      pairs.set(front.toLowerCase(), back);
+    // API v2 returns { dfcPairs: { front: back, ... } }
+    const pairsObj = data.dfcPairs || data;
+    if (pairsObj && typeof pairsObj === 'object' && !Array.isArray(pairsObj)) {
+      for (const [front, back] of Object.entries(pairsObj)) {
+        pairs.set(front.toLowerCase(), back);
+      }
+    } else if (Array.isArray(pairsObj)) {
+      // Legacy array-of-pairs format
+      for (const [front, back] of pairsObj) {
+        pairs.set(front.toLowerCase(), back);
+      }
     }
     dfcCache = { data: pairs, ts: Date.now() };
     return pairs;
@@ -335,7 +344,8 @@ export async function fetchCardDetails(identifiers) {
     });
 
     if (!res.ok) {
-      console.error('MPC Autofill card details failed:', res.status);
+      const body = await res.text().catch(() => '');
+      console.error(`MPC Autofill card details failed: ${res.status}`, body.slice(0, 200));
       return result;
     }
 

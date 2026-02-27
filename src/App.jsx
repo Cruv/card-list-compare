@@ -24,9 +24,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.5';
+const APP_VERSION = '2.39.6';
 const WHATS_NEW = [
-  'Fix Docker build: add compression package to server dependencies',
+  'Fix MPC Autofill DFC pairs parsing for updated API response format',
 ];
 
 function getResetToken() {
