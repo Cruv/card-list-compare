@@ -24,9 +24,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.4';
+const APP_VERSION = '2.39.5';
 const WHATS_NEW = [
-  'Performance: DeckGridCard React.memo, stable useCallback handlers to prevent unnecessary re-renders',
+  'Fix Docker build: add compression package to server dependencies',
 ];
 
 function getResetToken() {
