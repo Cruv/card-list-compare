@@ -138,6 +138,12 @@ cp ./data/cardlistcompare.db ./backups/cardlistcompare-$(date +%Y%m%d).db
 
 Admins can also download a database backup directly from the admin dashboard.
 
+> **Note:** the server rewrites the entire database file on every write. Copying
+> it while the container is running risks catching a partial write. For a
+> guaranteed-consistent backup, stop the container first (`docker compose stop`),
+> copy, then start it again — or verify the copy opens cleanly with
+> `sqlite3 backup.db "PRAGMA integrity_check;"`.
+
 ## Features
 
 ### Deck Comparison

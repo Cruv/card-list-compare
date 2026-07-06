@@ -21,13 +21,17 @@ export function archidektToText(data) {
     if (collectorNumber) line += ` [${collectorNumber}]`;
     if (modifier === 'Foil') line += ` *F*`;
 
+    // Maybeboard/considering cards are skipped even when they also carry a
+    // board category — must match the client (src/lib/fetcher.js) exactly.
+    if (categories.includes('maybeboard') || categories.includes('considering')) {
+      continue;
+    }
+
     if (categories.includes('commander') || categories.includes('commanders')) {
       commanderLines.push(line);
       commanderNames.push(name);
     } else if (categories.includes('sideboard')) {
       sideLines.push(line);
-    } else if (categories.includes('maybeboard') || categories.includes('considering')) {
-      continue;
     } else {
       mainLines.push(line);
     }

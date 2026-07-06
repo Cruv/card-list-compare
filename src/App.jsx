@@ -24,9 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.39.7';
+const APP_VERSION = '2.40.0';
 const WHATS_NEW = [
-  'Fix MPC Autofill API: updated field names for DFC pairs and card details endpoints',
+  "Fixed the What's New notification sometimes showing 'undefined'",
+  'Reliability: releases are now blocked unless the full test suite passes',
 ];
 
 function getResetToken() {
@@ -65,7 +66,9 @@ export default function App() {
     // Returning user with an older version — show the toast, then stamp
     localStorage.setItem('clc-version-seen', APP_VERSION);
     const timer = setTimeout(() => {
-      toast.info(`What's new in v${APP_VERSION}: ${WHATS_NEW[0]}, ${WHATS_NEW[1]}, and more!`, 8000);
+      const highlights = WHATS_NEW.slice(0, 2).join(', ');
+      const suffix = WHATS_NEW.length > 2 ? ', and more!' : '';
+      toast.info(`What's new in v${APP_VERSION}: ${highlights}${suffix}`, 8000);
     }, 2000);
     return () => clearTimeout(timer);
   }, []);

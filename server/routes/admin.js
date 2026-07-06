@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { all, get, run, getDb } from '../db.js';
-import { requireAuth, requireAdmin, invalidateAuthCache } from '../middleware/auth.js';
+import { requireAuth, requireAdmin, invalidateAuthCache, invalidateAllAuthCache } from '../middleware/auth.js';
 import { validatePassword } from '../middleware/validate.js';
 
 const router = Router();
@@ -435,6 +435,7 @@ router.delete('/invites/:id', (req, res) => {
 
 router.post('/bulk/suspend-all', (req, res) => {
   const result = run('UPDATE users SET suspended = 1 WHERE is_admin = 0 AND suspended = 0');
+  invalidateAllAuthCache();
   logAdminAction(req.user.userId, req.user.username, 'bulk_suspend', null, null, `${result.changes} users suspended`);
   res.json({ success: true, count: result.changes });
 });

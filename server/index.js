@@ -63,7 +63,7 @@ app.use('/api', trimBody);
 // Global rate limit for all /api routes
 app.use('/api', apiLimiter);
 
-// Health check (no auth, no rate limit)
+// Health check (no auth; rate-limited by the global /api limiter above)
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: Math.floor((Date.now() - startTime) / 1000) });
 });

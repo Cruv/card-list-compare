@@ -17,6 +17,14 @@ export function invalidateAuthCache(userId) {
   authCache.delete(userId);
 }
 
+/**
+ * Invalidate ALL cached auth state. Call after bulk mutations (e.g. emergency
+ * suspend-all) where waiting out the per-user TTL is unacceptable.
+ */
+export function invalidateAllAuthCache() {
+  authCache.clear();
+}
+
 export function createToken(user) {
   return jwt.sign(
     { userId: user.id, username: user.username, isAdmin: !!user.is_admin },
