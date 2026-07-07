@@ -74,6 +74,34 @@ describe('enrichDeckText()', () => {
     expect(result).toBe('3 Nazgul (ltr) [551]');
   });
 
+  // ── Unified card-line pattern (v2.40.2) ─────────────────────
+  // enrichDeckText shares CARD_LINE_PATTERN with the client parser.
+
+  it('recognizes Arena-style bare collector numbers as full metadata', async () => {
+    fetchCardPrintings.mockResolvedValue(new Map());
+
+    // Previously the fork without bare-collector support folded "(C20) 215"
+    // into the card name and re-enriched under the garbled key.
+    const newText = '2 Atraxa (C20) 215 *F*';
+    const result = await enrichDeckText(newText, '1 Atraxa (mom) [107]');
+
+    expect(result).toBe(newText); // kept as-is: set + collector already present
+    expect(fetchCardPrintings).not.toHaveBeenCalled();
+  });
+
+  it('passes through set-less bracketed lines unchanged (bracket is part of the name)', async () => {
+    fetchCardPrintings.mockResolvedValue(new Map());
+
+    // Matches the client parser: without a set code, "[336p]" folds into the
+    // name rather than being treated as a collector number. Previously the
+    // fork extracted it and replaced it with the carried-forward printing.
+    const previousText = '1 Nazgul (ltr) [551]';
+    const newText = '1 Nazgul [336p]';
+
+    const result = await enrichDeckText(newText, previousText);
+    expect(result).toBe('1 Nazgul [336p]');
+  });
+
   // ── Scryfall fallback ───────────────────────────────────────
 
   it('falls back to Scryfall for cards without previous metadata', async () => {

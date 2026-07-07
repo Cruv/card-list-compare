@@ -10,6 +10,7 @@
  */
 
 import { parse } from '../../src/lib/parser.js';
+import { CARD_LINE_PATTERN } from '../../src/lib/constants.js';
 import { fetchCardPrintings } from './scryfall.js';
 
 /**
@@ -88,11 +89,6 @@ export async function enrichDeckText(newText, previousText) {
   const lines = newText.split(/\r?\n/);
   const result = [];
 
-  // Regex to parse a card line: qty name (set) [num] *F*
-  // Collector numbers can be alphanumeric with hyphens (e.g. 136p, DDO-20, 2022-3)
-  // Capture groups: 1=qty, 2=name, 3=setCode, 4=collectorNumber, 5=foil
-  const CARD_LINE_RE = /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\))?(?:\s+\[([\w-]+)\])?(\s+\*F\*)?\s*$/;
-
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
 
@@ -102,8 +98,10 @@ export async function enrichDeckText(newText, previousText) {
       continue;
     }
 
-    // Try to match as a card line
-    const match = trimmed.match(CARD_LINE_RE);
+    // Try to match as a card line \u2014 CARD_LINE_PATTERN is the single source of
+    // truth shared with the parser (groups: 1=qty, 2=name, 3=setCode,
+    // 4=bracketed collector, 5=bare collector after set code, 6=foil).
+    const match = trimmed.match(CARD_LINE_PATTERN);
     if (!match) {
       result.push(rawLine);
       continue;
@@ -116,8 +114,8 @@ export async function enrichDeckText(newText, previousText) {
 
     // Extract metadata directly from regex groups (avoids re-parsing each line)
     const lineSetCode = match[3] || null;
-    const lineCollectorNumber = match[4] || null;
-    const lineIsFoil = !!match[5];
+    const lineCollectorNumber = match[4] || match[5] || null;
+    const lineIsFoil = !!match[6];
 
     const hasFullMeta = lineSetCode && lineCollectorNumber;
     if (hasFullMeta) {

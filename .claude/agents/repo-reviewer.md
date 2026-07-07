@@ -18,9 +18,11 @@ discrepancy itself as a finding.
 
 1. **Twin files.** If the diff touches one of these, verify its twin was
    considered (not necessarily changed — but the reviewer must look):
-   - `src/lib/constants.js` (LINE_PATTERNS) ↔ `server/lib/enrichDeckText.js`
-     (CARD_LINE_RE). Pinned divergences in invariants.test.js may be consciously
-     updated, never deleted.
+   - `src/lib/constants.js` (CARD_LINE_PATTERN — the SINGLE card-line regex) →
+     consumed by `server/lib/enrichDeckText.js` with direct group indexing
+     (cn = m[4]||m[5], foil = m[6]). Flag any new card-line-shaped regex
+     literal in server code; behavior pins in invariants.test.js may be
+     consciously updated, never deleted.
    - `src/lib/fetcher.js` (archidektToText) ↔ `server/lib/deckToText.js`.
    - `src/lib/scryfall.js` ↔ `server/lib/scryfall.js`: intentionally different
      implementations — do NOT flag missing literal sync; DO flag a conceptual

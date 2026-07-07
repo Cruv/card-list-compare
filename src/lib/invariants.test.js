@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { LINE_PATTERNS } from './constants.js';
+import { CARD_LINE_PATTERN, LINE_PATTERNS } from './constants.js';
 import { parse } from './parser.js';
 import { _archidektToText } from './fetcher.js';
 import { archidektToText as serverArchidektToText } from '../../server/lib/deckToText.js';
@@ -17,74 +17,58 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
 // ---------------------------------------------------------------------------
-// Invariant: card-line regex parity (client LINE_PATTERNS[0] vs server CARD_LINE_RE)
+// Invariant: card-line pattern is single-sourced
 // ---------------------------------------------------------------------------
-// The server regex is a private const inside enrichDeckText() — extract it from
-// source text. Anchored to line start (comments can't shadow it) and asserted
-// unique (a stale copy left "for reference" would poison the extraction).
-function serverCardLineRe() {
-  const src = read('server/lib/enrichDeckText.js');
-  const matches = [...src.matchAll(/^\s*const CARD_LINE_RE = \/(.+)\/;/gm)];
-  expect(
-    matches.length,
-    'expected exactly one uncommented CARD_LINE_RE declaration in server/lib/enrichDeckText.js — renamed, moved, or duplicated; update this test after re-verifying parity by hand'
-  ).toBe(1);
-  return new RegExp(matches[0][1]);
-}
+// CARD_LINE_PATTERN in constants.js is the ONLY card-line regex. It drifted
+// into forked copies twice before (server/lib/enrichDeckText.js, fixed
+// v2.40.2; server/routes/collection.js, fixed v2.40.1) — both corrupted or
+// mis-read user data. These tests guard against a third fork and pin the
+// pattern's behavior so edits show exactly what changed.
 
-// Adapters normalize each regex's capture-group layout to one comparable tuple.
-// Client groups: 1 qty, 2 name, 3 set, 4 bracketed cn, 5 bare cn, 6 foil.
-// Server groups: 1 qty, 2 name, 3 set, 4 bracketed cn, 5 foil.
-const clientCaptures = (line) => {
-  const m = line.match(LINE_PATTERNS[0]);
+const captures = (line) => {
+  const m = line.match(CARD_LINE_PATTERN);
   return m && { qty: m[1], name: m[2], set: m[3] || '', cn: m[4] || m[5] || '', foil: !!m[6] };
 };
-const serverCaptures = (line, re) => {
-  const m = line.match(re);
-  return m && { qty: m[1], name: m[2], set: m[3] || '', cn: m[4] || '', foil: !!m[5] };
-};
 
-describe('invariant: card-line regex parity (client vs server)', () => {
-  // The canonical interchange format both sides emit and must agree on.
-  // (A subset of the examples in docs/DECK_TEXT_FORMAT.md — the known-drift
-  // inputs are covered by the pinned-divergence tests below instead.)
-  const CANONICAL = [
-    '4 Lightning Bolt',
-    '4x Lightning Bolt',
-    '1 Snapcaster Mage (UMA) [63]',
-    '1 Nazgul (ltr) [336p]',
-    '1 Sol Ring (c21) [263] *F*',
-    '1 Sol Ring (c21) *F*',
-    '1 Sol Ring *F*',
-    '1 Sword of Dungeons // Dragons (H17) [DDO-20]',
-    '10 Island',
-  ];
-
-  it.each(CANONICAL)('parses %j identically on client and server', (line) => {
-    const re = serverCardLineRe();
-    expect(serverCaptures(line, re)).toEqual(clientCaptures(line));
+describe('invariant: card-line pattern single source', () => {
+  it('LINE_PATTERNS[0] is CARD_LINE_PATTERN (same object)', () => {
+    expect(LINE_PATTERNS[0]).toBe(CARD_LINE_PATTERN);
   });
 
-  // KNOWN divergences — pinned so any regex edit that shifts behavior fails
-  // loudly instead of drifting further. The long-term fix is a single regex
-  // exported from constants.js and imported by enrichDeckText.js; when that
-  // lands, replace these pins with plain parity assertions.
-  it('pins known divergence: bare collector number after set code', () => {
-    const re = serverCardLineRe();
-    // Client understands Arena/Archidekt-style "…(C20) 215"; server folds it into the name.
-    expect(clientCaptures('2 Atraxa (C20) 215 *F*')).toMatchObject({
-      name: 'Atraxa', set: 'C20', cn: '215', foil: true,
-    });
-    expect(serverCaptures('2 Atraxa (C20) 215 *F*', re)).toMatchObject({
-      name: 'Atraxa (C20) 215', set: '', cn: '', foil: true,
-    });
+  it('enrichDeckText consumes the shared pattern and declares no local fork', () => {
+    const src = read('server/lib/enrichDeckText.js');
+    expect(src.includes('CARD_LINE_PATTERN'), 'enrichDeckText.js must import CARD_LINE_PATTERN from src/lib/constants.js').toBe(true);
+    expect(/CARD_LINE_RE\s*=/.test(src), 'enrichDeckText.js declares a local card-line regex — use the shared CARD_LINE_PATTERN instead').toBe(false);
   });
 
-  it('pins known divergence: bracketed collector number without set code', () => {
-    const re = serverCardLineRe();
-    // Reverse of the above: server extracts a set-less [336p]; client folds it into the name.
-    expect(clientCaptures('1 Nazgul [336p]')).toMatchObject({ name: 'Nazgul [336p]', cn: '' });
-    expect(serverCaptures('1 Nazgul [336p]', re)).toMatchObject({ name: 'Nazgul', cn: '336p' });
+  it('no other server file declares a card-line-shaped regex', () => {
+    // The corruption signature of past forks: a regex literal matching a
+    // leading quantity capture followed by a lazy name capture.
+    for (const file of ['server/routes/collection.js', 'server/lib/deckToText.js']) {
+      expect(
+        /\/\^\(\\d\+\)/.test(read(file)),
+        `${file} declares a quantity-leading regex literal — card lines must go through the shared parser/pattern`
+      ).toBe(false);
+    }
+  });
+
+  // Behavior pins for the canonical corpus (subset of the examples in
+  // docs/DECK_TEXT_FORMAT.md). Any pattern edit must consciously update these.
+  it.each([
+    ['4 Lightning Bolt', { qty: '4', name: 'Lightning Bolt', set: '', cn: '', foil: false }],
+    ['4x Lightning Bolt', { qty: '4', name: 'Lightning Bolt', set: '', cn: '', foil: false }],
+    ['1 Snapcaster Mage (UMA) [63]', { qty: '1', name: 'Snapcaster Mage', set: 'UMA', cn: '63', foil: false }],
+    ['1 Nazgul (ltr) [336p]', { qty: '1', name: 'Nazgul', set: 'ltr', cn: '336p', foil: false }],
+    ['1 Sol Ring (c21) [263] *F*', { qty: '1', name: 'Sol Ring', set: 'c21', cn: '263', foil: true }],
+    ['1 Sol Ring (c21) *F*', { qty: '1', name: 'Sol Ring', set: 'c21', cn: '', foil: true }],
+    ['1 Sol Ring *F*', { qty: '1', name: 'Sol Ring', set: '', cn: '', foil: true }],
+    ['1 Sword of Dungeons // Dragons (H17) [DDO-20]', { qty: '1', name: 'Sword of Dungeons // Dragons', set: 'H17', cn: 'DDO-20', foil: false }],
+    ['10 Island', { qty: '10', name: 'Island', set: '', cn: '', foil: false }],
+    // Formerly-divergent inputs, now unified (v2.40.2):
+    ['2 Atraxa (C20) 215 *F*', { qty: '2', name: 'Atraxa', set: 'C20', cn: '215', foil: true }],
+    ['1 Nazgul [336p]', { qty: '1', name: 'Nazgul [336p]', set: '', cn: '', foil: false }],
+  ])('pins behavior for %j', (line, expected) => {
+    expect(captures(line)).toEqual(expected);
   });
 });
 
@@ -344,7 +328,8 @@ describe('invariant: differ pipeline order', () => {
 describe('invariant: docs/INVARIANTS.md content anchors resolve', () => {
   const ANCHORS = [
     ['src/lib/constants.js', 'LINE_PATTERNS'],
-    ['server/lib/enrichDeckText.js', 'CARD_LINE_RE'],
+    ['src/lib/constants.js', 'CARD_LINE_PATTERN'],
+    ['server/lib/enrichDeckText.js', 'CARD_LINE_PATTERN'],
     ['server/lib/enrichDeckText.js', 'buildMetadataLookup'],
     ['src/lib/parser.js', 'cardKey'],
     ['src/lib/parser.js', 'displayName'],

@@ -33,13 +33,14 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
 atomic write (write temp, fsync, rename) first. A perf pass here is one bug away
 from losing user data.
 
-## 2. Card-line regex exists in two places
+## 2. Card-line regex is single-sourced — never fork it
 
-`LINE_PATTERNS` in `src/lib/constants.js` (client) and `CARD_LINE_RE` in
-`server/lib/enrichDeckText.js` (server). Enforced by the parity tests in
-`src/lib/invariants.test.js`; format spec and the known pinned divergences are in
-[DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md). Change one → change the other → update
-the tests.
+`CARD_LINE_PATTERN` in `src/lib/constants.js` (= `LINE_PATTERNS` first entry) is
+the only card-line regex. `server/lib/enrichDeckText.js` imports it and indexes
+groups directly (`cn = m[4] || m[5]`, `foil = m[6]`). Two past forks both caused
+real bugs (collection import corruption, fixed v2.40.1; enrichment drift,
+unified v2.40.2). Enforced by the single-source and behavior-pin tests in
+`src/lib/invariants.test.js`; format spec in [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md).
 
 ## 3. Parser contract: `displayName`, flat commanders, composite keys
 
@@ -184,7 +185,7 @@ WHATS_NEW is **replaced** each release (git log is the historical record).
 
 | You touched | Also update | Enforced by |
 | --- | --- | --- |
-| `LINE_PATTERNS` (constants.js) | `CARD_LINE_RE` (enrichDeckText.js) + [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md) | parity tests |
+| `CARD_LINE_PATTERN` (constants.js) | behavior pins in invariants.test.js + [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md); check group indexing in enrichDeckText.js | pattern tests |
 | `archidektToText` (fetcher.js) | `archidektToText` (deckToText.js) | mirror test |
 | Parser entry shape / `cardKey` | differ, formatter, all server routes, [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md) | contract tests |
 | New `src/lib` import in `server/**` | Dockerfile `COPY src/lib/...` line | COPY-closure test |

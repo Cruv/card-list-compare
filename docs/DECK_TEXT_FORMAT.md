@@ -6,10 +6,10 @@ metadata is embedded in the text itself rather than in database columns, so ever
 snapshot is self-contained and survives schema changes.
 
 Everything that parses or emits this format must agree on it. The **normative
-definition is executable**: `src/lib/invariants.test.js` ("card-line regex parity")
-asserts client and server agree on a canonical corpus of card lines (a subset of
-the examples below; the known-drift inputs are covered by pinned-divergence tests
-instead). This document explains the format; when the two disagree, the tests win.
+definition is executable**: `src/lib/invariants.test.js` ("card-line pattern
+single source") pins the shared pattern's behavior on a canonical corpus and
+guards against forked copies. This document explains the format; when the two
+disagree, the tests win.
 
 ## Grammar
 
@@ -44,21 +44,27 @@ Structure lines (defined in `src/lib/constants.js`):
 1 Nazgul (ltr) [336p]
 1 Sol Ring (c21) [263] *F*
 1 Sword of Dungeons // Dragons (H17) [DDO-20]
-2 Atraxa (C20) 215 *F*    <- bare collector: client-only today, see Known drift
+2 Atraxa (C20) 215 *F*
 
 Sideboard
 2 Fatal Push (2xm) [69]
 ```
 
-## The two regexes
+## The card-line regex
 
-The card-line regex exists in **two normative places**. If you change deck-line
-syntax you must update both, then update the parity tests and this document.
-Never add a third: collection import once carried a hand-rolled copy that
-silently corrupted set-less multi-word names (fixed in v2.40.1 by delegating to
-the shared `parseLine`, with a startup data repair in `server/db.js`).
+The card-line regex has exactly **one normative home**:
+**`CARD_LINE_PATTERN` in `src/lib/constants.js`** (also `LINE_PATTERNS[0]`).
+Every consumer imports it — the client parser, and on the server both
+`parseLine`-based code and `server/lib/enrichDeckText.js` (the Dockerfile ships
+`constants.js` to the image). If you change deck-line syntax, change it there,
+then update the behavior pins in `src/lib/invariants.test.js` and this document.
 
-**Client — `LINE_PATTERNS[0]` in `src/lib/constants.js`** (6 capture groups):
+**Never fork a local copy.** It happened twice and both forks caused real bugs:
+`server/routes/collection.js` corrupted set-less multi-word names (fixed
+v2.40.1, with a startup data repair in `server/db.js`), and
+`server/lib/enrichDeckText.js` drifted on collector-number handling (unified
+v2.40.2). The invariants suite now fails if a card-line-shaped regex literal
+reappears in server code.
 
 ```
 /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/
@@ -69,49 +75,29 @@ the shared `parseLine`, with a startup data repair in `server/db.js`).
 | 1 | quantity |
 | 2 | card name |
 | 3 | set code |
-| 4 | bracketed collector number (also nested — requires a preceding set code) |
+| 4 | bracketed collector number (nested — requires a preceding set code) |
 | 5 | bare collector number (nested inside the set-code group) |
 | 6 | foil marker |
 
-Note: on the client, **both** collector alternatives (groups 4 and 5) live inside
-the set-code group — a collector number can only match after `(SET)`. This is
-exactly why `1 Nazgul [336p]` is a pinned client/server divergence below.
+Consumers that index groups directly (e.g. `enrichDeckText.js`) must use
+`cn = m[4] || m[5]` and `foil = m[6]`.
 
-**Server — `CARD_LINE_RE` in `server/lib/enrichDeckText.js`** (5 capture groups):
-
-```
-/^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\))?(?:\s+\[([\w-]+)\])?(\s+\*F\*)?\s*$/
-```
-
-| Group | Captures |
-| --- | --- |
-| 1 | quantity |
-| 2 | card name |
-| 3 | set code |
-| 4 | bracketed collector number (independent of set code) |
-| 5 | foil marker |
-
-### Why the bare collector number nests inside the set-code group (client)
+### Why both collector alternatives nest inside the set-code group
 
 Without a set code to anchor it, a trailing word like `Mox` or `215` in a card
-name is indistinguishable from a collector number. Nesting the bare-collector
-alternative inside the set-code group means it can only match after `(SET)`,
-preventing the regex from eating the last word of ordinary card names.
+name is indistinguishable from a collector number. Nesting the collector
+alternatives inside the set-code group means they can only match after `(SET)`,
+preventing the regex from eating the last word of ordinary card names. The
+corollary: `1 Nazgul [336p]` (no set code) parses as a card literally named
+`Nazgul [336p]` — set-less brackets are part of the name, everywhere, by design.
 
-### Known drift (pinned, do not extend)
+### Formerly drifted (resolved in v2.40.2)
 
-The two regexes currently **disagree** on two inputs. These divergences are
-pinned in `src/lib/invariants.test.js` so any further drift fails the suite:
-
-| Input | Client | Server |
-| --- | --- | --- |
-| `2 Atraxa (C20) 215 *F*` | name `Atraxa`, set `C20`, cn `215` | name `Atraxa (C20) 215`, no set/cn |
-| `1 Nazgul [336p]` (no set) | name `Nazgul [336p]`, no cn | name `Nazgul`, cn `336p` |
-
-Planned fix: export a single regex from `src/lib/constants.js` and import it in
-`server/lib/enrichDeckText.js` (the Dockerfile already ships `constants.js` to the
-server). When that lands, replace the pinned-divergence tests with plain parity
-assertions.
+For history: before unification the server enrichment fork disagreed on
+`2 Atraxa (C20) 215 *F*` (folded `(C20) 215` into the name) and `1 Nazgul [336p]`
+(extracted a set-less collector number). The unified behavior for both inputs is
+pinned in `src/lib/invariants.test.js` and exercised by enrichment tests in
+`server/lib/enrichDeckText.test.js`.
 
 ## Parser output contract
 

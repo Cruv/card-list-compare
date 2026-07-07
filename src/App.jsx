@@ -24,10 +24,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.40.1';
+const APP_VERSION = '2.40.2';
 const WHATS_NEW = [
-  'Collection import fixed: multi-word card names, 4x quantities, and CSV rows now parse correctly',
-  'Collection entries damaged by the old importer are repaired automatically',
+  'Deck refresh now recognizes Arena-style collector numbers (e.g. "2 Atraxa (C20) 215") when preserving printing data',
 ];
 
 function getResetToken() {

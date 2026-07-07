@@ -7,9 +7,9 @@ import { readFileSync } from 'node:fs';
 
 const TWINS = [
   [/(^|[\\/])src[\\/]lib[\\/]constants\.js$/i,
-   'INVARIANT: LINE_PATTERNS[0] has a near-twin CARD_LINE_RE in server/lib/enrichDeckText.js. If card-line parsing changed, update the twin and docs/DECK_TEXT_FORMAT.md, then run: npx vitest run src/lib/invariants.test.js'],
+   'INVARIANT: CARD_LINE_PATTERN is the single-sourced card-line regex, consumed by parser.js AND server/lib/enrichDeckText.js (which indexes groups directly: cn = m[4]||m[5], foil = m[6]). If the pattern changed, update the behavior pins and docs/DECK_TEXT_FORMAT.md, then run: npx vitest run src/lib/invariants.test.js'],
   [/(^|[\\/])server[\\/]lib[\\/]enrichDeckText\.js$/i,
-   'INVARIANT: CARD_LINE_RE mirrors LINE_PATTERNS[0] in src/lib/constants.js. If card-line parsing changed, update the twin and docs/DECK_TEXT_FORMAT.md, then run: npx vitest run src/lib/invariants.test.js'],
+   'INVARIANT: enrichDeckText consumes the shared CARD_LINE_PATTERN from src/lib/constants.js — never declare a local card-line regex (past forks corrupted data). Group indexing: cn = m[4]||m[5], foil = m[6]. Run: npx vitest run src/lib/invariants.test.js'],
   [/(^|[\\/])src[\\/]lib[\\/]fetcher\.js$/i,
    'INVARIANT: archidektToText() is mirrored in server/lib/deckToText.js — text/commanders output must stay identical. Run: npx vitest run src/lib/invariants.test.js'],
   [/(^|[\\/])server[\\/]lib[\\/]deckToText\.js$/i,

@@ -1,16 +1,23 @@
 // Regex patterns for parsing MTG card list lines
 // Tried in order — first match wins
 
+// "4 Lightning Bolt (M10) [227] *F*" — full metadata with set code, collector number, foil
+// Group 1: quantity, Group 2: card name, Group 3: set code,
+// Group 4: bracketed collector number [227] or [136p] or [DDO-20],
+// Group 5: bare collector number (only after set code) e.g. "227" or "136p",
+// Group 6: foil tag
+// Collector numbers can be alphanumeric with hyphens (e.g. 136p, DDO-20, 2022-3)
+// Bare collector numbers are nested inside the set code group to avoid
+// matching card name words when no set code is present.
+//
+// SINGLE SOURCE OF TRUTH for the card-line format — also consumed by
+// server/lib/enrichDeckText.js. Never fork a local copy (two forks drifted
+// and corrupted data before; see docs/DECK_TEXT_FORMAT.md).
+export const CARD_LINE_PATTERN =
+  /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/;
+
 export const LINE_PATTERNS = [
-  // "4 Lightning Bolt (M10) [227] *F*" — full metadata with set code, collector number, foil
-  // Group 1: quantity, Group 2: card name, Group 3: set code,
-  // Group 4: bracketed collector number [227] or [136p] or [DDO-20],
-  // Group 5: bare collector number (only after set code) e.g. "227" or "136p",
-  // Group 6: foil tag
-  // Collector numbers can be alphanumeric with hyphens (e.g. 136p, DDO-20, 2022-3)
-  // Bare collector numbers are nested inside the set code group to avoid
-  // matching card name words when no set code is present.
-  /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/,
+  CARD_LINE_PATTERN,
 
   // CSV: "4,Lightning Bolt" or "4,"Lightning Bolt""
   /^(\d+)\s*,\s*"?([^"]+)"?\s*$/,

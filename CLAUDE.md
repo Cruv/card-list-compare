@@ -44,9 +44,9 @@ src/components/          UI components; admin/ subdir is the full-page admin pan
 1. **sql.js persistence**: every `run()` helper call rewrites the ENTIRE db file;
    direct `getDb().run()` writes are silently lost; no atomic write. Never
    "optimize" `persist()` without temp+rename. Write via helpers only.
-2. **Card-line regex lives in TWO places** — `LINE_PATTERNS[0]` in
-   `src/lib/constants.js` and `CARD_LINE_RE` in `server/lib/enrichDeckText.js`
-   (they have known pinned divergences). Change both or `npm test` fails.
+2. **Card-line regex is single-sourced** — `CARD_LINE_PATTERN` in
+   `src/lib/constants.js`, consumed by parser.js and server enrichment. Never
+   fork a local copy (two forks drifted and corrupted data; test-guarded).
 3. **Parser contract**: entries have `entry.displayName` — `entry.name` does not
    exist. `parsed.commanders` is a flat string array, not Map entries. Map keys:
    `name.toLowerCase()` or `name.toLowerCase()+'|'+collectorNumber`.
