@@ -54,12 +54,9 @@ Sideboard
 
 The card-line regex exists in **two normative places**. If you change deck-line
 syntax you must update both, then update the parity tests and this document.
-
-(There is also a known stray: `CARD_RE` in `server/routes/collection.js` is a
-third, hand-rolled card-line regex used by collection import. It diverges from
-both regexes below — it mis-parses plain lines like `4 Lightning Bolt` and
-rejects `4x` — and should be replaced with the shared parser rather than
-maintained. Do not copy it.)
+Never add a third: collection import once carried a hand-rolled copy that
+silently corrupted set-less multi-word names (fixed in v2.40.1 by delegating to
+the shared `parseLine`, with a startup data repair in `server/db.js`).
 
 **Client — `LINE_PATTERNS[0]` in `src/lib/constants.js`** (6 capture groups):
 
@@ -162,4 +159,4 @@ Main consumers (non-exhaustive — grep for `src/lib/parser` before assuming):
 | `server/lib/enrichDeckText.js` | Rewrites lines to add printing metadata (carry-forward + Scryfall) |
 | `server/routes/decks.js`, `snapshots.js`, `shared-decks.js` | Parse snapshots via the shared parser |
 | `server/lib/downloadQueue.js`, `priceCalculator.js`, `notificationScheduler.js` | Parse `deck_text` via the shared parser |
-| `server/routes/collection.js` | ⚠ hand-rolled divergent `CARD_RE` — see note above |
+| `server/lib/collectionImport.js` | Collection import via the shared `parseLine` (strict: requires a leading quantity) |

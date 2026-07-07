@@ -467,6 +467,40 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // Data repair: collection imports before v2.40.1 used a buggy regex that
+  // captured the last word of a set-less multi-word card name as the
+  // collector number ("4 Lightning Bolt" → name "Lightning", cn "Bolt").
+  // Real collector numbers always contain a digit, so a digit-free collector
+  // number on a row without a set code is that bug. Glue the word back onto
+  // the name and merge with any existing correct row. Idempotent: repaired
+  // rows no longer match the criterion.
+  const buggedCollectionRows = all(`
+    SELECT id, user_id, card_name, collector_number, quantity, is_foil
+    FROM collection_cards
+    WHERE COALESCE(set_code, '') = ''
+      AND COALESCE(collector_number, '') != ''
+      AND collector_number NOT GLOB '*[0-9]*'
+  `);
+  for (const row of buggedCollectionRows) {
+    const fixedName = `${row.card_name} ${row.collector_number}`;
+    const existing = get(
+      'SELECT id FROM collection_cards WHERE user_id = ? AND card_name = ? AND COALESCE(set_code, "") = "" AND COALESCE(collector_number, "") = "" AND is_foil = ? AND id != ?',
+      [row.user_id, fixedName, row.is_foil, row.id]
+    );
+    // Direct db.run (not the persisting run() helper): initDb persists once at
+    // the end, and per-row whole-file rewrites would be pure write
+    // amplification here. Safe because this repair is idempotent.
+    if (existing) {
+      db.run('UPDATE collection_cards SET quantity = quantity + ? WHERE id = ?', [row.quantity, existing.id]);
+      db.run('DELETE FROM collection_cards WHERE id = ?', [row.id]);
+    } else {
+      db.run('UPDATE collection_cards SET card_name = ?, collector_number = NULL WHERE id = ?', [fixedName, row.id]);
+    }
+  }
+  if (buggedCollectionRows.length > 0) {
+    console.log(`Repaired ${buggedCollectionRows.length} collection rows damaged by the pre-v2.40.1 import parser`);
+  }
+
   persist();
   return db;
 }

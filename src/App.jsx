@@ -24,10 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.40.0';
+const APP_VERSION = '2.40.1';
 const WHATS_NEW = [
-  "Fixed the What's New notification sometimes showing 'undefined'",
-  'Reliability: releases are now blocked unless the full test suite passes',
+  'Collection import fixed: multi-word card names, 4x quantities, and CSV rows now parse correctly',
+  'Collection entries damaged by the old importer are repaired automatically',
 ];
 
 function getResetToken() {

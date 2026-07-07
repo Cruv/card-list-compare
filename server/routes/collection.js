@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { all, get, run } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
+import { parseCollectionImportText } from '../lib/collectionImport.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -56,41 +57,25 @@ router.post('/import', (req, res) => {
     return res.status(400).json({ error: 'text is required' });
   }
 
-  // Simple line-by-line parser matching our deck text format
-  const CARD_RE = /^(\d+)\s+(.+?)(?:\s+\(([a-z0-9]+)\))?(?:\s+\[?([\w-]+)\]?)?(?:\s+\*F\*)?$/i;
-  const FOIL_RE = /\*F\*\s*$/;
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('//'));
+  // Parsing delegates to the shared deck-text parser (see
+  // server/lib/collectionImport.js and docs/DECK_TEXT_FORMAT.md).
+  const { cards, skipped } = parseCollectionImportText(text);
 
   let imported = 0;
-  let skipped = 0;
 
-  for (const line of lines) {
-    // Skip section headers
-    if (/^(sideboard|commander|mainboard|maybeboard|companion)/i.test(line)) continue;
-
-    const match = line.match(CARD_RE);
-    if (!match) { skipped++; continue; }
-
-    const qty = parseInt(match[1], 10);
-    const cardName = match[2].trim();
-    const setCode = match[3] || null;
-    const collectorNumber = match[4] || null;
-    const isFoil = FOIL_RE.test(line) ? 1 : 0;
-
-    if (!cardName || qty < 1) { skipped++; continue; }
-
+  for (const card of cards) {
     // Upsert
     const existing = get(
       'SELECT id, quantity FROM collection_cards WHERE user_id = ? AND card_name = ? AND COALESCE(set_code, "") = ? AND COALESCE(collector_number, "") = ? AND is_foil = ?',
-      [req.user.userId, cardName, setCode || '', collectorNumber || '', isFoil]
+      [req.user.userId, card.cardName, card.setCode || '', card.collectorNumber || '', card.isFoil]
     );
 
     if (existing) {
-      run('UPDATE collection_cards SET quantity = quantity + ? WHERE id = ?', [qty, existing.id]);
+      run('UPDATE collection_cards SET quantity = quantity + ? WHERE id = ?', [card.quantity, existing.id]);
     } else {
       run(
         'INSERT INTO collection_cards (user_id, card_name, set_code, collector_number, quantity, is_foil) VALUES (?, ?, ?, ?, ?, ?)',
-        [req.user.userId, cardName, setCode, collectorNumber, qty, isFoil]
+        [req.user.userId, card.cardName, card.setCode, card.collectorNumber, card.quantity, card.isFoil]
       );
     }
     imported++;

@@ -17,7 +17,7 @@ function normalizeName(name) {
 // Matches an inline "(Commander)" tag at the end of a card line (e.g. Deckcheck export)
 const INLINE_COMMANDER_RE = /\s*\(Commander\)\s*$/i;
 
-function parseLine(line) {
+export function parseLine(line) {
   if (COMMENT_LINE.test(line)) return null;
 
   // Check for SB: prefix — return with sideboard flag
