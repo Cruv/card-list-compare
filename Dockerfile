@@ -18,6 +18,9 @@ FROM node:22-alpine
 LABEL org.opencontainers.image.source="https://github.com/Cruv/card-list-compare"
 LABEL org.opencontainers.image.description="Card List Compare - Compare two MTG deck lists and generate In/Out summaries"
 
+# Mark the shipped image as production so the JWT-secret guard is live (audit C1/C2)
+ENV NODE_ENV=production
+
 RUN apk add --no-cache nginx curl
 
 WORKDIR /app

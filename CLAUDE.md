@@ -42,8 +42,9 @@ src/components/          UI components; admin/ subdir is the full-page admin pan
 ## Invariants (top 5 — full catalog: [docs/INVARIANTS.md](docs/INVARIANTS.md))
 
 1. **sql.js persistence**: every `run()` helper call rewrites the ENTIRE db file;
-   direct `getDb().run()` writes are silently lost; no atomic write. Never
-   "optimize" `persist()` without temp+rename. Write via helpers only.
+   direct `getDb().run()` writes are silently lost. `persist()` is atomic
+   (temp+fsync+rename) with `.bak` recovery (v2.40.3) — keep it that way. Write
+   via helpers only.
 2. **Card-line regex is single-sourced** — `CARD_LINE_PATTERN` in
    `src/lib/constants.js`, consumed by parser.js and server enrichment. Never
    fork a local copy (two forks drifted and corrupted data; test-guarded).

@@ -18,6 +18,15 @@ data/downloads/
 dist-ssr
 *.local
 
+# Secrets / local env (JWT_SECRET, SMTP_PASS, …) — never commit
+.env
+.env.*
+!.env.example
+
+# Security audit docs — kept local; this repo is public and the audits contain
+# exploit detail. Move to a private repo if you want them tracked (WarSlate-style).
+docs/audit-*.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

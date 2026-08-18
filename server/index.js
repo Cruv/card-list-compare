@@ -1,7 +1,8 @@
 import express from 'express';
 import compression from 'compression';
 import helmet from 'helmet';
-import { initDb } from './db.js';
+import { initDb, persist, backupDb } from './db.js';
+import { getJwtSecret } from './lib/jwtSecret.js';
 import { apiLimiter } from './middleware/rateLimit.js';
 import { MAX_BODY_SIZE, requireJsonContentType, trimBody } from './middleware/validate.js';
 import authRoutes from './routes/auth.js';
@@ -20,14 +21,13 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const startTime = Date.now();
 
-// Block startup if JWT secret is missing or a known default in production
-const KNOWN_WEAK_SECRETS = ['dev-secret-do-not-use-in-production', 'secret', 'changeme', 'password', 'jwt_secret'];
-if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || KNOWN_WEAK_SECRETS.includes(process.env.JWT_SECRET))) {
-  console.error('FATAL: JWT_SECRET must be set to a strong, unique value in production. Exiting.');
+// Resolve the JWT secret eagerly so a missing/weak secret is fatal at boot
+// (in production) rather than silently signing forgeable tokens per-request.
+try {
+  getJwtSecret();
+} catch (err) {
+  console.error('FATAL:', err.message);
   process.exit(1);
-}
-if (!process.env.JWT_SECRET) {
-  console.warn('WARNING: JWT_SECRET not set. Using insecure dev fallback. Set JWT_SECRET in production!');
 }
 
 // Trust first proxy (nginx/reverse proxy) for correct IP in rate limiting
@@ -91,3 +91,23 @@ start().catch(err => {
   console.error('Failed to start server:', err);
   process.exit(1);
 });
+
+// Graceful shutdown: flush the in-memory DB and snapshot a backup before exit.
+// (Data safety does not depend on this firing — persist() is atomic per write —
+// but a clean stop refreshes the .bak. Effective once the container forwards
+// signals to node; the entrypoint still needs a signal-forwarding init.)
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`Received ${signal}, flushing database before exit...`);
+  try {
+    persist();
+    backupDb();
+  } catch (err) {
+    console.error('Error during shutdown flush:', err.message);
+  }
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

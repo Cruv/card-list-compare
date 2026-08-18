@@ -7,7 +7,10 @@ services:
     ports:
       - "8080:80"
     environment:
-      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      # No default: compose refuses to start if JWT_SECRET is unset, rather than
+      # falling back to a public placeholder. Put it in a local .env (see
+      # .env.example): JWT_SECRET=$(openssl rand -hex 32)
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set — generate one with: openssl rand -hex 32}
       - DB_PATH=/app/data/cardlistcompare.db
       - TZ=America/New_York
     volumes:
@@ -15,3 +18,5 @@ services:
       # Easy to back up, inspect, and persist across image rebuilds
       - ./data:/app/data
     restart: unless-stopped
+    # Give node time to flush on `docker stop` before SIGKILL (audit C3 / Batch 4)
+    stop_grace_period: 30s

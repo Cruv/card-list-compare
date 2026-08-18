@@ -1,7 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { get } from '../db.js';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-do-not-use-in-production';
+import { getJwtSecret } from '../lib/jwtSecret.js';
 
 // Short-TTL cache to avoid redundant DB queries on multi-request page loads.
 // A single page load can trigger 5-10 authenticated API calls within milliseconds —
@@ -28,7 +27,7 @@ export function invalidateAllAuthCache() {
 export function createToken(user) {
   return jwt.sign(
     { userId: user.id, username: user.username, isAdmin: !!user.is_admin },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: '7d' }
   );
 }
@@ -41,7 +40,7 @@ export function requireAuth(req, res, next) {
 
   const token = header.slice(7);
   try {
-    const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    const payload = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
     req.user = { userId: payload.userId, username: payload.username, isAdmin: !!payload.isAdmin };
 
     // Check if user account still exists, is not suspended, and session is still valid

@@ -24,9 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.40.2';
+const APP_VERSION = '2.40.3';
 const WHATS_NEW = [
-  'Deck refresh now recognizes Arena-style collector numbers (e.g. "2 Atraxa (C20) 215") when preserving printing data',
+  'Security & reliability hardening: the server now refuses to run with a weak login secret',
+  'Your database is now written crash-safely with an automatic backup — no data loss on restart',
 ];
 
 function getResetToken() {

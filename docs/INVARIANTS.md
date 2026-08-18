@@ -19,19 +19,26 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
 
 - The `run()` helper in `server/db.js` calls `persist()` after **every** write
   statement. `persist()` (`export function persist`) serializes the **entire
-  database** with `db.export()` and `writeFileSync`s it to `DB_PATH`.
-- There is **no temp-file + rename**: a crash mid-write can corrupt the DB file.
-  Copying the file while the server is running risks catching a partial write —
-  back up by stopping the container or copy-then-verify.
+  database** with `db.export()`.
+- **The write is atomic** (added v2.40.3): `persist()` writes to
+  `DB_PATH.tmp`, `fsync`s it, then `rename`s over `DB_PATH`. `rename(2)` is
+  atomic, so a crash mid-write (SIGKILL, OOM, power loss) leaves the live file
+  fully old or fully new — never truncated. **Do not revert to a direct
+  `writeFileSync(DB_PATH, …)`.** `initDb()` loads via `loadDatabase()`, which
+  falls back to `DB_PATH.bak` then `DB_PATH.tmp` if the live file is missing or
+  malformed, and **refuses to start** (rather than overwriting) if a corrupt
+  file exists with no usable backup. `backupDb()` refreshes `.bak` at boot and
+  on graceful shutdown.
 - Writes made directly via `getDb().run(...)` **bypass persistence entirely**
   and are silently lost on restart unless some later helper call persists them.
   Always write through the `run()` helper (`export function run`).
 - There are no cross-statement transactions. A loop of N `run()` calls does N
   full-file rewrites — that's a known cost, accepted for simplicity.
 
-**Do not "optimize" `persist()`** (debounce, batch, async) without adding an
-atomic write (write temp, fsync, rename) first. A perf pass here is one bug away
-from losing user data.
+**Do not "optimize" `persist()`** (debounce, batch, async) without preserving
+the temp+fsync+rename atomicity and the `loadDatabase()` recovery path. Behavior
+pinned by `server/db.persist.test.js`. A perf pass here is one bug away from
+losing user data.
 
 ## 2. Card-line regex is single-sourced — never fork it
 

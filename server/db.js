@@ -1,24 +1,65 @@
 import initSqlJs from 'sql.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  openSync,
+  fsyncSync,
+  closeSync,
+  renameSync,
+  copyFileSync,
+  unlinkSync,
+} from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || join(__dirname, 'data', 'cardlistcompare.db');
+const TMP_PATH = `${DB_PATH}.tmp`;
+const BAK_PATH = `${DB_PATH}.bak`;
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 
 let db;
 
+/**
+ * Load the database, trying the live file first and falling back to the backup
+ * or a leftover temp file if the live file is missing or malformed. Returns a
+ * fresh empty database only when nothing loadable exists. This is the recovery
+ * half of the atomic-write scheme in persist(): a torn/absent file never wipes
+ * the instance as long as one good copy survives.
+ */
+function loadDatabase(SQL) {
+  for (const path of [DB_PATH, BAK_PATH, TMP_PATH]) {
+    if (!existsSync(path)) continue;
+    try {
+      const database = new SQL.Database(readFileSync(path));
+      // Touch the schema so a header-valid-but-corrupt file is rejected here.
+      database.run('PRAGMA schema_version');
+      if (path !== DB_PATH) {
+        console.warn(`Recovered database from ${path} (live file was missing or unreadable)`);
+      }
+      return database;
+    } catch (err) {
+      console.error(`Could not load database from ${path}: ${err.message}`);
+    }
+  }
+  if (existsSync(DB_PATH)) {
+    // A file exists but nothing loadable did — do NOT overwrite it with an empty
+    // DB on the next persist(); surface it so an operator can recover manually.
+    throw new Error(
+      `Database file ${DB_PATH} exists but could not be loaded, and no usable backup was found. ` +
+        'Refusing to start to avoid overwriting it. Inspect the file / restore a backup.'
+    );
+  }
+  return new SQL.Database();
+}
+
 export async function initDb() {
   const SQL = await initSqlJs();
 
-  if (existsSync(DB_PATH)) {
-    const buffer = readFileSync(DB_PATH);
-    db = new SQL.Database(buffer);
-  } else {
-    db = new SQL.Database();
-  }
+  db = loadDatabase(SQL);
 
   db.run('PRAGMA foreign_keys = ON');
 
@@ -502,13 +543,49 @@ export async function initDb() {
   }
 
   persist();
+  // Snapshot a known-good backup once at boot, from the state we just loaded and
+  // migrated. Cheap (one copy per start) and guarantees a recent .bak exists.
+  backupDb();
   return db;
 }
 
+/**
+ * Durably write the whole database. sql.js has no incremental write, so every
+ * call serializes the full file — but it does so atomically: write to a temp
+ * file, fsync it, then rename over the live path. rename(2) is atomic on a POSIX
+ * filesystem, so a crash (SIGKILL, OOM, power loss) at any instant leaves the
+ * live file either fully old or fully new — never truncated. See audit C3.
+ */
 export function persist() {
   if (!db) return;
-  const data = db.export();
-  writeFileSync(DB_PATH, Buffer.from(data));
+  const data = Buffer.from(db.export());
+  const fd = openSync(TMP_PATH, 'w');
+  try {
+    writeFileSync(fd, data);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(TMP_PATH, DB_PATH);
+}
+
+/**
+ * Copy the live file to the backup path. Best-effort — a failed backup must
+ * never take down a running server. Called at boot and on graceful shutdown.
+ */
+export function backupDb() {
+  if (!existsSync(DB_PATH)) return;
+  try {
+    copyFileSync(DB_PATH, `${BAK_PATH}.tmp`);
+    renameSync(`${BAK_PATH}.tmp`, BAK_PATH);
+  } catch (err) {
+    console.error('Backup failed (non-fatal):', err.message);
+    try {
+      if (existsSync(`${BAK_PATH}.tmp`)) unlinkSync(`${BAK_PATH}.tmp`);
+    } catch {
+      // ignore cleanup failure
+    }
+  }
 }
 
 // Helper to run a query and return all rows as objects
