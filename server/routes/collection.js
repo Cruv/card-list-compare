@@ -93,15 +93,15 @@ router.patch('/:id', (req, res) => {
   if (!card) return res.status(404).json({ error: 'Card not found' });
 
   const { quantity } = req.body;
-  if (quantity === undefined || typeof quantity !== 'number' || quantity < 0) {
-    return res.status(400).json({ error: 'quantity must be a non-negative number' });
+  // Require quantity >= 1. A quantity edit must never be a destructive delete —
+  // removal has its own DELETE endpoint. Previously quantity 0 deleted the row,
+  // so a cleared input field (0 per keystroke) silently erased the card (audit H2).
+  if (quantity === undefined || typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1) {
+    return res.status(400).json({ error: 'quantity must be an integer >= 1 (use DELETE to remove a card)' });
   }
+  const qty = Math.min(999, quantity);
 
-  if (quantity === 0) {
-    run('DELETE FROM collection_cards WHERE id = ?', [id]);
-  } else {
-    run('UPDATE collection_cards SET quantity = ? WHERE id = ?', [quantity, id]);
-  }
+  run('UPDATE collection_cards SET quantity = ? WHERE id = ?', [qty, id]);
 
   res.json({ success: true });
 });

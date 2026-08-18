@@ -167,7 +167,9 @@ router.patch('/:deckId/snapshots/:snapshotId/lock', (req, res) => {
 
   // Check lock limit
   const lockSetting = get("SELECT value FROM server_settings WHERE key = 'max_locked_per_deck'");
-  const maxLocked = parseInt(lockSetting?.value, 10) || 5;
+  // NaN-guard, NOT `|| 5`: a stored '0' means unlimited locks (audit H8).
+  const maxLockedParsed = parseInt(lockSetting?.value, 10);
+  const maxLocked = Number.isNaN(maxLockedParsed) ? 5 : maxLockedParsed;
   if (maxLocked > 0) {
     const lockedCount = get(
       'SELECT COUNT(*) as count FROM deck_snapshots WHERE tracked_deck_id = ? AND locked = 1',

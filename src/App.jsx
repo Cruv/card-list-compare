@@ -24,10 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.40.3';
+const APP_VERSION = '2.40.4';
 const WHATS_NEW = [
-  'Security & reliability hardening: the server now refuses to run with a weak login secret',
-  'Your database is now written crash-safely with an automatic backup — no data loss on restart',
+  'Collection quantities now save when you finish editing — no more accidental deletions from a cleared field',
+  'Snapshot retention set to "0" now correctly means keep everything (it was capping at 25)',
 ];
 
 function getResetToken() {

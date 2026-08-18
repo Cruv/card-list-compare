@@ -12,6 +12,7 @@ import {
 } from '../lib/api';
 import DeckGridCard from './DeckGridCard';
 import Skeleton from './Skeleton';
+import { parseQtyEdit } from '../lib/collectionQty';
 import './UserSettings.css';
 import './DeckLibrary.css';
 
@@ -591,6 +592,39 @@ function DeckTrackerSettings({ confirm }) {
 
 // --- Collection Manager ---
 
+// Quantity field that commits only on blur/Enter. Keystrokes update local state
+// only; an empty or zero value reverts instead of deleting the card (audit H2).
+function QtyCell({ quantity, onCommit }) {
+  const [value, setValue] = useState(String(quantity));
+
+  // Keep the field in sync when the underlying quantity changes (e.g. refresh).
+  useEffect(() => { setValue(String(quantity)); }, [quantity]);
+
+  function commit() {
+    const next = parseQtyEdit(value, quantity);
+    if (next === null) {
+      setValue(String(quantity)); // ignore empty/invalid/unchanged → revert
+    } else {
+      onCommit(next);
+    }
+  }
+
+  return (
+    <input
+      type="number"
+      className="settings-collection-qty"
+      value={value}
+      min={1}
+      onChange={e => setValue(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+        else if (e.key === 'Escape') { setValue(String(quantity)); e.currentTarget.blur(); }
+      }}
+    />
+  );
+}
+
 function CollectionManager({ confirm }) {
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -728,12 +762,9 @@ function CollectionManager({ confirm }) {
                     {filteredCards.map(card => (
                       <tr key={card.id}>
                         <td>
-                          <input
-                            type="number"
-                            className="settings-collection-qty"
-                            value={card.quantity}
-                            min={0}
-                            onChange={e => handleUpdateQty(card.id, parseInt(e.target.value, 10) || 0)}
+                          <QtyCell
+                            quantity={card.quantity}
+                            onCommit={qty => handleUpdateQty(card.id, qty)}
                           />
                         </td>
                         <td>
