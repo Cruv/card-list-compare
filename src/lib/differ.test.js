@@ -538,4 +538,26 @@ Sideboard
     const diff = computeDiff(a, b);
     expect(diff.mainboard.printingChanges).toEqual([]);
   });
+
+  // ── Mixed bare + composite keys on one side (audit H5) ─────────────
+
+  it('does not fabricate in/out rows when a side mixes bare and composite keys', () => {
+    // before: 2 bare + 1 printing-tagged = 3 total; after: 3 bare = 3 total → no change
+    const a = deck('2 Nazgul\n1 Nazgul (ltr) [100]');
+    const b = deck('3 Nazgul');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toEqual([]);
+  });
+
+  it('reports only the true net change across mixed bare/composite keys', () => {
+    const a = deck('3 Nazgul');
+    const b = deck('2 Nazgul\n2 Nazgul (ltr) [100]'); // 4 total
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+    expect(diff.mainboard.quantityChanges).toHaveLength(1);
+    expect(diff.mainboard.quantityChanges[0]).toMatchObject({ oldQty: 3, newQty: 4 });
+  });
 });

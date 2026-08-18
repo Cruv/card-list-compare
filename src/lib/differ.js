@@ -32,6 +32,27 @@ function collapseCompositeKeys(map, compositeKeys, bare) {
 }
 
 /**
+ * If a name appears as BOTH a bare key and composite key(s) in the same map
+ * (e.g. "2 Nazgul" plus "1 Nazgul (ltr) [100]"), merge the composites into the
+ * bare key, summing quantity. Otherwise the key-by-key diff compares the split
+ * representations and invents phantom in/out rows for cards that never moved
+ * (audit H5). Runs after DFC normalization so front-face renames are in place.
+ */
+function mergeMixedKeys(map) {
+  const index = buildNameIndex(map);
+  for (const [bare, compositeKeys] of index) {
+    if (!map.has(bare)) continue; // only the mixed case — bare AND composite both present
+    const bareEntry = map.get(bare);
+    let totalQty = bareEntry.quantity;
+    for (const ck of compositeKeys) {
+      totalQty += map.get(ck).quantity;
+      map.delete(ck);
+    }
+    map.set(bare, { ...bareEntry, quantity: totalQty });
+  }
+}
+
+/**
  * Extract front face from a double-faced card name.
  * "sheoldred // the true scriptures" → "sheoldred"
  */
@@ -88,6 +109,11 @@ function diffSection(beforeMap, afterMap) {
   // This must run before composite key remapping so the name indexes are correct.
   normalizeDFCKeys(before, after);
   normalizeDFCKeys(after, before);
+
+  // Collapse any name that appears as both bare and composite within a side, so
+  // the comparison below sees one entry per name and does not fabricate diffs (H5).
+  mergeMixedKeys(before);
+  mergeMixedKeys(after);
 
   const afterIndex = buildNameIndex(after);
   const beforeIndex = buildNameIndex(before);

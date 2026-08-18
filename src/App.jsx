@@ -24,10 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.40.4';
+const APP_VERSION = '2.40.5';
 const WHATS_NEW = [
-  'Collection quantities now save when you finish editing — no more accidental deletions from a cleared field',
-  'Snapshot retention set to "0" now correctly means keep everything (it was capping at 25)',
+  'Double-faced, split, and accented card names now show correct images, types, and prices',
+  'Comparisons no longer invent phantom add/remove rows when a card is listed under mixed printings, and CSV names with commas import correctly',
 ];
 
 function getResetToken() {

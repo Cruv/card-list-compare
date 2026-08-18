@@ -176,6 +176,26 @@ Fatal Push,2,sb`;
     expect(main['lightning bolt'].quantity).toBe(4);
   });
 
+  it('parses quoted CSV names that contain commas without corruption (H4)', () => {
+    const csv = `quantity,name
+1,"Atraxa, Praetors' Voice"
+4,Lightning Bolt`;
+    const result = parse(csv);
+    const main = mapToObj(result.mainboard);
+    expect(main["atraxa, praetors' voice"]).toBeTruthy();
+    expect(main["atraxa, praetors' voice"].quantity).toBe(1);
+    expect(main['lightning bolt'].quantity).toBe(4);
+  });
+
+  it('handles escaped double-quotes inside a quoted CSV field (H4)', () => {
+    const csv = `quantity,name
+2,"Borrowing 100,000 Arrows"`;
+    const result = parse(csv);
+    const main = mapToObj(result.mainboard);
+    expect(main['borrowing 100,000 arrows']).toBeTruthy();
+    expect(main['borrowing 100,000 arrows'].quantity).toBe(2);
+  });
+
   it('aggregates duplicate card names in CSV', () => {
     const csv = `name,quantity
 Lightning Bolt,2

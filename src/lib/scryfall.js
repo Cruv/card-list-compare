@@ -210,6 +210,14 @@ async function fetchBatch(batchEntries) {
       // Always emit under the bare name key (for type grouping, mana cost)
       const nameKey = card.name.toLowerCase();
       results.push({ key: nameKey, ...cardData });
+
+      // For a double-faced card, Scryfall echoes the full "front // back" name,
+      // but callers query and key by the front face. Emit under the front face
+      // too, or front-face-only requests never match their result (audit H6).
+      const frontKey = dfcFrontFace(nameKey);
+      if (frontKey !== nameKey) {
+        results.push({ key: frontKey, ...cardData });
+      }
     }
 
     // Mark not-found cards

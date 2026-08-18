@@ -72,9 +72,38 @@ function isCSV(text) {
   );
 }
 
+// Quote-aware CSV field splitter: a comma inside "..." is part of the field, and
+// "" is an escaped quote. Plain `split(',')` corrupted every quoted card name
+// with a comma (e.g. "Atraxa, Praetors' Voice") — audit H4.
+function splitCsvLine(line) {
+  const fields = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') { cur += '"'; i++; } // escaped quote
+        else inQuotes = false;
+      } else {
+        cur += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      fields.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  fields.push(cur);
+  return fields.map((f) => f.trim());
+}
+
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
-  const header = lines[0].toLowerCase().split(',').map((h) => h.trim().replace(/"/g, ''));
+  const header = splitCsvLine(lines[0].toLowerCase());
 
   const nameIdx = header.findIndex(
     (h) => h === 'name' || h === 'card' || h === 'card name' || h === 'cardname'
@@ -92,7 +121,7 @@ function parseCSV(text) {
   const sideboard = new Map();
 
   for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',').map((c) => c.trim().replace(/"/g, ''));
+    const cols = splitCsvLine(lines[i]);
     const name = normalizeName(cols[nameIdx] || '');
     const quantity = qtyIdx !== -1 ? parseInt(cols[qtyIdx], 10) || 1 : 1;
 
