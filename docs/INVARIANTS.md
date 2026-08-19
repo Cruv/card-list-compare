@@ -159,8 +159,8 @@ In `server/index.js`, order is load-bearing:
 ## 12. UI stacking order (z-index ladder)
 
 `CardOverlay` (fullscreen card image) 1000 > `WhatsNewModal` 300 > main overlays
-(Timeline/Comparison/Mpc/PriceHistory/Recommendations) and Toast 200 >
-`ConfirmModal` 150 > card tooltip / `NameModal` 100. New overlays slot in at 200;
+(Timeline/Mpc/PriceHistory/Recommendations) and Toast 200 >
+`ConfirmModal` 150 > card tooltip 100. New overlays slot in at 200;
 only the tap-to-view card image may sit above everything (exception: the
 accessibility skip-link `.sr-only-focusable:focus` sits at 9999 by design).
 
