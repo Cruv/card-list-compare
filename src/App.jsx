@@ -24,10 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.41.0';
+const APP_VERSION = '2.41.1';
 const WHATS_NEW = [
-  'Your Collection is now put to work: a tracked deck’s Full Deck tab shows which cards you own, partially own, or are still missing',
-  'Owned-card matching handles multiple printings, foils, and double-faced or accented names',
+  '“Copy for TTS” on the deck page works again (it was throwing an error)',
+  'Deck price totals now count every printing of a card, not just the first',
 ];
 
 function getResetToken() {

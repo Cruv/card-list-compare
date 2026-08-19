@@ -486,6 +486,11 @@ export function formatArchidektCSV(text, commanders = []) {
 export function formatTTS(text, cardMap, commanders = []) {
   if (!text || !text.trim()) return '';
 
+  // Tolerate a missing or wrong-typed cardMap (must be a Map with .get) so a
+  // bad call site degrades to no images instead of throwing (audit: TTS crash).
+  const cards = cardMap && typeof cardMap.get === 'function' ? cardMap : null;
+  const commanderList = Array.isArray(commanders) ? commanders : [];
+
   const parsed = parse(text);
   const deckCards = [];
   const cardBack = 'https://backs.scryfall.io/large/59/43/5946ea0e-0ade-4dab-8e25-6e51e0a6f0f3.jpg';
@@ -496,7 +501,7 @@ export function formatTTS(text, cardMap, commanders = []) {
     for (const [, entry] of map) {
       const nameLower = entry.displayName.toLowerCase();
       const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
-      const data = (compositeKey && cardMap?.get(compositeKey)) || cardMap?.get(nameLower);
+      const data = (compositeKey && cards?.get(compositeKey)) || cards?.get(nameLower);
       const faceUrl = data?.imageUri || '';
 
       for (let i = 0; i < entry.quantity; i++) {
@@ -512,7 +517,7 @@ export function formatTTS(text, cardMap, commanders = []) {
 
   // Commanders first, then mainboard, then sideboard
   const commanderSet = new Set([
-    ...commanders.map(c => c.toLowerCase()),
+    ...commanderList.map(c => c.toLowerCase()),
     ...parsed.commanders.map(c => c.toLowerCase()),
   ]);
 

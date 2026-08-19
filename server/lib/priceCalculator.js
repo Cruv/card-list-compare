@@ -27,14 +27,18 @@ export async function computeDeckPrices(deckId, deckText) {
     fetchSpecificPrintingPrices(cardEntries),
   ]);
 
-  const cards = [];
   let totalPrice = 0;
   let budgetPrice = 0;
   const seen = new Set();
+  // Aggregate the display list by name (a card under multiple printings is one
+  // row), but every printing's quantity contributes to the totals — the old
+  // `seen`-skip dropped all but the first printing, underpricing the deck.
+  const cardsByName = new Map();
 
   for (const [, entry] of parsed.mainboard) {
     const key = entry.displayName.toLowerCase();
-    if (seen.has(key)) continue;
+    // Mark priced so the commander loop below doesn't re-price a commander that
+    // also lives in the mainboard — but do NOT skip other printings of the name.
     seen.add(key);
     const defaultData = defaultPrices.get(key);
     const specificData = specificPrices.get(key);
@@ -55,16 +59,24 @@ export async function computeDeckPrices(deckId, deckText) {
     totalPrice += lineTotal;
     budgetPrice += cheapestTotal;
     if (price > 0 || cheapestPrice > 0) {
-      cards.push({
-        name: entry.displayName,
-        quantity: entry.quantity,
-        price,
-        cheapestPrice,
-        total: lineTotal,
-        cheapestTotal,
-      });
+      const existing = cardsByName.get(key);
+      if (existing) {
+        existing.quantity += entry.quantity;
+        existing.total += lineTotal;
+        existing.cheapestTotal += cheapestTotal;
+      } else {
+        cardsByName.set(key, {
+          name: entry.displayName,
+          quantity: entry.quantity,
+          price,
+          cheapestPrice,
+          total: lineTotal,
+          cheapestTotal,
+        });
+      }
     }
   }
+  const cards = [...cardsByName.values()];
   for (const name of parsed.commanders) {
     const key = name.toLowerCase();
     if (seen.has(key)) continue;

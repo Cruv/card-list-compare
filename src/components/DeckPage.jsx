@@ -1192,7 +1192,7 @@ export default function DeckPage({ deckId }) {
                         className="copy-btn copy-btn--archidekt"
                       />
                       <CopyButton getText={() => deckText} label="Copy Deck Text" />
-                      <CopyButton getText={() => formatTTS(deckText, commanders)} label="Copy for TTS" className="copy-btn copy-btn--tts" />
+                      <CopyButton getText={() => formatTTS(deckText, deckCardMap, commanders)} label="Copy for TTS" className="copy-btn copy-btn--tts" />
                     </>
                   )}
                   <button className="btn btn-secondary btn-sm" onClick={handlePrintProxies} type="button">

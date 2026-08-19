@@ -528,6 +528,13 @@ describe('formatTTS', () => {
     expect(formatTTS('  ', new Map())).toBe('');
   });
 
+  it('does not throw when the cardMap argument is a non-Map (audit: TTS crash)', () => {
+    // A bad call site once passed the commanders array where cardMap belongs.
+    expect(() => formatTTS('1 Sol Ring', ['Atraxa'])).not.toThrow();
+    const json = formatTTS('1 Sol Ring', ['Atraxa']);
+    expect(JSON.parse(json).ObjectStates).toHaveLength(1);
+  });
+
   it('generates valid TTS JSON with card entries', () => {
     const text = '1 Lightning Bolt\n2 Sol Ring';
     const cardMap = new Map([
