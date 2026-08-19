@@ -102,8 +102,23 @@ recommendations, faq) — or state "Guide: no impact" in the commit body.
 | --- | --- |
 | Card-line syntax / parser output shape | docs/DECK_TEXT_FORMAT.md + invariants tests |
 | Anything in the invariants catalog | docs/INVARIANTS.md + its anchor table in invariants.test.js |
+| Auth / security behavior | SECURITY.md |
+| A settled approach (or you're diverging from one) | docs/DECISIONS.md (amend the D-entry) |
 | Commands, protocols, module map | this file (respect the 150-line cap) |
 | User-facing behavior | GuidePage.jsx section |
 
-Private context (roadmap, integration plans) lives in the untracked
-CLAUDE.local.md — this file must stand alone without it.
+## Where else things live
+
+`docs/DECISIONS.md` (why, D-numbered) · `docs/OPERATIONS.md` (DB recovery, external-API
+drift, deploy) · `docs/ROADMAP.md` (the committed backlog) · `SECURITY.md` (deploy + auth
+model). Check DECISIONS.md before changing an approach; amend it in the same commit.
+
+## Concurrent sessions (the owner may run parallel Claude sessions here)
+
+Version any user-visible ship from `APP_VERSION` at HEAD, never from memory. Re-run
+`git status` + `git log --oneline -3` immediately before every commit; stage explicit paths
+(no blind `git add -A`) — unexpected dirty files may be another session's WIP: inspect, don't
+debug ghosts. The SessionStart hook prints version / HEAD / dirty count at boot.
+
+Sensitive-only plans may live in the untracked CLAUDE.local.md; the committed docs above are
+the default and this file must stand alone without CLAUDE.local.md.
