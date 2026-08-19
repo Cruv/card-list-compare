@@ -429,6 +429,20 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // Migration: dedicated price-alert baselines (audit). Separate from
+  // last_known_price, which is reset by every price view; these only advance when
+  // an alert fires, so gradual changes can accumulate to the threshold.
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN price_alert_baseline REAL');
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN price_alert_baseline_budget REAL');
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Migration: add price columns to deck_snapshots for price history tracking
   try {
     db.run('ALTER TABLE deck_snapshots ADD COLUMN snapshot_price REAL');

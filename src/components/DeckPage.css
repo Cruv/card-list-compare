@@ -593,6 +593,17 @@
   color: var(--text-secondary);
 }
 
+.deck-page-settings-warning {
+  font-size: var(--fs-sm);
+  color: var(--accent-yellow, #d9a441);
+  background: color-mix(in srgb, var(--accent-yellow, #d9a441) 12%, transparent);
+  border-radius: var(--radius, 6px);
+  padding: var(--space-sm, 8px) var(--space-md, 12px);
+  margin: 0 0 var(--space-sm, 8px);
+  line-height: 1.4;
+}
+.deck-page-settings-warning a { color: inherit; text-decoration: underline; }
+
 .deck-page-settings-label-sm {
   font-size: var(--fs-xs);
   color: var(--text-secondary);

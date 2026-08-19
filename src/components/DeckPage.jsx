@@ -1303,6 +1303,12 @@ export default function DeckPage({ deckId }) {
             {/* Notifications */}
             <div className="deck-page-settings-section">
               <h3>Notifications</h3>
+              {user && !user.emailVerified && (
+                <p className="deck-page-settings-warning">
+                  ⚠ Email alerts (deck change &amp; price) require a verified email.
+                  {' '}Verify yours in <a href="#settings">Account Settings</a> — Discord webhooks work regardless.
+                </p>
+              )}
               <div className="deck-page-settings-row">
                 <span className="deck-page-settings-label">Email on deck change:</span>
                 <button

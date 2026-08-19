@@ -24,10 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.41.1';
+const APP_VERSION = '2.41.2';
 const WHATS_NEW = [
-  '“Copy for TTS” on the deck page works again (it was throwing an error)',
-  'Deck price totals now count every printing of a card, not just the first',
+  'Price alerts now fire reliably — the comparison baseline no longer resets when you view prices, so gradual changes actually trigger',
+  'Deck settings now tell you when your email isn’t verified (email alerts need it; Discord webhooks don’t)',
 ];
 
 function getResetToken() {

@@ -14,6 +14,20 @@ let isRunning = false; // Overlap protection — prevents concurrent scheduler r
 const MAX_CARDS_PER_SECTION = 8;
 const MAX_EMAILS_PER_HOUR = 10; // per user
 const MAX_CONCURRENT_FETCHES = 3; // Archidekt API concurrency limit
+const STARTUP_RUN_DELAY_MS = 60 * 1000; // let the server settle before the first cycle
+
+/**
+ * Decide whether a price change fires an alert, against a persisted alert
+ * baseline that only advances when an alert fires (never on a plain price view).
+ * A null baseline just establishes one — no alert on first observation.
+ * Returns { fire, newBaseline }. Pure, so it is unit-tested (audit: price-alert
+ * baseline reset).
+ */
+export function evaluatePriceAlert(baseline, current, threshold) {
+  if (baseline == null) return { fire: false, newBaseline: current };
+  if (Math.abs(current - baseline) >= threshold) return { fire: true, newBaseline: current };
+  return { fire: false, newBaseline: baseline };
+}
 
 /** Escape HTML special characters to prevent injection in email templates. */
 function escapeHtml(str) {
@@ -64,12 +78,14 @@ function truncateList(items, max = MAX_CARDS_PER_SECTION) {
  * Check if a user has exceeded the email rate limit.
  * Returns true if under the limit (OK to send), false if rate-limited.
  */
-function canSendEmail(userId) {
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+export function canSendEmail(userId) {
+  // Compare against SQLite's own clock in its own datetime format. The previous
+  // JS `.toISOString()` value ("…T…Z") never string-compares correctly against
+  // created_at ("YYYY-MM-DD HH:MM:SS"), so the limit never engaged (audit).
   const row = get(
     `SELECT COUNT(*) as count FROM notification_log
-     WHERE user_id = ? AND channel = 'email' AND created_at > ?`,
-    [userId, oneHourAgo]
+     WHERE user_id = ? AND channel = 'email' AND created_at > datetime('now', '-1 hour')`,
+    [userId]
   );
   return (row?.count || 0) < MAX_EMAILS_PER_HOUR;
 }
@@ -136,7 +152,9 @@ async function processSingleDeck(deck) {
       [apiData.name || deck.deck_name, deck.id]);
   }
 
-  if (deck.notify_on_change && deck.email && isEmailConfigured() && canSendEmail(deck.user_id)) {
+  // email_verified is required — the deck may have been selected via the webhook
+  // branch with an unverified address, so re-check here (audit: unverified leak).
+  if (deck.notify_on_change && deck.email && deck.email_verified && isEmailConfigured() && canSendEmail(deck.user_id)) {
     const sent = await sendDeckChangeEmail(deck.email, deck.username, deck.deck_name, deck.id, changeSummary);
     if (sent) {
       logNotification(deck.user_id, deck.id, 'deck_change', 'email',
@@ -198,8 +216,9 @@ async function checkDecksForChanges() {
 
   const decks = all(`
     SELECT d.id, d.archidekt_deck_id, d.deck_name, d.user_id,
-           u.email, u.username, d.commanders, d.discord_webhook_url,
+           u.email, u.username, u.email_verified, d.commanders, d.discord_webhook_url,
            d.last_known_price, d.last_known_budget_price,
+           d.price_alert_baseline, d.price_alert_baseline_budget,
            d.price_alert_threshold, d.price_alert_mode, d.notify_on_change
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
@@ -237,21 +256,29 @@ async function checkDecksForChanges() {
  * Check if a deck's price change exceeds its alert threshold and send notifications.
  */
 async function checkPriceAlert(deck, priceResult) {
-  const previousPrice = deck.last_known_price;
-  if (previousPrice == null || previousPrice === 0) return; // No baseline to compare
-
   const mode = deck.price_alert_mode || 'specific';
   const currentPrice = mode === 'cheapest' ? priceResult.budgetPrice : priceResult.totalPrice;
-  const prevPrice = mode === 'cheapest' ? (deck.last_known_budget_price ?? previousPrice) : previousPrice;
+  if (currentPrice == null) return;
 
+  // Compare against the dedicated alert baseline (which only advances when an
+  // alert fires), NOT last_known_price — that gets reset by every price view, so
+  // gradual changes could never accumulate to the threshold (audit).
+  const baselineCol = mode === 'cheapest' ? 'price_alert_baseline_budget' : 'price_alert_baseline';
+  const baseline = mode === 'cheapest' ? deck.price_alert_baseline_budget : deck.price_alert_baseline;
+  const { fire, newBaseline } = evaluatePriceAlert(baseline, currentPrice, deck.price_alert_threshold);
+
+  if (newBaseline !== baseline) {
+    run(`UPDATE tracked_decks SET ${baselineCol} = ? WHERE id = ?`, [newBaseline, deck.id]);
+  }
+  if (!fire) return;
+
+  const prevPrice = baseline;
   const delta = currentPrice - prevPrice;
-  if (Math.abs(delta) < deck.price_alert_threshold) return; // Under threshold
-
   const direction = delta > 0 ? 'increased' : 'decreased';
   const subject = `Price Alert: ${deck.deck_name} ${direction} by $${Math.abs(delta).toFixed(2)}`;
 
-  // Send email alert
-  if (deck.notify_on_change && deck.email && isEmailConfigured() && canSendEmail(deck.user_id)) {
+  // Send email alert (verified addresses only — audit: unverified leak)
+  if (deck.notify_on_change && deck.email && deck.email_verified && isEmailConfigured() && canSendEmail(deck.user_id)) {
     const sent = await sendPriceAlertEmail(deck.email, deck.username, deck.deck_name, currentPrice, prevPrice, delta, mode);
     if (sent) {
       logNotification(deck.user_id, deck.id, 'price_alert', 'email', subject,
@@ -479,15 +506,15 @@ async function checkPriceAlerts() {
   const decks = all(`
     SELECT d.id, d.deck_name, d.user_id, d.commanders,
            d.last_known_price, d.last_known_budget_price,
+           d.price_alert_baseline, d.price_alert_baseline_budget,
            d.price_alert_threshold, d.price_alert_mode,
            d.notify_on_change, d.discord_webhook_url,
-           u.email, u.username
+           u.email, u.username, u.email_verified
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
     WHERE u.suspended = 0
       AND d.price_alert_threshold IS NOT NULL
       AND d.price_alert_threshold > 0
-      AND d.last_known_price IS NOT NULL
       AND (
         (d.notify_on_change = 1 AND u.email IS NOT NULL AND u.email != '' AND u.email_verified = 1)
         OR (d.discord_webhook_url IS NOT NULL AND d.discord_webhook_url != '')
@@ -506,19 +533,10 @@ async function checkPriceAlerts() {
     if (!snap?.deck_text) continue;
 
     try {
-      const previousPrice = deck.last_known_price;
-      const previousBudgetPrice = deck.last_known_budget_price;
-
       const priceResult = await computeDeckPrices(deck.id, snap.deck_text);
       if (!priceResult) continue;
 
-      const mode = deck.price_alert_mode || 'specific';
-      const currentPrice = mode === 'cheapest' ? priceResult.budgetPrice : priceResult.totalPrice;
-      const prevPrice = mode === 'cheapest' ? (previousBudgetPrice ?? previousPrice) : previousPrice;
-
-      const delta = currentPrice - prevPrice;
-      if (Math.abs(delta) < deck.price_alert_threshold) continue;
-
+      // checkPriceAlert owns the baseline comparison and fires if warranted.
       await checkPriceAlert(deck, priceResult);
       alerts++;
 
@@ -619,8 +637,20 @@ export function startNotificationScheduler() {
     return Math.max(1, hours) * 60 * 60 * 1000; // min 1 hour
   }
 
-  function scheduleNext() {
-    const ms = getIntervalMs();
+  // Delay before the first cycle. Persist the last run so a restart resumes the
+  // schedule instead of restarting the full interval — otherwise a process that
+  // restarts more often than the interval (e.g. deploys) never runs (audit).
+  function firstDelayMs() {
+    const intervalMs = getIntervalMs();
+    const last = get("SELECT value FROM server_settings WHERE key = 'last_scheduler_run_at'");
+    const lastMs = last?.value ? parseInt(last.value, 10) : NaN;
+    if (Number.isNaN(lastMs)) return STARTUP_RUN_DELAY_MS; // never run — run soon after boot
+    const due = lastMs + intervalMs - Date.now();
+    return Math.max(STARTUP_RUN_DELAY_MS, due); // if overdue, still wait for the server to settle
+  }
+
+  function scheduleNext(initial = false) {
+    const ms = initial ? firstDelayMs() : getIntervalMs();
     intervalHandle = setTimeout(async () => {
       if (isRunning) {
         console.warn('[Scheduler] Previous run still in progress, skipping this cycle');
@@ -643,13 +673,16 @@ export function startNotificationScheduler() {
       } catch (err) {
         console.error('[PriceAlerts] Scheduler error:', err.message);
       }
+      run(`INSERT INTO server_settings (key, value, updated_at) VALUES ('last_scheduler_run_at', ?, datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+        [String(Date.now())]);
       isRunning = false;
       scheduleNext();
     }, ms);
   }
 
   console.log('[Notifications] Scheduler started');
-  scheduleNext();
+  scheduleNext(true);
 }
 
 export function stopNotificationScheduler() {

@@ -248,13 +248,15 @@ router.patch('/:id', (req, res) => {
     if (priceAlertThreshold !== null && (typeof priceAlertThreshold !== 'number' || priceAlertThreshold < 0)) {
       return res.status(400).json({ error: 'Price alert threshold must be a positive number or null' });
     }
-    run('UPDATE tracked_decks SET price_alert_threshold = ? WHERE id = ?', [priceAlertThreshold, id]);
+    // Reset the alert baselines so the next scheduler run re-establishes them
+    // from the current price under the new threshold (audit: price-alert baseline).
+    run('UPDATE tracked_decks SET price_alert_threshold = ?, price_alert_baseline = NULL, price_alert_baseline_budget = NULL WHERE id = ?', [priceAlertThreshold, id]);
   }
   if (priceAlertMode !== undefined) {
     if (priceAlertMode !== null && !['specific', 'cheapest'].includes(priceAlertMode)) {
       return res.status(400).json({ error: 'Price alert mode must be "specific" or "cheapest"' });
     }
-    run('UPDATE tracked_decks SET price_alert_mode = ? WHERE id = ?', [priceAlertMode || 'specific', id]);
+    run('UPDATE tracked_decks SET price_alert_mode = ?, price_alert_baseline = NULL, price_alert_baseline_budget = NULL WHERE id = ?', [priceAlertMode || 'specific', id]);
   }
   if (autoRefreshHours !== undefined) {
     if (autoRefreshHours !== null && (typeof autoRefreshHours !== 'number' || ![6, 12, 24, 48, 168].includes(autoRefreshHours))) {
