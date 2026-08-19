@@ -6,6 +6,7 @@ import { createToken, requireAuth, invalidateAuthCache } from '../middleware/aut
 import { authLimiter } from '../middleware/rateLimit.js';
 import { validatePassword } from '../middleware/validate.js';
 import { isEmailConfigured, sendPasswordResetEmail, sendVerificationEmail } from '../lib/email.js';
+import { hashToken } from '../lib/tokens.js';
 
 const router = Router();
 
@@ -205,7 +206,7 @@ router.put('/email', requireAuth, async (req, res) => {
         const token = crypto.randomBytes(32).toString('hex');
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
         run('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-          [req.user.userId, token, expiresAt]);
+          [req.user.userId, hashToken(token), expiresAt]);
         await sendVerificationEmail(email.toLowerCase(), token);
       }
     } else {
@@ -230,7 +231,7 @@ router.post('/verify-email', async (req, res) => {
 
     const record = get(
       'SELECT * FROM email_verification_tokens WHERE token = ? AND expires_at > datetime("now")',
-      [token]
+      [hashToken(token)]
     );
     if (!record) {
       return res.status(400).json({ error: 'Invalid or expired verification link.' });
@@ -268,7 +269,7 @@ router.post('/resend-verification', requireAuth, async (req, res) => {
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     run('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [user.id, token, expiresAt]);
+      [user.id, hashToken(token), expiresAt]);
     await sendVerificationEmail(user.email, token);
 
     res.json({ success: true });
@@ -303,7 +304,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
 
       const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
-      run('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, token, expiresAt]);
+      run('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, hashToken(token), expiresAt]);
 
       await sendPasswordResetEmail(email.toLowerCase(), token);
     }
@@ -333,7 +334,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     const resetToken = get(
       'SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0 AND expires_at > datetime("now")',
-      [token]
+      [hashToken(token)]
     );
 
     if (!resetToken) {
