@@ -72,6 +72,28 @@
 .card-line--printing .card-line-price { color: var(--accent-blue); margin-left: 0; }
 .card-line--list .card-line-price { color: var(--text-secondary); }
 
+.card-line-owned {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 4px);
+  letter-spacing: 0.02em;
+}
+.card-line-owned--full {
+  color: var(--accent-green);
+  background: color-mix(in srgb, var(--accent-green) 14%, transparent);
+}
+.card-line-owned--partial {
+  color: var(--accent-yellow);
+  background: color-mix(in srgb, var(--accent-yellow) 14%, transparent);
+}
+.card-line-owned--missing {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  font-weight: 400;
+}
+
 .card-line-unit-price {
   font-size: var(--fs-xs);
   color: var(--text-muted);

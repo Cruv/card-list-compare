@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
 import CardLine from './CardLine';
 import { groupByType, TYPE_ORDER } from '../lib/scryfall';
+import { ownedCount, collectionCoverage } from '../lib/collectionMatch';
 import { symbolToSvgUrl } from './ManaCost';
 import { parseCMC, extractColors, COLOR_LABELS, COLOR_CSS } from '../lib/analytics';
 import './DeckListView.css';
@@ -210,7 +211,7 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
   );
 }
 
-function DeckSection({ sectionName, cards, cardMap }) {
+function DeckSection({ sectionName, cards, cardMap, ownedIndex }) {
   const cardArray = useMemo(() => {
     const arr = [];
     for (const [, entry] of cards) {
@@ -240,6 +241,7 @@ function DeckSection({ sectionName, cards, cardMap }) {
     const compositeData = compositeKey ? cardMap?.get(compositeKey) : null;
     const bareData = cardMap?.get(nameLower);
     const data = compositeData || bareData;
+    const owned = ownedIndex ? ownedCount(card.name, ownedIndex) : null;
     return (
       <CardLine
         key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : card.name}
@@ -251,6 +253,7 @@ function DeckSection({ sectionName, cards, cardMap }) {
         setCode={card.setCode}
         collectorNumber={card.collectorNumber}
         isFoil={card.isFoil}
+        owned={owned}
         priceUsd={data?.priceUsd}
         priceUsdFoil={data?.priceUsdFoil}
         cheapestPriceUsd={bareData?.priceUsd}
@@ -330,18 +333,24 @@ function computeBudgetPrice(parsedDeck, cardMap) {
   return hasAnyPrice ? total : null;
 }
 
-export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) {
-  if (!parsedDeck) return null;
-
+export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, ownedIndex }) {
+  // Hooks must run unconditionally — see Rules of Hooks. Guard on the derived
+  // values below, never with an early return before the hooks.
   const { priceDisplayEnabled } = useAppSettings();
-  const { mainboard, sideboard, commanders } = parsedDeck;
   const [showAnalytics, setShowAnalytics] = useState(true);
+  const { mainboard, sideboard, commanders } = parsedDeck || {};
 
-  const deckPrice = useMemo(() => priceDisplayEnabled ? computeDeckPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
-  const budgetDeckPrice = useMemo(() => priceDisplayEnabled ? computeBudgetPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
+  const deckPrice = useMemo(() => (priceDisplayEnabled && parsedDeck) ? computeDeckPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
+  const budgetDeckPrice = useMemo(() => (priceDisplayEnabled && parsedDeck) ? computeBudgetPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
+
+  const coverage = useMemo(
+    () => (parsedDeck && ownedIndex ? collectionCoverage(parsedDeck, ownedIndex) : null),
+    [parsedDeck, ownedIndex]
+  );
 
   // Filter cards by search query if provided
   const filteredMainboard = useMemo(() => {
+    if (!mainboard) return new Map();
     if (!searchQuery) return mainboard;
     const lower = searchQuery.toLowerCase();
     const filtered = new Map();
@@ -354,6 +363,7 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
   }, [mainboard, searchQuery]);
 
   const filteredSideboard = useMemo(() => {
+    if (!sideboard) return new Map();
     if (!searchQuery) return sideboard;
     const lower = searchQuery.toLowerCase();
     const filtered = new Map();
@@ -365,11 +375,19 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
     return filtered;
   }, [sideboard, searchQuery]);
 
+  if (!parsedDeck) return null;
+
   return (
     <div className="deck-list-view">
       {commanders && commanders.length > 0 && (
         <div className="deck-list-commanders">
           {commanders.join(' / ')}
+        </div>
+      )}
+      {coverage && coverage.uniqueTotal > 0 && (
+        <div className="deck-list-collection-summary">
+          Collection: you own <strong>{coverage.uniqueOwned}</strong> of {coverage.uniqueTotal} unique cards
+          {' '}({coverage.copiesOwned}/{coverage.copiesNeeded} copies)
         </div>
       )}
       {deckPrice != null && (
@@ -395,8 +413,8 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
       {showAnalytics && cardMap && cardMap.size > 0 && (
         <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />
       )}
-      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} />
-      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} />}
+      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} ownedIndex={ownedIndex} />
+      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} ownedIndex={ownedIndex} />}
     </div>
   );
 });

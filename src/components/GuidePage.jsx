@@ -231,7 +231,11 @@ function DeckLibrary() {
 
       <h4>Other Tabs</h4>
       <ul>
-        <li><strong>Collection</strong> &mdash; manage your card collection for overlap analysis</li>
+        <li><strong>Collection</strong> &mdash; import the cards you own. A tracked deck&rsquo;s
+          Full Deck tab then shows a collection summary and marks each card
+          <em>owned</em>, <em>partially owned</em>, or <em>missing</em>, so you can see at a glance
+          what you still need. Matching is by card name across printings and foils, and handles
+          double-faced and accented names.</li>
         <li><strong>Overlap</strong> &mdash; see how many cards are shared across all your tracked decks in a matrix view</li>
       </ul>
     </div>

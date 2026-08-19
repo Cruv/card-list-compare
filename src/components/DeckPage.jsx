@@ -14,8 +14,10 @@ import {
   updateDeckDiscordWebhook,
   getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
   submitImageDownload, getDownloadJobStatus, downloadJobFile,
+  getCollection,
 } from '../lib/api';
 import { parse } from '../lib/parser';
+import { buildOwnedIndex } from '../lib/collectionMatch';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS, formatDeckForMpc } from '../lib/formatter';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
 import { estimatePowerLevel } from '../lib/powerLevel';
@@ -138,6 +140,7 @@ export default function DeckPage({ deckId }) {
   // Full deck tab state
   const [parsedDeck, setParsedDeck] = useState(null);
   const [deckCardMap, setDeckCardMap] = useState(null);
+  const [ownedIndex, setOwnedIndex] = useState(null);
   const [deckText, setDeckText] = useState(null);
   const [deckLoading, setDeckLoading] = useState(false);
 
@@ -282,6 +285,11 @@ export default function DeckPage({ deckId }) {
         const cm = await fetchCardData(identifiers);
         setDeckCardMap(cm);
       }
+      // Load the user's collection to show owned/missing badges. Best-effort:
+      // an empty or failed collection just hides the badges.
+      getCollection()
+        .then(data => setOwnedIndex(buildOwnedIndex(data.cards)))
+        .catch(() => { /* collection unavailable — no owned badges */ });
     } catch {
       toast.error('Failed to load deck list');
     } finally {
@@ -1205,7 +1213,7 @@ export default function DeckPage({ deckId }) {
                       : 'Download Images (Scryfall)'}
                   </button>
                 </div>
-                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} />
+                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} ownedIndex={ownedIndex} />
               </>
             )}
           </div>

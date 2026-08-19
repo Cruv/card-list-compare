@@ -81,6 +81,17 @@ function PrintingBadge({ setCode, collectorNumber, isFoil }) {
   );
 }
 
+function OwnedBadge({ owned, needed }) {
+  if (owned == null) return null; // collection not loaded / not applicable
+  if (owned >= needed) {
+    return <span className="card-line-owned card-line-owned--full" title="In your collection">&#10003; owned</span>;
+  }
+  if (owned > 0) {
+    return <span className="card-line-owned card-line-owned--partial" title={`You own ${owned} of ${needed}`}>{owned}/{needed} owned</span>;
+  }
+  return <span className="card-line-owned card-line-owned--missing" title="Not in your collection">missing</span>;
+}
+
 function PriceBadge({ price, cheapestPrice, unitPrice, quantity }) {
   if (price == null && cheapestPrice == null) return null;
   const showCheapest = cheapestPrice != null && price != null && Math.abs(cheapestPrice - price) >= 0.01;
@@ -95,7 +106,7 @@ function PriceBadge({ price, cheapestPrice, unitPrice, quantity }) {
   );
 }
 
-export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil, priceUsd, priceUsdFoil, cheapestPriceUsd, cheapestPriceUsdFoil, oldSetCode, oldCollectorNumber, oldIsFoil, newSetCode, newCollectorNumber, newIsFoil }) {
+export default memo(function CardLine({ name, quantity, changeType, oldQty, newQty, delta, manaCost, imageUri, setCode, collectorNumber, isFoil, priceUsd, priceUsdFoil, cheapestPriceUsd, cheapestPriceUsdFoil, oldSetCode, oldCollectorNumber, oldIsFoil, newSetCode, newCollectorNumber, newIsFoil, owned }) {
   const { priceDisplayEnabled } = useAppSettings();
   const [hovering, setHovering] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
@@ -178,6 +189,7 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
         <span className="card-line-name" ref={nameRef}>{name}</span>
         <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
         {manaCost && <ManaCost cost={manaCost} />}
+        <OwnedBadge owned={owned} needed={quantity} />
         <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} unitPrice={unitPrice} quantity={quantity} />
         {tooltip}
         {overlay}

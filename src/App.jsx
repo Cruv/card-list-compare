@@ -24,10 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.40.5';
+const APP_VERSION = '2.41.0';
 const WHATS_NEW = [
-  'Double-faced, split, and accented card names now show correct images, types, and prices',
-  'Comparisons no longer invent phantom add/remove rows when a card is listed under mixed printings, and CSV names with commas import correctly',
+  'Your Collection is now put to work: a tracked deck’s Full Deck tab shows which cards you own, partially own, or are still missing',
+  'Owned-card matching handles multiple printings, foils, and double-faced or accented names',
 ];
 
 function getResetToken() {

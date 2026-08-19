@@ -9,6 +9,16 @@
   margin-bottom: var(--space-md);
 }
 
+.deck-list-collection-summary {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  background: color-mix(in srgb, var(--accent-green) 8%, transparent);
+  border-radius: var(--radius);
+}
+.deck-list-collection-summary strong { color: var(--text-primary); }
+
 .deck-list-price-summary {
   font-size: var(--fs-base);
   color: var(--text-secondary);
