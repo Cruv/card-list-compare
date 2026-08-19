@@ -10,7 +10,8 @@ services:
       # No default: compose refuses to start if JWT_SECRET is unset, rather than
       # falling back to a public placeholder. Put it in a local .env (see
       # .env.example): JWT_SECRET=$(openssl rand -hex 32)
-      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set — generate one with: openssl rand -hex 32}
+      # Quoted — the ':' in the error message would otherwise be parsed as YAML.
+      - "JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set; generate one with openssl rand -hex 32}"
       - DB_PATH=/app/data/cardlistcompare.db
       - TZ=America/New_York
     volumes:
