@@ -2,7 +2,7 @@ import { memo, useMemo, useState } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
 import CardLine from './CardLine';
 import { groupByType, TYPE_ORDER } from '../lib/scryfall';
-import { ownedCount, collectionCoverage } from '../lib/collectionMatch';
+import { collectionCoverage, allocateOwnedCopies, lineKey } from '../lib/collectionMatch';
 import { symbolToSvgUrl } from './ManaCost';
 import { parseCMC, extractColors, COLOR_LABELS, COLOR_CSS } from '../lib/analytics';
 import './DeckListView.css';
@@ -211,7 +211,7 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
   );
 }
 
-function DeckSection({ sectionName, cards, cardMap, ownedIndex }) {
+function DeckSection({ sectionName, cards, cardMap, ownedAllocation }) {
   const cardArray = useMemo(() => {
     const arr = [];
     for (const [, entry] of cards) {
@@ -241,7 +241,11 @@ function DeckSection({ sectionName, cards, cardMap, ownedIndex }) {
     const compositeData = compositeKey ? cardMap?.get(compositeKey) : null;
     const bareData = cardMap?.get(nameLower);
     const data = compositeData || bareData;
-    const owned = ownedIndex ? ownedCount(card.name, ownedIndex) : null;
+    // Copies allocated to THIS line (see allocateOwnedCopies) — null when the
+    // user has no collection loaded, which hides the badge entirely.
+    const owned = ownedAllocation
+      ? (ownedAllocation.get(lineKey(sectionName, card.name, card.collectorNumber)) ?? 0)
+      : null;
     return (
       <CardLine
         key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : card.name}
@@ -348,6 +352,13 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, ow
     [parsedDeck, ownedIndex]
   );
 
+  // Owned copies split across the lines that need them, computed from the FULL
+  // deck so the badges don't change while a search filter is applied.
+  const ownedAllocation = useMemo(
+    () => (parsedDeck && ownedIndex ? allocateOwnedCopies(parsedDeck, ownedIndex) : null),
+    [parsedDeck, ownedIndex]
+  );
+
   // Filter cards by search query if provided
   const filteredMainboard = useMemo(() => {
     if (!mainboard) return new Map();
@@ -413,8 +424,8 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, ow
       {showAnalytics && cardMap && cardMap.size > 0 && (
         <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />
       )}
-      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} ownedIndex={ownedIndex} />
-      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} ownedIndex={ownedIndex} />}
+      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} ownedAllocation={ownedAllocation} />
+      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} ownedAllocation={ownedAllocation} />}
     </div>
   );
 });

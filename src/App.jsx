@@ -24,11 +24,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.42.0';
+const APP_VERSION = '2.42.1';
 const WHATS_NEW = [
-  'Escape now closes just the overlay you’re looking at, instead of everything at once',
-  'Opening a deck link while signed out shows a proper sign-in prompt rather than bouncing you to the compare screen',
-  'Dialogs keep keyboard focus inside them and hand it back when they close',
+  'Deck prices are accurate again when a card is listed under multiple printings — each printing is now priced as itself',
+  'Price alerts stay quiet when card prices can’t be fetched, instead of reporting a deck as worthless',
+  'Collection badges only appear once you’ve imported a collection, and your owned copies are no longer counted twice',
 ];
 
 function getResetToken() {

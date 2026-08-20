@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
@@ -596,11 +596,24 @@ function DeckTrackerSettings({ confirm }) {
 // only; an empty or zero value reverts instead of deleting the card (audit H2).
 function QtyCell({ quantity, onCommit }) {
   const [value, setValue] = useState(String(quantity));
+  const inputRef = useRef(null);
+  // Escape sets state and blurs in the same tick, but the blur handler runs
+  // before React re-renders — so it would read the typed (stale) value and save
+  // the edit the user just cancelled. This flag makes the cancel win.
+  const cancelledRef = useRef(false);
 
-  // Keep the field in sync when the underlying quantity changes (e.g. refresh).
-  useEffect(() => { setValue(String(quantity)); }, [quantity]);
+  // Keep the field in sync when the underlying quantity changes (e.g. a refresh
+  // after another edit) — but never yank the value out from under an active edit.
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) setValue(String(quantity));
+  }, [quantity]);
 
   function commit() {
+    if (cancelledRef.current) {
+      cancelledRef.current = false;
+      setValue(String(quantity));
+      return;
+    }
     const next = parseQtyEdit(value, quantity);
     if (next === null) {
       setValue(String(quantity)); // ignore empty/invalid/unchanged → revert
@@ -611,6 +624,7 @@ function QtyCell({ quantity, onCommit }) {
 
   return (
     <input
+      ref={inputRef}
       type="number"
       className="settings-collection-qty"
       value={value}
@@ -619,7 +633,7 @@ function QtyCell({ quantity, onCommit }) {
       onBlur={commit}
       onKeyDown={e => {
         if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
-        else if (e.key === 'Escape') { setValue(String(quantity)); e.currentTarget.blur(); }
+        else if (e.key === 'Escape') { cancelledRef.current = true; e.currentTarget.blur(); }
       }}
     />
   );
@@ -680,6 +694,8 @@ function CollectionManager({ confirm }) {
       refresh();
     } catch (err) {
       toast.error(err.message);
+      // Re-sync so the field can't keep showing a value that was never saved.
+      refresh();
     }
   }
 

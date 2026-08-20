@@ -25,8 +25,14 @@ describe('parseQtyEdit (audit H2)', () => {
     expect(parseQtyEdit('1', 4)).toBe(1);
   });
 
-  it('clamps to 999', () => {
+  it('clamps a genuinely new value to 999', () => {
     expect(parseQtyEdit('100000', 4)).toBe(999);
+  });
+
+  it('does not truncate an existing above-clamp quantity on a no-op blur', () => {
+    // A bulk import can legitimately hold >999; blurring the field unchanged
+    // must not silently rewrite 1200 down to 999.
+    expect(parseQtyEdit('1200', 1200)).toBe(null);
   });
 
   it('parses leading-int values the way <input type=number> yields them', () => {

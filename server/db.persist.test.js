@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -52,5 +52,54 @@ describe('persist() atomic write (audit C3)', () => {
     const db = await import('./db.js');
     writeFileSync(dbPath, Buffer.from('garbage, not a database'));
     await expect(db.initDb()).rejects.toThrow(/could not be loaded/i);
+  });
+
+  it('recovers from .bak when the live file is ZERO BYTES (sql.js accepts an empty buffer)', async () => {
+    let db = await import('./db.js');
+    await db.initDb();
+    db.run("INSERT INTO server_settings (key, value) VALUES ('probe', 'survived')");
+    db.backupDb();
+
+    // A truncating write that never delivered bytes: the file exists but is empty.
+    writeFileSync(dbPath, Buffer.alloc(0));
+    vi.resetModules();
+    db = await import('./db.js');
+    await db.initDb();
+
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'probe'")?.value).toBe('survived');
+    // …and the good backup must still hold the data after recovery.
+    db.backupDb();
+    expect(existsSync(`${dbPath}.bak`)).toBe(true);
+    expect(statSync(`${dbPath}.bak`).size).toBeGreaterThan(512);
+  });
+
+  it('recovers from .bak when the live file is a truncated prefix of a real database', async () => {
+    let db = await import('./db.js');
+    await db.initDb();
+    db.run("INSERT INTO server_settings (key, value) VALUES ('probe', 'survived')");
+    db.backupDb();
+
+    // Valid SQLite header, but the file is cut short — the case a non-atomic
+    // write used to produce.
+    const good = readFileSync(dbPath);
+    writeFileSync(dbPath, good.subarray(0, 1024));
+    vi.resetModules();
+    db = await import('./db.js');
+    await db.initDb();
+
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'probe'")?.value).toBe('survived');
+  });
+
+  it('ignores a leftover zero-byte .tmp instead of loading it as an empty database', async () => {
+    let db = await import('./db.js');
+    await db.initDb();
+    db.run("INSERT INTO server_settings (key, value) VALUES ('probe', 'survived')");
+
+    writeFileSync(`${dbPath}.tmp`, Buffer.alloc(0)); // crashed mid-write
+    vi.resetModules();
+    db = await import('./db.js');
+    await db.initDb();
+
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'probe'")?.value).toBe('survived');
   });
 });

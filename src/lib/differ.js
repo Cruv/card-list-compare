@@ -37,18 +37,30 @@ function collapseCompositeKeys(map, compositeKeys, bare) {
  * bare key, summing quantity. Otherwise the key-by-key diff compares the split
  * representations and invents phantom in/out rows for cards that never moved
  * (audit H5). Runs after DFC normalization so front-face renames are in place.
+ *
+ * Merging DISCARDS the composite printings, so it only happens when the other
+ * side carries no printing detail for that name. When both sides name printings
+ * (e.g. one copy re-sleeved from C21 to LTC), the per-printing keys must survive
+ * or the printing swap is erased and the changelog reports "no changes".
  */
-function mergeMixedKeys(map) {
+function mergeMixedKeys(map, otherMap) {
   const index = buildNameIndex(map);
+  const otherHasComposite = buildNameIndex(otherMap);
   for (const [bare, compositeKeys] of index) {
     if (!map.has(bare)) continue; // only the mixed case — bare AND composite both present
+    if (otherHasComposite.has(bare)) continue; // both sides have printings — keep them
     const bareEntry = map.get(bare);
     let totalQty = bareEntry.quantity;
+    // Prefer real printing metadata over the bare entry's empty values, so the
+    // collapsed row still shows a set/collector number where one existed.
+    let base = bareEntry;
     for (const ck of compositeKeys) {
-      totalQty += map.get(ck).quantity;
+      const entry = map.get(ck);
+      if (base === bareEntry && !bareEntry.setCode && entry.setCode) base = entry;
+      totalQty += entry.quantity;
       map.delete(ck);
     }
-    map.set(bare, { ...bareEntry, quantity: totalQty });
+    map.set(bare, { ...base, quantity: totalQty });
   }
 }
 
@@ -112,8 +124,9 @@ function diffSection(beforeMap, afterMap) {
 
   // Collapse any name that appears as both bare and composite within a side, so
   // the comparison below sees one entry per name and does not fabricate diffs (H5).
-  mergeMixedKeys(before);
-  mergeMixedKeys(after);
+  // Each call checks the opposite side so a genuine printing change is preserved.
+  mergeMixedKeys(before, after);
+  mergeMixedKeys(after, before);
 
   const afterIndex = buildNameIndex(after);
   const beforeIndex = buildNameIndex(before);

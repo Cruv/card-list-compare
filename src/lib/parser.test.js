@@ -187,13 +187,29 @@ Fatal Push,2,sb`;
     expect(main['lightning bolt'].quantity).toBe(4);
   });
 
-  it('handles escaped double-quotes inside a quoted CSV field (H4)', () => {
+  it('keeps commas inside a quoted CSV field (H4)', () => {
     const csv = `quantity,name
 2,"Borrowing 100,000 Arrows"`;
     const result = parse(csv);
     const main = mapToObj(result.mainboard);
     expect(main['borrowing 100,000 arrows']).toBeTruthy();
     expect(main['borrowing 100,000 arrows'].quantity).toBe(2);
+  });
+
+  it('unescapes doubled quotes inside a quoted CSV field', () => {
+    const csv = `quantity,name\n1,"""Ach! Hans, Run!"""`;
+    const result = parse(csv);
+    const main = mapToObj(result.mainboard);
+    expect(main['"ach! hans, run!"']).toBeTruthy();
+  });
+
+  it('degrades gracefully on an unbalanced quote instead of swallowing the row', () => {
+    // A stray opening quote must not consume the remaining columns.
+    const csv = `name,quantity\n"Lightning Bolt,4`;
+    const result = parse(csv);
+    const main = mapToObj(result.mainboard);
+    expect(main['lightning bolt']).toBeTruthy();
+    expect(main['lightning bolt'].quantity).toBe(4);
   });
 
   it('aggregates duplicate card names in CSV', () => {

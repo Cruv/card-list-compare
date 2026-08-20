@@ -6,7 +6,9 @@
 export function parseQtyEdit(raw, current) {
   const n = parseInt(raw, 10);
   if (Number.isNaN(n) || n < 1) return null; // empty / non-numeric / zero → ignore
-  const clamped = Math.min(999, n);
-  if (clamped === current) return null; // unchanged → no-op
-  return clamped;
+  // Compare BEFORE clamping: a collection legitimately holding more than the
+  // clamp (e.g. 1200 basic lands, imported in bulk) must read as unchanged on a
+  // no-op blur, not be silently truncated to 999.
+  if (n === current) return null; // unchanged → no-op
+  return Math.min(999, n);
 }

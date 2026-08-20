@@ -10,8 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 server/data/*.db*
+server/data/.jwt-dev-secret
 server/data/image-cache/
 server/data/downloads/
+data/.jwt-dev-secret
 data/*.db*
 data/image-cache/
 data/downloads/

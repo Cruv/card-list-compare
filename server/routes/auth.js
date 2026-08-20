@@ -126,7 +126,10 @@ router.post('/login', authLimiter, async (req, res) => {
     run("UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?", [user.id]);
 
     const token = createToken(user);
-    res.json({ token, user: { id: user.id, username: user.username, email: user.email || null, isAdmin: !!user.is_admin } });
+    // emailVerified must be present here too — the client uses it to warn that
+    // email alerts won't fire, and its absence read as "unverified" for the whole
+    // session after a fresh login.
+    res.json({ token, user: { id: user.id, username: user.username, email: user.email || null, emailVerified: !!user.email_verified, isAdmin: !!user.is_admin } });
   } catch (err) {
     console.error('Login error:', err);
     res.status(500).json({ error: 'Login failed' });
@@ -227,6 +230,10 @@ router.post('/verify-email', async (req, res) => {
     const { token } = req.body;
     if (!token) {
       return res.status(400).json({ error: 'Verification token is required' });
+    }
+    // Same guard as reset-password: hashing a non-string would throw a 500.
+    if (typeof token !== 'string' || token.length > 128) {
+      return res.status(400).json({ error: 'Invalid token' });
     }
 
     const record = get(

@@ -551,6 +551,30 @@ Sideboard
     expect(diff.mainboard.quantityChanges).toEqual([]);
   });
 
+  it('still detects a printing swap when BOTH sides mix bare and composite keys', () => {
+    // One copy re-sleeved into a different printing. Collapsing both sides to a
+    // bare key would make this look like "no changes" at all.
+    const a = deck('1 Sol Ring\n1 Sol Ring (c21) [263]');
+    const b = deck('1 Sol Ring\n1 Sol Ring (ltc) [284]');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.printingChanges).toHaveLength(1);
+    expect(diff.mainboard.printingChanges[0]).toMatchObject({
+      name: 'Sol Ring',
+      oldCollectorNumber: '263',
+      newCollectorNumber: '284',
+    });
+    expect(diff.mainboard.cardsIn).toEqual([]);
+    expect(diff.mainboard.cardsOut).toEqual([]);
+  });
+
+  it('keeps printing metadata when collapsing a mixed side against a bare side', () => {
+    const a = deck('1 Sol Ring (c21) [263]\n1 Sol Ring');
+    const b = deck('3 Sol Ring');
+    const diff = computeDiff(a, b);
+    expect(diff.mainboard.quantityChanges).toHaveLength(1);
+    expect(diff.mainboard.quantityChanges[0]).toMatchObject({ oldQty: 2, newQty: 3 });
+  });
+
   it('reports only the true net change across mixed bare/composite keys', () => {
     const a = deck('3 Nazgul');
     const b = deck('2 Nazgul\n2 Nazgul (ltr) [100]'); // 4 total

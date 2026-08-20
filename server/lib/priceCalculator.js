@@ -1,6 +1,6 @@
 import { get, run } from '../db.js';
 import { parse } from '../../src/lib/parser.js';
-import { fetchCardPrices, fetchSpecificPrintingPrices } from './scryfall.js';
+import { fetchCardPrices, fetchSpecificPrintingPrices, printingKey } from './scryfall.js';
 
 /**
  * Compute deck prices from deck text and stamp results to the database.
@@ -27,6 +27,14 @@ export async function computeDeckPrices(deckId, deckText) {
     fetchSpecificPrintingPrices(cardEntries),
   ]);
 
+  // Scryfall returned nothing for a deck that has cards — it is down or rate
+  // limiting. Report "no data" rather than a $0 deck, which callers would
+  // otherwise store as a real price and alert on as a total collapse in value.
+  if (cardNames.length > 0 && defaultPrices.size === 0 && specificPrices.size === 0) {
+    console.warn(`[Prices] No price data returned for deck ${deckId} — skipping this run`);
+    return null;
+  }
+
   let totalPrice = 0;
   let budgetPrice = 0;
   const seen = new Set();
@@ -41,7 +49,12 @@ export async function computeDeckPrices(deckId, deckText) {
     // also lives in the mainboard — but do NOT skip other printings of the name.
     seen.add(key);
     const defaultData = defaultPrices.get(key);
-    const specificData = specificPrices.get(key);
+    // Look the printing up by set+collector — one card name can appear under
+    // several printings at very different prices, so a name lookup would charge
+    // them all the same.
+    const specificData = (entry.setCode && entry.collectorNumber)
+      ? specificPrices.get(printingKey(entry.setCode, entry.collectorNumber))
+      : null;
 
     const cheapNonFoil = defaultData?.priceUsd ?? 0;
     const cheapFoil = defaultData?.priceUsdFoil ?? 0;
@@ -64,6 +77,10 @@ export async function computeDeckPrices(deckId, deckText) {
         existing.quantity += entry.quantity;
         existing.total += lineTotal;
         existing.cheapestTotal += cheapestTotal;
+        // Printings of one name can differ in price, so the row's unit price is
+        // the blended average — keep it consistent with total/quantity.
+        existing.price = existing.total / existing.quantity;
+        existing.cheapestPrice = existing.cheapestTotal / existing.quantity;
       } else {
         cardsByName.set(key, {
           name: entry.displayName,

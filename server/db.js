@@ -30,13 +30,32 @@ let db;
  * half of the atomic-write scheme in persist(): a torn/absent file never wipes
  * the instance as long as one good copy survives.
  */
+const SQLITE_MAGIC = 'SQLite format 3\0';
+
+/**
+ * Load one candidate file, or throw if it is not a usable database.
+ * sql.js happily accepts an EMPTY buffer and returns a valid, blank database —
+ * so a zero-byte live file (a truncating write that never got any bytes) would
+ * otherwise look "loadable" and then be persisted over the good backup, silently
+ * destroying everything. Check the header and read the schema to be sure.
+ */
+function openCandidate(SQL, path) {
+  const buf = readFileSync(path);
+  if (buf.length === 0) throw new Error('file is empty');
+  if (buf.length < 512 || buf.subarray(0, 16).toString('latin1') !== SQLITE_MAGIC) {
+    throw new Error('not a SQLite database (bad header)');
+  }
+  const database = new SQL.Database(buf);
+  // Actually read the schema — a valid header can still front a truncated file.
+  database.exec('SELECT count(*) FROM sqlite_master');
+  return database;
+}
+
 function loadDatabase(SQL) {
   for (const path of [DB_PATH, BAK_PATH, TMP_PATH]) {
     if (!existsSync(path)) continue;
     try {
-      const database = new SQL.Database(readFileSync(path));
-      // Touch the schema so a header-valid-but-corrupt file is rejected here.
-      database.run('PRAGMA schema_version');
+      const database = openCandidate(SQL, path);
       if (path !== DB_PATH) {
         console.warn(`Recovered database from ${path} (live file was missing or unreadable)`);
       }
@@ -522,6 +541,17 @@ export async function initDb() {
     // Column already exists — ignore
   }
 
+  // One-shot cleanup: email/reset tokens are stored as SHA-256 hashes now, so any
+  // rows written before that cutover hold plaintext values that can never match a
+  // hashed lookup. They are dead weight (and the plaintext we stopped keeping) —
+  // drop them once. Affected users simply request a fresh link.
+  const tokenCutover = get("SELECT value FROM server_settings WHERE key = 'token_hash_cutover_done'");
+  if (!tokenCutover) {
+    db.run('DELETE FROM password_reset_tokens');
+    db.run('DELETE FROM email_verification_tokens');
+    db.run("INSERT OR REPLACE INTO server_settings (key, value) VALUES ('token_hash_cutover_done', '1')");
+  }
+
   // Data repair: collection imports before v2.40.1 used a buggy regex that
   // captured the last word of a set-less multi-word card name as the
   // collector number ("4 Lightning Bolt" → name "Lightning", cn "Bolt").
@@ -588,9 +618,18 @@ export function persist() {
  * never take down a running server. Called at boot and on graceful shutdown.
  */
 export function backupDb() {
-  if (!existsSync(DB_PATH)) return;
+  // Back up the VALIDATED in-memory image, never the bytes on disk. Copying the
+  // live file could promote a corrupt/torn file over a known-good backup — the
+  // one copy that recovery depends on.
+  if (!db) return;
   try {
-    copyFileSync(DB_PATH, `${BAK_PATH}.tmp`);
+    const fd = openSync(`${BAK_PATH}.tmp`, 'w');
+    try {
+      writeFileSync(fd, Buffer.from(db.export()));
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(`${BAK_PATH}.tmp`, BAK_PATH);
   } catch (err) {
     console.error('Backup failed (non-fatal):', err.message);

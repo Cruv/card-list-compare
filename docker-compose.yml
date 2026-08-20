@@ -7,11 +7,14 @@ services:
     ports:
       - "8080:80"
     environment:
-      # No default: compose refuses to start if JWT_SECRET is unset, rather than
-      # falling back to a public placeholder. Put it in a local .env (see
-      # .env.example): JWT_SECRET=$(openssl rand -hex 32)
-      # Quoted — the ':' in the error message would otherwise be parsed as YAML.
-      - "JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set; generate one with openssl rand -hex 32}"
+      # No placeholder default — an unset secret must NOT silently become a
+      # public well-known value. The container itself refuses to start unless
+      # this is strong (server/lib/jwtSecret.js, NODE_ENV=production is baked
+      # into the image), and it prints how to generate one. Deliberately not
+      # `${JWT_SECRET:?...}`: that form also breaks `docker compose down/ps/logs`,
+      # which you need most when something is already wrong.
+      # Put it in a local .env (see .env.example): JWT_SECRET=$(openssl rand -hex 32)
+      - JWT_SECRET=${JWT_SECRET:-}
       - DB_PATH=/app/data/cardlistcompare.db
       - TZ=America/New_York
     volumes:

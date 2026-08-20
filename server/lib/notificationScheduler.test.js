@@ -14,6 +14,19 @@ describe('evaluatePriceAlert (audit: price-alert baseline)', () => {
     expect(evaluatePriceAlert(100, 80, 10)).toEqual({ fire: true, newBaseline: 80 });
   });
 
+  it('ignores a $0 reading (Scryfall outage) instead of alerting and resetting the baseline', () => {
+    // computeDeckPrices yields 0 when Scryfall returns nothing. Alerting on it
+    // would send "decreased by $250", store 0, then "increased by $250" on recovery.
+    const outage = evaluatePriceAlert(250, 0, 10);
+    expect(outage).toEqual({ fire: false, newBaseline: 250 }); // baseline preserved
+    // …so the recovery reading compares against the real baseline and stays quiet.
+    expect(evaluatePriceAlert(outage.newBaseline, 251, 10)).toEqual({ fire: false, newBaseline: 250 });
+  });
+
+  it('treats a 0 baseline as not-yet-established rather than a real price', () => {
+    expect(evaluatePriceAlert(0, 412, 10)).toEqual({ fire: false, newBaseline: 412 });
+  });
+
   it('holds the baseline when under threshold, so gradual change accumulates', () => {
     // Each step is under $10, but they accumulate against the SAME baseline until
     // the total crosses the threshold — which the old last_known_price reset broke.

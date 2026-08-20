@@ -285,10 +285,12 @@ export default function DeckPage({ deckId }) {
         const cm = await fetchCardData(identifiers);
         setDeckCardMap(cm);
       }
-      // Load the user's collection to show owned/missing badges. Best-effort:
-      // an empty or failed collection just hides the badges.
+      // Load the user's collection to show owned/missing badges. Best-effort: an
+      // empty collection (or a failed load) leaves the index null so no badges
+      // render — otherwise every card in the deck would be labelled "missing",
+      // which is noise for the many users who never import a collection.
       getCollection()
-        .then(data => setOwnedIndex(buildOwnedIndex(data.cards)))
+        .then(data => setOwnedIndex(data.cards?.length ? buildOwnedIndex(data.cards) : null))
         .catch(() => { /* collection unavailable — no owned badges */ });
     } catch {
       toast.error('Failed to load deck list');
@@ -1303,7 +1305,7 @@ export default function DeckPage({ deckId }) {
             {/* Notifications */}
             <div className="deck-page-settings-section">
               <h3>Notifications</h3>
-              {user && !user.emailVerified && (
+              {user && user.emailVerified === false && (
                 <p className="deck-page-settings-warning">
                   ⚠ Email alerts (deck change &amp; price) require a verified email.
                   {' '}Verify yours in <a href="#settings">Account Settings</a> — Discord webhooks work regardless.

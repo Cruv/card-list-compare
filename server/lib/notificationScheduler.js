@@ -24,7 +24,13 @@ const STARTUP_RUN_DELAY_MS = 60 * 1000; // let the server settle before the firs
  * baseline reset).
  */
 export function evaluatePriceAlert(baseline, current, threshold) {
-  if (baseline == null) return { fire: false, newBaseline: current };
+  // A price of 0 is not a real observation — it is what computeDeckPrices returns
+  // when Scryfall is unreachable (a 429/503 yields empty price maps). Alerting on
+  // it would email "decreased by $250", persist 0 as the baseline, then email
+  // "increased by $250" the moment Scryfall recovers. Ignore it entirely.
+  if (current == null || current === 0) return { fire: false, newBaseline: baseline };
+  // Likewise treat a 0/absent baseline as "not established yet".
+  if (baseline == null || baseline === 0) return { fire: false, newBaseline: current };
   if (Math.abs(current - baseline) >= threshold) return { fire: true, newBaseline: current };
   return { fire: false, newBaseline: baseline };
 }
@@ -258,7 +264,7 @@ async function checkDecksForChanges() {
 async function checkPriceAlert(deck, priceResult) {
   const mode = deck.price_alert_mode || 'specific';
   const currentPrice = mode === 'cheapest' ? priceResult.budgetPrice : priceResult.totalPrice;
-  if (currentPrice == null) return;
+  if (currentPrice == null) return false;
 
   // Compare against the dedicated alert baseline (which only advances when an
   // alert fires), NOT last_known_price — that gets reset by every price view, so
@@ -270,7 +276,7 @@ async function checkPriceAlert(deck, priceResult) {
   if (newBaseline !== baseline) {
     run(`UPDATE tracked_decks SET ${baselineCol} = ? WHERE id = ?`, [newBaseline, deck.id]);
   }
-  if (!fire) return;
+  if (!fire) return false;
 
   const prevPrice = baseline;
   const delta = currentPrice - prevPrice;
@@ -294,6 +300,8 @@ async function checkPriceAlert(deck, priceResult) {
         { previousPrice: prevPrice, currentPrice, delta: Math.round(delta * 100) / 100, mode });
     }
   }
+
+  return true;
 }
 
 async function sendPriceAlertEmail(email, username, deckName, currentPrice, previousPrice, delta, mode) {
@@ -537,8 +545,7 @@ async function checkPriceAlerts() {
       if (!priceResult) continue;
 
       // checkPriceAlert owns the baseline comparison and fires if warranted.
-      await checkPriceAlert(deck, priceResult);
-      alerts++;
+      if (await checkPriceAlert(deck, priceResult)) alerts++;
 
       await new Promise(r => setTimeout(r, 200));
     } catch (err) {
@@ -547,7 +554,7 @@ async function checkPriceAlerts() {
   }
 
   if (alerts > 0) {
-    console.log(`[PriceAlerts] ${alerts} alert(s) triggered`);
+    console.log(`[PriceAlerts] scanned ${decks.length} deck(s), ${alerts} alert(s) triggered`);
   }
 }
 
@@ -658,26 +665,37 @@ export function startNotificationScheduler() {
         return;
       }
       isRunning = true;
+      // Everything below is individually guarded, and the whole body sits in a
+      // try/finally: an unexpected throw must never strand isRunning = true or
+      // skip scheduleNext(), which would silently kill the scheduler until the
+      // next restart.
       try {
-        await checkDecksForChanges();
-      } catch (err) {
-        console.error('[Notifications] Scheduler error:', err.message);
+        try {
+          await checkDecksForChanges();
+        } catch (err) {
+          console.error('[Notifications] Scheduler error:', err.message);
+        }
+        try {
+          await autoRefreshScheduledDecks();
+        } catch (err) {
+          console.error('[AutoRefresh] Scheduler error:', err.message);
+        }
+        try {
+          await checkPriceAlerts();
+        } catch (err) {
+          console.error('[PriceAlerts] Scheduler error:', err.message);
+        }
+        try {
+          run(`INSERT INTO server_settings (key, value, updated_at) VALUES ('last_scheduler_run_at', ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+            [String(Date.now())]);
+        } catch (err) {
+          console.error('[Scheduler] Failed to persist last run:', err.message);
+        }
+      } finally {
+        isRunning = false;
+        scheduleNext();
       }
-      try {
-        await autoRefreshScheduledDecks();
-      } catch (err) {
-        console.error('[AutoRefresh] Scheduler error:', err.message);
-      }
-      try {
-        await checkPriceAlerts();
-      } catch (err) {
-        console.error('[PriceAlerts] Scheduler error:', err.message);
-      }
-      run(`INSERT INTO server_settings (key, value, updated_at) VALUES ('last_scheduler_run_at', ?, datetime('now'))
-           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-        [String(Date.now())]);
-      isRunning = false;
-      scheduleNext();
     }, ms);
   }
 

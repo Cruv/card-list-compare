@@ -1,4 +1,7 @@
 import { randomBytes } from 'crypto';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 // Secrets that must never sign real tokens. Includes the historical
 // docker-compose placeholder — a deploy that keeps a public default value can be
@@ -13,6 +16,30 @@ const KNOWN_WEAK_SECRETS = new Set([
 ]);
 
 const MIN_SECRET_LENGTH = 16;
+
+/**
+ * Dev-only fallback secret, persisted next to the database so it survives the
+ * restarts of `node --watch`. A per-process random value would log the developer
+ * out on every file save; a hardcoded value must never exist in the repo.
+ */
+function devSecret() {
+  try {
+    const dbPath = process.env.DB_PATH || join(dirname(fileURLToPath(import.meta.url)), '..', 'data', 'x.db');
+    const dir = dirname(dbPath);
+    const file = join(dir, '.jwt-dev-secret');
+    if (existsSync(file)) {
+      const existing = readFileSync(file, 'utf8').trim();
+      if (existing.length >= MIN_SECRET_LENGTH) return existing;
+    }
+    const generated = randomBytes(32).toString('hex');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, generated, { mode: 0o600 });
+    return generated;
+  } catch {
+    // Read-only filesystem or similar — fall back to a per-process secret.
+    return randomBytes(32).toString('hex');
+  }
+}
 
 /**
  * A secret is weak if it is missing, too short, or a known placeholder.
@@ -36,15 +63,19 @@ export function isWeakSecret(secret) {
 export function resolveJwtSecret(env = process.env) {
   const secret = env.JWT_SECRET;
   if (isWeakSecret(secret)) {
-    if (env.NODE_ENV === 'production') {
+    const supplied = typeof secret === 'string' && secret.length > 0;
+    if (env.NODE_ENV === 'production' || supplied) {
+      // A secret the operator actually supplied is never silently replaced — a
+      // random substitute would invalidate every session on each restart while
+      // looking like it worked. Too weak is an error to fix, not to paper over.
       throw new Error(
-        'JWT_SECRET must be set to a strong, unique value (at least ' +
-          MIN_SECRET_LENGTH +
-          ' chars, not a known default) in production. Generate one with: ' +
+        (supplied ? 'JWT_SECRET is too weak' : 'JWT_SECRET must be set') +
+          ' — use at least ' + MIN_SECRET_LENGTH +
+          ' chars and not a known default. Generate one with: ' +
           "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
       );
     }
-    return { secret: randomBytes(32).toString('hex'), ephemeral: true };
+    return { secret: devSecret(), ephemeral: true };
   }
   return { secret, ephemeral: false };
 }

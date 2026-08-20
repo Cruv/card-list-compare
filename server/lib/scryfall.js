@@ -71,16 +71,27 @@ function normName(s) {
 // each result must populate.
 function buildNameQuery(uncachedNames) {
   const normIndex = new Map();
-  const frontSeen = new Set();
+  const querySeen = new Set();
   const identifiers = [];
   for (const name of uncachedNames) {
     const norm = normName(name);
     if (!normIndex.has(norm)) normIndex.set(norm, []);
     normIndex.get(norm).push(name);
+
     const front = frontFaceName(name);
-    if (!frontSeen.has(front)) {
-      frontSeen.add(front);
+    if (!querySeen.has(front)) {
+      querySeen.add(front);
       identifiers.push({ name: front });
+    }
+    // Also ask for the FULL name when it differs. The front face alone resolves
+    // double-faced cards, but not multi-part split cards — Scryfall has no card
+    // called "Who" ("Who // What // When // Where // Why" is the only name it
+    // knows), so a front-face-only query silently drops them. Whichever
+    // identifier resolves, requestersFor() maps it back to the requested name,
+    // and the first-wins guard makes the redundant hit harmless.
+    if (name !== front && !querySeen.has(name)) {
+      querySeen.add(name);
+      identifiers.push({ name });
     }
   }
   return { identifiers, normIndex };
@@ -205,11 +216,19 @@ export async function fetchCardPrices(cardNames) {
   }));
 }
 
+/** Key for a specific printing: lowercased set + collector number. */
+export function printingKey(setCode, collectorNumber) {
+  return `${String(setCode || '').toLowerCase()}|${collectorNumber}`;
+}
+
 /**
  * Fetch USD prices for specific card printings using set + collector number.
  * Accepts array of { name, set, collectorNumber } objects.
  * Returns Map<string, { priceUsd: number|null, priceUsdFoil: number|null }>
- * Keys are lowercased card names.
+ * **Keyed by PRINTING** (`printingKey(set, collectorNumber)`) — not by card name.
+ * Name keys would collapse every printing of one card into a single entry, so a
+ * deck listing the same card in two printings would price both at whichever
+ * printing Scryfall returned last (a $1 copy charged as a $200 copy).
  * Cards without set+collectorNumber are skipped.
  */
 export async function fetchSpecificPrintingPrices(cards) {
@@ -220,21 +239,17 @@ export async function fetchSpecificPrintingPrices(cards) {
   const withPrinting = cards.filter(c => c.set && c.collectorNumber);
   if (withPrinting.length === 0) return result;
 
-  // Deduplicate by set+collector, and remember which requested name each
-  // printing belongs to so results key by the REQUESTED name, not the echoed
-  // canonical name (accents/DFC would otherwise mismatch — audit H7).
-  const scKeyToName = new Map();
+  // Deduplicate by set+collector; each distinct printing gets its own result key.
   const seen = new Set();
   const unique = [];
   for (const card of withPrinting) {
-    const scKey = `${card.set.toLowerCase()}|${card.collectorNumber}`;
-    scKeyToName.set(scKey, card.name.toLowerCase());
+    const scKey = printingKey(card.set, card.collectorNumber);
     if (seen.has(scKey)) continue;
     seen.add(scKey);
 
     const cached = getCached(specificPriceCache, scKey, PRICE_TTL);
     if (cached) {
-      result.set(card.name.toLowerCase(), cached);
+      result.set(scKey, cached);
     } else {
       unique.push(card);
     }
@@ -270,13 +285,12 @@ export async function fetchSpecificPrintingPrices(cards) {
       const data = await res.json();
 
       for (const card of (data.data || [])) {
-        const scKey = `${(card.set || '').toLowerCase()}|${card.collector_number}`;
+        const scKey = printingKey(card.set, card.collector_number);
         const entry = {
           priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
           priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
         };
-        const nameKey = scKeyToName.get(scKey) || card.name.toLowerCase();
-        result.set(nameKey, entry);
+        result.set(scKey, entry);
         setCache(specificPriceCache, scKey, entry);
       }
     } catch (err) {

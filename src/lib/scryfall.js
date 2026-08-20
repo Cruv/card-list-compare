@@ -178,10 +178,14 @@ async function fetchBatch(batchEntries) {
 
     // Build a lookup from set+collector → entry key for matching results back
     const setCollectorToKey = new Map();
+    // Keys that were actually REQUESTED by name — the only ones a front-face
+    // alias may claim (see below).
+    const requestedNameKeys = new Set();
     for (const e of batchEntries) {
       if (e.identifier.set && e.identifier.collector_number) {
         setCollectorToKey.set(`${e.identifier.set}|${e.identifier.collector_number}`, e.key);
       }
+      if (e.identifier.name) requestedNameKeys.add(e.identifier.name.toLowerCase());
     }
 
     // Map found cards
@@ -214,8 +218,11 @@ async function fetchBatch(batchEntries) {
       // For a double-faced card, Scryfall echoes the full "front // back" name,
       // but callers query and key by the front face. Emit under the front face
       // too, or front-face-only requests never match their result (audit H6).
+      // Only for a front face we actually asked for: Scryfall's ~68 reversible
+      // cards are named "Forest // Forest", "Command Tower // Command Tower" …,
+      // and aliasing those onto "forest" would overwrite the real card's data.
       const frontKey = dfcFrontFace(nameKey);
-      if (frontKey !== nameKey) {
+      if (frontKey !== nameKey && requestedNameKeys.has(frontKey)) {
         results.push({ key: frontKey, ...cardData });
       }
     }

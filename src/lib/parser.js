@@ -79,6 +79,7 @@ function splitCsvLine(line) {
   const fields = [];
   let cur = '';
   let inQuotes = false;
+  let fieldStart = true; // only a leading quote opens a quoted field
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (inQuotes) {
@@ -88,14 +89,24 @@ function splitCsvLine(line) {
       } else {
         cur += ch;
       }
-    } else if (ch === '"') {
+    } else if (ch === '"' && fieldStart) {
       inQuotes = true;
+      fieldStart = false;
     } else if (ch === ',') {
       fields.push(cur);
       cur = '';
+      fieldStart = true;
     } else {
+      // A stray quote mid-field (e.g. 6" Golem) is literal, not a delimiter.
       cur += ch;
+      if (ch !== ' ') fieldStart = false;
     }
+  }
+  if (inQuotes) {
+    // Unterminated quote — the rest of the row would otherwise be swallowed into
+    // one field. Degrade to a plain split like the pre-quote-aware parser did,
+    // so a malformed row still yields usable columns.
+    return line.split(',').map((f) => f.trim().replace(/"/g, ''));
   }
   fields.push(cur);
   return fields.map((f) => f.trim());

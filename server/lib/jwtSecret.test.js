@@ -1,5 +1,20 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { isWeakSecret, resolveJwtSecret } from './jwtSecret.js';
+
+// The dev-secret fallback persists a file next to DB_PATH — point it at a temp
+// dir so the suite never writes into the repo.
+let secretDir;
+beforeAll(() => {
+  secretDir = mkdtempSync(join(tmpdir(), 'clc-jwt-'));
+  process.env.DB_PATH = join(secretDir, 'test.db');
+});
+afterAll(() => {
+  rmSync(secretDir, { recursive: true, force: true });
+  delete process.env.DB_PATH;
+});
 
 describe('isWeakSecret', () => {
   it('rejects missing, empty, and non-string secrets', () => {
@@ -47,12 +62,21 @@ describe('resolveJwtSecret', () => {
     expect(ephemeral).toBe(false);
   });
 
-  it('falls back to an ephemeral random secret outside production', () => {
+  it('falls back to a generated dev secret when none is set outside production', () => {
     const { secret, ephemeral } = resolveJwtSecret({ NODE_ENV: 'development' });
     expect(ephemeral).toBe(true);
     expect(secret).toHaveLength(64); // 32 random bytes as hex
-    // A second resolution yields a different random secret.
-    const again = resolveJwtSecret({ NODE_ENV: 'development' });
-    expect(again.secret).not.toBe(secret);
+  });
+
+  it('reuses the same dev secret across restarts so `node --watch` does not log you out', () => {
+    const first = resolveJwtSecret({ NODE_ENV: 'development' }).secret;
+    const second = resolveJwtSecret({ NODE_ENV: 'development' }).secret;
+    expect(second).toBe(first);
+  });
+
+  it('refuses a supplied-but-weak secret instead of silently substituting one', () => {
+    // Silently swapping in a random value would invalidate every session on each
+    // restart while looking like the configured secret was honored.
+    expect(() => resolveJwtSecret({ NODE_ENV: 'development', JWT_SECRET: 'short' })).toThrow(/too weak/i);
   });
 });

@@ -12,6 +12,11 @@ function mockScryfall(cards) {
   }));
 }
 
+/** The identifiers sent in the most recent Scryfall request. */
+function sentIdentifiers() {
+  return JSON.parse(global.fetch.mock.calls.at(-1)[1].body).identifiers;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -40,13 +45,37 @@ describe('server Scryfall keying (audit H7)', () => {
     expect(map.get('fable of the mirror-breaker')).toEqual({ priceUsd: 4, priceUsdFoil: null });
   });
 
-  it('keys specific-printing prices under the requested name, not the echoed one', async () => {
+  it('queries the front face AND the full name, so split cards are not dropped', async () => {
+    // Scryfall knows no card called "Who" — a front-face-only query loses this
+    // card entirely. The full name must be asked for too.
+    mockScryfall([
+      { name: 'Who // What // When // Where // Why', prices: { usd: '1.00', usd_foil: null } },
+    ]);
+    const map = await fetchCardPrices(['Who // What // When // Where // Why']);
+    const names = sentIdentifiers().map(i => i.name);
+    expect(names).toContain('who // what // when // where // why');
+    expect(map.get('who // what // when // where // why')).toEqual({ priceUsd: 1, priceUsdFoil: null });
+  });
+
+  it('sends the front face for a plain double-faced name', async () => {
+    mockScryfall([{ name: 'Malakir Rebirth // Malakir Mire', prices: { usd: '2.00', usd_foil: null } }]);
+    await fetchCardPrices(['Malakir Rebirth']);
+    expect(sentIdentifiers()).toEqual([{ name: 'malakir rebirth' }]);
+  });
+
+  it('keys specific-printing prices by PRINTING so each printing keeps its own price', async () => {
+    // Two printings of one card at very different prices. Keying by name would
+    // collapse them and charge both at whichever came back last.
     mockScryfall([
       { name: 'Nazgûl', set: 'ltr', collector_number: '332', prices: { usd: '3.00', usd_foil: null } },
+      { name: 'Nazgûl', set: 'ltc', collector_number: '408', prices: { usd: '250.00', usd_foil: null } },
     ]);
     const map = await fetchSpecificPrintingPrices([
       { name: 'Nazgul', set: 'ltr', collectorNumber: '332' },
+      { name: 'Nazgul', set: 'ltc', collectorNumber: '408' },
     ]);
-    expect(map.get('nazgul')).toEqual({ priceUsd: 3, priceUsdFoil: null });
+    expect(map.get('ltr|332')).toEqual({ priceUsd: 3, priceUsdFoil: null });
+    expect(map.get('ltc|408')).toEqual({ priceUsd: 250, priceUsdFoil: null });
+    expect(map.get('nazgul')).toBeUndefined(); // never name-keyed
   });
 });
