@@ -20,7 +20,6 @@ import { parse } from '../lib/parser';
 import { buildOwnedIndex } from '../lib/collectionMatch';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS, formatDeckForMpc } from '../lib/formatter';
 import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
-import { estimatePowerLevel } from '../lib/powerLevel';
 import SectionChangelog from './SectionChangelog';
 import ManaCurveDelta from './ManaCurveDelta';
 import ColorDistributionDelta from './ColorDistributionDelta';
@@ -183,7 +182,7 @@ export default function DeckPage({ deckId }) {
         return;
       }
       setDeck(found);
-    } catch (err) {
+    } catch {
       toast.error('Failed to load deck');
     }
   }, [deckId]);

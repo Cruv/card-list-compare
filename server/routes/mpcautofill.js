@@ -53,7 +53,7 @@ router.get('/thumbnail/:id', async (req, res) => {
     // Stream the response body
     const arrayBuf = await upstream.arrayBuffer();
     res.send(Buffer.from(arrayBuf));
-  } catch (err) {
+  } catch {
     if (!res.headersSent) res.status(502).end();
   }
 });

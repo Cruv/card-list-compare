@@ -20,7 +20,7 @@ export default memo(function DeckGridCard({ deck, bulkMode, isSelected, onToggle
     && deck.last_known_price > 0
     && Math.abs(deck.last_known_budget_price - deck.last_known_price) >= 0.01;
 
-  function handleClick(e) {
+  function handleClick() {
     if (bulkMode) {
       onToggleSelect(deck.id);
       return;

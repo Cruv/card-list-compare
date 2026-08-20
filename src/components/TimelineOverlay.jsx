@@ -104,7 +104,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
         const cardMap = await fetchCardData(identifiers);
         setDiffCardMap(cardMap);
       }
-    } catch (err) {
+    } catch {
       toast.error('Failed to load changelog');
     } finally {
       setDiffLoading(false);
@@ -126,7 +126,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
         const cardMap = await fetchCardData(identifiers);
         setDeckCardMap(cardMap);
       }
-    } catch (err) {
+    } catch {
       toast.error('Failed to load deck');
     } finally {
       setDeckLoading(false);

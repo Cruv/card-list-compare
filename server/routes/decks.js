@@ -10,7 +10,7 @@ import { fetchDeck } from '../lib/archidekt.js';
 import { archidektToText } from '../lib/deckToText.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
 import { pruneSnapshots } from '../lib/pruneSnapshots.js';
-import { fetchCardPrices, fetchCardMetadata, fetchSpecificPrintingPrices } from '../lib/scryfall.js';
+import { fetchCardMetadata } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
 import { submitJob, getJobStatus } from '../lib/downloadQueue.js';
 
@@ -741,7 +741,7 @@ router.get('/:id/download-jobs/:jobId/file', (req, res) => {
   createReadStream(job.file_path).pipe(res);
 });
 
-function formatJobResponse(job, deckId) {
+function formatJobResponse(job, _deckId) {
   const response = {
     jobId: job.id,
     status: job.status,

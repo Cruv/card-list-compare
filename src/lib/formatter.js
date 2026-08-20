@@ -539,7 +539,7 @@ export function formatTTS(text, cardMap, commanders = []) {
   if (deckCards.length === 0) return '';
 
   // Build TTS deck object
-  const containedObjects = deckCards.map((card, idx) => ({
+  const containedObjects = deckCards.map((card) => ({
     CardID: card.id * 100,
     Name: 'CardCustom',
     Nickname: card.name,

@@ -64,13 +64,19 @@ that ever matters, gate `:latest`/semver tags on a `v*` tag or a release-commit 
 (one workflow line) — recorded here so the choice is explicit, not accidental.
 **Where.** `.github/workflows/docker-publish.yml`.
 
-## D6 — Lint is advisory until the pre-existing debt is cleared
+## D6 — Lint blocks CI (backlog cleared 2026-08)
 
-**Decision.** `npm run lint` runs in CI with `continue-on-error: true`. The rule for
-contributors: **never ADD lint errors**, but the ~40 pre-existing ones don't block.
-**Why.** Turning the gate on today would block every commit on unrelated debt.
-**Cost.** Green CI doesn't mean zero lint errors. Remove `continue-on-error` once the backlog
-is clean. **Where.** `.github/workflows/docker-publish.yml`, `eslint.config.js`.
+**Decision.** `npm run lint` must exit clean; CI fails on any ESLint **error**. Warnings are
+allowed and visible. The ~40-error backlog that made this advisory is gone.
+**Why.** A gate only works if green means green. With zero errors, any new one is a real
+signal instead of noise.
+**Cost.** Two rules are deliberately tuned rather than obeyed literally, both documented in
+`eslint.config.js`: `react-refresh/only-export-components` allows the provider+hook and
+component+helper pairs this codebase uses on purpose, and `react-hooks/set-state-in-effect`
+is a **warning** because every current hit is the standard fetch-on-mount pattern
+(`useEffect(() => refresh(), [refresh])`) — restructuring data fetching across the admin
+panels is a project, not lint cleanup.
+**Where.** `.github/workflows/docker-publish.yml`, `eslint.config.js`.
 
 ## D7 — Auth: JWT bearer tokens, bcrypt passwords, hashed email/reset tokens
 

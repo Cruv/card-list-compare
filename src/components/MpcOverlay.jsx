@@ -122,7 +122,8 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   const metaLoaded = useRef(false);
 
   // DFC back-face state
-  const [dfcPairs, setDfcPairs] = useState({});
+  // Only the setter is used — back-face results are rendered from dfcBackResults.
+  const [, setDfcPairs] = useState({});
   const [dfcBackResults, setDfcBackResults] = useState([]);
 
   // Alt art picker state

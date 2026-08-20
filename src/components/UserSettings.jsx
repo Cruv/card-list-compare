@@ -10,7 +10,7 @@ import PasswordRequirements from './PasswordRequirements';
 import './UserSettings.css';
 
 export default function UserSettings() {
-  const { user, logoutUser, loginUser } = useAuth();
+  const { user, logoutUser } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
   const [activeTab, setActiveTab] = useState('account');
 

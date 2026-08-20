@@ -165,7 +165,6 @@ function splitSections(rawText) {
   const commanderLines = [];
   let currentTarget = mainLines;
   let foundExplicitSideboard = false;
-  let foundExplicitCommander = false;
   let blankLineCount = 0;
   let hasSeenContent = false;
 
@@ -174,7 +173,6 @@ function splitSections(rawText) {
 
     if (COMMANDER_HEADER.test(trimmed)) {
       currentTarget = commanderLines;
-      foundExplicitCommander = true;
       continue;
     }
 

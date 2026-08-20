@@ -17,7 +17,7 @@ import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
-import { collectCardNames, collectCardIdentifiers, fetchCardData } from './lib/scryfall';
+import { collectCardIdentifiers, fetchCardData } from './lib/scryfall';
 import { createShare, getShare, verifyEmail } from './lib/api';
 import { toast } from './components/Toast';
 import { preloadManaSymbols } from './components/ManaCost';

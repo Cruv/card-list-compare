@@ -6,14 +6,14 @@ const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Only "loading" when there is actually a token to validate — deriving it up
+  // front avoids a needless render pass (and a setState inside the effect) for
+  // the common signed-out case.
+  const [loading, setLoading] = useState(() => !!localStorage.getItem('clc-auth-token'));
 
   useEffect(() => {
     const token = localStorage.getItem('clc-auth-token');
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+    if (!token) return;
 
     getMe()
       .then(data => setUser(data.user))

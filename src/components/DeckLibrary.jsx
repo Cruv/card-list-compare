@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import {
@@ -17,7 +16,6 @@ import './UserSettings.css';
 import './DeckLibrary.css';
 
 export default function DeckLibrary() {
-  const { user } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
   const [activeTab, setActiveTab] = useState('deck-tracker');
 

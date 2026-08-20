@@ -48,6 +48,9 @@ export default function AdminUserList({ currentUserId }) {
   const [confirm, ConfirmDialog] = useConfirm();
   const searchTimerRef = useRef(null);
   const [searchInput, setSearchInput] = useState('');
+  // Timestamp captured when rows load — lock expiry is compared against this
+  // rather than reading the clock during render (which makes render impure).
+  const [loadedAt, setLoadedAt] = useState(() => Date.now());
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -55,6 +58,7 @@ export default function AdminUserList({ currentUserId }) {
       .then(d => {
         setUsers(d.users);
         setTotal(d.total);
+        setLoadedAt(Date.now());
       })
       .catch(() => toast.error('Failed to load users'))
       .finally(() => setLoading(false));
@@ -72,15 +76,6 @@ export default function AdminUserList({ currentUserId }) {
     }, 300);
   }
 
-  function handleSort(newSort) {
-    if (sort === newSort) {
-      setOrder(o => (o === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSort(newSort);
-      setOrder('desc');
-    }
-    setPage(1);
-  }
 
   async function handleResetPassword(userId) {
     if (!resetPw || resetPw.length < 8) {
@@ -197,19 +192,17 @@ export default function AdminUserList({ currentUserId }) {
     }
   }
 
+  // `loadedAt` is captured when the rows arrive, not read during render — a
+  // clock read while rendering makes the output non-idempotent.
   function isLocked(u) {
     if (!u.locked_until) return false;
-    return new Date(u.locked_until + (u.locked_until.endsWith('Z') ? '' : 'Z')).getTime() > Date.now();
+    return new Date(u.locked_until + (u.locked_until.endsWith('Z') ? '' : 'Z')).getTime() > loadedAt;
   }
 
   const totalPages = Math.ceil(total / limit);
   const startItem = (page - 1) * limit + 1;
   const endItem = Math.min(page * limit, total);
 
-  const sortArrow = (key) => {
-    if (sort !== key) return '';
-    return order === 'asc' ? ' ↑' : ' ↓';
-  };
 
   return (
     <div>

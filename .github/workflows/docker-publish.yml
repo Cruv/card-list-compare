@@ -36,11 +36,10 @@ jobs:
       - name: Test (includes invariant-sync tests)
         run: npm test
 
-      # Advisory until pre-existing lint debt is cleared — must not ADD errors.
-      # Remove continue-on-error once `npm run lint` is clean.
-      - name: Lint (advisory)
+      # Blocking since the backlog was cleared (docs/DECISIONS.md D6). Errors fail
+      # the build; warnings are still allowed and visible in the log.
+      - name: Lint
         run: npm run lint
-        continue-on-error: true
 
   build-and-push:
     needs: test

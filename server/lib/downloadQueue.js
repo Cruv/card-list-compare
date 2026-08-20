@@ -11,7 +11,7 @@ import { mkdirSync, existsSync, unlinkSync, statSync, readdirSync, createWriteSt
 import { get, all, run } from '../db.js';
 import { parse } from '../../src/lib/parser.js';
 import { fetchCardImageUrls, downloadCardImagesWithCache } from './scryfallImages.js';
-import { initImageCache, cleanExpiredImages, enforceSizeLimit, getCacheStats } from './imageCache.js';
+import { initImageCache, cleanExpiredImages, enforceSizeLimit } from './imageCache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || join(__dirname, '..', 'data', 'cardlistcompare.db');
@@ -25,7 +25,6 @@ const IMAGE_CACHE_MAX_DAYS = 30;
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 let workerActive = false;
-let cleanupTimer = null;
 
 /** Initialize the download queue system. Call at server startup after initDb(). */
 export function initDownloadQueue() {
@@ -42,7 +41,7 @@ export function initDownloadQueue() {
 
   // Run initial cleanup, then schedule hourly
   runCleanup();
-  cleanupTimer = setInterval(runCleanup, CLEANUP_INTERVAL_MS);
+  setInterval(runCleanup, CLEANUP_INTERVAL_MS);
 
   console.log('[DownloadQueue] Initialized');
 }

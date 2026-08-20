@@ -10,7 +10,6 @@ import {
   fsyncSync,
   closeSync,
   renameSync,
-  copyFileSync,
   unlinkSync,
 } from 'fs';
 
