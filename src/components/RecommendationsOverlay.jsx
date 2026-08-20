@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { getDeckRecommendations, getDeckSnapshots, getSnapshot } from '../lib/api';
+import { useModalLayer } from '../lib/useModalLayer';
 import { parse } from '../lib/parser';
 import { fetchCardData } from '../lib/scryfall';
 import { generateRecommendations, getStapleCardNames } from '../lib/recommendations';
@@ -93,14 +94,10 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
     return () => { cancelled = true; };
   }, [deckId]);
 
-  // Escape to close
-  useEffect(() => {
-    function handleKeyDown(e) {
-      if (e.key === 'Escape') onClose();
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  // Escape-to-close, focus trap and scroll lock (this overlay previously had no
+  // scroll lock), stack-aware — see useModalLayer.
+  const panelRef = useRef(null);
+  useModalLayer(onClose, { containerRef: panelRef });
 
   const filtered = useMemo(() => {
     let list = recommendations;
@@ -123,8 +120,8 @@ export default function RecommendationsOverlay({ deckId, deckName, onClose }) {
   }, [recommendations]);
 
   return createPortal(
-    <div className="recs-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="recs-overlay-panel">
+    <div className="recs-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="dialog" aria-modal="true" aria-label={`Suggestions for ${deckName}`}>
+      <div className="recs-overlay-panel" ref={panelRef} tabIndex={-1}>
         {/* Header */}
         <div className="recs-overlay-header">
           <div className="recs-overlay-title-row">

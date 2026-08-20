@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { getDeckPriceHistory } from '../lib/api';
+import { useModalLayer } from '../lib/useModalLayer';
 import PriceHistoryChart from './PriceHistoryChart';
 import Skeleton from './Skeleton';
 import { toast } from './Toast';
@@ -18,18 +19,9 @@ export default function PriceHistoryOverlay({ deckId, deckName, onClose }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
 
-  // Escape to close
-  useEffect(() => {
-    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose]);
-
-  // Prevent body scroll
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
+  // Escape-to-close, focus trap and scroll lock, stack-aware (see useModalLayer).
+  const panelRef = useRef(null);
+  useModalLayer(onClose, { containerRef: panelRef });
 
   // Load price history data
   useEffect(() => {
@@ -64,7 +56,7 @@ export default function PriceHistoryOverlay({ deckId, deckName, onClose }) {
 
   return createPortal(
     <div className="price-history-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Price history">
-      <div className="price-history-overlay-panel" onClick={e => e.stopPropagation()}>
+      <div className="price-history-overlay-panel" onClick={e => e.stopPropagation()} ref={panelRef} tabIndex={-1}>
         {/* Header */}
         <div className="price-history-overlay-header">
           <div className="price-history-overlay-title-row">

@@ -24,10 +24,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.41.2';
+const APP_VERSION = '2.42.0';
 const WHATS_NEW = [
-  'Price alerts now fire reliably — the comparison baseline no longer resets when you view prices, so gradual changes actually trigger',
-  'Deck settings now tell you when your email isn’t verified (email alerts need it; Discord webhooks don’t)',
+  'Escape now closes just the overlay you’re looking at, instead of everything at once',
+  'Opening a deck link while signed out shows a proper sign-in prompt rather than bouncing you to the compare screen',
+  'Dialogs keep keyboard focus inside them and hand it back when they close',
 ];
 
 function getResetToken() {
@@ -40,8 +41,16 @@ function getVerifyToken() {
   return params.get('verify') || null;
 }
 
+// Hash routes that require a signed-in user, mapped to their display name.
+const AUTH_ROUTES = {
+  settings: 'Account settings',
+  library: 'The deck library',
+  libraryDeck: 'This deck',
+  admin: 'The admin panel',
+};
+
 export default function App() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { route, shareId, deckShareId, deckId } = useHashRoute();
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
@@ -209,6 +218,36 @@ export default function App() {
             window.history.replaceState(null, '', window.location.pathname);
           }}
         />
+      </div>
+    );
+  }
+
+  // Auth-gated routes must wait for the auth check to finish before deciding
+  // what to render. Without this, reloading #library flashes the compare UI
+  // (user is briefly null) and #admin flashes "Access Denied" at a real admin.
+  if (AUTH_ROUTES[route] && authLoading) {
+    return <div className="app-loading">Loading...</div>;
+  }
+
+  // Auth resolved and signed out: say so and offer a way in, instead of
+  // silently dropping the visitor on the compare UI with no explanation.
+  if (AUTH_ROUTES[route] && !user) {
+    return (
+      <div className="app" role="main">
+        <header className="app-header">
+          <AuthBar onShowForgotPassword={() => { setShowForgotPassword(true); }} />
+          <h1 className="app-title">Card List Compare</h1>
+        </header>
+        {showForgotPassword && (
+          <ErrorBoundary>
+            <ForgotPassword onClose={() => setShowForgotPassword(false)} />
+          </ErrorBoundary>
+        )}
+        <div className="app-auth-required">
+          <h2>Sign in required</h2>
+          <p>{AUTH_ROUTES[route]} is only available when you&rsquo;re signed in.</p>
+          <a className="btn btn-secondary" href="#">&larr; Back to Compare</a>
+        </div>
       </div>
     );
   }

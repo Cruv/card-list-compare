@@ -13,6 +13,26 @@
   font-size: var(--fs-base);
 }
 
+/* Shown when a signed-out visitor opens an auth-gated route (#library, #admin…) */
+.app-auth-required {
+  max-width: 30rem;
+  margin: var(--space-xl, 32px) auto;
+  padding: var(--space-lg, 24px);
+  text-align: center;
+  background: var(--bg-elevated, rgba(255, 255, 255, 0.04));
+  border-radius: var(--radius, 8px);
+}
+
+.app-auth-required h2 {
+  margin: 0 0 var(--space-sm, 8px);
+  font-size: var(--fs-lg, 1.25rem);
+}
+
+.app-auth-required p {
+  margin: 0 0 var(--space-md, 16px);
+  color: var(--text-secondary);
+}
+
 .app-header {
   text-align: center;
   margin-bottom: var(--space-xl);

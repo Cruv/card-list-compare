@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
+import { useModalLayer } from '../lib/useModalLayer';
 import './ConfirmModal.css';
 
 /**
@@ -27,25 +28,19 @@ export default function ConfirmModal({
 }) {
   const confirmRef = useRef(null);
   const inputRef = useRef(null);
+  const modalRef = useRef(null);
   const [typed, setTyped] = useState('');
   const needsTyping = !!typeToConfirm;
   const typingMatches = !needsTyping || typed === typeToConfirm;
 
-  useEffect(() => {
-    if (needsTyping) {
-      inputRef.current?.focus();
-    } else {
-      confirmRef.current?.focus();
-    }
-  }, [needsTyping]);
-
-  useEffect(() => {
-    function handleKey(e) {
-      if (e.key === 'Escape') onCancel();
-    }
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [onCancel]);
+  // Escape-to-cancel, focus trap and scroll lock. As the topmost layer, a
+  // confirm opened from inside an overlay takes the keypress without also
+  // closing that overlay. Initial focus keeps the previous behavior: the type-to-
+  // confirm input when present, otherwise the confirm button.
+  useModalLayer(onCancel, {
+    containerRef: modalRef,
+    initialFocusRef: needsTyping ? inputRef : confirmRef,
+  });
 
   return (
     <div
@@ -56,7 +51,7 @@ export default function ConfirmModal({
       aria-labelledby="confirm-modal-title"
       aria-describedby={message ? 'confirm-modal-desc' : undefined}
     >
-      <div className="confirm-modal" onClick={e => e.stopPropagation()}>
+      <div className="confirm-modal" onClick={e => e.stopPropagation()} ref={modalRef} tabIndex={-1}>
         <h3 className="confirm-modal-title" id="confirm-modal-title">{title}</h3>
         {message && <p className="confirm-modal-message" id="confirm-modal-desc">{message}</p>}
         {needsTyping && (

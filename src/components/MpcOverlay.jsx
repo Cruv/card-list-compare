@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags, mpcGetAlternates, getMpcOverrides, saveMpcOverrides } from '../lib/api';
+import { useModalLayer } from '../lib/useModalLayer';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import './MpcOverlay.css';
@@ -160,18 +161,16 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
     });
   }, [deckId]);
 
-  // Escape closes overlay (or settings/alt picker panel if open)
-  useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key === 'Escape') {
-        if (altPickerCard) { setAltPickerCard(null); setAlternates([]); }
-        else if (showSettings) setShowSettings(false);
-        else onClose();
-      }
-    };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
+  // Escape closes the innermost thing first: alt picker → settings → overlay.
+  // Runs only while this is the topmost layer, so an Escape here never also
+  // closes the overlay this one was opened from (e.g. TimelineOverlay).
+  const panelRef = useRef(null);
+  const handleEscape = useCallback(() => {
+    if (altPickerCard) { setAltPickerCard(null); setAlternates([]); }
+    else if (showSettings) setShowSettings(false);
+    else onClose();
   }, [onClose, showSettings, altPickerCard]);
+  useModalLayer(handleEscape, { containerRef: panelRef });
 
   // Search MPC Autofill
   const doSearch = useCallback(async (settings) => {
@@ -526,7 +525,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
 
   return createPortal(
     <div className="mpc-overlay" onClick={showSettings || altPickerCard ? undefined : onClose} role="dialog" aria-modal="true" aria-label="Print Proxies">
-      <div className="mpc-overlay-panel" onClick={e => e.stopPropagation()}>
+      <div className="mpc-overlay-panel" onClick={e => e.stopPropagation()} ref={panelRef} tabIndex={-1}>
         {/* Header */}
         <div className="mpc-overlay-header">
           <div className="mpc-overlay-title-row">

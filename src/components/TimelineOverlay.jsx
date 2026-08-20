@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useModalLayer } from '../lib/useModalLayer';
 import { useAppSettings } from '../context/AppSettingsContext';
 import { getDeckChangelog, getSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
@@ -85,18 +86,10 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
   const [deckText, setDeckText] = useState(null); // raw deck_text for export
   const [showMpc, setShowMpc] = useState(false);
 
-  // Escape to close
-  useEffect(() => {
-    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose]);
-
-  // Prevent body scroll
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-    return () => { document.body.style.overflow = ''; };
-  }, []);
+  // Escape-to-close, focus trap and body scroll lock, coordinated with any
+  // overlay stacked above this one (e.g. MpcOverlay) — see useModalLayer.
+  const panelRef = useRef(null);
+  useModalLayer(onClose, { containerRef: panelRef });
 
   // Load changes data
   const loadChanges = useCallback(async () => {
@@ -226,7 +219,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
 
   return createPortal(
     <div className="timeline-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Snapshot details">
-      <div className="timeline-overlay-panel" onClick={e => e.stopPropagation()}>
+      <div className="timeline-overlay-panel" onClick={e => e.stopPropagation()} ref={panelRef} tabIndex={-1}>
         {/* Header */}
         <div className="timeline-overlay-header">
           <div className="timeline-overlay-title-row">
