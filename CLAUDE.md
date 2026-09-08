@@ -121,6 +121,7 @@ recommendations, faq) — or state "Guide: no impact" in the commit body.
 `docs/DECISIONS.md` (why, D-numbered) · `docs/OPERATIONS.md` (DB recovery, external-API
 drift, deploy) · `docs/ROADMAP.md` (the committed backlog) · `SECURITY.md` (deploy + auth
 model) · `docs/PRINT_WORKFLOW.md` (proposed PDF/printer integration, not shipped).
+`docs/MANASYNC_INTEGRATION.md` preserves the future inventory/purchase companion discussion.
 Check DECISIONS.md before changing an approach; amend it in the same commit.
 
 ## Concurrent sessions (the owner may run parallel Claude sessions here)

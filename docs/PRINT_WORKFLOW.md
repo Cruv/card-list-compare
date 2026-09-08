@@ -56,6 +56,19 @@ existing playable copy. A 2-to-5 increase needs three copies; a removal needs no
 one physical card with two required faces. Reprinting an unchanged deck is a deliberate new
 job, distinguishable from retrying an existing request.
 
+### Future inventory-aware planning
+
+The [ManaSync integration context](MANASYNC_INTEGRATION.md) adds a future mode that checks
+available real cards and previously produced proxies before buying or printing more. The
+snapshot delta above describes deck changes; it does not establish the household's missing
+physical inventory. Account for deck allocations, pending purchases and job reservations,
+while keeping explicit full-deck/reprint behavior available.
+
+Once the companion contract is agreed, capture its inventory revision and any reservations
+in the immutable print manifest. Record produced proxy quantities with an idempotent batch
+reference; PDF creation or queue submission alone must not credit available physical copies.
+The exact confirmation event is still an open design question. This adds no drying tracking.
+
 Do not directly reuse display-diff keys as the print identity. Today they can collapse
 printings with the same collector number across sets and miss foil-only changes; one DFC
 full-name/front-name case is also unresolved. MPC overrides are per name. The planner needs
@@ -78,16 +91,53 @@ or later art edits must not alter a queued job's stored inputs.
 
 ## Silhouette PDF adapter
 
-Inspected upstream commit: `4d4aa73a95e93b09676c863a1861765863398c63`.
-Pin it and its dependencies in a separate Python worker; the existing Alpine Node image
-does not contain this runtime. Preserve upstream licensing when distributing its code.
+Upstream source: [Alan-Cha/silhouette-card-maker](https://github.com/Alan-Cha/silhouette-card-maker).
+The printing-capable CLC container must include the Git/Python runtime and run this project's
+actual PDF-generation code. An image ZIP plus instructions to run the tool manually is not
+the intended integration. The current Alpine Node image does not yet include this runtime.
+Preserve upstream licensing when distributing its code.
+
+### Container updates and offline fallback — owner requirement
+
+On container startup, clone the newest upstream `main` if no local copy exists, or fetch
+the newest `origin/main` when a copy already exists. Keep the generator under the existing
+data bind mount, for example `/app/data/silhouette-card-maker/`, so its usable source and
+dependencies survive container replacement. "Latest" here means the upstream main-branch
+HEAD at the successful update check, not the reference commit inspected below.
+
+- Check for updates with a bounded timeout. A GitHub/DNS/network failure must leave the
+  stored version intact and let PDF generation continue with that last working copy.
+- Stage a candidate version separately, prepare its compatible Python dependencies, and
+  run CLI/PDF smoke checks before promoting it. Failed fetches, dependency installs or
+  validation must not overwrite the active working installation.
+- Persist the usable dependency environment/cache as well as source, with a runtime/platform
+  compatibility marker. Keeping only a clone is not sufficient for offline use if it still
+  needs packages downloaded. Container runtime changes may require rebuilding dependencies;
+  report an incompatible cache clearly rather than claiming offline readiness.
+- Atomically select the validated version and retain the previous working version. Record
+  the active commit, last successful check and any fallback reason in operational status.
+- Give each job an immutable reference to its selected commit/dependencies. An update must
+  not alter a running job; retain versions needed by active jobs and reproducible artifacts.
+- If first startup has no usable cached installation and upstream cannot be reached, keep
+  CLC available and report PDF generation unavailable with a retry path. There is no cached
+  fallback to use in that case.
+
+This automatic update/fallback behavior is a required part of the future implementation,
+not an existing container capability. Update activation must validate any adapter/color
+pipeline changes against the household recipe; never silently alter crop, scaling,
+registration or color settings because upstream defaults changed.
+
+The inspection reference was commit `4d4aa73a95e93b09676c863a1861765863398c63`. Links below
+document the interface reviewed at that point, not a permanent version pin. The adapter must
+detect incompatible upstream changes and keep using its last working installation.
 
 The [CLI](https://github.com/Alan-Cha/silhouette-card-maker/blob/4d4aa73a95e93b09676c863a1861765863398c63/create_pdf.py)
 accepts explicit input/output paths, paper/card sizes, registration mode and resolution.
 Example invocation for an **illustrative, unvalidated** Letter/standard/three-mark recipe:
 
 ```bash
-python /opt/silhouette-card-maker/create_pdf.py \
+/app/data/silhouette-card-maker/active/venv/bin/python \
+  /app/data/silhouette-card-maker/active/source/create_pdf.py \
   --front_dir_path /job/front \
   --back_dir_path /job/back \
   --double_sided_dir_path /job/double_sided \
@@ -95,8 +145,10 @@ python /opt/silhouette-card-maker/create_pdf.py \
   --paper_size letter --card_size standard --registration 3 --ppi 300
 ```
 
-Invoke using an argument array, fixed executable and timeout, with closed stdin and an
-isolated job working directory. The final recipe must match the actual cutter template.
+Invoke using an argument array, validated executable and timeout, with closed stdin and an
+isolated job working directory. The example shows the active installation; the worker must
+resolve it to an immutable version path when claiming a job. The final recipe must match
+the actual cutter template.
 
 The upstream [image staging code](https://github.com/Alan-Cha/silhouette-card-maker/blob/4d4aa73a95e93b09676c863a1861765863398c63/utilities.py)
 requires a unique numbered front filename per copy and an identical filename/extension for
@@ -174,7 +226,10 @@ steps stay in the household's existing routine after printing.
 ## Implementation sequence and acceptance
 
 1. **Planner and PDF download:** implement immutable manifests, full/delta counts, image
-   completeness, adapter, preview and cancel/retry. Test removals, quantity increases,
+   completeness, integrated generator/update cache, adapter, preview and cancel/retry.
+   Verify first online clone, successful update, unreachable upstream with a cached copy,
+   failed candidate install/validation, offline container recreation, concurrent jobs during
+   updates, and the no-cache/offline failure state. Test removals, quantity increases,
    repeated art, multi-printings, DFCs, zone moves, empty changes and same-second snapshots.
    Render PDFs and verify size, page count, every front/back slot, registration and color tags.
 2. **Household proof:** capture the current Windows recipe, choose the exact matching cutter

@@ -8,14 +8,31 @@ which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 ## Next feature — household PDF generation and Epson printing
 
 Design: [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Start with full-snapshot and physical-copy
-delta planning, persisted artwork/face manifests, and downloadable PDFs produced by a pinned
-Silhouette Card Maker worker. Then validate the household's paper, cutter template, color
+delta planning, persisted artwork/face manifests, and downloadable PDFs produced by integrated
+Silhouette Card Maker code. The container must clone/fetch the latest upstream main, keep a
+working installation in the data bind mount, and use it if an update cannot be reached or
+validated. Freeze the generator version per job. Then validate the household's paper, cutter template, color
 recipe and front/back alignment before connecting a Mac or Windows print bridge.
 
 The final experience is an authorized household user preparing and queueing the latest deck
 or the copies needed since another snapshot. Drying tracking is explicitly out of scope;
 the household handles its usual wait outside CLC. Printing does not advance the assembled
 paper-deck marker. No PDF generation or printer submission is implemented yet.
+
+## Planned companion integration — ManaSync
+
+Context and open decisions: [MANASYNC_INTEGRATION.md](MANASYNC_INTEGRATION.md), captured
+from the owner's Discord proposal and conversation screenshots. Coordinate CLC with a
+per-user purchase/inventory companion: Mana Pool orders, manual buys, ManaBox scan-session
+CSV imports and collection reconciliation, separate proxy counts, deck allocations and
+QR-labeled storage. CLC should consult inventory to avoid duplicate purchases/reprints and
+record proxy batches through an agreed API.
+
+The working direction is PWA first with offline collection access; native iOS and a Discord
+CSV bot are optional later ideas. Collection authority (ManaBox mirror versus ManaSync as
+source), actual vendor/CSV capabilities, and the companion repo/API remain to be agreed.
+Preserve the intended collaboration split: owner continues CLC; Denny starts the companion
+and shares a repo/backlog. This is future integration context, not implemented functionality.
 
 ## Open — reviewed 2026-09-08
 
