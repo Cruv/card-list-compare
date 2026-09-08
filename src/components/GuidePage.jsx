@@ -54,7 +54,7 @@ function GettingStarted() {
       <h4>What You Can Do</h4>
       <ul>
         <li>Compare any two deck lists from any source</li>
-        <li>Import directly from Archidekt, Moxfield, DeckCheck, TappedOut, and Deckstats URLs</li>
+        <li>Import deck URLs from Archidekt, Moxfield, DeckCheck, TappedOut, Deckstats, MTGGoldfish, and TCGPlayer</li>
         <li>Track decks with automatic snapshot history and interactive timelines</li>
         <li>View deck analytics: mana curve, color distribution, price tracking, power level</li>
         <li>Generate proxy print files for MakePlayingCards (MPC)</li>
@@ -138,7 +138,23 @@ function ImportingDecks() {
         <li>
           <strong>Deckstats</strong> &mdash; card names and quantities.
         </li>
+        <li>
+          <strong>MTGGoldfish</strong> and <strong>TCGPlayer</strong> &mdash; import handlers
+          are included, though their current live availability has not been verified.
+        </li>
       </ul>
+      <p>
+        Third-party sites can block imports or change their export formats. If a URL import
+        fails, export the deck as text from that site and paste it into a comparison panel.
+      </p>
+
+      <h4>Blank Lines in Commander Lists</h4>
+      <p>
+        With an explicit <code>Commander</code> or <code>Command Zone</code> header,
+        blank lines can separate mainboard card groups. Mark sideboard cards with a{' '}
+        <code>Sideboard</code> header or <code>SB:</code> prefixes. Lists without a
+        Commander header still use the first blank line to separate the sideboard.
+      </p>
 
       <h4>Metadata Coverage Feedback</h4>
       <p>
@@ -216,10 +232,10 @@ function DeckLibrary() {
       <h4>Snapshot Management</h4>
       <ul>
         <li><strong>Lock</strong> &mdash; protect important snapshots from auto-pruning (configurable limit, default 5 locked per deck)</li>
-        <li><strong>Paper marker</strong> &mdash; mark a snapshot as your physical deck to compare it against the latest digital version</li>
+        <li><strong>Paper marker</strong> &mdash; mark a snapshot as your physical deck to compare it against the latest digital version; it remains protected from auto-pruning even if unlocked</li>
         <li><strong>Nicknames</strong> &mdash; give snapshots custom names for easy reference</li>
         <li><strong>Compare</strong> &mdash; select any two snapshots to see a detailed diff in an overlay</li>
-        <li><strong>Auto-pruning</strong> &mdash; oldest unlocked snapshots are automatically deleted when the count exceeds the limit (default 25 per deck)</li>
+        <li><strong>Auto-pruning</strong> &mdash; oldest unlocked snapshots without the paper marker are automatically deleted when the count exceeds the limit (default 25 per deck)</li>
       </ul>
 
       <h4>Auto-Refresh</h4>
@@ -256,7 +272,7 @@ function DeckAnalytics() {
         <li><strong>Check Prices</strong> &mdash; fetch current prices from Scryfall with a per-card breakdown and total</li>
         <li><strong>Budget prices</strong> &mdash; see the cheapest printing total alongside your owned printing total, with the potential savings</li>
         <li><strong>Price history chart</strong> &mdash; a smooth SVG chart showing your deck's value over time across snapshots, with high/low/change stats</li>
-        <li><strong>Price alerts</strong> &mdash; set a threshold and get notified when your deck's price crosses it</li>
+        <li><strong>Price alerts</strong> &mdash; set a dollar-change threshold and get notified when your deck's value rises or falls by at least that amount from the saved baseline; choose specific or cheapest printings</li>
         <li><strong>Price impact</strong> &mdash; changelogs show the cost impact of cards added, removed, and changed</li>
       </ul>
 
@@ -289,7 +305,8 @@ function ProxyPrinting() {
 
       <h4>MPC Autofill</h4>
       <p>
-        From the <strong>Print Proxies</strong> tab on a deck page, the app searches the MPC
+        From <strong>Print Proxies (MPCFill)</strong> in a deck page's <strong>Full Deck</strong>
+        {' '}tab, the app searches the MPC
         Autofill database for proxy-quality artwork for every card in your deck. You can
         customize the search with filters:
       </p>
@@ -305,11 +322,13 @@ function ProxyPrinting() {
       <p>
         Click any card to search for alternative artwork and select your preferred printing.
         Your choices are saved per-deck and persist across sessions (synced to the server).
+        Saved art, including double-faced card backs, stays available when you search again
+        or view another snapshot. Use <strong>Reset Art</strong> to clear those choices.
       </p>
 
       <h4>Export Options</h4>
       <ul>
-        <li><strong>Download XML</strong> &mdash; for use with the MPC Autofill browser extension</li>
+        <li><strong>Download XML</strong> &mdash; for use with the MPC Autofill desktop tool</li>
         <li><strong>Download ZIP</strong> &mdash; all selected card images in a ZIP archive</li>
         <li><strong>Cardstock selection</strong> &mdash; Standard Smooth, Superior Smooth, Smooth, Linen, or Plastic</li>
       </ul>
@@ -373,7 +392,8 @@ function ExportFormats() {
         </li>
         <li>
           <strong>Download for TTS</strong> &mdash; Tabletop Simulator JSON import file with
-          Scryfall images, proper zones (mainboard, sideboard), and commander placement.
+          Scryfall images. It creates one deck ordered with commanders first, then mainboard
+          and sideboard cards; arrange the zones after importing into TTS.
         </li>
       </ul>
 
@@ -447,7 +467,8 @@ function FAQ() {
         <p className="guide-faq-a">
           To prevent unlimited snapshot growth, the oldest unlocked snapshots are automatically
           deleted when a deck exceeds the snapshot limit (default: 25 per deck). Lock important
-          snapshots to protect them from pruning. The limits are configurable by your admin.
+          snapshots to protect them from pruning. The snapshot with the paper marker is also
+          protected, even if unlocked. The limits are configurable by your admin.
         </p>
       </div>
 
@@ -492,7 +513,8 @@ function FAQ() {
         <p className="guide-faq-q">What happens if I delete a snapshot?</p>
         <p className="guide-faq-a">
           Snapshot deletion is permanent. Locked snapshots cannot be deleted &mdash; you must
-          unlock them first. The paper snapshot also cannot be deleted while it is marked as paper.
+          unlock them first. An unlocked paper snapshot can be deleted manually; doing so clears
+          the deck's paper marker.
         </p>
       </div>
 

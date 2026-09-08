@@ -30,7 +30,7 @@ export function pruneSnapshots(trackedDeckId) {
   const excess = countRow.count - max;
 
   const toDelete = all(
-    'SELECT id FROM deck_snapshots WHERE tracked_deck_id = ? AND locked = 0 AND (? IS NULL OR id != ?) ORDER BY created_at ASC LIMIT ?',
+    'SELECT id FROM deck_snapshots WHERE tracked_deck_id = ? AND locked = 0 AND (? IS NULL OR id != ?) ORDER BY created_at ASC, id ASC LIMIT ?',
     [trackedDeckId, paperId, paperId, excess]
   );
 

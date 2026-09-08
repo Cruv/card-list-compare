@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags, mpcGetAlternates, getMpcOverrides, saveMpcOverrides } from '../lib/api';
 import { useModalLayer } from '../lib/useModalLayer';
+import { createMpcOverrideSync } from '../lib/mpcOverrides';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import './MpcOverlay.css';
@@ -101,7 +102,9 @@ function isNonDefault(settings) {
  * XML project files or image ZIPs. Includes configurable search settings.
  */
 export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
-  const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(true);
+  const [loadingOverrides, setLoadingOverrides] = useState(!!deckId);
+  const loading = searching || loadingOverrides;
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState(null); // 'xml' | 'zip' | null
@@ -131,36 +134,34 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   const [altLoading, setAltLoading] = useState(false);
   const [alternates, setAlternates] = useState([]);
   const [overrides, setOverrides] = useState(() => loadOverrides(deckId));
-  const serverSynced = useRef(false);
+  const overrideSync = useMemo(() => deckId ? createMpcOverrideSync({
+    loadRemote: () => getMpcOverrides(deckId),
+    saveRemote: entries => saveMpcOverrides(deckId, entries),
+  }) : null, [deckId]);
 
   // Persist overrides to both localStorage and server
   const persistOverrides = useCallback((map) => {
     saveOverrides(deckId, map);
-    if (deckId) saveMpcOverrides(deckId, [...map]).catch(() => {});
-  }, [deckId]);
+    overrideSync?.save(map).catch(() => {
+      toast.error('Art choices saved on this device, but server sync failed.');
+    });
+  }, [deckId, overrideSync]);
 
   // Load overrides from server on mount (migrate localStorage → server if needed)
   useEffect(() => {
-    if (!deckId || serverSynced.current) return;
-    serverSynced.current = true;
-    getMpcOverrides(deckId).then(data => {
-      const serverOverrides = data.overrides || [];
-      if (serverOverrides.length > 0) {
-        // Server has data — use it as source of truth
-        const map = new Map(serverOverrides);
-        setOverrides(map);
-        saveOverrides(deckId, map); // sync to localStorage cache
-      } else {
-        // Server is empty — migrate localStorage if it has data
-        const local = loadOverrides(deckId);
-        if (local.size > 0) {
-          saveMpcOverrides(deckId, [...local]).catch(() => {});
-        }
-      }
+    if (!overrideSync) return;
+    let active = true;
+    overrideSync.load(loadOverrides(deckId)).then(map => {
+      if (!active || !map) return;
+      setOverrides(map);
+      saveOverrides(deckId, map); // sync the server's choices to the local cache
     }).catch(() => {
       // Server unavailable — localStorage overrides already loaded
+    }).finally(() => {
+      if (active) setLoadingOverrides(false);
     });
-  }, [deckId]);
+    return () => { active = false; };
+  }, [deckId, overrideSync]);
 
   // Escape closes the innermost thing first: alt picker → settings → overlay.
   // Runs only while this is the topmost layer, so an Escape here never also
@@ -176,14 +177,15 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   // Search MPC Autofill
   const doSearch = useCallback(async (settings) => {
     if (!cards || cards.length === 0) {
-      setLoading(false);
+      setSearching(false);
       setError('No cards to search for.');
       return;
     }
-    setLoading(true);
+    setSearching(true);
     setError(null);
     setResults(null);
-    // Don't clear overrides — prune after results arrive
+    // Search is read-only: retain artwork for back faces, other snapshots, and
+    // cards an upstream search temporarily cannot find. Reset Art clears it.
     setAltPickerCard(null);
     setAlternates([]);
     setDfcPairs({});
@@ -194,26 +196,13 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
       const data = await mpcSearch(cards, settingsToSend);
       setResults(data);
 
-      // Prune overrides: keep only cards still in results
-      if (deckId && data.results) {
-        const resultNames = new Set(data.results.map(r => r.name.toLowerCase()));
-        setOverrides(prev => {
-          const pruned = new Map();
-          for (const [key, val] of prev) {
-            if (resultNames.has(key)) pruned.set(key, val);
-          }
-          persistOverrides(pruned);
-          return pruned;
-        });
-      }
-
       // Store DFC pairs and back-face results (server handles back-face search)
       setDfcPairs(data.dfcPairs || {});
       setDfcBackResults(data.dfcBackResults || []);
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      setSearching(false);
     }
   }, [cards]);
 
@@ -388,18 +377,16 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   function handleSelectAlternate(alt) {
     if (!altPickerCard) return;
     const nameLower = altPickerCard.name.toLowerCase();
-    setOverrides(prev => {
-      const next = new Map(prev);
-      next.set(nameLower, {
-        identifier: alt.identifier,
-        thumbnailUrl: alt.thumbnailUrl,
-        dpi: alt.dpi,
-        sourceName: alt.sourceName,
-        extension: alt.extension,
-      });
-      persistOverrides(next);
-      return next;
+    const next = new Map(overrides);
+    next.set(nameLower, {
+      identifier: alt.identifier,
+      thumbnailUrl: alt.thumbnailUrl,
+      dpi: alt.dpi,
+      sourceName: alt.sourceName,
+      extension: alt.extension,
     });
+    setOverrides(next);
+    persistOverrides(next);
     setAltPickerCard(null);
     setAlternates([]);
   }

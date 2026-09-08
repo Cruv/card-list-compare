@@ -21,7 +21,8 @@ Report issues privately to the repository owner.
 
 - **`JWT_SECRET` is mandatory.** In production the server refuses to start if it is unset,
   shorter than 16 chars, or a known placeholder (`change-me-in-production`, etc.), and
-  `docker compose` fails fast without it. Generate one: `openssl rand -hex 32`. A weak
+  the container refuses to start (Compose management commands still work without it).
+  Generate one: `openssl rand -hex 32`. A weak
   secret would let anyone forge admin tokens. Rotating the secret invalidates all sessions.
   (`server/lib/jwtSecret.js`)
 
@@ -47,6 +48,8 @@ Per-IP limiters (`server/middleware/rateLimit.js`): a global `/api` limiter, a s
 limiter (login/register/forgot/reset), and per-integration limiters (Archidekt, MPC, share
 creation). They depend on the `X-Forwarded-For` handling above to key on the real client IP.
 Email sends are additionally capped at 10/user/hour.
+The nginx/Vite import proxies to external deck sites bypass Express and its limiters;
+the global limit applies to requests actually handled by the Node backend.
 
 ## Browser hardening
 
@@ -63,15 +66,26 @@ Email sends are additionally capped at 10/user/hour.
 ## Share links
 
 Comparison and tracked-deck share links are unauthenticated, guessable only by their random
-id. Anyone with the link can read that comparison/deck (read-only). They currently have no
-expiry or owner-side revocation — treat a shared link as public until that lands (see ROADMAP).
+id. Anyone with the link can read that comparison/deck (read-only). Tracked-deck links can
+be revoked by their owner; comparison links currently have no owner-side revocation.
+Neither link type has configurable expiry (see ROADMAP).
 
 ## Admin surface
 
-The first registered user (`id = 1`) is auto-promoted to admin. Admin routes are gated by
+The first registered user (`id = 1`) is auto-promoted on the next backend startup; restart
+the backend after the first registration. Admin routes are gated by
 `requireAdmin` (re-checks `is_admin` from the DB). The admin backup endpoint exports the full
 DB — protect admin credentials accordingly; the token hashing above limits what a leaked
 backup exposes.
+
+## Image downloads and proposed printing
+
+Image ZIP status and download routes require the owning user and matching deck ID.
+Completed ZIPs expire after 24 hours; download and cleanup checks normalize stored UTC
+timestamps. Local dependency directories and `.env` files are excluded from Docker builds.
+
+PDF generation and printer submission are not implemented. The proposed authenticated
+household bridge and immutable print-job design are in [docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.md).
 
 ## When you change auth or security
 

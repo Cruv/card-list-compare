@@ -5,30 +5,47 @@ briefly for rationale, not as a queue. (Replaces the untracked `CLAUDE.local.md`
 which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 `CLAUDE.local.md`; the default belongs here.
 
-## Open — from the 2026-08-18 audit (`docs/audit-2026-08-18.md`, kept local)
+## Next feature — household PDF generation and Epson printing
 
-Most criticals/highs shipped in v2.40.3–v2.41.2 + the infra/security batches. Remaining:
+Design: [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Start with full-snapshot and physical-copy
+delta planning, persisted artwork/face manifests, and downloadable PDFs produced by a pinned
+Silhouette Card Maker worker. Then validate the household's paper, cutter template, color
+recipe and front/back alignment before connecting a Mac or Windows print bridge.
 
-**Infra**
-- `.dockerignore` doesn't exclude `server/node_modules` — local builds can overlay the dev
-  machine's modules onto the clean install.
+The final experience is an authorized household user preparing and queueing the latest deck
+or the copies needed since another snapshot. Drying tracking is explicitly out of scope;
+the household handles its usual wait outside CLC. Printing does not advance the assembled
+paper-deck marker. No PDF generation or printer submission is implemented yet.
+
+## Open — reviewed 2026-09-08
+
+Earlier critical/high-priority work shipped in v2.40.3–v2.42.x. The current review is
+summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security audits remain local.
 
 **Product / features**
-- **Share links**: add owner-side revocation + optional expiry (error copy already implies
-  expiry that doesn't exist). SECURITY.md notes they're currently public-until-then.
+- **Share links**: add owner-side revocation for comparison links and optional expiry for
+  both link types. Tracked-deck links already have owner-side revocation.
 - **Collection**: extend into the Overlap tab (owned coverage per deck) now that the deck
   views consume it; consider a "what do I still need to buy" per-deck view.
-- MTGGoldfish/TCGPlayer imports: routing is fixed, but verify end-to-end and then advertise
-  them in the guide + homepage subtitle.
+- MTGGoldfish/TCGPlayer imports: handlers are documented, but still need live end-to-end
+  verification; source access restrictions may prevent individual imports.
 - Invite-code expiry is checked but can't be set in the UI.
 
-**Parser**
-- The blank-line implicit-sideboard heuristic still fires inside Commander decks
-  (`splitSections` in `src/lib/parser.js`): a blank line mid-list turns the rest into a
-  sideboard even when the deck has an explicit Commander header. A `foundExplicitCommander`
-  flag used to be tracked for this and never applied — it was removed as dead code, so the
-  fix needs to re-add the condition **with tests** covering Commander lists that contain
-  blank lines and lists that genuinely have a sideboard.
+**Comparison and image correctness**
+- Printing identity currently omits set and foil from composite keys. A set-only change
+  with the same collector number or a foil-only change can report unchanged. Define the
+  complete identity and update the parser/differ contract and invariants together.
+- A bare full DFC name compared with a printing-qualified front-face name can report
+  removal/addition instead of matching. Extend DFC key normalization with regression tests.
+- Existing Scryfall jobs tolerate partial image/face results; progress mixes card-copy and
+  image counts for DFCs. Report missing faces and consistent counts before reusing this
+  pipeline for physical printing.
+- MPC ZIPs deduplicate identifiers, XML exports do not encode paired DFC backs, and art
+  overrides are per card name. The PDF adapter needs physical copy counts, explicit face
+  pairing, source-specific bleed handling, and immutable art identity.
+- Saved art choices currently use whole-record replacement and a 612-entry limit. The
+  maintenance fixes preserve choices across searches and serialize saves within an overlay;
+  multi-device concurrent edits still need versioning/conflict handling and history management.
 
 **UI polish**
 - Consider virtualizing the deck list for very large collections (not currently a
@@ -46,6 +63,13 @@ Most criticals/highs shipped in v2.40.3–v2.41.2 + the infra/security batches. 
   concrete plan.
 
 ## Recently shipped (rationale kept briefly)
+
+- v2.42.2 maintenance — Commander blank-line parsing; saved-art load/save/reset races and
+  DFC back-art retention; consistent snapshot ordering and unlimited paper auto-locks;
+  ZIP expiry/deck-scope checks; price-alert removal; Docker context exclusions and writable
+  default database path; compatible
+  dependency security updates; README, Guide and contributor/operations/security doc refresh.
+  Household printing is a proposal, not part of this maintenance release.
 
 - v2.42.x — shared modal layer (Escape/focus-trap/scroll lock across stacked overlays),
   auth-gated routes wait for the auth check and offer a sign-in screen; then a self-review

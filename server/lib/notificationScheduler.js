@@ -120,7 +120,7 @@ async function processSingleDeck(deck) {
   const { text, commanders } = archidektToText(apiData);
 
   const latest = get(
-    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [deck.id]
   );
 
@@ -535,7 +535,7 @@ async function checkPriceAlerts() {
 
   for (const deck of decks) {
     const snap = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]
     );
     if (!snap?.deck_text) continue;
@@ -594,7 +594,7 @@ async function autoRefreshScheduledDecks() {
         const { text, commanders } = archidektToText(apiData);
 
         const latest = get(
-          'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+          'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
           [deck.id]
         );
 

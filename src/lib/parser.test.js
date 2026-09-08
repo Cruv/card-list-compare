@@ -356,6 +356,53 @@ Deck
     expect(result.commanders).toContain('Vial Smasher the Fierce');
   });
 
+  it('keeps blank-separated Commander deck groups in the mainboard', () => {
+    const result = parse(`Commander
+1 Atraxa, Praetors' Voice
+
+1 Sol Ring
+
+
+1 Counterspell
+
+2 Forest`);
+    expect([...result.mainboard.keys()]).toEqual([
+      'sol ring', 'counterspell', 'forest', "atraxa, praetors' voice",
+    ]);
+    expect(result.sideboard.size).toBe(0);
+    expect(result.commanders).toEqual(["Atraxa, Praetors' Voice"]);
+  });
+
+  it('recognizes a Commander header after blank-separated mainboard groups', () => {
+    const result = parse(`1 Sol Ring
+
+1 Counterspell
+
+Command Zone
+1 Kenrith, the Returned King`);
+    expect(result.mainboard.size).toBe(3);
+    expect(result.sideboard.size).toBe(0);
+    expect(result.commanders).toEqual(['Kenrith, the Returned King']);
+  });
+
+  it('still honors explicit sideboards and SB: lines in a Commander deck', () => {
+    const result = parse(`Commander
+1 Atraxa, Praetors' Voice
+
+1 Sol Ring
+
+1 Counterspell
+SB: 1 Negate
+
+Sideboard
+2 Fatal Push
+
+1 Dispel`);
+    expect(result.mainboard.size).toBe(3);
+    expect([...result.sideboard.keys()]).toEqual(['fatal push', 'dispel', 'negate']);
+    expect(result.sideboard.get('fatal push').quantity).toBe(2);
+  });
+
   it('detects inline (Commander) tag (Deckcheck format)', () => {
     const text = `1 Atraxa, Praetors' Voice (Commander)
 4 Lightning Bolt

@@ -192,7 +192,7 @@ export async function initDb() {
     const { parse: parseDeck } = await import('../src/lib/parser.js');
     for (const deck of decksNeedingCommanders) {
       const snap = get(
-        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
         [deck.id]
       );
       if (snap?.deck_text) {

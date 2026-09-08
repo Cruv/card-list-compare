@@ -24,11 +24,12 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.42.1';
+const APP_VERSION = '2.42.2';
 const WHATS_NEW = [
-  'Deck prices are accurate again when a card is listed under multiple printings — each printing is now priced as itself',
-  'Price alerts stay quiet when card prices can’t be fetched, instead of reporting a deck as worthless',
-  'Collection badges only appear once you’ve imported a collection, and your owned copies are no longer counted twice',
+  'Commander deck lists keep blank-separated groups in the mainboard',
+  'Saved proxy artwork, including double-faced backs, survives searches and syncs reliably',
+  'Snapshot ordering, image download expiry, and unlimited paper-snapshot locks work consistently',
+  'Removing a price alert now clears it correctly',
 ];
 
 function getResetToken() {

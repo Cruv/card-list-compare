@@ -1,4 +1,5 @@
 node_modules
+**/node_modules
 dist
 server/data
 data
@@ -8,3 +9,7 @@ data
 .vscode
 .idea
 *.md
+.env
+.env.*
+**/.env
+**/.env.*

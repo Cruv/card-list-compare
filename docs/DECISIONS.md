@@ -56,10 +56,10 @@ authority stays in code. **Where.** `src/App.jsx`; enforced by `invariants.test.
 ## D5 — Publish the image on every push to main (:latest, :sha, :branch)
 
 **Decision.** `.github/workflows/docker-publish.yml` builds and publishes to GHCR on every
-push to `main`, gated on `npm test`. `:latest` tracks the default branch.
+push to `main`, gated on `npm test` and an error-free ESLint run. `:latest` tracks the default branch.
 **Why.** Simple, hosted-runner CI; the household deploy pulls deliberately (no auto-pull),
 so republishing `:latest` on an internal-only commit is harmless here.
-**Cost.** `:latest` means "last push that passed tests," not "last deliberate release." If
+**Cost.** `:latest` means "last push that passed tests and lint," not "last deliberate release." If
 that ever matters, gate `:latest`/semver tags on a `v*` tag or a release-commit condition
 (one workflow line) — recorded here so the choice is explicit, not accidental.
 **Where.** `.github/workflows/docker-publish.yml`.

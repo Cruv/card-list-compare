@@ -60,12 +60,12 @@ export function submitJob(userId, trackedDeckId, snapshotId) {
   const completedJob = snapshotId
     ? get(`SELECT * FROM image_download_jobs
            WHERE user_id = ? AND tracked_deck_id = ? AND snapshot_id = ?
-             AND status = 'completed' AND expires_at > datetime('now')
+             AND status = 'completed' AND datetime(expires_at) > datetime('now')
            ORDER BY completed_at DESC LIMIT 1`,
       [userId, trackedDeckId, snapshotId])
     : get(`SELECT * FROM image_download_jobs
            WHERE user_id = ? AND tracked_deck_id = ? AND snapshot_id IS NULL
-             AND status = 'completed' AND expires_at > datetime('now')
+             AND status = 'completed' AND datetime(expires_at) > datetime('now')
            ORDER BY completed_at DESC LIMIT 1`,
       [userId, trackedDeckId]);
 
@@ -122,7 +122,8 @@ export function submitJob(userId, trackedDeckId, snapshotId) {
 
 /** Get a job's current status. */
 export function getJobStatus(jobId) {
-  return get('SELECT * FROM image_download_jobs WHERE id = ?', [jobId]);
+  // Normalize both historical ISO timestamps and SQLite timestamps in SQL.
+  return get("SELECT *, datetime(expires_at) <= datetime('now') AS expired FROM image_download_jobs WHERE id = ?", [jobId]);
 }
 
 /** Get the downloads directory path. */
@@ -169,7 +170,7 @@ async function executeJob(job) {
     snap = get('SELECT id, deck_text FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
       [job.snapshot_id, job.tracked_deck_id]);
   } else {
-    snap = get('SELECT id, deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    snap = get('SELECT id, deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [job.tracked_deck_id]);
   }
   if (!snap?.deck_text) throw new Error('No snapshot found');
@@ -265,7 +266,7 @@ function runCleanup() {
 
     // Delete expired ZIP files
     const expiredJobs = all(
-      `SELECT id, file_path FROM image_download_jobs WHERE expires_at < datetime('now') AND file_path IS NOT NULL`
+      `SELECT id, file_path FROM image_download_jobs WHERE datetime(expires_at) <= datetime('now') AND file_path IS NOT NULL`
     );
     for (const job of expiredJobs) {
       if (job.file_path && existsSync(job.file_path)) {
@@ -275,7 +276,7 @@ function runCleanup() {
 
     // Clean null out expired file_paths
     if (expiredJobs.length > 0) {
-      run(`UPDATE image_download_jobs SET file_path = NULL, file_size = NULL WHERE expires_at < datetime('now') AND file_path IS NOT NULL`);
+      run(`UPDATE image_download_jobs SET file_path = NULL, file_size = NULL WHERE datetime(expires_at) <= datetime('now') AND file_path IS NOT NULL`);
     }
 
     // Delete old job records (48 hours after creation)

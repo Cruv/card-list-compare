@@ -20,6 +20,9 @@ LABEL org.opencontainers.image.description="Card List Compare - Compare two MTG 
 
 # Mark the shipped image as production so the JWT-secret guard is live (audit C1/C2)
 ENV NODE_ENV=production
+# Keep the default database beside the mounted cache/download directories. The
+# unprivileged backend cannot create its development default under /app/server.
+ENV DB_PATH=/app/data/cardlistcompare.db
 
 RUN apk add --no-cache nginx curl
 

@@ -35,6 +35,12 @@ Structure lines (defined in `src/lib/constants.js`):
 - Comments: lines starting with `//` or `#`
 - CSV fallback: `4,Lightning Bolt` (quantity, name — no metadata)
 
+A blank line ends a populated Commander section and returns to the mainboard.
+When any explicit Commander header is present, later blank lines only separate
+groups visually; use a `Sideboard`/`SB` header or `SB:` prefixes to identify the
+sideboard. Without an explicit Commander header, a blank line after mainboard
+content retains the legacy implicit-sideboard behavior.
+
 ### Examples
 
 ```

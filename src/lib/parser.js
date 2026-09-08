@@ -160,6 +160,9 @@ function parseCSV(text) {
 
 function splitSections(rawText) {
   const lines = rawText.split(/\r?\n/);
+  // Commander exports often separate card groups with blank lines. Check the
+  // whole list because some exports put the command zone after the mainboard.
+  const hasExplicitCommander = lines.some(line => COMMANDER_HEADER.test(line.trim()));
   const mainLines = [];
   const sideLines = [];
   const commanderLines = [];
@@ -188,7 +191,7 @@ function splitSections(rawText) {
     }
 
     if (trimmed === '') {
-      if (hasSeenContent && !foundExplicitSideboard) {
+      if (hasSeenContent && !foundExplicitSideboard && !hasExplicitCommander) {
         blankLineCount++;
         if (blankLineCount >= 1 && currentTarget === mainLines && mainLines.length > 0) {
           currentTarget = sideLines;

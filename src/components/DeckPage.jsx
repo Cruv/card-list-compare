@@ -545,12 +545,12 @@ export default function DeckPage({ deckId }) {
     }
   }
 
-  async function handleSavePriceAlert() {
+  async function handleSavePriceAlert(value = priceAlertValue) {
     setSavingPriceAlert(true);
     try {
-      const threshold = priceAlertValue === '' ? null : parseFloat(priceAlertValue);
+      const threshold = value === '' ? null : parseFloat(value);
       await updateDeckPriceAlert(deckId, threshold, priceAlertMode);
-      toast.success(threshold ? `Price alert set at $${threshold}` : 'Price alert removed');
+      toast.success(threshold ? `Price alert set for a $${threshold} change` : 'Price alert removed');
       setEditingPriceAlert(false);
       await loadDeck();
     } catch (err) {
@@ -1412,19 +1412,19 @@ export default function DeckPage({ deckId }) {
                     </label>
                   </div>
                   <div className="deck-page-settings-edit-actions">
-                    <button className="btn btn-primary btn-sm" onClick={handleSavePriceAlert} disabled={savingPriceAlert} type="button">
+                    <button className="btn btn-primary btn-sm" onClick={() => handleSavePriceAlert()} disabled={savingPriceAlert} type="button">
                       {savingPriceAlert ? '...' : 'Save'}
                     </button>
                     <button className="btn btn-secondary btn-sm" onClick={() => setEditingPriceAlert(false)} type="button">Cancel</button>
                     {deck.price_alert_threshold && (
-                      <button className="btn btn-sm btn-ghost-danger" onClick={() => { setPriceAlertValue(''); handleSavePriceAlert(); }} disabled={savingPriceAlert} type="button">Remove</button>
+                      <button className="btn btn-sm btn-ghost-danger" onClick={() => { setPriceAlertValue(''); handleSavePriceAlert(''); }} disabled={savingPriceAlert} type="button">Remove</button>
                     )}
                   </div>
                 </div>
               ) : (
                 <div className="deck-page-settings-row">
                   <span className="deck-page-settings-label">
-                    {deck.price_alert_threshold ? `Alert at $${deck.price_alert_threshold} (${deck.price_alert_mode || 'specific'})` : 'No price alert set'}
+                    {deck.price_alert_threshold ? `Alert on a $${deck.price_alert_threshold} change (${deck.price_alert_mode || 'specific'})` : 'No price alert set'}
                   </span>
                   <button className="btn btn-secondary btn-sm" onClick={() => { setEditingPriceAlert(true); setPriceAlertValue(deck.price_alert_threshold ?? ''); setPriceAlertMode(deck.price_alert_mode || 'specific'); }} type="button">
                     {deck.price_alert_threshold ? 'Edit' : 'Set Up'}

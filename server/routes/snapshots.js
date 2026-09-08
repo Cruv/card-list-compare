@@ -41,7 +41,7 @@ router.post('/:deckId/snapshots', async (req, res) => {
   let enrichedText = deck_text.trim();
   try {
     const latest = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]
     );
     enrichedText = await enrichDeckText(enrichedText, latest?.deck_text || null);
@@ -79,7 +79,7 @@ router.get('/:deckId/snapshots', (req, res) => {
   if (!deck) return;
 
   const snapshots = all(
-    'SELECT id, nickname, locked, created_at FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC',
+    'SELECT id, nickname, locked, created_at FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC',
     [deck.id]
   );
 
@@ -221,7 +221,8 @@ router.patch('/:deckId/snapshots/:snapshotId/paper', (req, res) => {
   let autoLocked = false;
   if (!snapshot.locked) {
     const lockSetting = get("SELECT value FROM server_settings WHERE key = 'max_locked_per_deck'");
-    const maxLocked = parseInt(lockSetting?.value, 10) || 5;
+    const maxLockedParsed = parseInt(lockSetting?.value, 10);
+    const maxLocked = Number.isNaN(maxLockedParsed) ? 5 : maxLockedParsed;
     const lockedCount = get(
       'SELECT COUNT(*) as count FROM deck_snapshots WHERE tracked_deck_id = ? AND locked = 1',
       [deck.id]
@@ -250,7 +251,7 @@ router.get('/:deckId/timeline', (req, res) => {
   if (!deck) return;
 
   const snapshots = all(
-    'SELECT id, deck_text, nickname, locked, created_at FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at ASC',
+    'SELECT id, deck_text, nickname, locked, created_at FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at ASC, id ASC',
     [deck.id]
   );
 
@@ -307,7 +308,7 @@ router.get('/:deckId/changelog', (req, res) => {
     }
   } else {
     const recent = all(
-      'SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 2',
+      'SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 2',
       [deck.id]
     );
     if (recent.length < 2) {

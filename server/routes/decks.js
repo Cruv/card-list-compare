@@ -129,7 +129,7 @@ router.post('/refresh-all', archidektLimiter, async (req, res) => {
       const { text, commanders } = archidektToText(apiData);
 
       const latest = get(
-        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
         [deck.id]
       );
 
@@ -286,7 +286,7 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
     const { text, commanders } = archidektToText(apiData);
 
     const latest = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]
     );
 
@@ -334,7 +334,7 @@ router.post('/export-batch', (req, res) => {
     if (!deck) continue;
 
     const snap = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]
     );
 
@@ -404,7 +404,7 @@ router.get('/:id/prices', async (req, res) => {
   }
 
   const snap = get(
-    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [deck.id]
   );
   if (!snap?.deck_text) {
@@ -446,7 +446,7 @@ router.get('/:id/price-history', (req, res) => {
     `SELECT id, nickname, created_at, snapshot_price, snapshot_budget_price
      FROM deck_snapshots
      WHERE tracked_deck_id = ? AND snapshot_price IS NOT NULL
-     ORDER BY created_at ASC`,
+     ORDER BY created_at ASC, id ASC`,
     [deck.id]
   );
 
@@ -477,20 +477,20 @@ router.get('/overlap', (req, res) => {
     return res.json({ decks: [], cardIndex: {}, matrix: [] });
   }
 
-  // Batch-fetch latest snapshot per deck (avoids N+1)
+  // Batch-fetch one latest snapshot per deck. Timestamps have second precision,
+  // so use the insertion ID to break ties, as in the snapshot and export routes.
   const overlapDeckIds = decks.map(d => d.id);
   const overlapPlaceholders = overlapDeckIds.map(() => '?').join(',');
   const latestSnaps = all(`
     SELECT ds.tracked_deck_id, ds.deck_text
     FROM deck_snapshots ds
-    INNER JOIN (
-      SELECT tracked_deck_id, MAX(created_at) as max_created
-      FROM deck_snapshots
-      WHERE tracked_deck_id IN (${overlapPlaceholders})
-      GROUP BY tracked_deck_id
-    ) latest ON ds.tracked_deck_id = latest.tracked_deck_id AND ds.created_at = latest.max_created
     WHERE ds.tracked_deck_id IN (${overlapPlaceholders})
-  `, [...overlapDeckIds, ...overlapDeckIds]);
+      AND ds.id = (
+        SELECT id FROM deck_snapshots
+        WHERE tracked_deck_id = ds.tracked_deck_id
+        ORDER BY created_at DESC, id DESC LIMIT 1
+      )
+  `, overlapDeckIds);
 
   const snapMap = new Map();
   for (const row of latestSnaps) {
@@ -588,7 +588,7 @@ router.get('/:id/recommendations', async (req, res) => {
   }
 
   const snap = get(
-    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [deck.id]
   );
   if (!snap?.deck_text) {
@@ -665,7 +665,7 @@ router.post('/:id/download-images', async (req, res) => {
     snap = get('SELECT id FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
       [snapshotId, deck.id]);
   } else {
-    snap = get('SELECT id FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    snap = get('SELECT id FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]);
   }
   if (!snap) {
@@ -697,7 +697,7 @@ router.get('/:id/download-jobs/:jobId', (req, res) => {
   }
 
   const job = getJobStatus(jobId);
-  if (!job || job.user_id !== req.user.userId) {
+  if (!job || job.user_id !== req.user.userId || job.tracked_deck_id !== id) {
     return res.status(404).json({ error: 'Download job not found' });
   }
 
@@ -713,7 +713,7 @@ router.get('/:id/download-jobs/:jobId/file', (req, res) => {
 
   const { jobId } = req.params;
   const job = getJobStatus(jobId);
-  if (!job || job.user_id !== req.user.userId) {
+  if (!job || job.user_id !== req.user.userId || job.tracked_deck_id !== id) {
     return res.status(404).json({ error: 'Download not found' });
   }
 
@@ -721,7 +721,7 @@ router.get('/:id/download-jobs/:jobId/file', (req, res) => {
     return res.status(400).json({ error: 'Download is not ready yet' });
   }
 
-  if (job.expires_at && new Date(job.expires_at + 'Z') < new Date()) {
+  if (job.expired) {
     return res.status(410).json({ error: 'Download has expired. Submit a new request.' });
   }
 
@@ -769,7 +769,8 @@ function formatJobResponse(job, _deckId) {
 
 /**
  * GET /api/decks/:id/mpc-overrides — Load saved MPC art choices for a deck.
- * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
+ * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...], configured }
+ * configured distinguishes a deliberate Reset Art from never-configured local migration.
  */
 router.get('/:id/mpc-overrides', (req, res) => {
   const id = requireIntParam(req, res, 'id');
@@ -781,7 +782,7 @@ router.get('/:id/mpc-overrides', (req, res) => {
   if (deck.mpc_art_overrides) {
     try { overrides = JSON.parse(deck.mpc_art_overrides); } catch { /* corrupted — return empty */ }
   }
-  res.json({ overrides });
+  res.json({ overrides, configured: deck.mpc_art_overrides != null });
 });
 
 /**
@@ -800,7 +801,9 @@ router.put('/:id/mpc-overrides', (req, res) => {
   // Validate and cap size (max 612 cards × ~200 bytes each ≈ 120KB)
   if (overrides.length > 612) return res.status(400).json({ error: 'Too many overrides' });
 
-  const json = overrides.length === 0 ? null : JSON.stringify(overrides);
+  // Keep [] as an explicit reset. NULL is reserved for a deck that has never
+  // saved choices, so another device cannot restore stale local art after reset.
+  const json = JSON.stringify(overrides);
   run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = ?', [json, id]);
   res.json({ saved: true, count: overrides.length });
 });

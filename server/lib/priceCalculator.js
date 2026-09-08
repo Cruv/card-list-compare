@@ -120,7 +120,7 @@ export async function computeDeckPrices(deckId, deckText) {
 
   // Stamp latest snapshot with price data
   const latestSnap = get(
-    'SELECT id, snapshot_price FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    'SELECT id, snapshot_price FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [deckId]
   );
   if (latestSnap && latestSnap.snapshot_price === null) {

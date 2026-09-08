@@ -27,10 +27,11 @@ step 7's push. Everything user-visible follows the full protocol.
 - `npm test` — MUST pass. The suite includes `src/lib/invariants.test.js`
   (regex parity, Dockerfile COPY closure, parser contract, version sync).
   Never bump on red; never delete an invariant test to get to green.
-- `npm run lint` — advisory (pre-existing debt). Rule: the change must not ADD
-  errors. When lint is fully clean, make it blocking in CI
-  (remove `continue-on-error` in .github/workflows/docker-publish.yml) and
-  delete this carve-out.
+- `npm run lint` — MUST exit clean. ESLint errors block CI; warnings remain
+  visible but non-blocking (docs/DECISIONS.md D6).
+- `npm audit` and `npm --prefix server audit` — review both dependency trees
+  (docs/DECISIONS.md D3). Use compatible lockfile updates; do not force major upgrades.
+- `npm run build` — verify the production frontend builds.
 
 ## 3. Determine the bump (from the diff, not vibes)
 
@@ -67,7 +68,9 @@ deck-analytics, proxy-printing, export-formats, recommendations, faq.
 
 ## 7. Commit and push
 
-- `git add -A`, then `git status --short` to confirm exactly the intended files.
+- Re-read `git status --short` and `git log --oneline -3` immediately before
+  committing. Stage explicit paths only, then inspect `git diff --cached` to
+  confirm the intended files; concurrent sessions may have unrelated work.
 - `git commit -m "vX.Y.Z: Short imperative summary" -m "Details / Guide: no impact"`
   — single-line `-m` flags only (Windows-safe across PowerShell and Git Bash).
 - `git push`
