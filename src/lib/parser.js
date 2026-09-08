@@ -6,6 +6,7 @@ import {
   SB_PREFIX,
   COMMENT_LINE,
 } from './constants.js';
+import { cardIdentityKey } from './cardIdentity.js';
 
 function normalizeName(name) {
   return name
@@ -14,8 +15,8 @@ function normalizeName(name) {
     .trim();
 }
 
-// Matches an inline "(Commander)" tag at the end of a card line (e.g. Deckcheck export)
-const INLINE_COMMANDER_RE = /\s*\(Commander\)\s*$/i;
+// Deckcheck and Archidekt command-zone tags, including our own text export.
+const INLINE_COMMANDER_RE = /\s*(?:\(Commander\)|\[Commander(?:\{top\})?\])\s*$/i;
 
 export function parseLine(line) {
   if (COMMENT_LINE.test(line)) return null;
@@ -44,14 +45,16 @@ export function parseLine(line) {
       // Collector number: group 4 (bracketed) or group 5 (bare after set code)
       const collectorNumber = match[4] || match[5] || '';
       const isFoil = !!match[6];
-      if (quantity > 0 && name.length > 0) {
+      if (Number.isSafeInteger(quantity) && quantity > 0 && name.length > 0) {
         return { name, quantity, isSB, isCommander, setCode, collectorNumber, isFoil };
       }
+      return null; // Never reinterpret an invalid copy count as part of a card name.
     }
   }
 
   // Fallback: bare card name with quantity 1
   const trimmed = line.trim();
+  if (/^[+-]?\d+(?:\.\d+)?\s*x?\s+/i.test(trimmed)) return null;
   if (trimmed.length > 0 && !/^\d+$/.test(trimmed)) {
     return { name: normalizeName(trimmed), quantity: 1, isSB, isCommander, setCode: '', collectorNumber: '', isFoil: false };
   }
@@ -123,39 +126,54 @@ function parseCSV(text) {
     (h) => h === 'quantity' || h === 'count' || h === 'qty' || h === 'amount'
   );
   const sectionIdx = header.findIndex(
-    (h) => h === 'section' || h === 'board' || h === 'type' || h === 'location'
+    (h) => h === 'section' || h === 'board' || h === 'category' || h === 'type' || h === 'location'
   );
+  const setIdx = header.findIndex(h => ['set', 'set code', 'setcode', 'edition code'].includes(h));
+  const collectorIdx = header.findIndex(h => ['collector number', 'collector_number', 'collectornumber', 'cn'].includes(h));
+  const foilIdx = header.findIndex(h => ['foil', 'isfoil', 'is foil', 'modifier', 'finish'].includes(h));
 
   if (nameIdx === -1) return null;
 
   const mainboard = new Map();
   const sideboard = new Map();
+  const commanders = [];
 
   for (let i = 1; i < lines.length; i++) {
     const cols = splitCsvLine(lines[i]);
     const name = normalizeName(cols[nameIdx] || '');
-    const quantity = qtyIdx !== -1 ? parseInt(cols[qtyIdx], 10) || 1 : 1;
+    const quantity = qtyIdx !== -1 && cols[qtyIdx]?.trim() ? Number(cols[qtyIdx]) : 1;
 
-    if (!name) continue;
+    if (!name || !Number.isSafeInteger(quantity) || quantity <= 0) continue;
 
     let target = mainboard;
     if (sectionIdx !== -1) {
       const section = (cols[sectionIdx] || '').toLowerCase();
+      if (section === 'maybeboard' || section === 'considering') continue;
       if (section.includes('side') || section === 'sb') {
         target = sideboard;
       }
+      if (['commander', 'commanders', 'command zone'].includes(section) && !commanders.includes(name)) {
+        commanders.push(name);
+      }
     }
 
-    const key = name.toLowerCase();
+    const entry = {
+      displayName: name,
+      quantity,
+      setCode: setIdx === -1 ? '' : cols[setIdx] || '',
+      collectorNumber: collectorIdx === -1 ? '' : cols[collectorIdx] || '',
+      isFoil: foilIdx !== -1 && ['foil', 'etched', 'true', 'yes', '1', '*f*'].includes((cols[foilIdx] || '').toLowerCase()),
+    };
+    const key = cardIdentityKey(entry);
     if (target.has(key)) {
       const existing = target.get(key);
       existing.quantity += quantity;
     } else {
-      target.set(key, { displayName: name, quantity, setCode: '', collectorNumber: '', isFoil: false });
+      target.set(key, entry);
     }
   }
 
-  return { mainboard, sideboard };
+  return { mainboard, sideboard, commanders };
 }
 
 function splitSections(rawText) {
@@ -179,7 +197,7 @@ function splitSections(rawText) {
       continue;
     }
 
-    if (SIDEBOARD_HEADER.test(trimmed)) {
+    if (SIDEBOARD_HEADER.test(trimmed) || /^#\s*sideboard\s*$/i.test(trimmed)) {
       currentTarget = sideLines;
       foundExplicitSideboard = true;
       continue;
@@ -212,11 +230,6 @@ function splitSections(rawText) {
   return { mainLines, sideLines, commanderLines };
 }
 
-function cardKey(name, collectorNumber) {
-  const base = name.toLowerCase();
-  return collectorNumber ? `${base}|${collectorNumber}` : base;
-}
-
 function parseLines(lines) {
   const cards = new Map();
   const sbCards = new Map();
@@ -231,7 +244,7 @@ function parseLines(lines) {
     }
 
     const target = parsed.isSB ? sbCards : cards;
-    const key = cardKey(parsed.name, parsed.collectorNumber);
+    const key = cardIdentityKey(parsed);
 
     if (target.has(key)) {
       const existing = target.get(key);
@@ -261,7 +274,7 @@ export function parse(rawText) {
   // Try CSV first
   if (isCSV(rawText)) {
     const result = parseCSV(rawText);
-    if (result) return { ...result, commanders: [] };
+    if (result) return result;
   }
 
   const { mainLines, sideLines, commanderLines } = splitSections(rawText);

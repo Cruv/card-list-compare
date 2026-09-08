@@ -34,7 +34,7 @@ src/lib/differ.js        Diff two parsed decks (DFC + multi-printing aware)
 src/lib/formatter.js     Exports: changelog, Reddit, Archidekt, MPCFill, TTS, JSON
 src/lib/fetcher.js       URL imports (Archidekt/Moxfield/Deckcheck/…) → deck text
 src/lib/scryfall.js      Client Scryfall batch (images, types; exact printings)
-src/lib/collectionMatch.js   Printing-agnostic owned/missing matching (D8)
+src/lib/cardIdentity.js  Card name/set/collector/foil keys + DFC name normalization
 src/lib/api.js           Client HTTP layer for all /api calls
 src/lib/useHashRoute.js  Routing: #admin #settings #guide #library #library/{id} #share/{id} #deck/{id}
 src/lib/{powerLevel,recommendations,edhrec,analytics}.js  Deck analysis heuristics
@@ -43,7 +43,7 @@ server/lib/deckToText.js       Server mirror of archidektToText()
 server/lib/enrichDeckText.js   Adds printing metadata (carry-forward + Scryfall)
 server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
-server/routes/           auth, owners, decks, snapshots, share, shared-decks, admin, collection, mpcautofill
+server/routes/           auth, owners, decks, snapshots, share, shared-decks, admin, mpcautofill
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```
 
@@ -57,8 +57,8 @@ src/components/          UI components; admin/ subdir is the full-page admin pan
    `src/lib/constants.js`, consumed by parser.js and server enrichment. Never
    fork a local copy (two forks drifted and corrupted data; test-guarded).
 3. **Parser contract**: entries have `entry.displayName` — `entry.name` does not
-   exist. `parsed.commanders` is a flat string array, not Map entries. Map keys:
-   `name.toLowerCase()` or `name.toLowerCase()+'|'+collectorNumber`.
+   exist. `parsed.commanders` is a flat string array, not Map entries. Map keys
+   come from `cardIdentityKey(entry)`: normalized name plus set/collector/finish when present.
 4. (catalog #8) **Server imports from `src/lib/`; the Dockerfile COPYs a
    hardcoded list.** A new server-side `src/lib` import needs that COPY line
    updated or prod crashes while dev works (test-enforced, incl. dynamic imports).
@@ -121,7 +121,8 @@ recommendations, faq) — or state "Guide: no impact" in the commit body.
 `docs/DECISIONS.md` (why, D-numbered) · `docs/OPERATIONS.md` (DB recovery, external-API
 drift, deploy) · `docs/ROADMAP.md` (the committed backlog) · `SECURITY.md` (deploy + auth
 model) · `docs/PRINT_WORKFLOW.md` (proposed PDF/printer integration, not shipped).
-`docs/MANASYNC_INTEGRATION.md` preserves the future inventory/purchase companion discussion.
+`docs/MANASYNC_INTEGRATION.md` defines ManaSync as the inventory/purchase boundary (D8).
+CLC has no native collections; legacy DB rows remain for a future deliberate migration.
 Check DECISIONS.md before changing an approach; amend it in the same commit.
 
 ## Concurrent sessions (the owner may run parallel Claude sessions here)

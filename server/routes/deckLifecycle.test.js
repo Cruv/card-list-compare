@@ -56,7 +56,7 @@ async function request(path, method = 'GET', body) {
 }
 function completedJob(expiresAt) {
   const snapId = snapshot('1 Sol Ring');
-  const file = join(dir, 'fixture.zip');
+  const file = join(dir, 'fixture.complete.zip');
   writeFileSync(file, 'fixture');
   db.run(`INSERT INTO image_download_jobs
     (id, user_id, tracked_deck_id, snapshot_id, status, file_path, file_size, completed_at, expires_at)
@@ -136,6 +136,20 @@ describe('download lifetime and deck scope', () => {
     // SQLite uses the actual clock even while JS worker timers are paused.
     const today = db.get("SELECT date('now') AS day").day;
     db.run('UPDATE image_download_jobs SET expires_at = ?', [`${today}T00:00:00.000Z`]);
+    expect(queue.submitJob(1, 1, snapId).isExisting).toBe(false);
+  });
+
+  it('refuses a legacy ZIP and queues regeneration with completeness checks', async () => {
+    const { snapId } = completedJob(new Date(Date.now() + 60_000).toISOString());
+    const legacyFile = join(dir, 'legacy.zip');
+    writeFileSync(legacyFile, 'unverified');
+    db.run('UPDATE image_download_jobs SET file_path = ?', [legacyFile]);
+    const status = await (await request('/api/decks/1/download-jobs/fixture')).json();
+    expect(status.status).toBe('failed');
+    expect(status.error).toContain('predates completeness checks');
+    expect(status.downloadUrl).toBeUndefined();
+    expect((await request('/api/decks/1/download-jobs/fixture/file')).status).toBe(400);
+    vi.useFakeTimers();
     expect(queue.submitJob(1, 1, snapId).isExisting).toBe(false);
   });
 

@@ -12,7 +12,10 @@ delta planning, persisted artwork/face manifests, and downloadable PDFs produced
 Silhouette Card Maker code. The container must clone/fetch the latest upstream main, keep a
 working installation in the data bind mount, and use it if an update cannot be reached or
 validated. Freeze the generator version per job. Then validate the household's paper, cutter template, color
-recipe and front/back alignment before connecting a Mac or Windows print bridge.
+recipe and front/back alignment before connecting a Mac or Windows print bridge. The owner's
+600 PPI, crop 1 mm, skip-slot-4 recipe and Adobe/Epson Vivid settings are captured in
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). Ordinary fronts and manually refed
+double-faced cards must be separate batches.
 
 The final experience is an authorized household user preparing and queueing the latest deck
 or the copies needed since another snapshot. Drying tracking is explicitly out of scope;
@@ -28,9 +31,12 @@ CSV imports and collection reconciliation, separate proxy counts, deck allocatio
 QR-labeled storage. CLC should consult inventory to avoid duplicate purchases/reprints and
 record proxy batches through an agreed API.
 
-The working direction is PWA first with offline collection access; native iOS and a Discord
-CSV bot are optional later ideas. Collection authority (ManaBox mirror versus ManaSync as
-source), actual vendor/CSV capabilities, and the companion repo/API remain to be agreed.
+ManaSync exclusively owns collection management; native CLC collections and expansion
+plans have been removed (D8). Legacy collection rows remain in the database for a future
+explicit migration; no export or migration has shipped. The working direction is PWA first
+with offline collection access; native iOS and a Discord CSV bot are optional later ideas.
+ManaSync's reconciliation authority relative to ManaBox, actual vendor/CSV capabilities,
+and the companion repo/API remain to be agreed.
 Preserve the intended collaboration split: owner continues CLC; Denny starts the companion
 and shares a repo/backlog. This is future integration context, not implemented functionality.
 
@@ -42,21 +48,11 @@ summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security au
 **Product / features**
 - **Share links**: add owner-side revocation for comparison links and optional expiry for
   both link types. Tracked-deck links already have owner-side revocation.
-- **Collection**: extend into the Overlap tab (owned coverage per deck) now that the deck
-  views consume it; consider a "what do I still need to buy" per-deck view.
 - MTGGoldfish/TCGPlayer imports: handlers are documented, but still need live end-to-end
   verification; source access restrictions may prevent individual imports.
 - Invite-code expiry is checked but can't be set in the UI.
 
 **Comparison and image correctness**
-- Printing identity currently omits set and foil from composite keys. A set-only change
-  with the same collector number or a foil-only change can report unchanged. Define the
-  complete identity and update the parser/differ contract and invariants together.
-- A bare full DFC name compared with a printing-qualified front-face name can report
-  removal/addition instead of matching. Extend DFC key normalization with regression tests.
-- Existing Scryfall jobs tolerate partial image/face results; progress mixes card-copy and
-  image counts for DFCs. Report missing faces and consistent counts before reusing this
-  pipeline for physical printing.
 - MPC ZIPs deduplicate identifiers, XML exports do not encode paired DFC backs, and art
   overrides are per card name. The PDF adapter needs physical copy counts, explicit face
   pairing, source-specific bleed handling, and immutable art identity.
@@ -65,7 +61,7 @@ summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security au
   multi-device concurrent edits still need versioning/conflict handling and history management.
 
 **UI polish**
-- Consider virtualizing the deck list for very large collections (not currently a
+- Consider virtualizing the deck list for very large deck lists (not currently a
   measured problem).
 
 **Housekeeping**
@@ -79,7 +75,21 @@ summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security au
 - Future: TapTogether/playgroup features were scaffolded then removed; revisit only with a
   concrete plan.
 
-## Recently shipped (rationale kept briefly)
+## Completed prerequisite — v2.43.0 completeness
+
+- Canonical card identity includes name, set, collector number and foil status, with DFC
+  aliases preserved across metadata-rich and bare inputs. Comparisons and display lookups
+  use that identity; absent exact printing data is not replaced by generic art/prices.
+- Scryfall ZIP jobs require every requested copy and face, report failures, count image
+  files consistently, and require regeneration of legacy ZIPs that lack completeness checks.
+- Native collection management is removed from CLC; ManaSync owns that responsibility.
+  Deck overlap remains. Existing collection database data is preserved.
+- Verified with 413 tests, zero lint errors (7 existing warnings), production/Docker builds,
+  live Scryfall checks and disposable browser/API smoke tests. See
+  [PROJECT_REVIEW.md](PROJECT_REVIEW.md). PDF generation and physical print submission
+  remain the next implementation stage.
+
+## Recently shipped (historical rationale)
 
 - v2.42.2 maintenance — Commander blank-line parsing; saved-art load/save/reset races and
   DFC back-art retention; consistent snapshot ordering and unlimited paper auto-locks;
@@ -92,9 +102,9 @@ summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security au
   auth-gated routes wait for the auth check and offer a sign-in screen; then a self-review
   pass fixed 30 regressions the earlier batches had introduced (per-printing pricing,
   price-alert zero guard, zero-byte DB recovery, container signal forwarding, collection
-  badge allocation). ESLint backlog cleared and CI lint made blocking (D6).
+  badge allocation, before native collections were retired). ESLint backlog cleared and CI lint made blocking (D6).
 
-- v2.41.x — Collection wired into deck views; TTS crash + multi-printing prices; notifications
+- v2.41.x — Native Collection wired into deck views (now retired); TTS crash + multi-printing prices; notifications
   made real (price-alert baseline, verified-email gating + warning, rate limit, scheduler).
 - v2.40.3–.5 — security criticals (JWT secret, atomic DB writes), data-loss fixes, core
   pipeline correctness (DFC/accents/CSV/differ). Plus infra (CSP, nginx) and token hashing.

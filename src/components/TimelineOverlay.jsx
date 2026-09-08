@@ -4,7 +4,7 @@ import { useModalLayer } from '../lib/useModalLayer';
 import { useAppSettings } from '../context/AppSettingsContext';
 import { getDeckChangelog, getSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
-import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
+import { fetchCardData, collectCardIdentifiers, collectDeckIdentifiers, cardDataForEntry } from '../lib/scryfall';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS, formatDeckForMpc } from '../lib/formatter';
 import { estimatePowerLevel } from '../lib/powerLevel';
 import SectionChangelog from './SectionChangelog';
@@ -30,29 +30,6 @@ function downloadFile(content, filename, mimeType = 'application/json') {
   URL.revokeObjectURL(url);
 }
 
-/** Build Scryfall identifier map from a parsed deck (same pattern as collectCardIdentifiers but for Map entries). */
-function collectDeckIdentifiers(parsedDeck) {
-  const identifiers = new Map();
-  for (const section of [parsedDeck.mainboard, parsedDeck.sideboard]) {
-    for (const [, entry] of section) {
-      const nameLower = entry.displayName.toLowerCase();
-      if (entry.setCode && entry.collectorNumber) {
-        const compositeKey = `${nameLower}|${entry.collectorNumber}`;
-        if (!identifiers.has(compositeKey)) {
-          identifiers.set(compositeKey, {
-            name: entry.displayName,
-            set: entry.setCode.toLowerCase(),
-            collector_number: entry.collectorNumber,
-          });
-        }
-      }
-      if (!identifiers.has(nameLower)) {
-        identifiers.set(nameLower, { name: entry.displayName });
-      }
-    }
-  }
-  return identifiers;
-}
 
 function filterSection(section, query) {
   if (!query) return section;
@@ -172,9 +149,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
     let costIn = 0, costOut = 0, hasAny = false;
 
     function getCardPrice(card) {
-      const nameLower = card.name.toLowerCase();
-      const compositeKey = card.collectorNumber ? `${nameLower}|${card.collectorNumber}` : null;
-      const data = (compositeKey && diffCardMap.get(compositeKey)) || diffCardMap.get(nameLower);
+      const data = cardDataForEntry(diffCardMap, card);
       if (!data) return null;
       const isFoil = card.isFoil || false;
       return isFoil && data.priceUsdFoil != null ? data.priceUsdFoil : data.priceUsd;
@@ -201,7 +176,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
 
     if (!hasAny) return null;
     return { costIn, costOut, net: costIn - costOut };
-  }, [diffResult, diffCardMap]);
+  }, [diffResult, diffCardMap, priceDisplayEnabled]);
 
   // Build diffResult wrapper for formatter functions
   const diffForExport = useMemo(() => {

@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { cardDataForEntry } from '../lib/scryfall';
 import { parseCMC } from '../lib/analytics';
 import './ManaCurveDelta.css';
 
@@ -21,16 +22,12 @@ export default function ManaCurveDelta({ diffResult, cardMap }) {
     const removed = new Array(8).fill(0);
 
     function getManaCost(card) {
-      const nameLower = (card.name || card.displayName || '').toLowerCase();
-      const compositeKey = card.collectorNumber ? `${nameLower}|${card.collectorNumber}` : null;
-      const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
+      const data = cardDataForEntry(cardMap, card);
       return data?.manaCost || null;
     }
 
     function isLand(card) {
-      const nameLower = (card.name || card.displayName || '').toLowerCase();
-      const compositeKey = card.collectorNumber ? `${nameLower}|${card.collectorNumber}` : null;
-      const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
+      const data = cardDataForEntry(cardMap, card);
       if (!data) return false;
       const typeLine = (data.typeLine || data.type || '').toLowerCase();
       return typeLine.includes('land');

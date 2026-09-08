@@ -91,11 +91,13 @@ function DeckComparison() {
       <p>
         After comparing, the changelog groups results by card type: Creature, Instant, Sorcery,
         Artifact, Enchantment, Land, Planeswalker, Battle, and more. Each section shows cards
-        that were added, removed, or changed in quantity.
+        that were added, removed, changed in quantity, or changed printing. Set changes with
+        the same collector number and foil-only changes are included. Separate printings keep
+        their own quantities, and full double-faced names match their front-face names.
       </p>
       <ul>
         <li><strong>Summary badges</strong> &mdash; quick counts of cards in, out, changed, and reprinted</li>
-        <li><strong>Card image tooltips</strong> &mdash; hover any card name to see its Scryfall artwork (exact printing when metadata is available)</li>
+        <li><strong>Card image tooltips</strong> &mdash; hover a card name to see its Scryfall artwork; unavailable exact printings do not silently show another printing</li>
         <li><strong>Mana cost symbols</strong> &mdash; official Scryfall SVG mana symbols displayed inline</li>
         <li><strong>Printing badges</strong> &mdash; set code, collector number, and foil marker shown after card names</li>
         <li><strong>Search filter</strong> &mdash; real-time card name filtering across all sections</li>
@@ -240,20 +242,21 @@ function DeckLibrary() {
 
       <h4>Auto-Refresh</h4>
       <p>
-        Set a per-deck refresh schedule (6h, 12h, or 24h) to automatically check Archidekt for
+        Set a per-deck refresh schedule (6h, 12h, 24h, 48h, or one week) to automatically check Archidekt for
         changes. When a change is detected, a new snapshot is created. Combine with notifications
         to get alerted when your decks update.
       </p>
 
       <h4>Other Tabs</h4>
       <ul>
-        <li><strong>Collection</strong> &mdash; import the cards you own. A tracked deck&rsquo;s
-          Full Deck tab then shows a collection summary and marks each card
-          <em>owned</em>, <em>partially owned</em>, or <em>missing</em>, so you can see at a glance
-          what you still need. Matching is by card name across printings and foils, and handles
-          double-faced and accented names.</li>
         <li><strong>Overlap</strong> &mdash; see how many cards are shared across all your tracked decks in a matrix view</li>
+        <li><strong>Notifications</strong> &mdash; review your deck-change and price-alert history</li>
       </ul>
+      <p>
+        Collection management is moving to the ManaSync companion. CLC&rsquo;s Collection tab
+        and owned/missing badges have been removed. CLC continues to track deck versions and
+        paper snapshots; ManaSync inventory integration is planned.
+      </p>
     </div>
   );
 }
@@ -270,7 +273,7 @@ function DeckAnalytics() {
       <h4>Price Tracking</h4>
       <ul>
         <li><strong>Check Prices</strong> &mdash; fetch current prices from Scryfall with a per-card breakdown and total</li>
-        <li><strong>Budget prices</strong> &mdash; see the cheapest printing total alongside your owned printing total, with the potential savings</li>
+        <li><strong>Budget prices</strong> &mdash; see the cheapest printing total alongside your selected printing total, with the potential savings</li>
         <li><strong>Price history chart</strong> &mdash; a smooth SVG chart showing your deck's value over time across snapshots, with high/low/change stats</li>
         <li><strong>Price alerts</strong> &mdash; set a dollar-change threshold and get notified when your deck's value rises or falls by at least that amount from the saved baseline; choose specific or cheapest printings</li>
         <li><strong>Price impact</strong> &mdash; changelogs show the cost impact of cards added, removed, and changed</li>
@@ -329,20 +332,32 @@ function ProxyPrinting() {
       <h4>Export Options</h4>
       <ul>
         <li><strong>Download XML</strong> &mdash; for use with the MPC Autofill desktop tool</li>
-        <li><strong>Download ZIP</strong> &mdash; all selected card images in a ZIP archive</li>
+        <li><strong>Download ZIP</strong> &mdash; unique selected MPC artwork files in a ZIP archive</li>
         <li><strong>Cardstock selection</strong> &mdash; Standard Smooth, Superior Smooth, Smooth, Linen, or Plastic</li>
       </ul>
 
       <h4>Scryfall Image Downloads</h4>
       <p>
-        You can also download a ZIP of all Scryfall card images for a deck. This runs as a
-        background job with progress tracking &mdash; images are cached so re-downloads are fast.
+        Queue a ZIP of Scryfall images for a deck. Each requested card copy gets its own
+        image file, and double-faced cards get both faces. Progress counts image files,
+        including cached files. If a card or required face cannot be downloaded, the job
+        explains what failed and does not provide a partial ZIP. Images are cached to speed
+        up another attempt. Older ZIPs created before these checks must be regenerated.
       </p>
 
       <h4>Double-Faced Cards</h4>
       <p>
-        Double-faced cards (DFCs) are automatically paired: both front and back face images are
-        included in exports and downloads.
+        Scryfall ZIPs give each physical copy a number shared by its front and back files.
+        MPC searches can find and save back-face artwork, but its XML/ZIP exports still need
+        explicit copy counts and face pairing for home printing. MPC ZIPs may contain partial
+        results when an image source fails; review them before using them elsewhere.
+      </p>
+
+      <h4>Home Printing</h4>
+      <p>
+        Automatic PDF generation with Silhouette Card Maker and Epson print-queue submission
+        are planned next. Current image exports do not lay out pages or send jobs to a printer.
+        Drying, lamination and cutting remain outside CLC.
       </p>
 
       <div className="guide-tip">
@@ -523,8 +538,8 @@ function FAQ() {
         <p className="guide-faq-a">
           Prices are sourced from Scryfall, which aggregates market data from TCGPlayer. They are
           fetched on demand when you click "Check Prices" or when auto-refresh runs. Prices
-          reflect the specific printing you own (by set code and collector number) when that
-          metadata is available.
+          reflect the specific printing in your deck list when its set and collector number
+          can be resolved. CLC does not infer physical ownership from a deck list.
         </p>
       </div>
 

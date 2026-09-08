@@ -14,12 +14,10 @@ import {
   updateDeckDiscordWebhook,
   getDeckPrices, updateDeckPriceAlert, updateDeckAutoRefresh,
   submitImageDownload, getDownloadJobStatus, downloadJobFile,
-  getCollection,
 } from '../lib/api';
 import { parse } from '../lib/parser';
-import { buildOwnedIndex } from '../lib/collectionMatch';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS, formatDeckForMpc } from '../lib/formatter';
-import { fetchCardData, collectCardIdentifiers } from '../lib/scryfall';
+import { fetchCardData, collectCardIdentifiers, collectDeckIdentifiers } from '../lib/scryfall';
 import SectionChangelog from './SectionChangelog';
 import ManaCurveDelta from './ManaCurveDelta';
 import ColorDistributionDelta from './ColorDistributionDelta';
@@ -56,28 +54,6 @@ function filterSection(section, query) {
   };
 }
 
-function collectDeckIdentifiers(parsedDeck) {
-  const identifiers = new Map();
-  for (const section of [parsedDeck.mainboard, parsedDeck.sideboard]) {
-    for (const [, entry] of section) {
-      const nameLower = entry.displayName.toLowerCase();
-      if (entry.setCode && entry.collectorNumber) {
-        const compositeKey = `${nameLower}|${entry.collectorNumber}`;
-        if (!identifiers.has(compositeKey)) {
-          identifiers.set(compositeKey, {
-            name: entry.displayName,
-            set: entry.setCode.toLowerCase(),
-            collector_number: entry.collectorNumber,
-          });
-        }
-      }
-      if (!identifiers.has(nameLower)) {
-        identifiers.set(nameLower, { name: entry.displayName });
-      }
-    }
-  }
-  return identifiers;
-}
 
 export default function DeckPage({ deckId }) {
   const { user } = useAuth();
@@ -139,7 +115,6 @@ export default function DeckPage({ deckId }) {
   // Full deck tab state
   const [parsedDeck, setParsedDeck] = useState(null);
   const [deckCardMap, setDeckCardMap] = useState(null);
-  const [ownedIndex, setOwnedIndex] = useState(null);
   const [deckText, setDeckText] = useState(null);
   const [deckLoading, setDeckLoading] = useState(false);
 
@@ -284,13 +259,6 @@ export default function DeckPage({ deckId }) {
         const cm = await fetchCardData(identifiers);
         setDeckCardMap(cm);
       }
-      // Load the user's collection to show owned/missing badges. Best-effort: an
-      // empty collection (or a failed load) leaves the index null so no badges
-      // render — otherwise every card in the deck would be labelled "missing",
-      // which is noise for the many users who never import a collection.
-      getCollection()
-        .then(data => setOwnedIndex(data.cards?.length ? buildOwnedIndex(data.cards) : null))
-        .catch(() => { /* collection unavailable — no owned badges */ });
     } catch {
       toast.error('Failed to load deck list');
     } finally {
@@ -611,8 +579,7 @@ export default function DeckPage({ deckId }) {
         } else if (status.status === 'failed') {
           clearInterval(downloadPollRef.current);
           downloadPollRef.current = null;
-          toast.error(status.error || 'Image download failed');
-          setTimeout(() => setDownloadJob(null), 3000);
+          toast.error('Image download incomplete — review the missing cards below.');
         }
       } catch {
         clearInterval(downloadPollRef.current);
@@ -1202,7 +1169,7 @@ export default function DeckPage({ deckId }) {
                   <button
                     className="btn btn-secondary btn-sm"
                     onClick={handleDownloadImages}
-                    disabled={!!downloadJob}
+                    disabled={downloadJob && downloadJob.status !== 'failed'}
                     type="button"
                   >
                     {downloadJob
@@ -1214,7 +1181,14 @@ export default function DeckPage({ deckId }) {
                       : 'Download Images (Scryfall)'}
                   </button>
                 </div>
-                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} ownedIndex={ownedIndex} />
+                {downloadJob?.status === 'failed' && (
+                  <div className="deck-page-download-error" role="alert">
+                    <strong>Image download could not be completed</strong>
+                    <pre>{downloadJob.error || 'Please retry the image download.'}</pre>
+                    <button className="btn btn-secondary btn-sm" type="button" onClick={() => setDownloadJob(null)}>Dismiss</button>
+                  </div>
+                )}
+                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} />
               </>
             )}
           </div>

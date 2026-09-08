@@ -1,7 +1,9 @@
 # Project review — 2026-09-08
 
 Reviewed the clean checkout against fetched `origin/main` at `f44958b` (v2.42.1).
-Maintenance work is on `codex/project-audit-print-workflow`, versioned v2.42.2.
+The initial maintenance pass was versioned v2.42.2 on
+`codex/project-audit-print-workflow`. Its verification below is historical; the follow-up
+v2.43.0 completeness and collection-removal milestone has its own verification section.
 This review covers code, documentation, automated checks and a local Docker smoke test;
 it does not certify every live third-party integration or physical printer output.
 
@@ -9,15 +11,16 @@ it does not certify every live third-party integration or physical printer outpu
 
 CLC is a React 19/Vite 7 application with an Express 5 API, an in-memory sql.js database
 persisted atomically to disk, and nginx/Docker deployment. It compares imported deck text,
-tracks Archidekt decks with snapshots and paper baselines, provides deck/price analytics,
-collection matching, sharing, notifications and household account administration.
+tracks Archidekt decks with snapshots and paper baselines, and provides deck/price analytics,
+sharing, notifications and household account administration. Native collection management
+has been removed at the owner's request; the planned ManaSync companion owns inventory.
 
 Proxy preparation currently searches MPC artwork and exports XML/image ZIPs, or queues
 Scryfall image ZIPs with caching. PDF composition and physical printing are not implemented.
 The next-feature proposal is [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md), with drying tracking
 excluded at the owner's request.
 
-## Maintenance corrections
+## Initial v2.42.2 maintenance corrections (historical)
 
 | Area | Correction |
 | --- | --- |
@@ -31,13 +34,13 @@ excluded at the owner's request.
 | Docker builds | Nested dependency directories/environment files are excluded; the image defaults to the writable `/app/data` database path |
 | Dependencies | Compatible lockfile updates remediate all advisories reported in both trees during this review |
 
-Documentation now explains actual first-admin startup behavior, development secret
-persistence and environment loading, required lint/tests, atomic backups, collection and
-notification behavior, supported import handlers, and current image-export limitations.
+The initial documentation pass explained actual first-admin startup behavior, development
+secret persistence and environment loading, required lint/tests, atomic backups, the then-current
+collection and notification behavior, supported import handlers, and image-export limitations.
 README, Guide, contributor/convention docs, security model, operations, roadmap and the
 local release checklist were checked together.
 
-## Verification
+## Initial v2.42.2 verification (historical)
 
 Before changes: **340 tests passed**, frontend production build succeeded, ESLint reported
 **0 errors / 10 warnings**. Dependency audits reported **12 affected packages in the root
@@ -61,14 +64,62 @@ the refreshed Guide opens without console errors. Graceful container shutdown fl
 database and exits successfully. The smoke container used fresh disposable data and was
 removed afterward; no household deployment or printer queue was touched.
 
+## v2.43.0: completeness before home printing
+
+The owner requested completeness first, then printing, and assigned collection management
+exclusively to ManaSync. This milestone implements those CLC prerequisites:
+
+| Area | Current change |
+| --- | --- |
+| Printing identity | Canonical keys preserve card name, set, collector number and foil status; identical collector numbers in different sets and foil/nonfoil copies remain distinct |
+| DFC aliases | Bare full names and printing-qualified front-face names reconcile through normalized card names |
+| Display lookups | Exact printing artwork/prices use canonical keys and do not silently fall back to generic printing data; budget estimates remain a separate bare-name lookup |
+| Scryfall completeness | Missing cards, missing required faces, invalid image data and failed downloads prevent ZIP completion and expose failure details |
+| Image counts | Progress counts physical image files consistently, including repeated copies and both DFC faces; paired files share a copy index |
+| Existing ZIP jobs | Legacy artifacts without completeness checks require regeneration rather than reuse as verified results |
+| Native collections | Collection UI, ownership badges, client API, backend routes and collection-only helpers/tests are removed; deck overlap remains |
+| Legacy data | Existing `collection_cards` schema/rows remain in database backups; no transfer to ManaSync is implemented |
+
+The documentation and Guide distinguish these changes from the remaining MPC export and
+home-printing work. [DECISIONS.md](DECISIONS.md) D8 supersedes native CLC collection matching;
+[MANASYNC_INTEGRATION.md](MANASYNC_INTEGRATION.md) preserves the integration boundary and
+open companion contract.
+
+Final checks: **413 tests across 23 files pass**, ESLint reports **0 errors / 7 existing
+warnings**, production frontend and `linux/amd64` Docker builds pass, and both dependency
+audits report **zero vulnerabilities**. Regression coverage includes exact/alias printing
+matching, copy/face completeness, corrupted image data, byte/copy budgets, failed-job cache
+cleanup and atomic ZIP publication. JPEG validation checks structure rather than decoding
+every pixel; actual PDF generation must still decode and verify source images.
+
+Live Scryfall checks resolve exact Lightning Bolt artwork, unaccented Nazgul, a full-name
+Malakir DFC, a five-part split card and case-normalized PLST collector numbers. Real PNG
+front/back and JPEG downloads pass the stricter image checks. Client lookups preserve the
+DFC land-back flag and keep generic requests separate from constrained printing requests.
+
+The final disposable Docker container returns healthy API/frontend responses; removed
+collection routes return 404 and deck overlap remains authentication-protected. Browser
+checks confirm printing/foil changes, accent and full/front DFC equivalence, logical-card
+summary counts, and the refreshed Guide, without browser warnings/errors. SIGTERM reaches
+the backend and flushes its database. The temporary container and browser tab were removed;
+no household data, deployment or printer queue was changed.
+
+A separate temporary Alpine/Python proof ran the actual latest Silhouette Card Maker source
+with the owner's 600 PPI recipe, including fronts-only and DFC-only PDFs and offline
+installation from cached wheels. This validates feasibility, not an integrated CLC PDF
+feature. [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md) records the supplied Adobe/
+Epson settings and sample reference; [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) records the
+remaining integration work.
+
 ## Remaining work
 
-[ROADMAP.md](ROADMAP.md) lists the unresolved printing-identity and DFC comparison cases,
-partial image-download results/progress, MPC copy/back export limitations, concurrent
-multi-device art edits, comparison-link revocation, invite expiry UI and live import checks.
-The in-app guide and README no longer promise those cases work universally.
+[ROADMAP.md](ROADMAP.md) retains the MPC copy/back export limitations, concurrent multi-device
+art edits, comparison-link revocation, invite expiry UI and live import checks. Inventory
+features belong in ManaSync; CLC will consume an agreed API instead of rebuilding collections.
 
-The print feature should use a dedicated physical-copy planner with immutable source/target
-versions and artwork, rather than equating a display diff or completed ZIP with a complete
-print job. Color profiles can be portable while application/driver recipes still require
-validation; the proposal records the primary sources and concrete implementation stages.
+The print feature still needs a dedicated physical-copy planner with immutable source/target
+versions and artwork. A display diff or complete image ZIP is not yet a ready-to-print PDF.
+The adapter must run Silhouette Card Maker's code with a bind-mounted working installation
+and offline update fallback, then validate page layout, printer settings and color output.
+[PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) records the household setup, integration requirements
+and remaining inputs. Drying tracking remains excluded.

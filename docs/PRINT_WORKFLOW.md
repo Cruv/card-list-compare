@@ -5,6 +5,77 @@ printer bridge is implemented in CLC yet.** This design builds on the existing s
 paper-deck, artwork-selection, and image-download features. Household hardware settings
 still need to be supplied and tested.
 
+## Household equipment and materials
+
+The exact Adobe and Epson settings are preserved in
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). Adobe delegates color management
+to the printer; the selected driver mode is EPSON Vivid. No custom ICC profile is shown.
+
+Confirmed by the owner on 2026-09-08:
+
+| Item | Known configuration |
+| --- | --- |
+| Printer | Epson EcoTank Photo ET-8550 |
+| Cutter | Silhouette Cameo 5 Alpha (Cameo 5α) |
+| Paper | Uinkit double-sided glossy inkjet photo paper |
+| Sheet | US Letter, 8.5 × 11 inches |
+| Stock | 200 gsm / 54 lb; listing in the supplied photo states 9.5 mil thickness |
+| Feed | Rear feeder; double-faced batches are manually flipped and reloaded when prompted |
+| Ordinary cards | Fronts only, printed separately from double-faced cards |
+| After printing | Household drying, lamination and cutting; no tracking in CLC |
+
+The paper details come from the owner's product photo. The stock's double-sided coating
+is not a decision to use automatic duplex, nor an Epson driver media preset.
+
+The [Cameo 5 Alpha](https://www.silhouetteamerica.com/silhouette-cameo-5-alpha) supports
+four-point registration. Silhouette Card Maker supports `--registration 4`; its default is
+three marks. Upstream also documents three-mark use with the Alpha by selecting Cameo 5 in
+Studio. The owner's existing command below omits `--registration`, implying the default
+three-mark layout. Preserve that recipe explicitly as `--registration 3` and confirm its
+Studio machine setting/template. Four marks are an optional future recipe change, not an
+automatic consequence of owning the Alpha.
+[Upstream registration options](https://github.com/Alan-Cha/silhouette-card-maker#registration-marks)
+
+Remaining inputs for a household proof:
+
+- Current cutting template, Studio registration/machine setting and calibrated offsets.
+  The command confirms upstream's standard 63 × 88 mm card size.
+- Adobe product/version and the separate two-sided driver's binding/page-order/flip
+  settings. The supplied screenshots establish the ordinary-card preset, including Epson
+  Vivid, Ultra Premium Photo Paper Glossy, Best quality, rear feed and Actual Size.
+  Record practical rear-feeder stack capacity.
+- Where CLC runs and which Mac/Windows machine will host the printer bridge.
+
+These inputs do not block the code-completeness pass. Implement and validate downloadable
+PDFs before enabling physical queue submission.
+
+### Existing Windows generation recipe
+
+The owner supplied this working command (2026-09-08):
+
+```bash
+python create_pdf.py --card_size standard --ppi 600 --quality 100 --paper_size letter --crop 1mm --skip 4 --only_fronts
+```
+
+Preserve 600 PPI, quality 100, Letter, standard cards, 1 mm source crop and skipped slot
+index 4. `--skip 4` skips the zero-based layout position, not four cards; include that empty
+position in sheet-count and slot mapping. Do not silently replace this with generic 300 PPI
+settings or upstream's MPC crop recommendation. Identify which source images were used to
+calibrate the 1 mm crop before applying it to mixed Scryfall/MPC art.
+
+Split each plan into ordinary-card and double-faced-card artifacts. Ordinary cards use
+`--only_fronts` with an empty `double_sided/` directory. Double-faced cards use a separate
+invocation with that flag omitted and matching front/back filenames; only these cards need
+the manual refeed. Preserve all shared layout options in both invocations. A generic back
+is unnecessary for this DFC-only batch; keep `back/` empty unless a later recipe calls for
+one. Never silently add generic backs to the ordinary-card run.
+
+The generator alternates front/back PDF pages. The printer bridge must reproduce the
+Windows driver's working manual-duplex page order and orientation, pausing for flip/reload.
+Ordinary-card printing can be queued unattended once its recipe is verified; DFC printing
+still requires someone at the printer. Prevent other jobs from interleaving while that
+batch is waiting for refeed. This is a physical paper-handling step, not drying tracking.
+
 ## Intended experience
 
 From a tracked deck, a player chooses **Print latest snapshot** or **Print changes**.
@@ -36,12 +107,14 @@ flowchart LR
 | `src/lib/parser.js`, `differ.js` | Counts, sections, printing metadata | Dedicated physical-copy planner with complete printing/face identity |
 | `server/routes/decks.js`, `MpcOverlay.jsx` | Saved artwork choices | Freeze selected front/back IDs per job, rather than resolving again later |
 | `server/lib/downloadQueue.js` | Persisted jobs, limits, progress, retries | Separate print lifecycle and durable submission history |
-| `server/lib/scryfallImages.js`, `imageCache.js` | Original image acquisition and cache | Verify every required face and retain images for the job's lifetime |
+| `server/lib/scryfallImages.js`, `imageCache.js` | Original image acquisition and cache | Complete face/copy downloads now; add retention for immutable print jobs |
 
 CLC's current ZIP downloads are asset exports. MPC ZIPs deduplicate image IDs; Scryfall
-ZIPs expand quantities but keep DFC faces in a flat archive. Current jobs can succeed with
-partial image results. A print worker must consume a validated manifest instead of assuming
-that a completed ZIP contains every requested physical card.
+ZIPs expand quantities and require all requested faces, with paired DFC filenames in a flat
+archive. Scryfall failures list missing cards/faces instead of returning partial ZIPs; older
+unverified artifacts require regeneration. A print worker still needs a validated physical
+manifest with page slots, selected art and generic backs; a complete asset ZIP is not that
+manifest.
 
 ## Copy planning and reproducibility
 
@@ -69,11 +142,10 @@ in the immutable print manifest. Record produced proxy quantities with an idempo
 reference; PDF creation or queue submission alone must not credit available physical copies.
 The exact confirmation event is still an open design question. This adds no drying tracking.
 
-Do not directly reuse display-diff keys as the print identity. Today they can collapse
-printings with the same collector number across sets and miss foil-only changes; one DFC
-full-name/front-name case is also unresolved. MPC overrides are per name. The planner needs
-stable card identity plus set/collector and selected image IDs/hashes, with explicit policy
-for foil metadata (a home printer cannot reproduce foil stock).
+The comparison identity now preserves name, set, collector and finish, with DFC aliases
+handled in the differ. The physical planner must additionally freeze selected image
+IDs/hashes and face pairing: MPC overrides still apply per card name. Decide explicitly
+whether finish-only changes need a reprint; a home printer cannot reproduce foil stock.
 
 Store an immutable manifest with:
 
@@ -127,13 +199,41 @@ not an existing container capability. Update activation must validate any adapte
 pipeline changes against the household recipe; never silently alter crop, scaling,
 registration or color settings because upstream defaults changed.
 
+This is a real compatibility issue: the owner's `Sauron.pdf` uses `letter_standard_v4`,
+while the inspected latest CLI produces `letter-standard-v6`. Row positions, nominal card
+size and registration marks differ. The [measured reference](HOUSEHOLD_PRINT_RECIPE.md#cutting-compatibility-v4-versus-latest-v6)
+must be checked before accepting an update for the household recipe. Fetching the latest
+source and activating it for an approved cutting template are separate operations.
+
+### Headless feasibility proof (not yet integrated)
+
+The inspected upstream HEAD ran in a disposable `node:22-alpine` container with Python
+3.14.7 and `MPLBACKEND=Agg`. Its headless dependency subset is click, filetype, natsort,
+Pillow, Pydantic, matplotlib and NumPy, using the versions pinned by upstream plus resolved
+transitive dependencies. Binary musllinux wheels sufficed; no compiler or Windows/GUI
+plugins were needed. The wheel cache was approximately 47 MiB and installed environment
+201 MiB. Creating a fresh environment from that cache and regenerating PDFs with Docker
+networking disabled both succeeded.
+
+With the owner's 600 PPI recipe, nine ordinary fronts produced two pages (7 + 2 cards), and
+two DFCs produced one front/back pair. Both outputs were landscape Letter, 792 × 612 points,
+with 6600 × 5100 page images. Rendered checks confirmed the skipped lower-left slot and
+paired DFC artwork. This verifies software feasibility only, not physical cutting/color.
+
+Even two-page jobs peaked at roughly 824–948 MiB of process memory in this proof. Upstream
+retains raster pages in memory. The adapter needs bounded sheet/chunk generation followed
+by PDF merging, or another measured memory strategy, before accepting whole decks at
+600 PPI. Preserve page order, labels, skipped slots and DFC pairing across chunk boundaries;
+do not silently lower the owner's resolution to avoid the memory cost.
+
 The inspection reference was commit `4d4aa73a95e93b09676c863a1861765863398c63`. Links below
 document the interface reviewed at that point, not a permanent version pin. The adapter must
 detect incompatible upstream changes and keep using its last working installation.
 
 The [CLI](https://github.com/Alan-Cha/silhouette-card-maker/blob/4d4aa73a95e93b09676c863a1861765863398c63/create_pdf.py)
 accepts explicit input/output paths, paper/card sizes, registration mode and resolution.
-Example invocation for an **illustrative, unvalidated** Letter/standard/three-mark recipe:
+Example adapter invocation preserving the owner's ordinary-card recipe. The container path
+and explicit registration choice still need validation against the existing Windows output:
 
 ```bash
 /app/data/silhouette-card-maker/active/venv/bin/python \
@@ -142,7 +242,8 @@ Example invocation for an **illustrative, unvalidated** Letter/standard/three-ma
   --back_dir_path /job/back \
   --double_sided_dir_path /job/double_sided \
   --output_path /job/output/deck.pdf \
-  --paper_size letter --card_size standard --registration 3 --ppi 300
+  --paper_size letter --card_size standard --registration 3 \
+  --ppi 600 --quality 100 --crop 1mm --skip 4 --only_fronts
 ```
 
 Invoke using an argument array, validated executable and timeout, with closed stdin and an
@@ -151,9 +252,11 @@ resolve it to an immutable version path when claiming a job. The final recipe mu
 the actual cutter template.
 
 The upstream [image staging code](https://github.com/Alan-Cha/silhouette-card-maker/blob/4d4aa73a95e93b09676c863a1861765863398c63/utilities.py)
-requires a unique numbered front filename per copy and an identical filename/extension for
-its DFC back in `double_sided/`. Supply exactly one generic back to avoid an interactive
-choice; create all directories. Ordinary cards sort before DFCs, so derive the slot manifest
+requires a unique numbered front filename per copy and a matching filename stem for
+its DFC back in `double_sided/` (the inspected version accepts differing extensions).
+Create all directories. The household DFC-only batch can leave `back/` empty; if a future
+recipe uses a generic back, supply exactly one to avoid an interactive choice.
+Ordinary cards sort before DFCs, so derive the slot manifest
 from that ordering. Front-only mode requires separate staging: `--only_fronts` rejects a
 populated DFC directory. Isolate saved offset data per versioned recipe.
 
@@ -164,6 +267,11 @@ content. Check physical card size, registration, back alignment and actual-size 
 against the cutter template. Avoid fit-to-page and uncalibrated borderless expansion.
 
 ## Color: transferable files, separately validated print settings
+
+The supplied working recipe is printer-managed EPSON Vivid, with Adobe's "Let printer
+determine colors" enabled. Reproduce that path first; a custom ICC export is not currently
+a prerequisite because no custom profile is shown. The general ICC guidance below applies
+if a later calibrated recipe uses one.
 
 An actual `.icc` or `.icm` profile is portable; these extensions identify the same format.
 Copy the original profile, including a custom paper profile if used.
@@ -210,7 +318,7 @@ spooler. If the bridge crashes after submission but before recording the job ID,
 outcome uncertain and reconcile locally; automatic retries can duplicate physical output.
 Do not expose arbitrary shell commands, executable paths or printer addresses to clients.
 
-Keep preparation, PDF ready, waiting for printer, submitted, printing, printed,
+Keep preparation, PDF ready, waiting for printer, submitted, printing, awaiting manual refeed, printed,
 failed, canceled and uncertain states distinct. Removing a CLC job does not
 guarantee cancellation of an already submitted spooler job. Surface that actual result.
 
@@ -241,7 +349,6 @@ steps stay in the household's existing routine after printing.
 4. **Routine use:** enable the one-action queue option for the validated recipe and display
    print progress. Keep reprints and paper-marker updates explicit.
 
-Needed household details: CLC host, printer-connected host, Windows application and saved
-settings/profile files, paper size/type/thickness, feed tray, fronts-only or front/back
-process, and Silhouette model/template. Until provided, the
-example settings above are design examples only.
+The confirmed paper/printer/cutter and remaining household inputs are listed above.
+The example recipe remains unvalidated until its template, feed path, front/back handling
+and color settings have been checked against the owner's existing output.

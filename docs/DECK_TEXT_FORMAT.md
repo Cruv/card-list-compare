@@ -19,7 +19,7 @@ disagree, the tests win.
 
 | Part | Meaning | Example |
 | --- | --- | --- |
-| `qty` | Copy count, digits, optional `x` suffix | `4` or `4x` |
+| `qty` | Positive safe-integer copy count, digits, optional `x`/`X` suffix | `4` or `4x` |
 | `Card Name` | Verbatim card name; DFC names use ` // ` | `Sheoldred // The True Scriptures` |
 | `(SET)` | Set/edition code, alphanumeric | `(m10)`, `(2xm)` |
 | `[COLLECTOR]` | Bracketed collector number — CardListCompare's own format | `[227]`, `[136p]`, `[DDO-20]` |
@@ -30,9 +30,10 @@ Collector numbers are alphanumeric with hyphens (promos: `136p`, `DDO-20`, `2022
 
 Structure lines (defined in `src/lib/constants.js`):
 
-- Section headers: `Sideboard`/`SB`, `Mainboard`/`Main`/`Deck`, `Commander`/`Commanders`/`Command Zone` (optional trailing `:` or `.`)
+- Section headers: `Sideboard`/`SB`, `Mainboard`/`Main`/`Deck`, `Commander`/`Commanders`/`Command Zone` (optional trailing `:` or `.`); Archidekt's `# Sideboard` is also recognized
+- Trailing commander tags: `(Commander)` and `[Commander{top}]` (also `[Commander]`)
 - `SB:` line prefix marks a single card as sideboard
-- Comments: lines starting with `//` or `#`
+- Comments: lines starting with `//` or `#`, except the `# Sideboard` header
 - CSV fallback: `4,Lightning Bolt` (quantity, name — no metadata)
 
 A blank line ends a populated Commander section and returns to the mainboard.
@@ -65,15 +66,13 @@ Every consumer imports it — the client parser, and on the server both
 `constants.js` to the image). If you change deck-line syntax, change it there,
 then update the behavior pins in `src/lib/invariants.test.js` and this document.
 
-**Never fork a local copy.** It happened twice and both forks caused real bugs:
-`server/routes/collection.js` corrupted set-less multi-word names (fixed
-v2.40.1, with a startup data repair in `server/db.js`), and
-`server/lib/enrichDeckText.js` drifted on collector-number handling (unified
-v2.40.2). The invariants suite now fails if a card-line-shaped regex literal
-reappears in server code.
+**Never fork a local copy.** Historical collection-import and enrichment forks
+corrupted set-less multi-word names and drifted on collector-number handling.
+Native collection management has been removed in favor of ManaSync; the shared
+parser remains the contract for deck import and enrichment.
 
 ```
-/^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/
+/^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/i
 ```
 
 | Group | Captures |
@@ -129,13 +128,41 @@ Each entry is exactly:
 }
 ```
 
-Map keys (see `cardKey` in `parser.js`): `name.toLowerCase()` when there is no
-collector number, otherwise the composite `name.toLowerCase() + '|' + collectorNumber`.
-Composite keys let the same card name appear once per printing (e.g. nine Nazgul
-artworks). Any code that looks up composite-keyed maps must fall back to the bare
-name — only `src/lib/differ.js` reconciles bare-vs-composite mismatches.
+Map keys come from `cardIdentityKey` in `src/lib/cardIdentity.js`. A line without
+set, collector number or foil metadata uses its normalized lowercase full name.
+Otherwise the key is `name|set|collector|finish`, with `foil` or `nonfoil` as the
+finish. Name whitespace/apostrophes and set/collector casing are normalized for
+keys while the entry retains its displayed metadata. Set-only and foil-only
+lines stay distinct from bare names. Equal collector numbers from different
+sets and foil/nonfoil copies never merge.
+
+Consumers should use entry fields and the shared identity helper rather than
+reconstructing keys. Exact artwork lookups must not substitute generic bare-name
+art for a missing selected printing. `src/lib/differ.js` reconciles bare vs.
+printing-qualified names for logical deck comparison, normalizing accents and
+full DFC names to their front face before indexing. Exact keys retain accented
+spelling; this alias matching does not rewrite stored artwork identities.
+Aliases of the same printing sum
+their quantities, and comparing a bare total with many printings does not
+invent artwork metadata for the aggregate. Snapshots remain plain text, so
+this in-memory key change requires no stored-data migration.
 
 This shape is pinned by the "parser entry contract" tests in `src/lib/invariants.test.js`.
+
+### CSV imports and export round-trips
+
+Header-based CSV imports recognize quantity/name aliases, board/category,
+set/edition code, collector number, and foil/modifier/finish columns. Quoted
+commas and doubled quotation marks are preserved. Commander rows belong to the
+mainboard and populate `commanders`; sideboard rows remain separate; explicit
+Maybeboard/Considering rows are excluded. Missing copy counts default to one;
+invalid, zero, negative, fractional or unsafe counts are skipped.
+
+The Archidekt CSV and text exporters round-trip printing metadata, commanders,
+and board placement through the shared parser. Text carry-forward reserves
+already explicit destination printings before distributing previous artwork
+across bare lines, consuming copy counts across mainboard and sideboard.
+Explicit foil markers survive both bare exports and metadata carry-forward.
 
 ## Consumers of the format
 
@@ -145,10 +172,10 @@ Main consumers (non-exhaustive — grep for `src/lib/parser` before assuming):
 | --- | --- |
 | `src/lib/parser.js` | Parses text → structured maps (client + server via Dockerfile-shipped copy) |
 | `src/lib/constants.js` | Regexes for lines, headers, comments |
+| `src/lib/cardIdentity.js` | Complete printing identity and DFC name normalization |
 | `src/lib/formatter.js` | Emits changelogs/exports from diffs |
 | `src/lib/fetcher.js` | Emits the format from Archidekt/Moxfield/etc. API responses |
 | `server/lib/deckToText.js` | Server-side mirror of the Archidekt emitter |
 | `server/lib/enrichDeckText.js` | Rewrites lines to add printing metadata (carry-forward + Scryfall) |
 | `server/routes/decks.js`, `snapshots.js`, `shared-decks.js` | Parse snapshots via the shared parser |
 | `server/lib/downloadQueue.js`, `priceCalculator.js`, `notificationScheduler.js` | Parse `deck_text` via the shared parser |
-| `server/lib/collectionImport.js` | Collection import via the shared `parseLine` (strict: requires a leading quantity) |

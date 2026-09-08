@@ -1,17 +1,15 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import {
   getOwners, addOwner, removeOwner, getOwnerDecks,
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   exportDecks,
-  getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
   getDeckOverlap,
   getNotificationHistory,
 } from '../lib/api';
 import DeckGridCard from './DeckGridCard';
 import Skeleton from './Skeleton';
-import { parseQtyEdit } from '../lib/collectionQty';
 import './UserSettings.css';
 import './DeckLibrary.css';
 
@@ -39,13 +37,6 @@ export default function DeckLibrary() {
             Deck Tracker
           </button>
           <button
-            className={`user-settings-tab${activeTab === 'collection' ? ' user-settings-tab--active' : ''}`}
-            onClick={() => setActiveTab('collection')}
-            type="button"
-          >
-            Collection
-          </button>
-          <button
             className={`user-settings-tab${activeTab === 'overlap' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('overlap')}
             type="button"
@@ -64,12 +55,6 @@ export default function DeckLibrary() {
         {activeTab === 'deck-tracker' && (
           <div className="user-settings-panel">
             <DeckTrackerSettings confirm={confirm} />
-          </div>
-        )}
-
-        {activeTab === 'collection' && (
-          <div className="user-settings-panel">
-            <CollectionManager confirm={confirm} />
           </div>
         )}
 
@@ -583,230 +568,6 @@ function DeckTrackerSettings({ confirm }) {
         <p className="settings-tracker-empty">
           No tracked users yet. Enter an Archidekt username above to start tracking their decks.
         </p>
-      )}
-    </div>
-  );
-}
-
-// --- Collection Manager ---
-
-// Quantity field that commits only on blur/Enter. Keystrokes update local state
-// only; an empty or zero value reverts instead of deleting the card (audit H2).
-function QtyCell({ quantity, onCommit }) {
-  const [value, setValue] = useState(String(quantity));
-  const inputRef = useRef(null);
-  // Escape sets state and blurs in the same tick, but the blur handler runs
-  // before React re-renders — so it would read the typed (stale) value and save
-  // the edit the user just cancelled. This flag makes the cancel win.
-  const cancelledRef = useRef(false);
-
-  // Keep the field in sync when the underlying quantity changes (e.g. a refresh
-  // after another edit) — but never yank the value out from under an active edit.
-  useEffect(() => {
-    if (document.activeElement !== inputRef.current) setValue(String(quantity));
-  }, [quantity]);
-
-  function commit() {
-    if (cancelledRef.current) {
-      cancelledRef.current = false;
-      setValue(String(quantity));
-      return;
-    }
-    const next = parseQtyEdit(value, quantity);
-    if (next === null) {
-      setValue(String(quantity)); // ignore empty/invalid/unchanged → revert
-    } else {
-      onCommit(next);
-    }
-  }
-
-  return (
-    <input
-      ref={inputRef}
-      type="number"
-      className="settings-collection-qty"
-      value={value}
-      min={1}
-      onChange={e => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e => {
-        if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
-        else if (e.key === 'Escape') { cancelledRef.current = true; e.currentTarget.blur(); }
-      }}
-    />
-  );
-}
-
-function CollectionManager({ confirm }) {
-  const [cards, setCards] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [importText, setImportText] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [search, setSearch] = useState('');
-  const [summary, setSummary] = useState({ uniqueCards: 0, totalCards: 0 });
-
-  const refresh = useCallback(async () => {
-    try {
-      const [collectionData, summaryData] = await Promise.all([
-        getCollection(),
-        getCollectionSummary(),
-      ]);
-      setCards(collectionData.cards);
-      setSummary(summaryData);
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function handleImport() {
-    if (!importText.trim()) return;
-    setImporting(true);
-    try {
-      const data = await importCollection(importText);
-      toast.success(`Imported ${data.imported} cards${data.skipped ? ` (${data.skipped} skipped)` : ''}`);
-      setImportText('');
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function handleDeleteCard(id) {
-    try {
-      await deleteCollectionCard(id);
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleUpdateQty(id, newQty) {
-    try {
-      await updateCollectionCard(id, newQty);
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-      // Re-sync so the field can't keep showing a value that was never saved.
-      refresh();
-    }
-  }
-
-  async function handleClear() {
-    const ok = await confirm('Clear your entire collection? This cannot be undone.');
-    if (!ok) return;
-    try {
-      await clearCollection();
-      toast.success('Collection cleared');
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  const filteredCards = useMemo(() => {
-    if (!search.trim()) return cards;
-    const lower = search.toLowerCase();
-    return cards.filter(c => c.card_name.toLowerCase().includes(lower));
-  }, [cards, search]);
-
-  return (
-    <div className="settings-collection">
-      <h3>My Collection</h3>
-      <p className="settings-collection-summary">
-        {summary.uniqueCards} unique cards, {summary.totalCards} total
-      </p>
-
-      <div className="settings-collection-import">
-        <h4>Import Cards</h4>
-        <p className="settings-collection-hint">Paste a card list — same format as deck text (e.g. "4 Lightning Bolt (m10) [227]")</p>
-        <textarea
-          className="settings-collection-textarea"
-          value={importText}
-          onChange={e => setImportText(e.target.value)}
-          placeholder={'4 Lightning Bolt\n2 Sol Ring (c21) [281]\n1 Nazgul (ltr) [551] *F*'}
-          rows={5}
-          disabled={importing}
-        />
-        <div className="settings-collection-import-actions">
-          <button className="btn btn-primary btn-sm" onClick={handleImport} disabled={importing || !importText.trim()} type="button">
-            {importing ? 'Importing...' : 'Import'}
-          </button>
-          {cards.length > 0 && (
-            <button className="btn btn-sm btn-ghost-danger" onClick={handleClear} type="button">
-              Clear All
-            </button>
-          )}
-        </div>
-      </div>
-
-      {cards.length > 0 && (
-        <>
-          {cards.length > 10 && (
-            <div className="settings-collection-search">
-              <input
-                type="text"
-                placeholder="Search collection..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="settings-tracker-search-input"
-              />
-            </div>
-          )}
-          <div className="settings-collection-list">
-            {loading ? <Skeleton lines={5} /> : (
-              filteredCards.length === 0 ? (
-                <p className="settings-tracker-empty">No cards matching "{search}"</p>
-              ) : (
-                <table className="settings-collection-table">
-                  <thead>
-                    <tr>
-                      <th>Qty</th>
-                      <th>Card Name</th>
-                      <th>Set</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredCards.map(card => (
-                      <tr key={card.id}>
-                        <td>
-                          <QtyCell
-                            quantity={card.quantity}
-                            onCommit={qty => handleUpdateQty(card.id, qty)}
-                          />
-                        </td>
-                        <td>
-                          {card.card_name}
-                          {card.is_foil ? ' \u2726' : ''}
-                        </td>
-                        <td className="settings-collection-set">
-                          {card.set_code ? `(${card.set_code.toUpperCase()})` : ''}
-                          {card.collector_number ? ` #${card.collector_number}` : ''}
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-sm btn-ghost-danger"
-                            onClick={() => handleDeleteCard(card.id)}
-                            type="button"
-                            title="Remove from collection"
-                          >
-                            &times;
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            )}
-          </div>
-        </>
       )}
     </div>
   );

@@ -1,6 +1,8 @@
+import { normalizeCardName } from './cardIdentity.js';
+
 /**
  * Build a lookup from bare name → composite keys for maps that use composite keys.
- * This allows matching "lightning bolt" against "lightning bolt|227".
+ * This allows matching a bare card name against its complete printing keys.
  */
 function buildNameIndex(map) {
   const index = new Map();
@@ -28,7 +30,9 @@ function collapseCompositeKeys(map, compositeKeys, bare) {
     if (!bestEntry) bestEntry = entry;
     map.delete(ck);
   }
-  map.set(bare, { ...bestEntry, quantity: totalQty, collectorNumber: '', isFoil: false });
+  // Multiple printings do not identify one artwork. Keep the name and count,
+  // but do not attach the first printing's set to an aggregate of many sets.
+  map.set(bare, { ...bestEntry, quantity: totalQty, setCode: '', collectorNumber: '', isFoil: false });
 }
 
 /**
@@ -51,60 +55,35 @@ function mergeMixedKeys(map, otherMap) {
     if (otherHasComposite.has(bare)) continue; // both sides have printings — keep them
     const bareEntry = map.get(bare);
     let totalQty = bareEntry.quantity;
-    // Prefer real printing metadata over the bare entry's empty values, so the
-    // collapsed row still shows a set/collector number where one existed.
-    let base = bareEntry;
     for (const ck of compositeKeys) {
       const entry = map.get(ck);
-      if (base === bareEntry && !bareEntry.setCode && entry.setCode) base = entry;
       totalQty += entry.quantity;
       map.delete(ck);
     }
-    map.set(bare, { ...base, quantity: totalQty });
+    map.set(bare, { ...bareEntry, quantity: totalQty });
   }
 }
 
 /**
- * Extract front face from a double-faced card name.
- * "sheoldred // the true scriptures" → "sheoldred"
+ * Normalize double-faced names while preserving each printing and copy count.
  */
-function frontFace(name) {
-  const slash = name.indexOf(' // ');
-  return slash !== -1 ? name.slice(0, slash) : name;
-}
-
-/**
- * Normalize DFC keys in a map: rename "name // back" keys to just "name"
- * when the other map has the front-face-only key. Handles both bare keys
- * and composite keys (name|collectorNumber).
- */
-function normalizeDFCKeys(map, otherMap) {
+function normalizeDFCKeys(map) {
   for (const key of [...map.keys()]) {
-    if (otherMap.has(key)) continue;
-
-    // Extract the name portion (strip collector number if present)
+    // Normalize every name before indexing, including full bare DFC names
+    // compared with a metadata-qualified front face. Keep the complete printing
+    // suffix; renaming must never drop or overwrite quantities.
     const pipe = key.indexOf('|');
     const name = pipe !== -1 ? key.slice(0, pipe) : key;
     const suffix = pipe !== -1 ? key.slice(pipe) : '';
-    const front = frontFace(name);
+    const front = normalizeCardName(name);
     if (front === name) continue;
-
-    // Try matching the front-face key (with same collector number suffix) in other map
     const frontKey = front + suffix;
-    if (otherMap.has(frontKey) && !map.has(frontKey)) {
-      const entry = map.get(key);
-      map.delete(key);
-      map.set(frontKey, entry);
-      continue;
-    }
-
-    // Try matching the bare front-face (no collector number) in other map
-    // e.g. "sheoldred // the true scriptures|123" → "sheoldred" when other has "sheoldred"
-    if (otherMap.has(front) && !map.has(front)) {
-      const entry = map.get(key);
-      map.delete(key);
-      map.set(front, entry);
-    }
+    const entry = map.get(key);
+    const existing = map.get(frontKey);
+    map.delete(key);
+    map.set(frontKey, existing
+      ? { ...existing, quantity: existing.quantity + entry.quantity }
+      : entry);
   }
 }
 
@@ -112,15 +91,14 @@ function diffSection(beforeMap, afterMap) {
   const cardsIn = [];
   const cardsOut = [];
   const quantityChanges = [];
-  let unchangedCount = 0;
 
   const before = new Map(beforeMap);
   const after = new Map(afterMap);
 
   // First normalize DFC names so "Sheoldred // The True Scriptures" matches "Sheoldred"
   // This must run before composite key remapping so the name indexes are correct.
-  normalizeDFCKeys(before, after);
-  normalizeDFCKeys(after, before);
+  normalizeDFCKeys(before);
+  normalizeDFCKeys(after);
 
   // Collapse any name that appears as both bare and composite within a side, so
   // the comparison below sees one entry per name and does not fabricate diffs (H5).
@@ -170,10 +148,13 @@ function diffSection(beforeMap, afterMap) {
     const beforeQty = beforeEntry ? beforeEntry.quantity : 0;
     const afterQty = afterEntry ? afterEntry.quantity : 0;
     const displayName = (afterEntry || beforeEntry).displayName;
-    // Prefer metadata from afterEntry (current state), fall back to beforeEntry
-    const setCode = (afterEntry?.setCode || beforeEntry?.setCode || '');
-    const collectorNumber = (afterEntry?.collectorNumber || beforeEntry?.collectorNumber || '');
-    const isFoil = afterEntry?.isFoil ?? beforeEntry?.isFoil ?? false;
+    // Carry one known printing as a whole when a bare import matched it. A bare
+    // entry's default false finish must not turn a carried foil into nonfoil.
+    const hasPrinting = entry => entry && (entry.setCode || entry.collectorNumber || entry.isFoil);
+    const printing = hasPrinting(afterEntry) ? afterEntry : (beforeEntry || afterEntry);
+    const setCode = printing?.setCode || '';
+    const collectorNumber = printing?.collectorNumber || '';
+    const isFoil = printing?.isFoil || false;
 
     if (beforeQty === 0 && afterQty > 0) {
       cardsIn.push({ name: displayName, quantity: afterQty, setCode, collectorNumber, isFoil });
@@ -189,8 +170,6 @@ function diffSection(beforeMap, afterMap) {
         collectorNumber,
         isFoil,
       });
-    } else {
-      unchangedCount++;
     }
   }
 
@@ -199,14 +178,14 @@ function diffSection(beforeMap, afterMap) {
   const printingChanges = [];
   const outByName = new Map();
   for (const card of cardsOut) {
-    const key = card.name.toLowerCase();
+    const key = normalizeCardName(card.name);
     if (!outByName.has(key)) outByName.set(key, []);
     outByName.get(key).push(card);
   }
 
   for (let i = cardsIn.length - 1; i >= 0; i--) {
     const inCard = cardsIn[i];
-    const key = inCard.name.toLowerCase();
+    const key = normalizeCardName(inCard.name);
     const outGroup = outByName.get(key);
     if (!outGroup || outGroup.length === 0) continue;
 
@@ -239,7 +218,13 @@ function diffSection(beforeMap, afterMap) {
   quantityChanges.sort(byName);
   printingChanges.sort(byName);
 
-  return { cardsIn, cardsOut, quantityChanges, printingChanges, totalUniqueCards: allKeys.size, unchangedCount };
+  const allNames = new Set([...before.values(), ...after.values()].map(entry => normalizeCardName(entry.displayName)));
+  const changedNames = new Set([...cardsIn, ...cardsOut, ...quantityChanges, ...printingChanges].map(card => normalizeCardName(card.name)));
+  return {
+    cardsIn, cardsOut, quantityChanges, printingChanges,
+    totalUniqueCards: allNames.size,
+    unchangedCount: [...allNames].filter(name => !changedNames.has(name)).length,
+  };
 }
 
 export function computeDiff(before, after) {

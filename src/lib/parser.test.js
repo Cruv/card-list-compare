@@ -67,7 +67,7 @@ describe('parse()', () => {
   it('parses Arena format "4 Lightning Bolt (M10) 123" with bare collector number', () => {
     const result = parse('4 Lightning Bolt (M10) 123');
     // Arena bare collector numbers are now captured as metadata
-    const entry = result.mainboard.get('lightning bolt|123');
+    const entry = result.mainboard.get('lightning bolt|m10|123|nonfoil');
     expect(entry).toBeDefined();
     expect(entry.displayName).toBe('Lightning Bolt');
     expect(entry.quantity).toBe(4);
@@ -78,14 +78,14 @@ describe('parse()', () => {
   it('parses Arena format with just set code "2 Counterspell (MH2)"', () => {
     const result = parse('2 Counterspell (MH2)');
     const main = mapToObj(result.mainboard);
-    expect(main['counterspell'].quantity).toBe(2);
+    expect(main['counterspell|mh2||nonfoil'].quantity).toBe(2);
   });
 
   // ── Alphanumeric collector numbers (promos, special printings) ───
 
   it('parses bracketed alphanumeric collector number "1 Dragon Tempest (pdtk) [136p]"', () => {
     const result = parse('1 Dragon Tempest (pdtk) [136p]');
-    const entry = result.mainboard.get('dragon tempest|136p');
+    const entry = result.mainboard.get('dragon tempest|pdtk|136p|nonfoil');
     expect(entry).toBeDefined();
     expect(entry.displayName).toBe('Dragon Tempest');
     expect(entry.setCode).toBe('pdtk');
@@ -94,7 +94,7 @@ describe('parse()', () => {
 
   it('parses collector number with hyphen "1 Mother of Runes (plst) [DDO-20]"', () => {
     const result = parse('1 Mother of Runes (plst) [DDO-20]');
-    const entry = result.mainboard.get('mother of runes|DDO-20');
+    const entry = result.mainboard.get('mother of runes|plst|ddo-20|nonfoil');
     expect(entry).toBeDefined();
     expect(entry.setCode).toBe('plst');
     expect(entry.collectorNumber).toBe('DDO-20');
@@ -102,7 +102,7 @@ describe('parse()', () => {
 
   it('parses year-style collector number "1 Nykthos, Shrine to Nyx (ppro) [2022-3]"', () => {
     const result = parse('1 Nykthos, Shrine to Nyx (ppro) [2022-3]');
-    const entry = result.mainboard.get('nykthos, shrine to nyx|2022-3');
+    const entry = result.mainboard.get('nykthos, shrine to nyx|ppro|2022-3|nonfoil');
     expect(entry).toBeDefined();
     expect(entry.setCode).toBe('ppro');
     expect(entry.collectorNumber).toBe('2022-3');
@@ -110,7 +110,7 @@ describe('parse()', () => {
 
   it('parses bare alphanumeric collector number after set code "1x Dragon Tempest (pdtk) 136p"', () => {
     const result = parse('1x Dragon Tempest (pdtk) 136p');
-    const entry = result.mainboard.get('dragon tempest|136p');
+    const entry = result.mainboard.get('dragon tempest|pdtk|136p|nonfoil');
     expect(entry).toBeDefined();
     expect(entry.setCode).toBe('pdtk');
     expect(entry.collectorNumber).toBe('136p');
@@ -493,7 +493,7 @@ Sol Ring
     expect(result.mainboard.get('counterspell').quantity).toBe(2);
     expect(result.mainboard.get('sol ring').quantity).toBe(1);
     // Fatal Push with bare collector number gets composite key
-    const fatalPush = result.mainboard.get('fatal push|45');
+    const fatalPush = result.mainboard.get('fatal push|mh2|45|nonfoil');
     expect(fatalPush).toBeDefined();
     expect(fatalPush.quantity).toBe(3);
     expect(fatalPush.setCode).toBe('MH2');
@@ -533,5 +533,46 @@ SB: 2 Fatal Push
     expect(main['lightning bolt'].quantity).toBe(4);
     // Display name should be from one of the entries
     expect(main['lightning bolt'].displayName).toBeDefined();
+  });
+});
+
+describe('printing and export completeness', () => {
+  it('keeps equal collector numbers across sets and finishes separate', () => {
+    const parsed = parse('2 Sol Ring (c21) [263]\n3 Sol Ring (ltc) [263]\n4 Sol Ring (ltc) [263] *F*');
+    expect(parsed.mainboard.size).toBe(3);
+    expect([...parsed.mainboard.values()].map(entry => entry.quantity)).toEqual([2, 3, 4]);
+    expect(parsed.mainboard.get('sol ring|ltc|263|foil')).toMatchObject({ quantity: 4, isFoil: true });
+  });
+
+  it('normalizes set and collector casing without changing displayed metadata', () => {
+    const parsed = parse('1 Mother of Runes (PLST) [DDO-20]\n2 Mother of Runes (plst) [ddo-20]');
+    expect(parsed.mainboard.size).toBe(1);
+    expect([...parsed.mainboard.values()][0]).toMatchObject({ quantity: 3, setCode: 'PLST', collectorNumber: 'DDO-20' });
+  });
+
+  it('preserves partial set and foil metadata as distinct rows', () => {
+    const parsed = parse('1 Sol Ring\n2 Sol Ring (c21)\n3 Sol Ring *F*');
+    expect(parsed.mainboard.size).toBe(3);
+    expect([...parsed.mainboard.values()].map(entry => entry.quantity)).toEqual([1, 2, 3]);
+  });
+
+  it('retains metadata for uppercase X quantity markers', () => {
+    expect([...parse('2X Sol Ring (C21) [263] *F*').mainboard.values()][0])
+      .toMatchObject({ displayName: 'Sol Ring', quantity: 2, setCode: 'C21', collectorNumber: '263', isFoil: true });
+  });
+
+  it('imports CSV printing metadata, command zone and sideboard', () => {
+    const parsed = parse('quantity,card name,edition code,collector number,modifier,category\n1,Sheoldred,mom,125,Foil,Commander\n2,Sol Ring,c21,263,Normal,\n3,Sol Ring,ltc,263,Foil,Sideboard');
+    expect(parsed.commanders).toEqual(['Sheoldred']);
+    expect(parsed.mainboard.get('sheoldred|mom|125|foil')).toMatchObject({ quantity: 1, isFoil: true });
+    expect(parsed.sideboard.get('sol ring|ltc|263|foil')).toMatchObject({ quantity: 3, setCode: 'ltc' });
+  });
+
+  it('skips invalid explicit copy counts instead of inventing one copy', () => {
+    expect(parse('0 Sol Ring\n9007199254740992 Island').mainboard.size).toBe(0);
+    const parsed = parse('quantity,name\n0,Sol Ring\n-2,Island\n1.5,Mountain\nabc,Swamp\n2,Plains');
+    expect([...parsed.mainboard.values()]).toEqual([
+      expect.objectContaining({ displayName: 'Plains', quantity: 2 }),
+    ]);
   });
 });

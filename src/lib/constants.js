@@ -14,7 +14,7 @@
 // server/lib/enrichDeckText.js. Never fork a local copy (two forks drifted
 // and corrupted data before; see docs/DECK_TEXT_FORMAT.md).
 export const CARD_LINE_PATTERN =
-  /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/;
+  /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/i;
 
 export const LINE_PATTERNS = [
   CARD_LINE_PATTERN,

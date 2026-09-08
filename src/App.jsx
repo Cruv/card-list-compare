@@ -24,12 +24,12 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.42.2';
+const APP_VERSION = '2.43.0';
 const WHATS_NEW = [
-  'Commander deck lists keep blank-separated groups in the mainboard',
-  'Saved proxy artwork, including double-faced backs, survives searches and syncs reliably',
-  'Snapshot ordering, image download expiry, and unlimited paper-snapshot locks work consistently',
-  'Removing a price alert now clears it correctly',
+  'Deck comparisons and artwork keep sets, collector numbers, and foil versions distinct',
+  'Image downloads require every card face and show missing cards instead of an incomplete ZIP',
+  'Deck text and CSV exports preserve printing details, commanders, and sideboards',
+  'Collection tools have been removed from CLC; future inventory integration belongs to ManaSync',
 ];
 
 function getResetToken() {

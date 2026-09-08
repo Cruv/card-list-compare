@@ -12,7 +12,6 @@ import snapshotRoutes from './routes/snapshots.js';
 import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
-import collectionRoutes from './routes/collection.js';
 import mpcRoutes from './routes/mpcautofill.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 import { initDownloadQueue } from './lib/downloadQueue.js';
@@ -75,7 +74,6 @@ app.use('/api/decks', snapshotRoutes);
 app.use('/api/share', shareRoutes);
 app.use('/api/shared-deck', sharedDeckRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/collection', collectionRoutes);
 app.use('/api/mpc', mpcRoutes);
 
 async function start() {

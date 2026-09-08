@@ -31,6 +31,11 @@ and `DOWNLOADS_DIR` can override those paths. A database restore that references
 ZIP requires a new image download. Never run two backend processes against one `DB_PATH`:
 each process owns an independent in-memory database and can overwrite the other's writes.
 
+Native CLC collections have been retired in favor of the planned ManaSync companion.
+The Collection UI and `/api/collection` routes are removed, but `collection_cards` schema
+and rows are retained in database backups. There is no migration/export to ManaSync yet;
+do not drop the table as cleanup. Review any eventual transfer against ManaSync's format.
+
 ## §2 — External-API drift (the #1 cause of emergency releases)
 
 Scryfall / Archidekt / Moxfield / MPC Autofill rename fields without notice; fixtures can't
@@ -107,7 +112,19 @@ jobs per user and twenty overall. Interrupted processing jobs return to `queued`
 Completed ZIPs expire after 24 hours; cleanup runs at startup and hourly. Scryfall images
 are cached on disk, cleaned after 30 days by file modification time, and subject to the
 `max_image_cache_mb` server setting. Check `[DownloadQueue]` logs and free disk space when
-downloads stall. The MPC Autofill ZIP endpoint is a separate request-driven export.
+downloads stall. A Scryfall job only completes after every requested copy and required
+face has an image and the ZIP finishes writing. Progress is in image files, so a two-faced
+card contributes two files per copy. Missing cards/faces and invalid or failed image responses
+fail the job with details instead of exposing a partial ZIP. Regenerate old ZIP jobs marked
+as predating completeness checks; old completed artifacts are not reused as verified results.
+Each job is limited to 1,000 physical copies, 20 MiB per source image and 256 MiB of unique
+image buffers. PNG validation checks structure, checksums and bounded decompression;
+JPEG validation checks required segments and scan structure, not a full pixel decode.
+Oversized/corrupt inputs fail with an actionable error; split large requests into smaller
+decks. These limits protect the current in-memory ZIP worker and are separate from the
+future PDF generator's memory limits.
+The MPC Autofill ZIP endpoint is a separate request-driven export and still needs its own
+physical-copy/face adapter.
 
 The server scheduler checks for deck changes, due auto-refreshes, and price alerts. Its
 global interval defaults to six hours and is configurable in Admin Settings. Per-deck

@@ -205,23 +205,6 @@ export const updateDeckDiscordWebhook = (deckId, discordWebhookUrl) =>
     body: JSON.stringify({ discordWebhookUrl }),
   });
 
-// Collection
-export const getCollection = () => apiFetch('/collection');
-
-export const getCollectionSummary = () => apiFetch('/collection/summary');
-
-export const importCollection = (text) =>
-  apiFetch('/collection/import', { method: 'POST', body: JSON.stringify({ text }) });
-
-export const updateCollectionCard = (id, quantity) =>
-  apiFetch(`/collection/${id}`, { method: 'PATCH', body: JSON.stringify({ quantity }) });
-
-export const deleteCollectionCard = (id) =>
-  apiFetch(`/collection/${id}`, { method: 'DELETE' });
-
-export const clearCollection = () =>
-  apiFetch('/collection', { method: 'DELETE' });
-
 // Playgroups removed — future TapTogether integration planned
 
 // Timeline

@@ -7,10 +7,10 @@
 import crypto from 'crypto';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync, existsSync, unlinkSync, statSync, readdirSync, createWriteStream } from 'fs';
+import { mkdirSync, existsSync, unlinkSync, statSync, readdirSync, createWriteStream, renameSync } from 'fs';
 import { get, all, run } from '../db.js';
 import { parse } from '../../src/lib/parser.js';
-import { fetchCardImageUrls, downloadCardImagesWithCache } from './scryfallImages.js';
+import { fetchCardImageUrls, downloadCardImagesWithCache, ImageCompletenessError } from './scryfallImages.js';
 import { initImageCache, cleanExpiredImages, enforceSizeLimit } from './imageCache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,7 +33,11 @@ export function initDownloadQueue() {
 
   // Reset any jobs that were processing when the server stopped (crash recovery)
   try {
-    run(`UPDATE image_download_jobs SET status = 'queued' WHERE status = 'processing'`);
+    run(`UPDATE image_download_jobs SET status = 'queued', downloaded_images = 0, cached_images = 0, error = NULL WHERE status = 'processing'`);
+    // ZIPs from the previous worker may have silently omitted cards/faces.
+    run(`UPDATE image_download_jobs SET status = 'failed', error = ?
+         WHERE status = 'completed' AND file_path NOT LIKE '%.complete.zip'`,
+      ['This ZIP predates completeness checks. Generate it again to verify every card and face.']);
   } catch { /* table might not exist on first run before persist */ }
 
   // Start the worker if there are queued jobs
@@ -54,7 +58,13 @@ export function initDownloadQueue() {
  * @returns {{ job: object, isExisting: boolean }}
  */
 export function submitJob(userId, trackedDeckId, snapshotId) {
-  snapshotId = snapshotId || null;
+  // Freeze 'latest' at submission so queued/reused jobs always identify a version.
+  if (!snapshotId) {
+    const snapshot = get(`SELECT id FROM deck_snapshots WHERE tracked_deck_id = ?
+      ORDER BY created_at DESC, id DESC LIMIT 1`, [trackedDeckId]);
+    if (!snapshot) throw new Error('No snapshot found');
+    snapshotId = snapshot.id;
+  }
 
   // Check for reusable completed job (non-expired, file still exists)
   const completedJob = snapshotId
@@ -69,7 +79,7 @@ export function submitJob(userId, trackedDeckId, snapshotId) {
            ORDER BY completed_at DESC LIMIT 1`,
       [userId, trackedDeckId]);
 
-  if (completedJob && completedJob.file_path && existsSync(completedJob.file_path)) {
+  if (completedJob?.file_path?.endsWith('.complete.zip') && existsSync(completedJob.file_path)) {
     return { job: completedJob, isExisting: true };
   }
 
@@ -123,7 +133,11 @@ export function submitJob(userId, trackedDeckId, snapshotId) {
 /** Get a job's current status. */
 export function getJobStatus(jobId) {
   // Normalize both historical ISO timestamps and SQLite timestamps in SQL.
-  return get("SELECT *, datetime(expires_at) <= datetime('now') AS expired FROM image_download_jobs WHERE id = ?", [jobId]);
+  const job = get("SELECT *, datetime(expires_at) <= datetime('now') AS expired FROM image_download_jobs WHERE id = ?", [jobId]);
+  if (job?.status === 'completed' && job.file_path && !job.file_path.endsWith('.complete.zip') && !job.expired) {
+    return { ...job, status: 'failed', error: 'This ZIP predates completeness checks. Generate it again to verify every card and face.' };
+  }
+  return job;
 }
 
 /** Get the downloads directory path. */
@@ -142,16 +156,29 @@ async function processNextJob() {
   workerActive = true;
 
   // Mark as processing
-  run(`UPDATE image_download_jobs SET status = 'processing' WHERE id = ?`, [job.id]);
+  run(`UPDATE image_download_jobs SET status = 'processing', total_images = 0, downloaded_images = 0,
+       cached_images = 0, error = NULL, file_path = NULL, file_size = NULL WHERE id = ?`, [job.id]);
 
   try {
     await executeJob(job);
   } catch (err) {
     console.error(`[DownloadQueue] Job ${job.id} failed:`, err.message);
-    run(`UPDATE image_download_jobs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE id = ?`,
+    run(`UPDATE image_download_jobs SET status = 'failed', error = ?, file_path = NULL, file_size = NULL,
+         completed_at = datetime('now') WHERE id = ?`,
       [err.message, job.id]);
   }
 
+  // Failed jobs can still cache successfully downloaded faces. Enforce the
+  // same disk bound after every attempt, while preserving the job's outcome.
+  try {
+    const maxCacheMb = getMaxCacheMb();
+    if (maxCacheMb > 0) {
+      const { evictedCount } = enforceSizeLimit(maxCacheMb);
+      if (evictedCount > 0) console.log(`[DownloadQueue] Evicted ${evictedCount} cached images (over ${maxCacheMb}MB cap)`);
+    }
+  } catch (error) {
+    console.error('[DownloadQueue] Cache cleanup failed:', error.message);
+  }
   workerActive = false;
 
   // Check for next job with a small delay
@@ -187,68 +214,66 @@ async function executeJob(job) {
   }
   if (cards.length === 0) throw new Error('No cards found in the deck');
 
-  // Phase 1: Get image URLs from Scryfall batch API
+  // Phase 1 rejects unresolved cards/faces instead of silently shrinking the deck.
   const cardsWithUrls = await fetchCardImageUrls(cards);
-  if (cardsWithUrls.length === 0) throw new Error('Failed to fetch card data from Scryfall');
+  const totalImages = cardsWithUrls.reduce((sum, card) => sum + card.quantity * (card.isDFC ? 2 : 1), 0);
+  run(`UPDATE image_download_jobs SET total_images = ? WHERE id = ?`, [totalImages, job.id]);
 
-  // Calculate total unique images (for progress)
-  let totalUniqueImages = 0;
-  for (const c of cardsWithUrls) {
-    totalUniqueImages += c.quantity;
-  }
-  run(`UPDATE image_download_jobs SET total_images = ? WHERE id = ?`, [totalUniqueImages, job.id]);
-
-  // Phase 2: Download images with cache + progress reporting
-  const { images, cachedCards, failedCards } = await downloadCardImagesWithCache(
-    cardsWithUrls,
-    (downloaded, cached, total) => {
-      // Update progress in DB (throttled — only every 5 cards to avoid DB thrash)
-      if (downloaded % 5 === 0 || downloaded === total) {
-        run(`UPDATE image_download_jobs SET downloaded_images = ?, cached_images = ? WHERE id = ?`,
-          [downloaded, cached, job.id]);
-      }
+  // All progress counters count files: two per DFC physical copy.
+  let lastReported = -5;
+  const result = await downloadCardImagesWithCache(cardsWithUrls, (downloaded, cached, total) => {
+    if (downloaded - lastReported >= 5 || downloaded === total) {
+      run(`UPDATE image_download_jobs SET downloaded_images = ?, cached_images = ? WHERE id = ?`,
+        [downloaded, cached, job.id]);
+      lastReported = downloaded;
     }
-  );
-
-  if (images.length === 0) throw new Error('Failed to download any images from Scryfall');
-
-  // Phase 3: Build ZIP to disk
-  const zipPath = join(DOWNLOADS_DIR, `${job.id}.zip`);
-  const archiver = (await import('archiver')).default;
-  const output = createWriteStream(zipPath);
-  const archive = archiver('zip', { zlib: { level: 1 } });
-
-  archive.pipe(output);
-  for (const img of images) {
-    archive.append(img.buffer, { name: img.filename });
-  }
-  await archive.finalize();
-  await new Promise((resolve, reject) => {
-    output.on('close', resolve);
-    output.on('error', reject);
   });
-
-  // Finalize job
-  const fileSize = statSync(zipPath).size;
-  const expiresAt = new Date(Date.now() + ZIP_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
-
-  run(`UPDATE image_download_jobs
-       SET status = 'completed', file_path = ?, file_size = ?,
-           downloaded_images = ?, cached_images = ?,
-           completed_at = datetime('now'), expires_at = ?
-       WHERE id = ?`,
-    [zipPath, fileSize, images.length, cachedCards, expiresAt, job.id]);
-
-  // Enforce image cache size limit after adding new images
-  const maxCacheMb = getMaxCacheMb();
-  if (maxCacheMb > 0) {
-    const { evictedCount } = enforceSizeLimit(maxCacheMb);
-    if (evictedCount > 0) {
-      console.log(`[DownloadQueue] Evicted ${evictedCount} cached images (over ${maxCacheMb}MB cap)`);
-    }
+  const { images, cachedImages, downloadedImages, failures } = result;
+  run(`UPDATE image_download_jobs SET downloaded_images = ?, cached_images = ? WHERE id = ?`,
+    [downloadedImages, cachedImages, job.id]);
+  if (failures.length) throw new ImageCompletenessError(failures);
+  if (!totalImages || images.length !== totalImages) {
+    throw new Error(`Image download incomplete; expected ${totalImages} files but received ${images.length}. No ZIP was created.`);
   }
 
-  console.log(`[DownloadQueue] Job ${job.id} completed: ${images.length} images, ${cachedCards} from cache, ${failedCards} failed, ZIP ${(fileSize / 1024 / 1024).toFixed(1)}MB`);
+  // A .complete.zip is only published after every required face and the archive
+  // have succeeded. Partial output is removed on any ZIP/file-system failure.
+  const zipPath = join(DOWNLOADS_DIR, `${job.id}.complete.zip`);
+  const temporaryPath = `${zipPath}.tmp`;
+  const archiver = (await import('archiver')).default;
+  const output = createWriteStream(temporaryPath);
+  const archive = archiver('zip', { zlib: { level: 1 } });
+  const finished = new Promise((resolve, reject) => {
+    output.once('close', resolve);
+    output.once('error', reject);
+    archive.once('error', reject);
+    archive.once('warning', reject);
+  });
+  try {
+    archive.pipe(output);
+    for (const img of images) archive.append(img.buffer, { name: img.filename });
+    await Promise.all([archive.finalize(), finished]);
+    renameSync(temporaryPath, zipPath);
+
+    const fileSize = statSync(zipPath).size;
+    const expiresAt = new Date(Date.now() + ZIP_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    run(`UPDATE image_download_jobs
+         SET status = 'completed', file_path = ?, file_size = ?,
+             downloaded_images = ?, cached_images = ?,
+             completed_at = datetime('now'), expires_at = ?
+         WHERE id = ?`,
+      [zipPath, fileSize, images.length, cachedImages, expiresAt, job.id]);
+    console.log(`[DownloadQueue] Job ${job.id} completed: ${images.length} verified images, ${cachedImages} from cache, ZIP ${(fileSize / 1024 / 1024).toFixed(1)}MB`);
+  } catch (error) {
+    archive.abort();
+    output.destroy();
+    for (const path of [temporaryPath, zipPath]) {
+      try { unlinkSync(path); } catch { /* absent or already removed */ }
+    }
+    throw error;
+  }
+
+
 }
 
 function getMaxCacheMb() {
@@ -285,12 +310,12 @@ function runCleanup() {
 
     // Delete orphaned ZIP files (no matching job in DB)
     try {
-      const zipFiles = readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.zip'));
+      const zipFiles = readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.zip') || f.endsWith('.zip.tmp'));
       const jobIds = new Set(
-        all(`SELECT id FROM image_download_jobs WHERE file_path IS NOT NULL`).map(j => j.id)
+        all(`SELECT id FROM image_download_jobs WHERE file_path IS NOT NULL OR status IN ('queued', 'processing')`).map(j => j.id)
       );
       for (const f of zipFiles) {
-        const jobId = f.replace('.zip', '');
+        const jobId = f.replace(/(?:\.complete)?\.zip(?:\.tmp)?$/, '');
         if (!jobIds.has(jobId)) {
           try { unlinkSync(join(DOWNLOADS_DIR, f)); orphanedFiles++; } catch { /* ignore */ }
         }

@@ -82,7 +82,15 @@ backup exposes.
 
 Image ZIP status and download routes require the owning user and matching deck ID.
 Completed ZIPs expire after 24 hours; download and cleanup checks normalize stored UTC
-timestamps. Local dependency directories and `.env` files are excluded from Docker builds.
+timestamps. Scryfall ZIPs are published only after all requested copies/faces are available;
+non-image and structurally invalid responses are rejected. Legacy ZIP jobs without these
+completeness checks require regeneration. These checks do not attest that the selected art
+or household print recipe is correct. Local dependency directories and `.env` files are
+excluded from Docker builds.
+
+Native collection routes have been removed. Legacy collection data remains in the database
+and its backups for a future deliberate transfer to ManaSync; no new cross-app access or
+inventory integration is introduced by that removal.
 
 PDF generation and printer submission are not implemented. The proposed authenticated
 household bridge and immutable print-job design are in [docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.md).

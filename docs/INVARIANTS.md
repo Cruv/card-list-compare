@@ -52,8 +52,10 @@ unified v2.40.2). Enforced by the single-source and behavior-pin tests in
 ## 3. Parser contract: `displayName`, flat commanders, composite keys
 
 Entries expose `displayName` (never `.name`); `parsed.commanders` is a flat
-string array; map keys come from `cardKey` (bare lowercase name, or
-`name|collectorNumber`). Enforced by the "parser entry contract" tests. Past
+string array; map keys come from `cardIdentityKey` in `src/lib/cardIdentity.js`
+(normalized full lowercase name, or `name|set|collector|finish`). Metadata keys
+include lowercase set and collector number plus `foil`/`nonfoil`, including
+partial set-only or foil-only lines. Enforced by the "parser entry contract" tests. Past
 production crashes (v2.17.0, v2.18.1) came from server routes assuming
 `entry.name` or destructuring commanders as Map entries.
 
@@ -66,6 +68,10 @@ passes.
 - **Why:** the name index is built from map keys; DFC renames
   (`"sheoldred // the true scriptures"` → `"sheoldred"`) change those keys. Index
   first and the remap operates on stale keys.
+- Aliases normalize through `normalizeCardName` in `src/lib/cardIdentity.js`;
+  logical names ignore accents while exact printing keys retain spelling;
+  renaming preserves the complete printing suffix and sums existing aliases
+  rather than overwriting their quantities.
 - **Breaks when:** double-faced cards show as remove+add pairs instead of
   matching — while simple-deck tests keep passing. A source-order tripwire test
   guards this.
@@ -78,8 +84,10 @@ identifier (`{name}` → type/mana data) per card. Results are stored under both
 keys, and DFC names are normalized to their front face for the query, with
 results aliased back to every original `//` name that mapped there.
 
-- **Why:** UI lookups try `name|collector` first, then bare name; both must
-  resolve. Scryfall's API doesn't accept full `A // B` names on all endpoints.
+- **Why:** printing-qualified UI lookups use `cardIdentityKey`, while name
+  lookups supply generic card data and budget choices. Missing exact artwork
+  must remain missing instead of silently substituting a different printing.
+  Scryfall's API doesn't accept full `A // B` names on all endpoints.
 - **Breaks when:** card tooltips show generic artwork for specific printings, or
   DFC cards lose images/types entirely.
 - Client `src/lib/scryfall.js` and `server/lib/scryfall.js` are **intentionally
@@ -194,7 +202,7 @@ WHATS_NEW is **replaced** each release (git log is the historical record).
 | --- | --- | --- |
 | `CARD_LINE_PATTERN` (constants.js) | behavior pins in invariants.test.js + [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md); check group indexing in enrichDeckText.js | pattern tests |
 | `archidektToText` (fetcher.js) | `archidektToText` (deckToText.js) | mirror test |
-| Parser entry shape / `cardKey` | differ, formatter, all server routes, [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md) | contract tests |
+| Parser entry shape / `cardIdentityKey` | differ, formatter, Scryfall/UI lookups, all server routes, [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md) | contract tests |
 | New `src/lib` import in `server/**` | Dockerfile `COPY src/lib/...` line | COPY-closure test |
 | Password/suspension writes | call `invalidateAuthCache(userId)` (bulk ops: `invalidateAllAuthCache()`) | — (review) |
 | New external API host | helmet CSP (`server/index.js`) + vite proxy (`vite.config.js`); nginx only if a new server-side path is proxied | — (review) |
@@ -211,9 +219,10 @@ Why things are the way they are — context for changes, not rules.
 1. **Metadata lives in deck text, not schema** — snapshots are self-contained
    strings; no migrations needed for new metadata; export/import round-trips are
    trivially lossless.
-2. **Composite map keys** (`name|collector`) let one card name hold multiple
-   printings as distinct entries (nine Nazgul artworks) while bare names remain
-   the fallback identity.
+2. **Complete printing keys** (`name|set|collector|finish`) keep equal collector
+   numbers from different sets and foil/nonfoil copies distinct. Bare names
+   remain the logical comparison fallback, never a replacement for missing
+   artwork on an explicitly selected printing.
 3. **Enrichment is graceful, never fatal** — if Scryfall is down or a card is
    unknown, the original line passes through. Deck data is never held hostage by
    a third-party API.

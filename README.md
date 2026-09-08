@@ -1,8 +1,8 @@
 # Card List Compare
 
-Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, collection matching, and proxy image exports.
+Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, and proxy image exports.
 
-CLC currently exports card images and MPC Autofill projects. Automatic home-print PDFs and printer queue submission are the proposed next feature; see [Home printing workflow](docs/PRINT_WORKFLOW.md).
+CLC currently exports card images and MPC Autofill projects. Collection and purchase management belong to the planned ManaSync companion; CLC's native collection feature has been removed. Automatic home-print PDFs and printer queue submission are the proposed next feature; see [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ## Supported Architectures
 
@@ -171,12 +171,12 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 
 - **Printing metadata** &mdash; import and export set codes, collector numbers (including promos like `136p`, `DDO-20`), and foil markers
 - **Cross-source carry-forward** &mdash; comparing an Archidekt snapshot against a DeckCheck/plain text import? The export inherits printing metadata from the richer source automatically
-- **Multi-printing support** &mdash; distinguish artworks with different collector numbers for cards such as Nazgul and Hare Apparent
-- **Double-faced card matching** &mdash; reconcile full DFC names and front-face names in supported metadata combinations
+- **Multi-printing support** &mdash; preserve separate quantities by card name, set, collector number, and foil status, including identical collector numbers from different sets
+- **Double-faced card matching** &mdash; reconcile full DFC names and front-face names, including comparisons where only one side has printing metadata
 - **Server-side enrichment** &mdash; plain text deck imports are enriched with printing metadata via Scryfall, with carry-forward from previous snapshots
 - **Printing badges** &mdash; set code, collector number, and foil indicator displayed inline on card entries
 
-Known limitations: comparison identity does not yet distinguish set-only changes with the same collector number or foil-only changes; a bare full DFC name compared with a front-face name carrying printing metadata can appear as a removal/addition. These are tracked in [Roadmap](docs/ROADMAP.md) and must be handled before automatic print planning.
+Set changes with the same collector number and foil-only changes are included in the comparison. Exact printing lookups do not silently substitute generic artwork or prices when that printing is unavailable. A display diff is still not a physical-copy print plan; that adapter remains in [Roadmap](docs/ROADMAP.md).
 
 ### Deck Library
 
@@ -194,16 +194,14 @@ Known limitations: comparison identity does not yet distinguish set-only changes
 - **Change notifications** &mdash; optional verified-email and Discord webhook alerts, with notification history in the library
 - **Deck sharing** &mdash; generate public share links for tracked decks with snapshot comparison
 
-### Collection
+### ManaSync integration direction
 
-- **Owned-card imports** &mdash; paste quantity-prefixed deck text in Deck Library → Collection, preserving set, collector number, and foil status; repeated imports add to existing quantities
-- **Collection management** &mdash; search, edit quantities, remove individual entries, or clear the collection
-- **Owned/missing badges** &mdash; the Full Deck tab shows coverage once a collection exists; ownership is summed by card name across printings and foils, with DFC and accented-name matching
+Collection management, purchased/received cards, proxy inventory, storage locations, and deck allocations belong to ManaSync. CLC's collection tab, ownership badges, and collection API have been removed. Existing collection database rows remain in backups; no migration or export to ManaSync has shipped. CLC will consult ManaSync through an agreed integration for future buy/proxy decisions. See [ManaSync context](docs/MANASYNC_INTEGRATION.md).
 
 ### Deck Analytics
 
 - **Price checking** &mdash; fetch current Scryfall prices with per-card breakdown, total, and top-10 most expensive cards
-- **Budget prices** &mdash; cheapest printing totals alongside owned printing totals, with savings calculation
+- **Budget prices** &mdash; cheapest printing totals alongside selected printing totals, with savings calculation
 - **Price history** &mdash; smooth SVG chart showing deck value over time across snapshots
 - **Price alerts** &mdash; set a dollar-change threshold for specific or cheapest printings; notify when value moves that far from the alert baseline, through configured email/Discord channels
 - **Power level** &mdash; heuristic estimate (1&ndash;10 scale) based on fast mana, tutors, combo enablers, and mana curve
@@ -218,10 +216,11 @@ Known limitations: comparison identity does not yet distinguish set-only changes
 - **Advanced filters** &mdash; DPI range, language, source priority, tag includes/excludes, fuzzy search toggle
 - **Cardstock selection** &mdash; Standard Smooth, Superior Smooth, Smooth, Linen, Plastic
 - **XML & ZIP export** &mdash; download XML for the MPC Autofill desktop tool, or download a ZIP of matched card images
-- **Scryfall image downloads** &mdash; queue a ZIP of available Scryfall card images for a deck, with progress tracking
-- **DFC image retrieval** &mdash; fetch front and back face images when available; exports still need layout/pairing for home printing
+- **Scryfall image downloads** &mdash; queue a ZIP containing every requested physical copy and required face; missing cards, missing faces, or failed image downloads prevent completion and identify what failed
+- **Image progress** &mdash; counts image files consistently, including repeated copies and both DFC faces; cached images count toward the same total
+- **DFC image retrieval** &mdash; paired Scryfall front/back files share a copy number; page layout and duplex alignment still require the printing adapter
 
-These exports prepare assets for the next printing step. MPC ZIPs contain unique selected images rather than one image per physical copy; downloads can contain partial results when an image source fails. CLC does not yet generate Silhouette-compatible page PDFs, apply home-printer presets, or submit physical print jobs. The proposed Epson ET-8550/Silhouette integration is described in [Home printing workflow](docs/PRINT_WORKFLOW.md).
+These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. CLC does not yet generate Silhouette-compatible page PDFs, apply home-printer presets, or submit physical print jobs. The proposed Epson ET-8550/Silhouette integration is described in [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ### Card Display
 
@@ -327,9 +326,9 @@ src/
   components/    # React UI components
   components/admin/  # Admin panel sections
   context/       # Auth, theme, and settings providers
-  lib/           # Parser, differ, exports, API client, Scryfall, collection matching
+  lib/           # Parser, differ, exports, API client, Scryfall, card identity
 server/
-  routes/        # Auth, decks, snapshots, collection, shares, admin, MPC Autofill
+  routes/        # Auth, decks, snapshots, shares, admin, MPC Autofill
   middleware/     # Rate limiting, validation, auth, security
   lib/           # Enrichment, prices, notifications, image cache/download queue, auth helpers
   db.js          # sql.js migrations and atomic persistence
@@ -357,14 +356,14 @@ docker-compose.yml
 | MPC search, alternates, XML, and image download | 15 requests / minute |
 | Share creation | 10 requests / minute |
 
-These Express limits are per IP. Production's nginx import proxies bypass Express and remain subject to the upstream providers' limits. The background Scryfall image queue accepts at most two pending jobs per user and twenty overall, processes one at a time, and expires completed ZIPs after 24 hours.
+These Express limits are per IP. Production's nginx import proxies bypass Express and remain subject to the upstream providers' limits. The background Scryfall image queue accepts at most two pending jobs per user and twenty overall, processes one at a time, and expires completed ZIPs after 24 hours. Each image job allows up to 1,000 physical copies, 20 MiB per source image and 256 MiB of unique image buffers; oversized inputs fail without publishing a partial ZIP.
 
 ## Project Documentation
 
 - [Contributing](CONTRIBUTING.md) and [coding conventions](CLAUDE.md)
 - [Decisions](docs/DECISIONS.md), [invariants](docs/INVARIANTS.md), and [deck text format](docs/DECK_TEXT_FORMAT.md)
 - [Operations](docs/OPERATIONS.md) and [security](SECURITY.md)
-- [Roadmap](docs/ROADMAP.md) and [proposed home printing workflow](docs/PRINT_WORKFLOW.md)
+- [Roadmap](docs/ROADMAP.md), [proposed home printing workflow](docs/PRINT_WORKFLOW.md), and [ManaSync integration context](docs/MANASYNC_INTEGRATION.md)
 
 ## License
 

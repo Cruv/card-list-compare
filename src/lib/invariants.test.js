@@ -16,12 +16,22 @@ import { archidektToText as serverArchidektToText } from '../../server/lib/deckT
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
+function serverJsFiles(dir, out = []) {
+  for (const name of readdirSync(dir)) {
+    if (name === 'node_modules' || name === 'data') continue;
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) serverJsFiles(p, out);
+    else if (/\.m?js$/.test(name) && !/\.test\.m?js$/.test(name)) out.push(p);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Invariant: card-line pattern is single-sourced
 // ---------------------------------------------------------------------------
 // CARD_LINE_PATTERN in constants.js is the ONLY card-line regex. It drifted
 // into forked copies twice before (server/lib/enrichDeckText.js, fixed
-// v2.40.2; server/routes/collection.js, fixed v2.40.1) — both corrupted or
+// v2.40.2; historical collection importer, fixed v2.40.1) — both corrupted or
 // mis-read user data. These tests guard against a third fork and pin the
 // pattern's behavior so edits show exactly what changed.
 
@@ -44,9 +54,9 @@ describe('invariant: card-line pattern single source', () => {
   it('no other server file declares a card-line-shaped regex', () => {
     // The corruption signature of past forks: a regex literal matching a
     // leading quantity capture followed by a lazy name capture.
-    for (const file of ['server/routes/collection.js', 'server/lib/deckToText.js']) {
+    for (const file of serverJsFiles(join(ROOT, 'server'))) {
       expect(
-        /\/\^\(\\d\+\)/.test(read(file)),
+        /\/\^\(\\d\+\)/.test(readFileSync(file, 'utf8')),
         `${file} declares a quantity-leading regex literal — card lines must go through the shared parser/pattern`
       ).toBe(false);
     }
@@ -57,6 +67,7 @@ describe('invariant: card-line pattern single source', () => {
   it.each([
     ['4 Lightning Bolt', { qty: '4', name: 'Lightning Bolt', set: '', cn: '', foil: false }],
     ['4x Lightning Bolt', { qty: '4', name: 'Lightning Bolt', set: '', cn: '', foil: false }],
+    ['2X Sol Ring (C21) [263] *F*', { qty: '2', name: 'Sol Ring', set: 'C21', cn: '263', foil: true }],
     ['1 Snapcaster Mage (UMA) [63]', { qty: '1', name: 'Snapcaster Mage', set: 'UMA', cn: '63', foil: false }],
     ['1 Nazgul (ltr) [336p]', { qty: '1', name: 'Nazgul', set: 'ltr', cn: '336p', foil: false }],
     ['1 Sol Ring (c21) [263] *F*', { qty: '1', name: 'Sol Ring', set: 'c21', cn: '263', foil: true }],
@@ -85,16 +96,6 @@ describe('invariant: Dockerfile COPY list covers server imports of src/lib', () 
   // Local imports inside src/lib. Deliberately broad: captures the whole
   // specifier so subdirectory / extensionless imports can be rejected below.
   const LOCAL_RE = /(?:from|import\s*\(?)\s*['"](\.\/[\w./-]+)['"]/g;
-
-  function serverJsFiles(dir, out = []) {
-    for (const name of readdirSync(dir)) {
-      if (name === 'node_modules' || name === 'data') continue;
-      const p = join(dir, name);
-      if (statSync(p).isDirectory()) serverJsFiles(p, out);
-      else if (/\.m?js$/.test(name) && !/\.test\.m?js$/.test(name)) out.push(p);
-    }
-    return out;
-  }
 
   it('no server file imports src/lib via a template literal (invisible to this scan)', () => {
     for (const f of serverJsFiles(join(ROOT, 'server'))) {
@@ -190,9 +191,10 @@ describe('invariant: parser entry contract', () => {
     for (const c of parsed.commanders) expect(typeof c).toBe('string');
   });
 
-  it('map keys are lowercase name, or lowercase name|collectorNumber when present', () => {
+  it('map keys include set, collector number and finish when metadata is present', () => {
     const parsed = parse(FIXTURE);
-    expect(parsed.mainboard.has('lightning bolt|146')).toBe(true);
+    expect(parsed.mainboard.has('lightning bolt|m10|146|nonfoil')).toBe(true);
+    expect(parsed.mainboard.has("atraxa, praetors' voice|c16|28|foil")).toBe(true);
     expect(parsed.mainboard.has('island')).toBe(true);
   });
 });
@@ -331,7 +333,8 @@ describe('invariant: docs/INVARIANTS.md content anchors resolve', () => {
     ['src/lib/constants.js', 'CARD_LINE_PATTERN'],
     ['server/lib/enrichDeckText.js', 'CARD_LINE_PATTERN'],
     ['server/lib/enrichDeckText.js', 'buildMetadataLookup'],
-    ['src/lib/parser.js', 'cardKey'],
+    ['src/lib/cardIdentity.js', 'cardIdentityKey'],
+    ['src/lib/cardIdentity.js', 'normalizeCardName'],
     ['src/lib/parser.js', 'displayName'],
     ['src/lib/differ.js', 'normalizeDFCKeys'],
     ['src/lib/differ.js', 'buildNameIndex'],

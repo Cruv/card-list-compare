@@ -8,6 +8,8 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync, utimesSync } from 'fs';
 
+import { MAX_IMAGE_BYTES } from './imageValidation.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_PATH = process.env.DB_PATH || join(__dirname, '..', 'data', 'cardlistcompare.db');
 const DATA_DIR = dirname(DB_PATH);
@@ -58,7 +60,7 @@ export function buildNameCacheKey(name, face) {
  * Get a cached image from disk.
  * @returns {Buffer|null}
  */
-export function getCachedImage(set, collector, face) {
+export function getCachedImage(set, collector, face, maxBytes = MAX_IMAGE_BYTES) {
   const key = buildCacheKey(set, collector, face);
   if (!key) return null;
 
@@ -66,6 +68,7 @@ export function getCachedImage(set, collector, face) {
   if (!existsSync(filePath)) return null;
 
   try {
+    if (statSync(filePath).size > Math.min(maxBytes, MAX_IMAGE_BYTES)) return null;
     // Touch mtime for LRU tracking
     const now = new Date();
     utimesSync(filePath, now, now);
@@ -79,12 +82,13 @@ export function getCachedImage(set, collector, face) {
  * Get a cached image by name (fallback for cards without set/collector).
  * @returns {Buffer|null}
  */
-export function getCachedImageByName(name, face) {
+export function getCachedImageByName(name, face, maxBytes = MAX_IMAGE_BYTES) {
   const key = buildNameCacheKey(name, face);
   const filePath = join(CACHE_DIR, key);
   if (!existsSync(filePath)) return null;
 
   try {
+    if (statSync(filePath).size > Math.min(maxBytes, MAX_IMAGE_BYTES)) return null;
     const now = new Date();
     utimesSync(filePath, now, now);
     return readFileSync(filePath);

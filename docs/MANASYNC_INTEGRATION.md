@@ -3,7 +3,10 @@
 Captured 2026-09-08 from the owner's supplied Discord proposal and ten conversation
 screenshots (Photos 1–10). This note preserves the product discussion for future work;
 it is not a shipped feature, finalized API contract, or verification of vendor capabilities.
-"ManaSync" is a working name for the proposed companion app.
+"ManaSync" is a working name for the proposed companion app. The owner's later instruction
+settles the CLC boundary: ManaSync handles collection management exclusively, and native
+CLC collections and their expansion plans are removed. The vendor/reconciliation details
+below remain proposals.
 
 ## Problem and intended outcome
 
@@ -62,15 +65,16 @@ must be checked against actual samples and current documentation before implemen
   the submitting user. The discussion then recognized direct PWA input as sufficient; the
   bot is optional, not a requirement for the initial workflow.
 
-## Source of truth: preserve the unresolved choice
+## Inventory authority within the ManaSync/ManaBox workflow
 
 The initial proposal treats ManaBox as the authoritative collection and ManaSync as its
 backup/mirror plus purchase ledger. The later discussion leans toward a custom inventory
 as the authoritative source, with ManaBox mainly serving as a scanner and lookup tool.
 That preference is conditional on satisfactory offline collection browsing and sync.
 
-Do not turn either option into a settled architecture decision yet. Decide which system
-owns counts, edits and deletions before implementing reconciliation. A hosted backup with
+CLC's responsibility is settled: it will not manage collections. Within the companion
+workflow, decide whether ManaSync or ManaBox owns counts, edits and deletions before
+implementing reconciliation. A hosted backup with
 on-device offline data and reconnect synchronization is desired; the screenshots' claims
 about ManaBox internals, uninstall behavior and TestFlight limits were conversation context,
 not independently established technical facts.
@@ -90,11 +94,12 @@ Expected user experience: deck change → reuse a physical copy, buy, or proxy �
 result in inventory without rescanning every card. Useful output includes "already ordered,"
 "available in this box," and "you printed this many copies; these decks use them."
 
-Existing CLC collection coverage is name-based and printing-agnostic (decision D8 in
-[DECISIONS.md](DECISIONS.md)). It is not yet a ledger of pending purchases, proxy batches,
-storage locations or deck allocations. Inventory integration should deliberately extend
-that model and reconcile any existing CLC collection rather than silently creating another
-conflicting source of truth.
+The former native CLC collection feature has been removed, including its tab, ownership
+badges and API. Decision D8 in [DECISIONS.md](DECISIONS.md) now records ManaSync's exclusive
+responsibility for collections. Legacy `collection_cards` rows/schema remain in CLC's
+database and backups; no migration or export to ManaSync is implemented. If those records
+are useful, agree on an explicit migration/reconciliation when ManaSync's format is ready.
+Do not revive CLC's old matcher or collection manager as a parallel inventory system.
 
 ## Engineering implications to carry into design
 
@@ -114,7 +119,7 @@ schemas or new standing decisions:
 | Reconciliation | Show discrepancies and resolve conflicts deliberately, including sales, trades, corrections, partial receipts and lost/damaged proxies |
 | User mapping | Link authenticated accounts using stable IDs; an optional Discord bridge must not assign collections by display name alone |
 | Offline use | Define cached reads, pending edits, reconnect conflicts and hosted backup behavior before choosing an authoritative source |
-| CLC print jobs | Freeze the inventory revision, selected copies/reservations and proxy-batch reference alongside the existing immutable deck/art manifest |
+| CLC print jobs | Freeze the inventory revision, selected copies/reservations and proxy-batch reference alongside the proposed immutable deck/art manifest |
 
 ## Vendor claims and questions still to validate
 
@@ -125,7 +130,8 @@ a different question from CLC's existing ability to import deck URLs.
 
 Before integration, obtain the companion repo/backlog and agree on:
 
-- Collection authority, initial import/rescan strategy and reconciliation rules.
+- ManaSync/ManaBox reconciliation authority, initial import/rescan strategy, and an explicit
+  migration decision for any retained legacy CLC collection records.
 - Actual ManaBox full-export, scan-session and proxy-binder CSV samples, including mobile
   import behavior, duplicate handling and preserved fields.
 - Mana Pool credentials/scopes, order/line identifiers, status handling and printing matches.
@@ -152,5 +158,7 @@ this integration does not add drying, lamination or cutter-queue tracking. Loggi
 proxy copies is an inventory concern, and should not automatically advance the assembled
 paper-deck snapshot marker.
 
-This context request authorizes documentation only. No companion app, vendor connection,
-CSV importer, bot, native app, inventory mutation or print integration was implemented here.
+The original context capture was documentation only. The owner's later instruction removes
+native collection management from CLC; that removal preserves legacy stored rows. No
+companion app, vendor connection, CSV integration, bot, native app, ManaSync inventory
+mutation, PDF generator or printer submission is implemented in this milestone.

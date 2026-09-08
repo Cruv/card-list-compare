@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatArchidektCSV, formatForArchidekt, formatTTS } from './formatter.js';
+import { parse } from './parser.js';
+import { cardIdentityKey } from './cardIdentity.js';
 
 // Lock Date.now so timestamps are deterministic
 const FAKE_NOW = new Date('2025-06-15T14:30:00Z');
@@ -374,6 +376,12 @@ describe('formatJSON()', () => {
 // ─── formatArchidektCSV ────────────────────────────────────────
 
 describe('formatArchidektCSV', () => {
+  it('round-trips metadata, foil, quoted names and sections through the shared parser', () => {
+    const original = 'Commander\n1 Sheoldred // The True Scriptures (mom) [125] *F*\n\n1 "Ach! Hans, Run!" (unh) [116]\n2 Sol Ring (c21) [263]\n3 Sol Ring (ltc) [263]\nSideboard\n4 Sol Ring (ltc) [263] *F*';
+    const output = parse(formatArchidektCSV(original));
+    expect(output).toEqual(parse(original));
+  });
+
   it('matches Archidekt export header format', () => {
     const csv = formatArchidektCSV('1 Sol Ring (ltc) [284]');
     const lines = csv.split('\n');
@@ -423,6 +431,36 @@ describe('formatArchidektCSV', () => {
 // ─── formatForArchidekt ────────────────────────────────────────
 
 describe('formatForArchidekt', () => {
+  it('round-trips its command-zone tags and sideboard header', () => {
+    const original = 'Commander\n1 Sheoldred (mom) [125] *F*\n\n2 Sol Ring (c21) [263]\nSideboard\n3 Sol Ring (ltc) [263]';
+    expect(parse(formatForArchidekt(original))).toEqual(parse(original));
+  });
+
+  it('preserves a foil-only line without previous printing metadata', () => {
+    expect(formatForArchidekt('2 Sol Ring *F*')).toBe('2x Sol Ring *F*');
+  });
+
+  it('carries DFC artwork forward from a full name to its front face', () => {
+    expect(formatForArchidekt('1 Sheoldred', [], '1 Sheoldred // The True Scriptures (mom) [125]'))
+      .toBe('1x Sheoldred (mom) 125');
+  });
+
+  it('reserves explicitly selected artworks before filling bare lines', () => {
+    const before = '2 Sol Ring (c21) [263]\n3 Sol Ring (ltc) [263]';
+    const after = '2 Sol Ring (c21) [263]\n3 Sol Ring';
+    expect(parse(formatForArchidekt(after, [], before))).toEqual(parse(before));
+  });
+
+  it('consumes copy counts accurately when bare lines appear across boards', () => {
+    const before = '2 Sol Ring (c21) [263]\n3 Sol Ring (ltc) [263]';
+    const output = parse(formatForArchidekt('1 Sol Ring\nSideboard\n4 Sol Ring', [], before));
+    expect([...output.mainboard.values()]).toEqual([expect.objectContaining({ quantity: 1, setCode: 'c21' })]);
+    expect([...output.sideboard.values()]).toEqual([
+      expect.objectContaining({ quantity: 1, setCode: 'c21' }),
+      expect.objectContaining({ quantity: 3, setCode: 'ltc' }),
+    ]);
+  });
+
   it('formats lines in Archidekt txt format with Nx, set, and bare collector number', () => {
     const result = formatForArchidekt('1 Sol Ring (ltc) [284]');
     expect(result).toBe('1x Sol Ring (ltc) 284');
@@ -523,6 +561,27 @@ describe('formatForArchidekt', () => {
 // ── formatTTS ─────────────────────────────────────────────────────
 
 describe('formatTTS', () => {
+  it('uses set-qualified artwork for printings with equal collector numbers', () => {
+    const original = '1 Sol Ring (c21) [263]\n1 Sol Ring (ltc) [263]';
+    const entries = [...parse(original).mainboard.values()];
+    const data = new Map(entries.map(entry => [cardIdentityKey(entry), { imageUri: `https://example.com/${entry.setCode}.jpg` }]));
+    const output = JSON.parse(formatTTS(original, data));
+    const cards = output.ObjectStates[0].ContainedObjects;
+    expect(cards.map(card => Object.values(card.CustomDeck)[0].FaceURL))
+      .toEqual(['https://example.com/c21.jpg', 'https://example.com/ltc.jpg']);
+  });
+
+  it('tolerates a null commanders argument consistently', () => {
+    expect(JSON.parse(formatTTS('1 Sol Ring', new Map(), null)).SaveName).toBe('Deck');
+  });
+
+  it('does not substitute generic artwork for a missing specific printing', () => {
+    const data = new Map([['sol ring', { imageUri: 'https://example.com/wrong-printing.jpg' }]]);
+    const output = JSON.parse(formatTTS('1 Sol Ring (c21) [263]', data));
+    const card = output.ObjectStates[0].ContainedObjects[0];
+    expect(Object.values(card.CustomDeck)[0].FaceURL).toBe('');
+  });
+
   it('returns empty string for empty text', () => {
     expect(formatTTS('', new Map())).toBe('');
     expect(formatTTS('  ', new Map())).toBe('');

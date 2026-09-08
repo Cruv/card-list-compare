@@ -1,4 +1,5 @@
 import { parse } from './parser.js';
+import { cardIdentityKey, normalizeCardName } from './cardIdentity.js';
 
 /**
  * Build a header line with commander name(s) and timestamp.
@@ -283,7 +284,7 @@ function buildMetadataLookup(parsed) {
 
   function addEntries(map) {
     for (const [, entry] of map) {
-      const key = entry.displayName.toLowerCase();
+      const key = normalizeCardName(entry.displayName);
       if (entry.setCode || entry.collectorNumber) {
         if (!lookup.has(key)) lookup.set(key, []);
         lookup.get(key).push({
@@ -318,14 +319,26 @@ export function formatForArchidekt(text, commanders = [], beforeText = null) {
   const parsed = parse(text);
   // Merge explicit commanders param with any parsed from the text
   const allCommanders = new Set([
-    ...commanders.map(c => c.toLowerCase()),
-    ...parsed.commanders.map(c => c.toLowerCase()),
+    ...commanders.map(normalizeCardName),
+    ...parsed.commanders.map(normalizeCardName),
   ]);
 
   // Build metadata lookup from beforeText for carry-forward
   const beforeLookup = beforeText ? buildMetadataLookup(parse(beforeText)) : new Map();
-  // Track consumption of multi-printing metadata (e.g. 9 unique Nazgul artworks)
-  const consumed = new Map(); // key → number of printings already consumed
+  // Reserve printings already explicitly present in the destination before
+  // filling its bare lines, so carrying artwork forward cannot reuse a copy
+  // that was already accounted for by another destination line.
+  for (const entry of [...parsed.mainboard.values(), ...parsed.sideboard.values()]) {
+    if (!entry.setCode && !entry.collectorNumber) continue;
+    let remaining = entry.quantity;
+    for (const printing of beforeLookup.get(normalizeCardName(entry.displayName)) || []) {
+      if (cardIdentityKey({ ...printing, name: entry.displayName }) !== cardIdentityKey(entry)) continue;
+      const take = Math.min(printing.quantity, remaining);
+      printing.quantity -= take;
+      remaining -= take;
+      if (!remaining) break;
+    }
+  }
 
   /**
    * Get carry-forward metadata for a card entry that has no metadata of its own.
@@ -334,29 +347,20 @@ export function formatForArchidekt(text, commanders = [], beforeText = null) {
    * that cover the requested quantity, or null if no metadata is available.
    */
   function getBeforeMetadata(entry) {
-    const key = entry.displayName.toLowerCase();
+    const key = normalizeCardName(entry.displayName);
     const printings = beforeLookup.get(key);
     if (!printings || printings.length === 0) return null;
-
-    const offset = consumed.get(key) || 0;
-
-    if (printings.length === 1) {
-      // Single printing — use for all copies
-      return [{ ...printings[0], quantity: entry.quantity }];
-    }
 
     // Multi-printing — distribute across artworks
     const result = [];
     let remaining = entry.quantity;
-    let idx = offset;
 
     for (let i = 0; i < printings.length && remaining > 0; i++) {
-      const pIdx = (idx + i) % printings.length;
-      const p = printings[pIdx < printings.length ? pIdx : 0];
-      // For sequential consumption, take up to the original quantity per printing
+      const p = printings[i];
       const take = Math.min(p.quantity, remaining);
       if (take > 0) {
         result.push({ ...p, quantity: take });
+        p.quantity -= take;
         remaining -= take;
       }
     }
@@ -370,7 +374,6 @@ export function formatForArchidekt(text, commanders = [], beforeText = null) {
       }
     }
 
-    consumed.set(key, offset + entry.quantity);
     return result;
   }
 
@@ -379,7 +382,7 @@ export function formatForArchidekt(text, commanders = [], beforeText = null) {
     if (setCode) line += ` (${setCode})`;
     if (collectorNumber) line += ` ${collectorNumber}`;
     if (isFoil) line += ` *F*`;
-    if (allCommanders.has(displayName.toLowerCase())) {
+    if (allCommanders.has(normalizeCardName(displayName))) {
       line += ` [Commander{top}]`;
     }
     return line;
@@ -395,12 +398,12 @@ export function formatForArchidekt(text, commanders = [], beforeText = null) {
     const beforeMeta = getBeforeMetadata(entry);
     if (beforeMeta) {
       return beforeMeta.map(m =>
-        formatLine(m.quantity, entry.displayName, m.setCode, m.collectorNumber, m.isFoil)
+        formatLine(m.quantity, entry.displayName, m.setCode, m.collectorNumber, entry.isFoil || m.isFoil)
       );
     }
 
     // No metadata available — output bare name
-    return [formatLine(entry.quantity, entry.displayName, '', '', false)];
+    return [formatLine(entry.quantity, entry.displayName, '', '', entry.isFoil)];
   }
 
   const result = [];
@@ -430,8 +433,8 @@ export function formatArchidektCSV(text, commanders = []) {
   const parsed = parse(text);
   // Merge explicit commanders param with any parsed from the text
   const allCommanders = new Set([
-    ...commanders.map(c => c.toLowerCase()),
-    ...parsed.commanders.map(c => c.toLowerCase()),
+    ...commanders.map(normalizeCardName),
+    ...parsed.commanders.map(normalizeCardName),
   ]);
 
   // Match Archidekt's exact export header and column order
@@ -440,8 +443,10 @@ export function formatArchidektCSV(text, commanders = []) {
 
   function addEntries(map, sectionCategory) {
     for (const [, entry] of map) {
-      const name = entry.displayName.includes(',') ? `"${entry.displayName}"` : entry.displayName;
-      const isCommander = allCommanders.has(entry.displayName.toLowerCase());
+      const name = /[,"\r\n]/.test(entry.displayName)
+        ? `"${entry.displayName.replace(/"/g, '""')}"`
+        : entry.displayName;
+      const isCommander = allCommanders.has(normalizeCardName(entry.displayName));
       const category = isCommander ? 'Commander' : sectionCategory;
       const modifier = entry.isFoil ? 'Foil' : 'Normal';
       // Archidekt column order: quantity, card name, edition name, edition code,
@@ -499,9 +504,9 @@ export function formatTTS(text, cardMap, commanders = []) {
 
   function addEntries(map) {
     for (const [, entry] of map) {
-      const nameLower = entry.displayName.toLowerCase();
-      const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
-      const data = (compositeKey && cards?.get(compositeKey)) || cards?.get(nameLower);
+      // A specified printing must use its exact artwork. A missing lookup is
+      // preferable to silently substituting a generic card image in the export.
+      const data = cards?.get(cardIdentityKey(entry));
       const faceUrl = data?.imageUri || '';
 
       for (let i = 0; i < entry.quantity; i++) {
@@ -572,8 +577,8 @@ export function formatTTS(text, cardMap, commanders = []) {
     };
   }
 
-  const cmdName = commanders.length > 0
-    ? commanders.join(' / ')
+  const cmdName = commanderList.length > 0
+    ? commanderList.join(' / ')
     : (parsed.commanders.length > 0 ? parsed.commanders.join(' / ') : 'Deck');
 
   const ttsObject = {

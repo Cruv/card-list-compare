@@ -681,3 +681,18 @@
     width: 100%;
   }
 }
+
+.deck-page-download-error {
+  border: 1px solid var(--color-danger, #c44);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.deck-page-download-error pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 18rem;
+  overflow-y: auto;
+  font: inherit;
+}

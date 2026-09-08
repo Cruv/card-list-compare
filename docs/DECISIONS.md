@@ -91,12 +91,22 @@ is mitigated by the CSP (v2.40.x infra). Full model: `SECURITY.md`.
 **Where.** `server/lib/jwtSecret.js`, `server/lib/tokens.js`, `server/middleware/auth.js`,
 `server/routes/auth.js`.
 
-## D8 — Collection matching is by card name, printing-agnostic
+## D8 — ManaSync owns collection management (supersedes native CLC collections)
 
-**Decision.** The "do I own this?" match (Collection → deck views) keys on the **card name**,
-summed across printings and foils, front-face-normalized for DFCs and accent-insensitive.
-**Why.** Owning a card is about the card, not the exact printing; a user's collection and a
-deck rarely agree on printing, and DFC/accented spellings differ across sources.
-**Cost.** Can't answer "do I own THIS printing" — only "do I own this card." If per-printing
-ownership is ever needed, extend the index key, don't replace it.
-**Where.** `src/lib/collectionMatch.js`; pinned by `collectionMatch.test.js`.
+**Decision.** At the owner's request on 2026-09-08, collection management belongs exclusively
+in ManaSync. CLC handles decks, comparisons, artwork and printing preparation, and will use
+an agreed ManaSync API for inventory-aware buy/proxy planning. Do not add a parallel CLC
+collection manager or extend ownership coverage into deck overlap.
+**Why.** Purchases, receipts, real/proxy counts, storage and allocations need one coordinated
+inventory model. Duplicating it in CLC would create conflicting records and repeated work.
+**Cost.** CLC's Collection tab, ownership badges, collection API and collection-only helpers
+are removed. Existing `collection_cards` rows/schema are retained for recovery and a future
+explicit migration; no ManaSync export or migration is implemented. Collection management
+in ManaSync and its exact integration contract remain future work.
+**Where.** [MANASYNC_INTEGRATION.md](MANASYNC_INTEGRATION.md), [ROADMAP.md](ROADMAP.md),
+`server/db.js` (retained legacy schema); collection routes are no longer mounted.
+
+**Superseded history.** The earlier D8 keyed native ownership coverage by card name, summed
+across printings/foils with DFC and accent normalization. Its implementation and tests were
+removed with the native collection feature. Future ManaSync matching must deliberately
+choose gameplay-level versus exact-printing semantics; the old matcher is not a contract.
