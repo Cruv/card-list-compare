@@ -4,6 +4,11 @@ Status: captured from the owner's working Windows process, not an implemented CL
 feature or a validated macOS preset. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the
 integration plan. Preserve this reference when testing new generator or printer versions.
 
+**Updated decision:** the owner has approved adopting **v6** for the new integration.
+Use the matching v6 Studio cutting template and verify a first sheet; reproducing v4 is
+no longer a requirement. The container generates PDFs, and a native Mac companion is the
+planned Epson submission path. The Windows settings below remain the color reference.
+
 ## Equipment and workflow
 
 - Epson ET-8550, **Rear Paper Feeder** (the driver's exact source name).
@@ -139,10 +144,11 @@ therefore do not establish compatibility with the existing cutting file.
 
 The latest CLI has no v4 selector. `SCM_EXTRA_LAYOUTS` adds named sizes/layouts, but the
 inspected schema neither replaces existing names nor accepts absolute card-slot coordinates.
-Do not claim that passing the same flags restores v4. Keep the existing v4 cutting file as
-a reference and deliberately validate the v6 cutting template, or implement and verify a
-v4-compatible adapter. Automatic fetch/update must not silently activate new geometry for
-an already approved recipe.
+Do not claim that passing the same flags restores v4. The owner has now chosen v6, so use
+its matching cutting template instead of building v4 compatibility. Retain these v4
+measurements as historical context. Adopting v6 does not automatically select four-point
+registration: the initial v6 recipe retains `--registration 3` from the tested workflow.
+Future generator updates must still validate geometry against the approved v6 recipe.
 
 Local Mac readiness check on 2026-09-08: CUPS reports no installed printer destinations
 and no default destination. The Epson queue/driver still needs configuring on this Mac

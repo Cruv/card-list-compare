@@ -12,7 +12,10 @@ delta planning, persisted artwork/face manifests, and downloadable PDFs produced
 Silhouette Card Maker code. The container must clone/fetch the latest upstream main, keep a
 working installation in the data bind mount, and use it if an update cannot be reached or
 validated. Freeze the generator version per job. Then validate the household's paper, cutter template, color
-recipe and front/back alignment before connecting a Mac or Windows print bridge. The owner's
+recipe and front/back alignment before connecting the native Mac companion. The owner has
+approved the v6 layout and matching cutter template; v4 reproduction is no longer required.
+The container handles PDF generation while the Mac owns the Epson driver and print queue.
+The owner's
 600 PPI, crop 1 mm, skip-slot-4 recipe and Adobe/Epson Vivid settings are captured in
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). Ordinary fronts and manually refed
 double-faced cards must be separate batches.

@@ -110,3 +110,21 @@ in ManaSync and its exact integration contract remain future work.
 across printings/foils with DFC and accent normalization. Its implementation and tests were
 removed with the native collection feature. Future ManaSync matching must deliberately
 choose gameplay-level versus exact-printing semantics; the old matcher is not a contract.
+
+## D9 — Generate PDFs in CLC; print through a native Mac companion
+
+**Decision.** Adopt the owner's approved v6 layout with its matching cutting template.
+CLC's Linux container will run Silhouette Card Maker and manage immutable PDF jobs; a
+native Mac companion will claim authorized print jobs and submit through the installed
+Epson macOS driver and a validated local recipe. The initial registration mode remains
+three marks; v6 layout adoption does not itself select four marks.
+**Why.** PDF composition does not require a Linux printer driver. Keeping device rendering
+and EPSON Vivid controls on the Mac permits validation against the owner's Adobe/Windows
+output while CLC handles generation, storage and household requests.
+**Cost.** The Mac must be awake/available to submit. Its automated rendering path needs a
+color proof against Adobe; GUI presets cannot be assumed to transfer to CUPS. Double-faced
+cards remain a separate batch requiring manual flip/reload. Durable job IDs and submission
+reconciliation are needed to avoid duplicate output after interrupted connections.
+**Where.** [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md),
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). This is the selected architecture;
+the PDF/job API and companion are not implemented yet.

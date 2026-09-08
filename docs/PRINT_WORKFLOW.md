@@ -5,6 +5,10 @@ printer bridge is implemented in CLC yet.** This design builds on the existing s
 paper-deck, artwork-selection, and image-download features. Household hardware settings
 still need to be supplied and tested.
 
+The owner has approved **v6** as the new layout. The planned deployment separates Linux
+PDF generation from native Mac printing: the container does not require an Epson Linux
+driver, and the Mac companion owns the Epson driver, color recipe and local spooler.
+
 ## Household equipment and materials
 
 The exact Adobe and Epson settings are preserved in
@@ -38,13 +42,13 @@ automatic consequence of owning the Alpha.
 
 Remaining inputs for a household proof:
 
-- Current cutting template, Studio registration/machine setting and calibrated offsets.
+- Matching v6 cutting template, Studio registration/machine setting and calibrated offsets.
   The command confirms upstream's standard 63 × 88 mm card size.
 - Adobe product/version and the separate two-sided driver's binding/page-order/flip
   settings. The supplied screenshots establish the ordinary-card preset, including Epson
   Vivid, Ultra Premium Photo Paper Glossy, Best quality, rear feed and Actual Size.
   Record practical rear-feeder stack capacity.
-- Where CLC runs and which Mac/Windows machine will host the printer bridge.
+- CLC's reachable address and the Mac's installed Epson queue/driver configuration.
 
 These inputs do not block the code-completeness pass. Implement and validate downloadable
 PDFs before enabling physical queue submission.
@@ -94,8 +98,8 @@ flowchart LR
     B --> C[Fetch and validate images]
     C --> D[Silhouette PDF worker]
     D --> E[PDF preview and download]
-    D --> F[Household print bridge]
-    F --> G[Epson ET-8550 queue]
+    D --> F[Native Mac companion]
+    F --> G[Mac Epson driver and ET-8550 queue]
     G --> H[Print status]
 ```
 
@@ -199,11 +203,12 @@ not an existing container capability. Update activation must validate any adapte
 pipeline changes against the household recipe; never silently alter crop, scaling,
 registration or color settings because upstream defaults changed.
 
-This is a real compatibility issue: the owner's `Sauron.pdf` uses `letter_standard_v4`,
-while the inspected latest CLI produces `letter-standard-v6`. Row positions, nominal card
-size and registration marks differ. The [measured reference](HOUSEHOLD_PRINT_RECIPE.md#cutting-compatibility-v4-versus-latest-v6)
-must be checked before accepting an update for the household recipe. Fetching the latest
-source and activating it for an approved cutting template are separate operations.
+The owner's historical `Sauron.pdf` uses `letter_standard_v4`, while the inspected latest
+CLI produces `letter-standard-v6`. The owner has approved moving to v6; v4 compatibility is
+no longer a prerequisite. Use a matching v6 cutter template and retain the
+[measured reference](HOUSEHOLD_PRINT_RECIPE.md#cutting-compatibility-v4-versus-latest-v6)
+as history. Future updates must be checked against the approved v6 geometry. Fetching the
+latest source and activating it for an approved cutting template remain separate operations.
 
 ### Headless feasibility proof (not yet integrated)
 
@@ -296,14 +301,35 @@ a tested rendering path. This is an integration requirement, not a capability gu
 by placing a profile file on the Mac. [Pillow color management](https://pillow.readthedocs.io/en/stable/reference/ImageCms.html)
 
 Compare a representative proof with the current Windows output after drying and lamination.
-A bridge on Windows can preserve the existing printing setup while the Mac recipe is tested.
+The existing Windows/Adobe workflow remains the reference while the Mac recipe is tested.
 
 ## Printer bridge and physical handling
 
-Run a small authenticated service on the Mac or Windows machine that can reach the Epson.
-It polls CLC for authorized jobs, retrieves the immutable PDF and submits through a locally
-configured recipe. This also works when CLC runs in Docker or on a different server.
-The web browser does not provide the unattended printer connection.
+Run a small authenticated companion **natively on the Mac**, started at login, with status
+and a pause control available locally. The Linux container handles deck comparison, artwork,
+Silhouette generation, PDF storage and the durable job API. It does not drive the printer
+or apply an Epson device-specific color transform. The Mac handles rendering/submission
+through its installed Epson driver and validated local recipe. No Linux Epson driver is
+required for this architecture; this does not assert anything about Linux driver availability.
+
+The companion polls CLC for jobs explicitly requested for printing, claims one, downloads
+the finished PDF to a temporary file, verifies its hash, and atomically promotes the local
+file before submission. Polling the job API provides the user, recipe, copies, batch/face
+order and immutable job ID. A folder watcher alone cannot distinguish a preview PDF from
+an authorized print or reliably identify retries. Download-only PDFs must never auto-print.
+CLC need not mount a Mac folder or connect inbound to the companion.
+
+Record submission intent locally and acknowledge the spooler job ID back to CLC. Persist
+processed IDs across restarts. Network failures before submission can retry; ambiguous
+submission outcomes require reconciliation instead of blind reprinting. If the Mac is
+asleep/offline, jobs remain in CLC until the companion reconnects. Do not treat PDF ready,
+spooler acceptance, spooler completion and physically assembled cards as the same event.
+
+For double-faced batches, print the validated front pass, show a flip/reload prompt, then
+submit the back pass only after the operator resumes. The Mac manual-duplex mechanism and
+page order must be proved; do not assume Windows driver prompts exist on macOS. Hold other
+CLC batches during the refeed. Ordinary fronts can run unattended with the Mac awake and
+the printer ready. This adds paper-handling coordination, not drying tracking.
 
 On macOS, CUPS exposes destinations, installed options, held jobs and job IDs. Discover the
 actual Epson queue rather than inventing universal ICC or media options. A macOS GUI preset
@@ -311,6 +337,22 @@ is not proof that `lp` will use the same color rendering.
 [CUPS options](https://www.cups.org/doc/options.html),
 [CUPS lp](https://www.cups.org/doc/man-lp.html),
 [Apple print presets](https://support.apple.com/en-gb/guide/mac-help/mchl09087a64/mac)
+
+Use the full model-specific Epson Mac driver and verify its available color/media controls;
+do not assume a generic or AirPrint queue exposes the same recipe. Epson documents EPSON
+Color Controls and EPSON Vivid on Mac. The saved Windows recipe is printer-managed Vivid;
+start with that mode, Actual Size, Letter, the captured glossy media/quality settings and
+rear feed. CUPS supports PDF submission and printer-specific options, but the actual option
+names and whether all needed controls are scriptable depend on the installed driver.
+[Epson Mac color options](https://files.support.epson.com/docid/cpd5/cpd59879/source/printers/source/printing_software/mac_fy13/references/color_management_options_mac_fy13.html)
+
+Color acceptance has two steps: compare `Sauron.pdf` from Adobe on Mac with the known
+Windows output, then compare that Mac Adobe proof with the companion's rendering path.
+For the second comparison, keep the PDF bytes, paper and driver settings fixed to isolate
+renderer differences. Adobe GUI presets are not automatically inherited by command-line
+printing. Select the native submission API only after inspecting the driver; do not claim
+that `lp` alone guarantees the current Adobe result. Keep manual Adobe printing available
+if the unattended path has not yet matched the accepted proof.
 
 Use a scoped bridge credential, authorized household users, fixed printer destinations,
 and allowed recipe IDs. Persist a lease and submission intent before contacting the
