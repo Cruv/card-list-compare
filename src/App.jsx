@@ -24,11 +24,12 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.44.1';
+const APP_VERSION = '2.45.0';
 const WHATS_NEW = [
-  'The native Mac companion can pick up household PDFs and use your verified Epson print settings',
-  'Double-faced batches wait for manual flip and reload before their back pages print',
-  'Print recovery checks submission history before retrying, helping prevent duplicate sheets',
+  'Connect ManaSync using your own domain or port to see originals, incoming cards, and proxies',
+  'Check your print list against ManaSync and open missing originals in Mana Pool',
+  'Review pending prints in ManaSync, confirm usable copies, and keep their actual front/back art',
+  'Create and review ManaSync deck edits, and keep them safe when Archidekt refreshes',
 ];
 
 function getResetToken() {

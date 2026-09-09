@@ -46,7 +46,8 @@ server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
 server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
 companion/mac/           Native Python print station, local Epson options, durable recovery
-server/routes/           auth, owners, decks, snapshots, share, shared-decks, admin, mpcautofill
+server/routes/           auth, owners, decks, snapshots, share, admin, mpcautofill, print(-station)
+server/lib/{manasyncBridge,deckProposals,sourceSync}.js  Scoped inventory, review, source protection
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```
 
@@ -126,6 +127,7 @@ drift, deploy) · `docs/ROADMAP.md` (the committed backlog) · `SECURITY.md` (de
 model) · `docs/PRINT_WORKFLOW.md` (PDF jobs and native Mac station workflow).
 `docs/MANASYNC_INTEGRATION.md` defines ManaSync as the inventory/purchase boundary (D8).
 CLC has no native collections; legacy DB rows remain for a future deliberate migration.
+`docs/MANASYNC_BRIDGE.md` + `docs/MANASYNC_PROPOSALS.md` define the optional bridge contract.
 Check DECISIONS.md before changing an approach; amend it in the same commit.
 
 ## Concurrent sessions (the owner may run parallel Claude sessions here)

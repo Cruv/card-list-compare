@@ -94,15 +94,15 @@ is mitigated by the CSP (v2.40.x infra). Full model: `SECURITY.md`.
 ## D8 — ManaSync owns collection management (supersedes native CLC collections)
 
 **Decision.** At the owner's request on 2026-09-08, collection management belongs exclusively
-in ManaSync. CLC handles decks, comparisons, artwork and printing preparation, and will use
-an agreed ManaSync API for inventory-aware buy/proxy planning. Do not add a parallel CLC
+in ManaSync. CLC handles decks, comparisons, artwork and printing preparation, and uses
+an optional scoped ManaSync bridge for inventory-aware buy/proxy planning (D10). Do not add a parallel CLC
 collection manager or extend ownership coverage into deck overlap.
 **Why.** Purchases, receipts, real/proxy counts, storage and allocations need one coordinated
 inventory model. Duplicating it in CLC would create conflicting records and repeated work.
 **Cost.** CLC's Collection tab, ownership badges, collection API and collection-only helpers
 are removed. Existing `collection_cards` rows/schema are retained for recovery and a future
-explicit migration; no ManaSync export or migration is implemented. Collection management
-in ManaSync and its exact integration contract remain future work.
+explicit migration; no ManaSync export or migration is implemented. The optional bridge contract is documented in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md);
+legacy collection migration remains separate work.
 **Where.** [MANASYNC_INTEGRATION.md](MANASYNC_INTEGRATION.md), [ROADMAP.md](ROADMAP.md),
 `server/db.js` (retained legacy schema); collection routes are no longer mounted.
 
@@ -131,3 +131,67 @@ reconciliation are needed to avoid duplicate output after interrupted connection
 physical validation remains. The production runtime uses
 Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
 The adapter keeps 600 PPI while generating one sheet at a time and merging compressed PDFs.
+
+## D10 — Optional ManaSync bridge with a durable physical-print outbox
+
+**Decision.** CLC remains responsible for artwork, printing plans,
+Mana Pool purchase links, and reviewing deck proposals. ManaSync owns collection holdings,
+locations, and the shared pending-print quantity review. Each CLC user explicitly connects a scoped ManaSync actor; CLC stores that token
+with its own encryption key. Users configure any reachable HTTP(S) backend domain, port,
+or reverse-proxy base path without an origin allowlist; scheme-less addresses use HTTPS.
+Credentials, query strings, fragments, and redirects are rejected. Ownership unavailable
+from ManaSync is unknown. Existing printing and comparisons continue independently.
+An explicit `decks:create` grant also permits immediate creation of a new manual deck from
+ManaSync. Existing-deck edits retain the reviewed proposal flow. Manual decks carry an
+explicit source type; their legacy non-null Archidekt ID is a unique negative local sentinel,
+never a fabricated upstream ID. Refresh routes and background jobs exclude them.
+
+**Why.** Exports are not evidence that cards were printed. Persisting each actual increment
+before sending an acquire command, with a UUID and immutable credential/payload, permits safe
+retries after lost responses. A replacement token is a new actor, so old operations require
+receipt/holding reconciliation rather than automatic re-submission. The virtual Proxy binder
+is not a second physical destination. Original shopping shortages include incoming originals
+once and do not count proxies as originals. The Printing review queries ManaSync for its
+selected card list and offers a Mana Pool buy-list link without changing print quantities.
+
+Prepared native batches automatically publish their exact card/artwork plans to ManaSync's
+Pending prints, outside inventory. The owner can confirm usable quantities or dismiss the
+remainder in either app. ManaSync commits each decision and proxy acquisition atomically with
+a current pending revision; CLC polls the result. This makes unfinished print reviews visible
+without claiming planned copies were printed. A batch and account identify one immutable
+pending plan, even after disconnects, restarts, source-art cleanup, or lost responses.
+
+**Cost.** The CLC database contains encrypted credential copies on pending operations and a
+small print outbox. The separate CLC key must survive database restores. Six automatic attempts
+use exponential backoff; users can retry the same operation or inspect a blocked receipt.
+Corrections require explicit quantities, reasons where applicable, and current lot revisions.
+Manual creation stores an immutable receipt per account and operation ID so token rotation
+can recover a lost response. The receipt survives deck deletion to prevent resurrection and
+is removed with its account. Account and instance pins prevent creation in a changed connection.
+
+**Where.** `server/lib/manasyncBridge.js`, `server/routes/manasync.js`,
+`src/components/ManaSyncOwnership.jsx`, `src/components/PrintQueue.jsx`,
+`docs/MANASYNC_BRIDGE.md`. Structured deck reads and proposals are described in
+`docs/MANASYNC_PROPOSALS.md`.
+
+## D11 — Separate Archidekt history from the current digital deck
+
+**Decision.** Keep a durable reviewed Archidekt baseline and the latest observed source
+separate from digital snapshots. An unchanged source never replaces local CLC or accepted
+ManaSync edits. A changed source advances the current deck automatically only when it still
+matches the reviewed baseline. Otherwise the source is staged for an owner review: keep the
+current deck, use the source, or commit explicitly merged text. Every Archidekt fetch path
+uses the same coordinator. Older decks with an unknown baseline are handled conservatively.
+
+**Why.** Comparing Archidekt only with the newest digital snapshot treated an accepted local
+edit as a source change, then undid that edit on refresh. A separate baseline distinguishes
+new upstream changes from intentional local differences and survives snapshot pruning.
+
+**Cost.** Each tracked deck stores baseline/candidate text plus a revision. Review decisions
+pin both that revision and the current digital snapshot; operation receipts allow exact retry
+after a lost response. Source reviews do not write to Archidekt, set paper markers, or change
+ManaSync holdings. The source panel explains the distinction and exposes the three texts.
+
+**Where.** `server/lib/sourceSync.js`, `server/routes/sourceSync.js`,
+`src/components/SourceSyncReview.jsx`, and `src/lib/sourceSync.js`.
+The real two-server bridge harness also checks refresh after accepted ManaSync changes.

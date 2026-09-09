@@ -84,6 +84,29 @@ function report(job, state, extras = {}) { return queue.reportPrintJob(job.id, {
 function ordinary(job) { return { artifactId: 'fronts', phase: 'fronts', ...job }; }
 
  describe('immutable PDF jobs and owner access', () => {
+  it('automatically retains an unqueued prepared PDF as an unconfirmed ManaSync plan',async () => {
+    const bridge = await import('../lib/manasyncBridge.js'); bridge.initBridgeSchema();
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
+    services.preparePrintImages.mockImplementation(async (plan,directory) => {
+      mkdirSync(join(directory,'images'),{recursive:true});
+      const fileName = `images/${hash(png)}.png`, path = join(directory,fileName);
+      writeFileSync(path,png);
+      return [{id:'first-copy',displayName:'Lightning Bolt',setCode:'m10',collectorNumber:'146',front:{path,fileName,
+        sha256:hash(png),size:png.length,format:'png',source:'saved-mpc',identifier:'saved-front-selection',face:'front'}}];
+    });
+    const job = await ready();
+    await vi.waitFor(() => expect(bridge.listQueue(1)).toHaveLength(1));
+    expect(bridge.listQueue(1)[0]).toMatchObject({printJobId:job.id,quantity:1,confirmed:0,operations:[],pendingProxy:{status:'disconnected'}});
+    expect(queue.getOwnedPrintJob(1,1,job.id).state).toBe('ready');
+  });
+  it('keeps a ready PDF downloadable when automatic artwork staging needs attention',async () => {
+    const bridge = await import('../lib/manasyncBridge.js'); bridge.initBridgeSchema();
+    const job = await ready(); // Deliberately incomplete fixture image metadata fails bridge validation.
+    await vi.waitFor(() => expect(queue.getOwnedPrintJob(1,1,job.id).proxyStagingError).toContain('invalid source artwork'));
+    expect(queue.getOwnedPrintJob(1,1,job.id).state).toBe('ready');
+    expect((await request(job.artifacts[0].downloadUrl)).status).toBe(200);
+    expect(bridge.listQueue(1)).toEqual([]);
+  });
   it('requires authentication and keeps job/artifact reads within the owner and deck', async () => {
     expect((await request('/api/decks/1/print-plan', { method: 'POST', body: {}, token: null })).status).toBe(401);
     const job = await ready();

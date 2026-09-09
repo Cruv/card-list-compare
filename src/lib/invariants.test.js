@@ -345,6 +345,7 @@ describe('invariant: docs/INVARIANTS.md content anchors resolve', () => {
     ['server/db.js', 'export function persist'],
     ['server/db.js', 'export function run'],
     ['server/db.js', 'export function runTransaction'],
+    ['server/db.js', 'export function transaction'],
     ['server/middleware/auth.js', 'invalidateAuthCache'],
     ['server/middleware/auth.js', 'invalidateAllAuthCache'],
     ['server/middleware/auth.js', 'password_changed_at'],

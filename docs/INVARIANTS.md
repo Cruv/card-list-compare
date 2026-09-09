@@ -37,6 +37,9 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
   write fails. Print-station state and its replay receipt must use this helper together;
   acknowledging only one of those writes can authorize a duplicate physical submission.
   A loop of N separate `run()` calls still does N full-file rewrites.
+- `transaction()` provides the same atomic persistence for synchronous callback writes.
+  Keep deck creation, proposal/source review decisions, and their replay receipts together;
+  statement or persistence failure must restore both memory and the durable database.
 
 **Do not "optimize" `persist()`** (debounce, batch, async) without preserving
 the temp+fsync+rename atomicity and the `loadDatabase()` recovery path. Behavior

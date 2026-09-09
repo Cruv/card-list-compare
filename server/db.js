@@ -21,6 +21,7 @@ const BAK_PATH = `${DB_PATH}.bak`;
 mkdirSync(dirname(DB_PATH), { recursive: true });
 
 let db;
+let transactionActive = false;
 
 /**
  * Load the database, trying the live file first and falling back to the backup
@@ -409,6 +410,30 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_user ON collection_cards(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_name ON collection_cards(user_id, card_name)');
 
+  // Manual decks use an explicit source and negative local IDs in the legacy
+  // non-null Archidekt column. They must never be sent to an upstream fetch.
+  for (const table of ['tracked_owners', 'tracked_decks']) {
+    try {
+      db.run(`ALTER TABLE ${table} ADD COLUMN source_type TEXT NOT NULL DEFAULT 'archidekt'`);
+    } catch {
+      // Column already exists — ignore
+    }
+  }
+
+  db.run(`CREATE TABLE IF NOT EXISTS deck_source_sync (
+    deck_id INTEGER PRIMARY KEY REFERENCES tracked_decks(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL DEFAULT 0,
+    base_raw_text TEXT, base_text TEXT, source_raw_text TEXT, source_text TEXT,
+    pending INTEGER NOT NULL DEFAULT 0, checked_at TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS deck_source_reviews (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL,
+    deck_id INTEGER NOT NULL REFERENCES tracked_decks(id) ON DELETE CASCADE,
+    payload_hash TEXT NOT NULL, receipt TEXT NOT NULL,
+    PRIMARY KEY(user_id, operation_id)
+  )`);
+
   // Migration: add auto_refresh_hours column to tracked_decks
   try {
     db.run('ALTER TABLE tracked_decks ADD COLUMN auto_refresh_hours INTEGER');
@@ -620,7 +645,7 @@ export async function initDb() {
  */
 export function persist() {
   if (!db) return;
-  const data = Buffer.from(db.export());
+  const data = exportDatabase();
   const fd = openSync(TMP_PATH, 'w');
   try {
     writeFileSync(fd, data);
@@ -629,6 +654,17 @@ export function persist() {
     closeSync(fd);
   }
   renameSync(TMP_PATH, DB_PATH);
+}
+
+// sql.js export closes/reopens the SQLite connection, resetting connection
+// pragmas. Restore foreign keys immediately or later account/deck deletions
+// silently leave credentials, outboxes, and other dependent rows behind.
+function exportDatabase() {
+  try {
+    return Buffer.from(db.export());
+  } finally {
+    db.run('PRAGMA foreign_keys = ON');
+  }
 }
 
 /**
@@ -643,7 +679,7 @@ export function backupDb() {
   try {
     const fd = openSync(`${BAK_PATH}.tmp`, 'w');
     try {
-      writeFileSync(fd, Buffer.from(db.export()));
+      writeFileSync(fd, exportDatabase());
       fsyncSync(fd);
     } finally {
       closeSync(fd);
@@ -682,8 +718,38 @@ export function run(sql, params = []) {
   db.run(sql, params);
   const lastId = db.exec('SELECT last_insert_rowid() as id')[0]?.values[0]?.[0];
   const changes = db.getRowsModified();
-  persist();
+  if (!transactionActive) persist();
   return { lastInsertRowid: lastId, changes };
+}
+
+// Keep related writes in a single SQLite commit and a single durable file
+// replacement, restoring memory if either phase fails. Callbacks must stay
+// synchronous: no network calls while locked.
+export function transaction(callback) {
+  if (transactionActive) throw new Error('Nested transactions are not supported');
+  // Export before BEGIN: sql.js export reopens the connection, so exporting an
+  // active transaction would discard its writes. Restore connection pragmas too.
+  const previous = exportDatabase();
+  try {
+    db.run('BEGIN IMMEDIATE');
+    transactionActive = true;
+    const result = callback();
+    if (result?.then) throw new Error('Transaction callbacks must be synchronous');
+    db.run('COMMIT');
+    transactionActive = false;
+    persist();
+    return result;
+  } catch (error) {
+    // COMMIT may already have succeeded when the atomic file write fails. A
+    // SQL rollback alone cannot undo that state or its idempotency receipts.
+    const Database = db.constructor;
+    db.close();
+    db = new Database(previous);
+    db.run('PRAGMA foreign_keys = ON');
+    throw error;
+  } finally {
+    transactionActive = false;
+  }
 }
 
 export function getDb() {
@@ -692,17 +758,7 @@ export function getDb() {
 
 /** Commit related statements and persist once; restore memory if disk persistence fails. */
 export function runTransaction(statements) {
-  const previous = db.export();
-  try {
-    db.run('BEGIN');
+  return transaction(() => {
     for (const { sql, params = [] } of statements) db.run(sql, params);
-    db.run('COMMIT');
-    persist();
-  } catch (error) {
-    const Database = db.constructor;
-    db.close();
-    db = new Database(previous);
-    db.run('PRAGMA foreign_keys = ON');
-    throw error;
-  }
+  });
 }

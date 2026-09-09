@@ -16,13 +16,16 @@ server/data/image-cache/
 server/data/downloads/
 server/data/silhouette-card-maker/
 server/data/print-jobs/
+server/data/manasync-artwork/
 data/.jwt-dev-secret
 data/.print-claim-secret
+**/.manasync-bridge-key
 data/*.db*
 data/image-cache/
 data/downloads/
 data/silhouette-card-maker/
 data/print-jobs/
+data/manasync-artwork/
 dist-ssr
 *.local
 

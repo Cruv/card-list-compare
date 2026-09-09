@@ -1,7 +1,7 @@
 .print-panel { display: grid; gap: var(--space-lg); }
 .print-panel h3, .print-panel h4 { margin: 0 0 var(--space-sm); }
 .print-panel p { color: var(--text-secondary); line-height: 1.6; margin: 0 0 var(--space-sm); }
-.print-panel-card { border: 1px solid var(--border-color); border-radius: 10px; padding: var(--space-lg); background: var(--bg-surface); }
+.print-panel-card { min-width: 0; border: 1px solid var(--border-color); border-radius: 10px; padding: var(--space-lg); background: var(--bg-surface); }
 .print-panel-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin: var(--space-md) 0; }
 .print-panel-fields label { display: grid; gap: 6px; color: var(--text-secondary); font-size: var(--fs-sm); }
 .print-panel-fields select { width: 100%; min-width: 0; padding: 9px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
@@ -17,5 +17,7 @@
 .print-panel-status { display: inline-block; padding: 3px 9px; border-radius: 999px; background: var(--bg-elevated, var(--bg-primary)); font-size: var(--fs-sm); }
 .print-panel details { margin-top: var(--space-sm); }
 .print-panel summary { cursor: pointer; color: var(--accent-blue); font-size: var(--fs-sm); }
-.print-panel a { color: var(--accent-blue); }
+.print-panel a:not(.btn) { color: var(--accent-blue); }
 @media (max-width: 560px) { .print-panel-fields { grid-template-columns: 1fr; } .print-panel-card { padding: var(--space-md); } }
+.print-panel-confirmation { margin-top: .8rem; padding: .8rem; border: 1px solid var(--border-color); border-radius: 8px; }
+.print-panel-confirmation p { margin: .35rem 0 0; overflow-wrap: anywhere; }

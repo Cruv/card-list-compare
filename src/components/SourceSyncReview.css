@@ -1,0 +1,25 @@
+.source-sync-review { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border-color, #555); border-radius: .7rem; overflow-wrap: anywhere; }
+.source-sync-review--pending_review { border-color: #d9a441; background: rgba(217, 164, 65, .06); }
+.source-sync-review--local_changes { border-color: #699ccd; }
+.source-sync-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.source-sync-heading h2 { font-size: 1.15rem; margin: .25rem 0; }
+.source-sync-eyebrow, .source-sync-checked { font-size: .8rem; color: var(--text-secondary, #aaa); }
+.source-sync-review p { line-height: 1.5; margin: .7rem 0; }
+.source-sync-work { display: grid; gap: 1rem; }
+.source-sync-comparisons { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1rem; }
+.source-sync-diff { padding: .75rem; border: 1px solid var(--border-color, #555); border-radius: .5rem; min-width: 0; }
+.source-sync-diff summary, .source-sync-raw summary { font-weight: 600; cursor: pointer; }
+.source-sync-diff .section-changelog-title { font-size: .9rem; }
+.source-sync-diff .card-line { flex-wrap: wrap; }
+.source-sync-exact-changes { list-style: none; padding: 0; margin: .75rem 0 0; display: grid; gap: .8rem; }
+.source-sync-exact-changes li { display: grid; gap: .2rem; font-size: .85rem; }
+.source-sync-exact-changes li span { font-size: .8rem; }
+.source-sync-review textarea { display: block; width: 100%; box-sizing: border-box; min-height: 11rem; resize: vertical; font: .8rem/1.5 monospace; margin: .5rem 0 1rem; }
+.source-sync-raw { display: grid; gap: .7rem; }
+.source-sync-review fieldset { display: grid; gap: .6rem; border: 1px solid var(--border-color, #555); padding: .8rem; border-radius: .5rem; }
+.source-sync-review fieldset label, .source-sync-confirm { display: flex; align-items: flex-start; gap: .6rem; line-height: 1.5; }
+.source-sync-review input[type="radio"], .source-sync-review input[type="checkbox"] { width: auto; flex: 0 0 auto; margin-top: .3rem; }
+.source-sync-warning { padding: .75rem; background: rgba(217, 164, 65, .1); border-radius: .5rem; }
+.source-sync-error { color: var(--danger, #ef9191); }
+.source-sync-badge { display: inline-block; font-size: .72rem; line-height: 1.4; padding: .2rem .45rem; border-radius: .35rem; background: rgba(105, 156, 205, .14); color: var(--text-primary, #ddd); }
+.source-sync-badge--pending { background: rgba(217, 164, 65, .18); color: #eac477; }

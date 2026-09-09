@@ -123,3 +123,59 @@ requires physical validation; see [docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.m
 
 Update this file in the same commit (it is in CLAUDE.md's doc-sync table), and ship the
 change with its regression test.
+
+## ManaSync bridge and integration access
+
+- CLC integration tokens are revocable, per user, stored as SHA-256 hashes, and scoped to
+  `decks:read` and optionally `decks:propose` or `decks:create`. They cannot access normal account settings,
+  administrator endpoints, or the outbound ManaSync bridge. Existing login-token deck reads
+  remain compatible. Token use rechecks the owning account and revocation on every request.
+- New-deck creation is a separate, unchecked grant in account settings. Existing tokens do
+  not gain it on upgrade. The request pins the instance and account, and commits the manual
+  deck, digital snapshot, and immutable receipt in one transaction. The owner and operation ID
+  identify replay across token rotation; changed payloads conflict. A deleted deck cannot be
+  recreated by replaying its receipt. Creation does not set paper state or change holdings.
+- Outbound ManaSync credentials are kept only server-side, encrypted with AES-256-GCM using
+  a separate CLC key. `MANASYNC_BRIDGE_KEY` accepts a base64 encoded 32-byte key; otherwise CLC
+  creates `.manasync-bridge-key` with mode 0600 beside `DB_PATH`. Back up this file separately
+  with the database. Losing it prevents replaying saved credentials. Never share signing
+  secrets, database files, or encryption keys between CLC and ManaSync.
+- Each user chooses a server-reachable HTTP(S) ManaSync URL. Custom domains, ports, LAN
+  addresses, and reverse-proxy base paths do not require an origin allowlist. Scheme-less
+  addresses default to HTTPS. URL credentials, query strings, fragments, and redirects are
+  rejected; credentials are sent only to the configured endpoint and never forwarded through
+  a redirect. The integration context must verify the account and dedicated scopes before
+  the connection is saved.
+- Connection validation uses ManaSync's explicit authenticated account and actor ID, and
+  requires a dedicated token with exactly `inventory:read` and `proxies:write`. Account names,
+  imported binder labels, and deck ownership names do not map accounts.
+- New print confirmations include the account/actor/backend displayed to the user. A changed
+  connection returns a conflict before persistence or delivery. Each saved reporting operation
+  then freezes its operation UUID, command, encrypted token, backend, and expected account.
+  `X-ManaSync-User` protects every mapped request. Replacing credentials pauses older reports;
+  CLC reads their owner-scoped historical receipt and current holdings without replaying old
+  acquisitions through the replacement actor. Only valid server receipts mark delivery complete.
+- Confirmed increments and correction commands are scoped to the CLC user. Proxy adjustments
+  and moves use reviewed lot revisions; conflicts require another read and explicit review.
+  Server-side token scopes also prevent changing real inventory. Disconnecting pauses delivery
+  while retaining encrypted credentials on outstanding operations for reconciliation.
+- Database export restores SQLite foreign-key enforcement. Deleting an account cascades its
+  connections, print operations, decks, proposals, and tokens, preventing reused user IDs from
+  inheriting saved credentials.
+- Archidekt reconciliation decisions require an authenticated owner session. Integration
+  read/propose/create tokens cannot accept source changes. Each decision pins the candidate
+  revision and current digital snapshot/hash, and stores an immutable per-owner operation
+  receipt. Replays recover the same result; changed requests or stale reviews conflict.
+  Source text remains separate from current snapshots until an authorized decision or a
+  source-only update can apply it. Source reviews never modify remote Archidekt decks.
+
+- Native-batch artwork reporting uses owner-scoped manifest and private image routes. Source
+  paths, symlinks, image structure, sizes, and hashes are checked before files are retained.
+  Confirmation items freeze card identity plus front/back hashes. Artwork upload receipts
+  must match the original account-owned paths before the immutable pending plan is sent.
+  Artifact creation, spooler completion, staging, and face uploads do not acquire holdings.
+- Native pending plans are pinned to the selected account and backend. Confirm and dismiss
+  actions use one immutable operation ID/payload and the reviewed ManaSync pending revision.
+  ManaSync commits quantity decisions and proxy acquisition atomically; CLC synchronizes
+  owner-scoped results from either app. Token rotation permits new decisions in the same
+  account while already saved decisions keep their original actor for exact replay.

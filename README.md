@@ -2,7 +2,7 @@
 
 Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, and proxy image exports.
 
-CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with separate ordinary and double-faced batches. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the planned ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with separate ordinary and double-faced batches. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ## Supported Architectures
 
@@ -187,7 +187,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation.
 - **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; DFC backs require manual reload and resume.
 
-Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. ManaSync inventory checks, drying, lamination and cutting tracking are outside this release.
+Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
 
 Install the [Mac companion](companion/mac/README.md) on the printer host separately from
 Docker. It uses Python 3.9+ and native CUPS commands, with a scoped token file and local
@@ -220,11 +220,14 @@ Set changes with the same collector number and foil-only changes are included in
 - **Snapshot management** &mdash; lock important snapshots to prevent auto-pruning, configurable snapshot limits
 - **Auto-refresh** &mdash; configure per-deck Archidekt refresh intervals of 6h, 12h, 24h, 48h, or one week; due decks are processed on the server's scheduler cycle
 - **Change notifications** &mdash; optional verified-email and Discord webhook alerts, with notification history in the library
+- **Protected local edits** &mdash; accepted ManaSync and CLC edits survive Archidekt refreshes. Review source changes before keeping, replacing, or merging your current deck.
 - **Deck sharing** &mdash; generate public share links for tracked decks with snapshot comparison
 
-### ManaSync integration direction
+### Optional ManaSync integration
 
-Collection management, purchased/received cards, proxy inventory, storage locations, and deck allocations belong to ManaSync. CLC's collection tab, ownership badges, and collection API have been removed. Existing collection database rows remain in backups; no migration or export to ManaSync has shipped. CLC will consult ManaSync through an agreed integration for future buy/proxy decisions. See [ManaSync context](docs/MANASYNC_INTEGRATION.md).
+ManaSync owns collection holdings, purchases, proxies, and physical locations. Connect it in CLC Settings using your own HTTP(S) domain, port, or reverse-proxy URL and a user-scoped token to see originals, incoming purchases, reusable proxies, and shopping shortages. Prepared native batches automatically appear in **ManaSync → Proxy binder → Pending prints** with their exact front/back artwork. Confirm usable quantities or dismiss failed copies in ManaSync or CLC's **View proxy confirmation** panel; both apps share the result. Pending copies remain separate from available inventory. CLC also exposes scoped deck reads, optional manual deck creation, and a proposal inbox for reviewing ManaSync edits.
+
+See [connection and print reporting setup](docs/MANASYNC_BRIDGE.md) and [deck API and proposal review](docs/MANASYNC_PROPOSALS.md). The native CLC collection feature stays retired; existing legacy rows remain in backups with no automatic migration.
 
 ### Deck Analytics
 

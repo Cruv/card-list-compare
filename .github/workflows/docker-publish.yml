@@ -4,8 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Review branches can target another feature branch before it reaches main.
   pull_request:
-    branches: [main]
 
 env:
   REGISTRY: ghcr.io

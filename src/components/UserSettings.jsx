@@ -7,6 +7,8 @@ import {
   createInviteCode, getMyInvites, deleteInviteCode,
 } from '../lib/api';
 import PasswordRequirements from './PasswordRequirements';
+import ManaSyncSettings from './ManaSyncSettings';
+import IntegrationAccess from './IntegrationAccess';
 import './UserSettings.css';
 
 export default function UserSettings() {
@@ -250,6 +252,8 @@ export default function UserSettings() {
       </section>
 
       {/* Danger Zone */}
+      <ManaSyncSettings />
+      <IntegrationAccess />
       <section className="user-settings-section user-settings-danger">
         <h3>Danger Zone</h3>
         <p>Permanently delete your account and all associated data. This action cannot be undone.</p>

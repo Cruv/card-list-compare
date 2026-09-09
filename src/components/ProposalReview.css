@@ -1,0 +1,13 @@
+.proposal-review { margin: 1rem 0; padding: 1rem; border: 1px solid var(--border-color, #555); border-radius: .6rem; }
+.proposal-review summary { cursor: pointer; font-weight: 600; }
+.proposal-review p { line-height: 1.5; }
+.proposal-review ul { list-style: none; padding: 0; }
+.proposal-review li { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; padding: .4rem 0; }
+.proposal-review-texts { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 1rem; }
+.proposal-review label { display: block; }
+.proposal-review textarea { display: block; width: 100%; min-height: 16rem; resize: vertical; margin: .5rem 0 1rem; font: .8rem/1.5 monospace; box-sizing: border-box; }
+.proposal-review .proposal-review-replacement { min-height: 10rem; }
+.proposal-review .proposal-review-check { display: flex; gap: .6rem; align-items: center; margin: 1rem 0; }
+.proposal-review-check input { width: auto; }
+.proposal-review-actions { display: flex; gap: .6rem; flex-wrap: wrap; }
+.proposal-review-error { color: var(--danger, #e57373); }

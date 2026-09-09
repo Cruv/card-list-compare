@@ -16,6 +16,7 @@ services:
       # Put it in a local .env (see .env.example): JWT_SECRET=$(openssl rand -hex 32)
       - JWT_SECRET=${JWT_SECRET:-}
       - DB_PATH=/app/data/cardlistcompare.db
+      - MANASYNC_BRIDGE_KEY=${MANASYNC_BRIDGE_KEY:-}
       - PRINT_ENABLED=${PRINT_ENABLED:-true}
       - PRINT_STATION_TOKEN=${PRINT_STATION_TOKEN:-}
       - PRINT_ALLOWED_USER_IDS=${PRINT_ALLOWED_USER_IDS:-}

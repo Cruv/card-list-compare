@@ -90,6 +90,7 @@ export async function preparePrintImages(plan, jobDir, onProgress) {
         const front = images.get(`${index}:front`), back = images.get(`${index}:back`);
         if (!front || (card.isDFC && !back)) throw printError(`Missing physical-copy face for ${card.displayName}`);
         copies.push({ id: String(index).padStart(4, '0'), displayName: card.displayName, setCode: card.setCode, collectorNumber: card.collectorNumber,
+          scryfallId: card.scryfallId || null, oracleId: card.oracleId || null,
           front: storeImage(front, 'scryfall', card.scryfallId || `${card.setCode}/${card.collectorNumber}`, 'front'),
           ...(card.isDFC ? { back: storeImage(back, 'scryfall', card.scryfallId || `${card.setCode}/${card.collectorNumber}`, 'back') } : {}),
         });
@@ -122,7 +123,8 @@ export async function preparePrintImages(plan, jobDir, onProgress) {
         }
       }
       if (faces.front && (!card.isDFC || faces.back)) {
-        for (let quantity = 0; quantity < card.quantity; quantity++) copies.push({ id: String(copies.length + 1).padStart(4, '0'), displayName: card.displayName, setCode: card.setCode, collectorNumber: card.collectorNumber, ...faces });
+        for (let quantity = 0; quantity < card.quantity; quantity++) copies.push({ id: String(copies.length + 1).padStart(4, '0'), displayName: card.displayName, setCode: card.setCode, collectorNumber: card.collectorNumber,
+          scryfallId: card.scryfallId || null, oracleId: card.oracleId || null, ...faces });
       }
       onProgress?.({ phase: 'images', downloaded: copies.length, total: plan.totalCopies });
     }

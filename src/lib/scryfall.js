@@ -17,7 +17,8 @@ import { cardIdentityKey, normalizedName, normalizeCardName } from './cardIdenti
 
 const SCRYFALL_BATCH_SIZE = 75;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-const STORAGE_KEY = 'clc-scryfall-cache-v2';
+// Earlier caches lack the resolved identity required for ManaSync ownership.
+const STORAGE_KEY = 'clc-scryfall-cache-v3';
 const STORAGE_WRITE_DEBOUNCE = 2000; // ms — batch writes to sessionStorage
 const STORAGE_MAX_ENTRIES = 2000; // cap to ~400KB in sessionStorage
 
@@ -171,6 +172,10 @@ function matchesIdentifier(card, identifier, requestedName) {
 
 function extractCardData(card) {
   return {
+    scryfallId: card.id || null,
+    oracleId: card.oracle_id || null,
+    setCode: card.set || '',
+    collectorNumber: card.collector_number || '',
     type: primaryType(card.type_line),
     isBackLand: (card.card_faces?.[1]?.type_line || '').includes('Land'),
     manaCost: getManaCost(card),
@@ -226,7 +231,8 @@ export async function fetchCardData(identifiersOrNames) {
   const entries = [];
   for (const [key, info] of identifiers) {
     const cached = getCached(key);
-    if (cached) {
+    if (cached && (!info.set || cached.setCode?.toLowerCase() === info.set.toLowerCase())
+      && (!info.collector_number || String(cached.collectorNumber).toLowerCase() === String(info.collector_number).toLowerCase())) {
       cardMap.set(key, cached);
       continue;
     }

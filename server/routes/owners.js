@@ -10,7 +10,7 @@ const router = Router();
 router.use(requireAuth);
 
 router.get('/', (req, res) => {
-  const owners = all('SELECT * FROM tracked_owners WHERE user_id = ? ORDER BY added_at DESC', [req.user.userId]);
+  const owners = all("SELECT * FROM tracked_owners WHERE user_id = ? AND source_type = 'archidekt' ORDER BY added_at DESC", [req.user.userId]);
   res.json({ owners });
 });
 
@@ -62,6 +62,7 @@ router.get('/:id/decks', archidektLimiter, async (req, res) => {
   if (!owner) {
     return res.status(404).json({ error: 'Tracked owner not found' });
   }
+  if (owner.source_type === 'manual') return res.status(409).json({ error: 'manual_owner_has_no_upstream' });
 
   try {
     const decks = await fetchOwnerDecks(owner.archidekt_username);

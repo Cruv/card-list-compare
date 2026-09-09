@@ -93,14 +93,20 @@ function hashPdf(path) {
   return { hash: hash.digest('hex'), isPdf };
 }
 
-function totalStorage(path = PRINT_JOBS_DIR) {
+function directoryStorage(path) {
   if (!existsSync(path)) return 0;
   let bytes = 0;
   for (const item of readdirSync(path, { withFileTypes: true })) {
     if (item.isSymbolicLink()) throw printError('Unexpected link in print storage', 503);
-    bytes += item.isDirectory() ? totalStorage(join(path, item.name)) : statSync(join(path, item.name)).size;
+    bytes += item.isDirectory() ? directoryStorage(join(path, item.name)) : statSync(join(path, item.name)).size;
   }
   return bytes;
+}
+function totalStorage(path) {
+  return path ? directoryStorage(path) : directoryStorage(PRINT_JOBS_DIR) + directoryStorage(join(dataDir,'manasync-artwork'));
+}
+export function assertPrintStorageCapacity(additionalBytes = 0) {
+  if (totalStorage() + additionalBytes > STORAGE_MAX_BYTES) throw printError('Print storage is full, including retained ManaSync artwork. Free space before retaining more print plans.',507);
 }
 function artifactRecord(row, artifact, station) {
   return {
@@ -120,7 +126,7 @@ export function formatPrintJob(row, station = false) {
     requesterId: row.user_id, totalCopies: plan.totalCopies, artSource: plan.artSource,
     source: publicPrintPlan(plan).source, target: publicPrintPlan(plan).target,
     createdAt: row.created_at, updatedAt: row.updated_at, expiresAt: row.expires_at,
-    queueOnReady: !!row.queue_requested, error: row.error, progress: parse(row.progress_json),
+    queueOnReady: !!row.queue_requested, error: row.error, proxyStagingError: row.proxy_staging_error || null, progress: parse(row.progress_json),
     recipeId: manifest?.recipe?.id || 'household-letter-v6', manifestSha256: row.manifest_sha256,
     artifacts: row.state === 'expired' ? [] : (manifest?.artifacts || []).map(artifact => artifactRecord(row, artifact, station)),
     steps: parse(row.steps_json) || [],
@@ -243,11 +249,18 @@ export async function processNextPrintJob() {
       : [{ artifactId: artifact.id, phase: 'fronts', state: 'pending' }]);
     const queued = !!row.queue_requested && printCapabilities(row.user_id).canQueue;
     assertActive();
+    assertPrintStorageCapacity();
     run(`UPDATE print_jobs SET state = ?, manifest_json = ?, manifest_sha256 = ?, steps_json = ?, progress_json = NULL,
       queued_at = ?, expires_at = ?, updated_at = ?, error = ? WHERE id = ? AND state = 'preparing'`,
     [queued ? 'queued' : 'ready', bytes, hash, json(steps), queued ? now() : null,
       retentionExpiry(), now(),
       row.queue_requested && !queued ? 'PDF ready; household printing authorization is no longer available' : null, row.id]);
+    if (get("SELECT name FROM sqlite_master WHERE type='table' AND name='manasync_pending_proxy_plans'")) {
+      void import('./pendingProxyPlans.js').then(async bridge => {
+        await bridge.stagePreparedPrintJob(row.user_id,row.id);
+        await bridge.processPendingProxyPlans();
+      }).catch(error => console.error('[PrintQueue] ManaSync pending plan staging failed:',error.message));
+    }
   } catch (error) {
     rmSync(jobDir(row.id), { recursive: true, force: true });
     run("UPDATE print_jobs SET state = 'failed', error = ?, updated_at = ?, completed_at = ?, expires_at = ? WHERE id = ? AND state = 'preparing'", [error.message, now(), now(), retentionExpiry(), row.id]);
@@ -334,6 +347,8 @@ export function purgeUserPrintJobs(userId) {
     ]);
     rmSync(jobDir(row.id), { recursive: true, force: true });
   }
+  // Retained confirmation artwork outlives job expiry, but not account deletion.
+  rmSync(join(dataDir, 'manasync-artwork', String(userId)), { recursive: true, force: true });
 }
 
 export function claimPrintJob() {

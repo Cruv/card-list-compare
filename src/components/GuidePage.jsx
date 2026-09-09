@@ -187,6 +187,43 @@ function DeckLibrary() {
   return (
     <div className="guide-section">
       <h3>Deck Library</h3>
+      <h4>ManaSync deck integration</h4>
+      <p>
+        Create a revocable integration token under <strong>Settings &rarr; Account</strong>.
+        Grant deck reads for ManaSync polling and the separate proposal permission if you want
+        to send deck edits back for review. Each deck&rsquo;s <strong>ManaSync proposals</strong>
+        panel compares the submitted base, proposed text, and current digital latest.
+        Accept or explicitly revise the text to create a new digital snapshot, or reject it.
+        Changed or pruned bases require review. Paper state changes only when you separately
+        mark the physical deck as updated; proposal decisions never change collection holdings.
+      </p>
+      <p>
+        Enable <strong>Allow immediate creation of new decks</strong> on a new integration token
+        to use ManaSync&rsquo;s <strong>Put it in CLC</strong> option. This creates a manual deck
+        with its first digital snapshot immediately. Existing tokens keep their permissions.
+        Manual decks appear in the library and do not refresh from Archidekt. Subsequent edits
+        still use the proposal review flow; paper markers and holdings stay separate.
+      </p>
+      <h4>Archidekt changes and your local edits</h4>
+      <p>
+        Accepting a ManaSync proposal updates your current CLC deck. It does not edit the list on
+        Archidekt. CLC remembers the last reviewed source version separately, so refreshing an
+        unchanged Archidekt list keeps your accepted edits. The deck page and library show when
+        local edits are protected or Archidekt changes need review.
+      </p>
+      <p>
+        When both versions have changed, compare the last reviewed source, your current deck,
+        and the new Archidekt list in the source review panel. Keep your current deck, use
+        Archidekt&rsquo;s version, or edit and save a merged list. Keeping your deck acknowledges
+        that source version, so repeated refreshes do not ask you about it again. A newer source
+        or local edit requires a fresh review. These choices change only the digital deck;
+        paper markers and collection quantities remain separate.
+      </p>
+      <p>
+        For older tracked decks without a confirmed source baseline, CLC preserves your current
+        deck and asks for review if the first refreshed list differs. Manual decks have no
+        Archidekt source to reconcile.
+      </p>
       <p>
         The Deck Library (accessible via the <strong>Decks</strong> button in the navigation bar)
         is where you track, organize, and analyze your decks. It requires a login.
@@ -202,7 +239,8 @@ function DeckLibrary() {
         </li>
         <li>
           The app takes a snapshot of the current deck state. Each time you refresh (or auto-refresh
-          triggers), a new snapshot is created if the deck changed.
+          triggers), source changes update the deck automatically while it still matches the
+          last reviewed source. If you have local edits, new source changes wait for review.
         </li>
       </ol>
 
@@ -227,6 +265,7 @@ function DeckLibrary() {
         <li><strong>Changelog</strong> &mdash; what changed between the latest two snapshots</li>
         <li><strong>Timeline</strong> &mdash; interactive visual history; click any entry to see the changes or full deck at that point</li>
         <li><strong>Full Deck</strong> &mdash; complete card list at the latest snapshot, grouped by type</li>
+        <li><strong>Printing</strong> &mdash; prepare home-print PDFs and send ready batches to the Mac print station</li>
         <li><strong>Analytics</strong> &mdash; prices, mana curve, color distribution, power level, recommendations</li>
         <li><strong>Settings</strong> &mdash; deck configuration (commanders, webhook, price alerts, auto-refresh, sharing)</li>
       </ul>
@@ -243,7 +282,8 @@ function DeckLibrary() {
       <h4>Auto-Refresh</h4>
       <p>
         Set a per-deck refresh schedule (6h, 12h, 24h, 48h, or one week) to automatically check Archidekt for
-        changes. When a change is detected, a new snapshot is created. Combine with notifications
+        changes. Source changes create a snapshot when your deck has no local divergence;
+        otherwise they appear for review while your current deck stays intact. Combine with notifications
         to get alerted when your decks update.
       </p>
 
@@ -253,9 +293,10 @@ function DeckLibrary() {
         <li><strong>Notifications</strong> &mdash; review your deck-change and price-alert history</li>
       </ul>
       <p>
-        Collection management is moving to the ManaSync companion. CLC&rsquo;s Collection tab
-        and owned/missing badges have been removed. CLC continues to track deck versions and
-        paper snapshots; ManaSync inventory integration is planned.
+        ManaSync manages your collection holdings and locations. Connect it under
+        <strong> Settings &rarr; Account</strong> to view ownership and prepare shopping lists
+        from a deck&rsquo;s <strong>Full Deck</strong> tab or reviewed <strong>Printing</strong> list. CLC tracks deck versions and paper
+        snapshots; inventory changes require a separate physical-print confirmation.
       </p>
     </div>
   );
@@ -306,6 +347,61 @@ function ProxyPrinting() {
         high-quality proxy cards for personal use via MakePlayingCards.com.
       </p>
 
+      <h4>ManaSync ownership, shopping, and confirmed prints</h4>
+      <p>
+        In <strong>Settings &rarr; Account</strong>, connect your ManaSync backend with a
+        dedicated token granting <code>inventory:read</code> and <code>proxies:write</code>.
+        Use your own domain, port, LAN address, or reverse-proxy path; no server allowlist is
+        needed. Bare domains use HTTPS. Review the connected account shown on screen. In a tracked deck&rsquo;s
+        <strong> Full Deck</strong> tab, open <strong>ManaSync ownership and Mana Pool shopping</strong>.
+        Free originals, originals in decks, incoming originals, and reusable proxies appear separately.
+        Failed refreshes and unresolved exact printing IDs display unknown quantities.
+      </p>
+      <p>
+        Select interchangeable or exact printings, choose real-card shortages, then use
+        <strong> Review in Mana Pool</strong> or copy the list. Originals already owned or incoming
+        reduce the list; proxy stock does not. Review quantities and printing options in Mana Pool
+        before purchasing.
+      </p>
+      <p>
+        Use <strong>Queue full deck for printing</strong> or an individual card&rsquo;s Queue button.
+        This prepares the inventory confirmation list. Generate PDFs or send a batch to the Mac
+        from the <strong>Printing</strong> tab, or print with the MPCFill and image tools.
+        Once physical cards are printed, enter
+        only the quantity actually printed, choose one physical destination, and press
+        <strong> Confirm printed quantity</strong>. Two of five printed records two proxies;
+        confirming the other three later creates a separate increment. Cancelling the remainder
+        leaves confirmed prints intact.
+      </p>
+      <p>
+        In <strong>Printing</strong>, click <strong>Review print list</strong> to check the exact
+        selected snapshot, change list, and sideboard choices against ManaSync. The open ownership
+        table offers <strong>Review in Mana Pool</strong> for missing originals, plus a copyable
+        shopping list. Incoming originals reduce the shortage; reusable proxies remain separate.
+        Deselect cards you do not want to buy. Checking ownership or opening the link leaves
+        your print quantities unchanged, and you can still print a card you already own.
+      </p>
+      <p>
+        A prepared native PDF batch automatically appears in ManaSync&rsquo;s
+        <strong> Proxy binder &rarr; Pending prints</strong>, with its exact front and back
+        artwork, including custom MPC art. Pending quantities are separate from your available
+        proxies. After printing, enter the usable quantity and physical destination, then
+        choose <strong>Confirm usable copies</strong>. You can also confirm from CLC&rsquo;s
+        <strong> View proxy confirmation</strong> panel. Either app shows the shared result.
+        Confirming eight of ten leaves two pending; dismiss the remaining two if they were bad
+        prints. Confirmed copies retain their artwork in the Proxy binder. Reopening the same
+        batch reuses its pending records; a deliberate reprint needs a new batch.
+      </p>
+      <p>
+        PDF preparation sends a plan to Pending prints. Confirming its usable physical quantity
+        adds owned proxies. A disconnected native batch waits in CLC for the connection before
+        it can be confirmed, and keeps its artwork through native PDF cleanup.
+        Separate manual confirmation-list entries can still be saved while disconnected and
+        explicitly reported after connecting.
+        Pending reports retry the original operation with bounded backoff. Inspect receipts and
+        holdings to reconcile an uncertain report after replacing a token. Reviewing a current
+        holding also lets you correct its quantity or move proxies using its displayed revision.
+      </p>
       <h4>MPC Autofill</h4>
       <p>
         From <strong>Print Proxies (MPCFill)</strong> in a deck page's <strong>Full Deck</strong>
@@ -379,7 +475,9 @@ function ProxyPrinting() {
         companion/mac instructions; its status, pause and resume controls manage the station.
         The Mac’s Epson driver and color recipe need a physical proof
         before unattended use. Canceling is available before submission; uncertain submissions
-        need review at the Mac. Spooler completion does not update the assembled paper deck.
+        need review at the Mac. Spooler completion does not update the assembled paper deck or
+        ManaSync inventory. Record usable physical copies separately in the <strong>Full Deck</strong>
+        {' '}tab&rsquo;s confirmed-print list.
         Drying, lamination and cutting remain outside CLC. Collection management belongs to ManaSync.
       </p>
 
