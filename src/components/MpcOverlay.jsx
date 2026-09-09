@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags, mpcGetAlternates, getMpcOverrides, saveMpcOverrides } from '../lib/api';
 import { useModalLayer } from '../lib/useModalLayer';
-import { createMpcOverrideSync } from '../lib/mpcOverrides';
+import { createMpcOverrideSync, collectPrintArtwork } from '../lib/mpcOverrides';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import './MpcOverlay.css';
@@ -108,6 +108,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState(null); // 'xml' | 'zip' | null
+  const [savingPrintArt, setSavingPrintArt] = useState(false);
   const [cardstock, setCardstock] = useState('(S30) Standard Smooth');
   const [foil, setFoil] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -395,6 +396,19 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
     setOverrides(new Map());
     persistOverrides(new Map());
     toast.success('Art choices reset');
+  }
+
+  async function handleSavePrintArtwork() {
+    setSavingPrintArt(true);
+    try {
+      const next = collectPrintArtwork(overrides, results?.results || [], dfcBackResults);
+      setOverrides(next);
+      saveOverrides(deckId, next);
+      await overrideSync.save(next);
+      toast.success('Artwork saved for home PDFs. Choose Saved MPC artwork in the Printing tab.');
+    } catch (err) {
+      toast.error(err.message || 'Could not save artwork for printing.');
+    } finally { setSavingPrintArt(false); }
   }
 
   function updateDraft(path, value) {
@@ -1029,6 +1043,13 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
                   </label>
                 </div>
                 <div className="mpc-actions-buttons">
+                  {deckId && <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleSavePrintArtwork}
+                    disabled={loading || savingPrintArt || !results?.results?.length}
+                    type="button"
+                    title="Save current artwork for all matched fronts and backs, including default search results"
+                  >{savingPrintArt ? 'Saving…' : 'Save art for home PDFs'}</button>}
                   {overrides.size > 0 && (
                     <button
                       className="btn btn-ghost-danger btn-sm"

@@ -1,5 +1,28 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createMpcOverrideSync } from './mpcOverrides.js';
+import { createMpcOverrideSync, collectPrintArtwork } from './mpcOverrides.js';
+
+describe('saving artwork for home PDFs', () => {
+  it('freezes defaults and both faces while retaining custom and historical selections', () => {
+    const previous = new Map([['sol ring', { identifier: 'chosen-ring' }], ['old card', { identifier: 'historical' }]]);
+    const saved = collectPrintArtwork(previous, [
+      { name: 'Sol Ring', identifier: 'search-ring' },
+      { name: 'Fable of the Mirror-Breaker', identifier: 'fable-front', hasMatch: true },
+    ], [{ name: 'Reflection of Kiki-Jiki', identifier: 'fable-back' }]);
+    expect([...saved].map(([name, art]) => [name, art.identifier])).toEqual([
+      ['sol ring', 'chosen-ring'], ['old card', 'historical'],
+      ['fable of the mirror-breaker', 'fable-front'], ['reflection of kiki-jiki', 'fable-back'],
+    ]);
+    expect(previous.size).toBe(2);
+  });
+  it('does not invent selections for unmatched cards', () => {
+    expect(collectPrintArtwork(new Map(), [{ name: 'Missing', hasMatch: false }, { name: 'Stale', identifier: 'stale', hasMatch: false }]).size).toBe(0);
+  });
+  it('rejects oversized saves without discarding older artwork', () => {
+    const previous = new Map(Array.from({ length: 612 }, (_, index) => [`card ${index}`, { identifier: 'art' }]));
+    expect(() => collectPrintArtwork(previous, [{ name: 'Extra', identifier: 'extra' }])).toThrow('612');
+    expect(previous.size).toBe(612);
+  });
+});
 
 function deferred() {
   let resolve;

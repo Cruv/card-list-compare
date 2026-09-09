@@ -122,7 +122,7 @@ image buffers. PNG validation checks structure, checksums and bounded decompress
 JPEG validation checks required segments and scan structure, not a full pixel decode.
 Oversized/corrupt inputs fail with an actionable error; split large requests into smaller
 decks. These limits protect the current in-memory ZIP worker and are separate from the
-future PDF generator's memory limits.
+PDF generator's memory and disk limits below.
 The MPC Autofill ZIP endpoint is a separate request-driven export and still needs its own
 physical-copy/face adapter.
 
@@ -154,5 +154,36 @@ data mount, including source and wheels, for offline recovery.
 The adapter invokes upstream once per seven-card sheet at 600 PPI and merges completed
 sheets. Double-faced cards remain a separate artifact. Allow at least 2 GiB of container
 memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
-driver is used. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the staged print API and Mac
+driver is used. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the print API and Mac
 companion work. Drying, lamination and cutting remain outside CLC.
+
+### Household print jobs
+
+Open a tracked deck's Printing tab for plan review, PDF downloads and job status. Set a
+separate random `PRINT_STATION_TOKEN` to enable physical queue requests; administrators
+can queue by default, and `PRINT_ALLOWED_USER_IDS` grants access to other household accounts.
+These environment variables are forwarded by the supplied Compose file. Keep the same
+station credential on the Mac. Rotating it revokes the old credential; claim identities
+use a separate `data/.print-claim-secret` so existing jobs can recover after rotation.
+Back up that private file with the database and artifacts.
+
+Jobs live under `data/print-jobs/`. The default quota is 10 GiB
+(`PRINT_STORAGE_MAX_MB=10240`). Preparation requires 5 GiB of working headroom for the
+retained job and temporary generation files. A retained job is capped at 2 GiB including
+sources; one PDF can be at most 1 GiB. Saved MPC sources stream sequentially to disk with
+a 1.5 GiB total limit and 20 MiB per image. A single worker processes at most 250 copies per job, with
+two pending jobs per user and ten awaiting generation overall. Ready/terminal PDFs expire
+after seven days. Active, queued and uncertain jobs never expire automatically. Use
+**Remove PDFs** on a safe batch to release disk space while preserving its manifest/history.
+
+Before sending, configure and prove the Mac's Epson queue, color options and manual DFC
+recipe. Server queue acceptance does not mean the printer is ready. A Mac that is asleep
+leaves jobs queued. A pass that may have reached the spooler holds the station until its
+outcome is reconciled; do not delete database rows to bypass this hold. Inspect the Mac
+queue and physical sheets, then resolve the pass or explicitly clear/abandon the batch.
+
+Print state and event receipts use `runTransaction()` to persist together. Back up the
+whole data directory before deployment/schema upgrades. Artifact expiry keeps private
+snapshot text/art identity in the database; deleting an account purges that history and
+its files after active physical submissions have been reconciled. Untracking or pruning
+a source snapshot does not rewrite a frozen print job.

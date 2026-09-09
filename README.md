@@ -2,7 +2,7 @@
 
 Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, and proxy image exports.
 
-CLC currently exports card images and MPC Autofill projects. Collection and purchase management belong to the planned ManaSync companion; CLC's native collection feature has been removed. Automatic home-print PDFs and printer queue submission are the proposed next feature; see [Home printing workflow](docs/PRINT_WORKFLOW.md).
+CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with separate ordinary and double-faced batches. Authorized household users can queue finished PDFs through the native Mac station protocol. Collection and purchase management belong to the planned ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ## Supported Architectures
 
@@ -70,8 +70,7 @@ latest upstream main and keeps a validated installation, dependencies and wheel 
 `./data/silhouette-card-maker/`. If an update fails, it retains its last compatible version.
 Without a usable cache on an offline first boot, the web app remains available and PDF
 generation stays unavailable. Set `PRINT_ENABLED=false` to disable runtime preparation.
-Allow at least 2 GiB of memory for 600 PPI sheet generation. The print-job interface is the
-next implementation stage; see [operations](docs/OPERATIONS.md#silhouette-runtime).
+Allow at least 2 GiB of memory for 600 PPI sheet generation. Use the Printing tab in a tracked deck; see [operations](docs/OPERATIONS.md#silhouette-runtime).
 
 ### docker cli
 
@@ -109,6 +108,10 @@ Container configuration is done through environment variables and volume mapping
 | `PGID` | No | `1000` | Group ID for file permissions |
 | `JWT_SECRET` | **Yes, in production** | None | Strong, stable secret for signing auth tokens (at least 16 characters; use 32 random bytes). Generate with `openssl rand -hex 32`. Weak values are rejected in every environment. |
 | `DB_PATH` | No | `/app/data/cardlistcompare.db` | Path to SQLite database file |
+| `PRINT_ENABLED` | No | `true` | Prepare/update the cached PDF runtime at startup |
+| `PRINT_STATION_TOKEN` | For physical printing | None | Separate random station credential, at least 32 characters; blank disables queue requests |
+| `PRINT_ALLOWED_USER_IDS` | No | Administrators only | Comma-separated user IDs allowed to queue physical printing |
+| `PRINT_STORAGE_MAX_MB` | No | `10240` | Retained print-job storage quota in MiB |
 | `SMTP_HOST` | No | &mdash; | SMTP server for password reset, verification, and deck/price alerts |
 | `SMTP_PORT` | No | `587` | SMTP port |
 | `SMTP_USER` | No | &mdash; | SMTP username |
@@ -175,6 +178,17 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Share links** &mdash; generate shareable URLs for any comparison
 - **Keyboard shortcuts** &mdash; Ctrl+Enter to compare
 
+### Household PDFs
+
+- **Whole deck or changes** — choose exact snapshots, default to the paper baseline, include sideboards optionally, and review physical copy counts.
+- **Silhouette Card Maker v6** — actual upstream generation at 600 PPI, Letter, standard cards, 1 mm crop, three registration marks and seven cards per sheet.
+- **Chosen artwork** — exact Scryfall printings or saved MPC fronts/backs. Use **Save art for home PDFs** in the MPC overlay to freeze all displayed matches.
+- **Complete batches** — separate ordinary fronts and alternating DFC front/back PDFs; every required face must validate before publication.
+- **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation.
+- **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; DFC backs require manual reload and resume.
+
+Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. ManaSync inventory checks, drying, lamination and cutting tracking are outside this release.
+
 ### Printing Metadata
 
 - **Printing metadata** &mdash; import and export set codes, collector numbers (including promos like `136p`, `DDO-20`), and foil markers
@@ -184,12 +198,12 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Server-side enrichment** &mdash; plain text deck imports are enriched with printing metadata via Scryfall, with carry-forward from previous snapshots
 - **Printing badges** &mdash; set code, collector number, and foil indicator displayed inline on card entries
 
-Set changes with the same collector number and foil-only changes are included in the comparison. Exact printing lookups do not silently substitute generic artwork or prices when that printing is unavailable. A display diff is still not a physical-copy print plan; that adapter remains in [Roadmap](docs/ROADMAP.md).
+Set changes with the same collector number and foil-only changes are included in the comparison. Exact printing lookups do not silently substitute generic artwork or prices when that printing is unavailable. The Printing tab uses a dedicated physical-copy plan that aggregates included zones, ignores finish-only swaps, and lets you keep or replace changed printings.
 
 ### Deck Library
 
 - **Deck tracker** &mdash; track Archidekt users and decks with automatic snapshot history
-- **Deck pages** &mdash; full-page view per deck with tabs for Snapshots, Changelog, Timeline, Full Deck, Analytics, and Settings
+- **Deck pages** &mdash; full-page view per deck with tabs for Snapshots, Changelog, Timeline, Full Deck, Printing, Analytics, and Settings
 - **Grid layout** &mdash; deck cards in a responsive grid showing name, commander, price, tags, and last updated date
 - **Interactive timeline** &mdash; clickable snapshot history with changes tab (what changed) and full deck tab (complete list at that point)
 - **Snapshot comparison** &mdash; compare any two snapshots of the same deck in an in-page overlay
@@ -226,9 +240,9 @@ Collection management, purchased/received cards, proxy inventory, storage locati
 - **XML & ZIP export** &mdash; download XML for the MPC Autofill desktop tool, or download a ZIP of matched card images
 - **Scryfall image downloads** &mdash; queue a ZIP containing every requested physical copy and required face; missing cards, missing faces, or failed image downloads prevent completion and identify what failed
 - **Image progress** &mdash; counts image files consistently, including repeated copies and both DFC faces; cached images count toward the same total
-- **DFC image retrieval** &mdash; paired Scryfall front/back files share a copy number; page layout and duplex alignment still require the printing adapter
+- **DFC image retrieval** &mdash; paired Scryfall front/back files share a copy number; household PDFs preserve the corresponding page/slot pairing
 
-These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. CLC does not yet generate Silhouette-compatible page PDFs, apply home-printer presets, or submit physical print jobs. The proposed Epson ET-8550/Silhouette integration is described in [Home printing workflow](docs/PRINT_WORKFLOW.md).
+These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. For household printing, use the dedicated Printing tab: it generates validated Silhouette PDFs and exposes the native Mac station queue. Local Epson driver/color settings still require a physical proof. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ### Card Display
 
@@ -371,7 +385,7 @@ These Express limits are per IP. Production's nginx import proxies bypass Expres
 - [Contributing](CONTRIBUTING.md) and [coding conventions](CLAUDE.md)
 - [Decisions](docs/DECISIONS.md), [invariants](docs/INVARIANTS.md), and [deck text format](docs/DECK_TEXT_FORMAT.md)
 - [Operations](docs/OPERATIONS.md) and [security](SECURITY.md)
-- [Roadmap](docs/ROADMAP.md), [proposed home printing workflow](docs/PRINT_WORKFLOW.md), and [ManaSync integration context](docs/MANASYNC_INTEGRATION.md)
+- [Roadmap](docs/ROADMAP.md), [home printing workflow](docs/PRINT_WORKFLOW.md), and [ManaSync integration context](docs/MANASYNC_INTEGRATION.md)
 
 ## License
 

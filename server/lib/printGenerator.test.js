@@ -125,6 +125,75 @@ describe('cached generator runtime', () => {
 });
 
 describe('PDF adapter publication', () => {
+  it.each([0, -1, 1.5, Infinity, NaN, '100', 2 * 1024 ** 3 + 1])('rejects invalid output budget %s before capturing a runtime', async maxOutputBytes => {
+    const runtime = { capture: vi.fn() };
+    const generator = createPrintGenerator({ runtime });
+    await expect(generator.generate({ outputDir: await temp(), maxOutputBytes,
+      cards: [{ id: 'one', frontPath: '/front.png' }],
+    })).rejects.toThrow('output budget');
+    expect(runtime.capture).not.toHaveBeenCalled();
+  });
+
+  it('enforces the remaining total output budget across artifacts before the next merge', async () => {
+    const directory = await temp();
+    const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed' }) };
+    const run = vi.fn(async (_command, args) => {
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      if (args[1] === 'chunk') {
+        await fs.writeFile(path.join(request.directory, 'sheet.pdf'), Buffer.alloc(60));
+        await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({ images: [] }));
+      } else await fs.writeFile(request.output, Buffer.alloc(60));
+    });
+    const generator = createPrintGenerator({ runtime, run });
+    await expect(generator.generate({ outputDir: directory, maxOutputBytes: 100, cards: [
+      { id: 'one', frontPath: '/a.png' }, { id: 'two', frontPath: '/b.png', backPath: '/c.png' },
+    ] })).rejects.toThrow('remaining job storage budget');
+    expect(run.mock.calls.map(([, args]) => args[1])).toEqual(['chunk', 'merge', 'chunk']);
+    expect(await fs.readdir(directory)).toEqual([]);
+  });
+
+  it('rejects a merged PDF that grows beyond its output budget and never publishes it', async () => {
+    const directory = await temp();
+    const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed' }) };
+    const run = async (_command, args) => {
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      if (args[1] === 'chunk') {
+        await fs.writeFile(path.join(request.directory, 'sheet.pdf'), Buffer.alloc(50));
+        await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({ images: [] }));
+      } else await fs.writeFile(request.output, Buffer.alloc(101));
+    };
+    const generator = createPrintGenerator({ runtime, run });
+    await expect(generator.generate({ outputDir: directory, maxOutputBytes: 100,
+      cards: [{ id: 'one', frontPath: '/a.png' }],
+    })).rejects.toThrow('remaining job storage budget');
+    expect(await fs.readdir(directory)).toEqual([]);
+  });
+
+  it('releases merged chunk files before generating the next artifact and preserves image metadata', async () => {
+    const directory = await temp();
+    const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed' }) };
+    let previousChunk;
+    const run = async (_command, args) => {
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      if (args[1] === 'chunk') {
+        if (previousChunk) await expect(fs.access(previousChunk)).rejects.toThrow();
+        previousChunk = request.directory;
+        await fs.writeFile(path.join(request.directory, 'sheet.pdf'), Buffer.alloc(60));
+        await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({ images: [{ id: request.cards[0].id }] }));
+      } else {
+        expect((await fs.stat(request.inputs[0])).size).toBe(60);
+        await fs.writeFile(request.output, Buffer.alloc(60));
+      }
+    };
+    const generator = createPrintGenerator({ runtime, run });
+    const result = await generator.generate({ outputDir: directory, maxOutputBytes: 120, cards: [
+      { id: 'one', frontPath: '/a.png' }, { id: 'two', frontPath: '/b.png', backPath: '/c.png' },
+    ] });
+    expect(result.images).toEqual([{ id: 'one' }, { id: 'two' }]);
+    expect(result.artifacts.map(artifact => artifact.size)).toEqual([60, 60]);
+    expect((await fs.readdir(directory)).sort()).toEqual(['double-faced.pdf', 'fronts.pdf']);
+  });
+
   it('rejects excessive compressed page data before allocating a whole-deck merger', async () => {
     const directory = await temp();
     const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed' }) };

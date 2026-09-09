@@ -83,7 +83,7 @@ router.get('/sources', async (_req, res) => {
     res.json({ sources });
   } catch (err) {
     console.error('MPC sources error:', err);
-    res.json({ sources: [] });
+    res.status(503).json({ error: 'MPC image sources are temporarily unavailable. Please retry.' });
   }
 });
 
@@ -96,7 +96,7 @@ router.get('/languages', async (_req, res) => {
     res.json({ languages });
   } catch (err) {
     console.error('MPC languages error:', err);
-    res.json({ languages: [] });
+    res.status(503).json({ error: 'MPC languages are temporarily unavailable. Please retry.' });
   }
 });
 
@@ -109,7 +109,7 @@ router.get('/tags', async (_req, res) => {
     res.json({ tags });
   } catch (err) {
     console.error('MPC tags error:', err);
-    res.json({ tags: [] });
+    res.status(503).json({ error: 'MPC tags are temporarily unavailable. Please retry.' });
   }
 });
 
@@ -152,7 +152,7 @@ router.post('/alternates', mpcLimiter, async (req, res) => {
     res.json({ cardName, alternates });
   } catch (err) {
     console.error('MPC alternates error:', err);
-    res.status(500).json({ error: 'Failed to fetch alternates.' });
+    res.status(err.status === 503 ? 503 : 500).json({ error: 'Failed to fetch alternates. Please retry.' });
   }
 });
 
@@ -305,7 +305,7 @@ router.post('/search', mpcLimiter, async (req, res) => {
     });
   } catch (err) {
     console.error('MPC search error:', err);
-    res.status(500).json({ error: 'Failed to search MPC Autofill. The service may be unavailable.' });
+    res.status(err.status === 503 ? 503 : 500).json({ error: 'Failed to search MPC Autofill. The service may be unavailable.' });
   }
 });
 

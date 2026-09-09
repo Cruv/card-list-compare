@@ -355,9 +355,30 @@ function ProxyPrinting() {
 
       <h4>Home Printing</h4>
       <p>
-        Automatic PDF generation with Silhouette Card Maker and Epson print-queue submission
-        are planned next. Current image exports do not lay out pages or send jobs to a printer.
-        Drying, lamination and cutting remain outside CLC.
+        Open a tracked deck’s <strong>Printing</strong> tab to generate a whole snapshot or
+        the new copies needed since another version. The paper-deck marker is the default
+        baseline. Include the sideboard if needed, and choose whether to replace changed
+        printings. Foil-only changes do not require a new proxy. Review the copy list before
+        generating PDFs; this comparison does not check your physical inventory.
+      </p>
+      <p>
+        Choose Scryfall printings or saved MPC artwork. Use <strong>Save art for home PDFs</strong>
+        {' '}in the MPC overlay to save all displayed matches and backs, including defaults.
+        Missing art or a required face stops the batch with an explanation.
+      </p>
+      <p>
+        Silhouette Card Maker generates Letter v6 PDFs at 600 PPI with three registration
+        marks, a 1 mm crop and seven cards per sheet. Ordinary fronts and double-faced cards
+        have separate downloads. Each batch keeps its source versions, artwork and generation
+        details. PDFs are retained for seven days; active print batches are protected.
+      </p>
+      <p>
+        Authorized household accounts can generate and send a batch to the Mac, or queue a
+        ready PDF later. The native station protocol keeps submission history and pauses for
+        manual DFC flip/reload. The Mac’s Epson driver and color recipe need a physical proof
+        before unattended use. Canceling is available before submission; uncertain submissions
+        need review at the Mac. Spooler completion does not update the assembled paper deck.
+        Drying, lamination and cutting remain outside CLC. Collection management belongs to ManaSync.
       </p>
 
       <div className="guide-tip">

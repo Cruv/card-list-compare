@@ -1,0 +1,21 @@
+.print-panel { display: grid; gap: var(--space-lg); }
+.print-panel h3, .print-panel h4 { margin: 0 0 var(--space-sm); }
+.print-panel p { color: var(--text-secondary); line-height: 1.6; margin: 0 0 var(--space-sm); }
+.print-panel-card { border: 1px solid var(--border-color); border-radius: 10px; padding: var(--space-lg); background: var(--bg-surface); }
+.print-panel-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin: var(--space-md) 0; }
+.print-panel-fields label { display: grid; gap: 6px; color: var(--text-secondary); font-size: var(--fs-sm); }
+.print-panel-fields select { width: 100%; min-width: 0; padding: 9px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.print-panel-check { display: flex; align-items: flex-start; gap: 8px; margin: var(--space-sm) 0; font-size: var(--fs-sm); }
+.print-panel-check input { margin-top: 3px; }
+.print-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-top: var(--space-md); }
+.print-panel-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-sm); }
+.print-panel-error { padding: var(--space-md); border: 1px solid var(--accent-red, #e66); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
+.print-panel-cards { max-height: 290px; overflow: auto; margin: var(--space-md) 0; padding-left: 24px; color: var(--text-secondary); font-size: var(--fs-sm); }
+.print-panel-cards li { padding: 3px 0; }
+.print-panel-meta { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.print-panel-jobs { display: grid; gap: var(--space-md); }
+.print-panel-status { display: inline-block; padding: 3px 9px; border-radius: 999px; background: var(--bg-elevated, var(--bg-primary)); font-size: var(--fs-sm); }
+.print-panel details { margin-top: var(--space-sm); }
+.print-panel summary { cursor: pointer; color: var(--accent-blue); font-size: var(--fs-sm); }
+.print-panel a { color: var(--accent-blue); }
+@media (max-width: 560px) { .print-panel-fields { grid-template-columns: 1fr; } .print-panel-card { padding: var(--space-md); } }

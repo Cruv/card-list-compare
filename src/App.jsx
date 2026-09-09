@@ -24,12 +24,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.43.0';
+const APP_VERSION = '2.44.0';
 const WHATS_NEW = [
-  'Deck comparisons and artwork keep sets, collector numbers, and foil versions distinct',
-  'Image downloads require every card face and show missing cards instead of an incomplete ZIP',
-  'Deck text and CSV exports preserve printing details, commanders, and sideboards',
-  'Collection tools have been removed from CLC; future inventory integration belongs to ManaSync',
+  'Generate Silhouette PDFs for a whole snapshot or just the cards changed since another version',
+  'Save MPC artwork for home PDFs, with separate ordinary and double-faced batches',
+  'Review print batches, download PDFs and send authorized jobs to the household Mac queue',
 ];
 
 function getResetToken() {

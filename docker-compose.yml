@@ -17,6 +17,9 @@ services:
       - JWT_SECRET=${JWT_SECRET:-}
       - DB_PATH=/app/data/cardlistcompare.db
       - PRINT_ENABLED=${PRINT_ENABLED:-true}
+      - PRINT_STATION_TOKEN=${PRINT_STATION_TOKEN:-}
+      - PRINT_ALLOWED_USER_IDS=${PRINT_ALLOWED_USER_IDS:-}
+      - PRINT_STORAGE_MAX_MB=${PRINT_STORAGE_MAX_MB:-10240}
       - TZ=America/New_York
     volumes:
       # Bind mount — DB and data live on the host at ./data/

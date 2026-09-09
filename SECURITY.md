@@ -78,7 +78,7 @@ the backend after the first registration. Admin routes are gated by
 DB — protect admin credentials accordingly; the token hashing above limits what a leaked
 backup exposes.
 
-## Image downloads and proposed printing
+## Image downloads and household printing
 
 Image ZIP status and download routes require the owning user and matching deck ID.
 Completed ZIPs expire after 24 hours; download and cleanup checks normalize stored UTC
@@ -92,8 +92,25 @@ Native collection routes have been removed. Legacy collection data remains in th
 and its backups for a future deliberate transfer to ManaSync; no new cross-app access or
 inventory integration is introduced by that removal.
 
-PDF generation and printer submission are not implemented. The proposed authenticated
-household bridge and immutable print-job design are in [docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.md).
+PDF plans, jobs, manifests and downloads require the owning user. Queue submission also
+requires administrator status or an explicit `PRINT_ALLOWED_USER_IDS` grant. A separate
+`PRINT_STATION_TOKEN` authenticates the station protocol; it cannot create jobs, change
+decks or act as a JWT. Use a separate random value of at least 32 characters, protect the
+Mac token file, and rotate it on both ends together. Keep the station API behind HTTPS or
+a trusted local network; do not place the token in URLs or source control.
+
+Print manifests freeze input text, artwork and file hashes. Source images are size-limited
+and decoded before generation. Upstream code is fetched from the fixed Silhouette repository,
+installed as the unprivileged service user, and activated only after validation. Generation
+uses argument arrays with closed stdin, bounded subprocesses and no user-provided commands.
+The native station chooses its printer/options locally, verifies artifacts and records
+submission intent before spooling. Replayed requests do not authorize repeated submissions;
+ambiguous physical outcomes require reconciliation. Manual DFC backs need explicit refeed.
+
+Print history retains private snapshot/art details after artifact expiry. Account deletion
+purges its jobs/files, but active physical submissions must first be reconciled. Legacy
+database backups retain their historical content. Paper/color/cutter correctness still
+requires physical validation; see [docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.md).
 
 ## When you change auth or security
 

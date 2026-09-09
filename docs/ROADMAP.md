@@ -5,25 +5,19 @@ briefly for rationale, not as a queue. (Replaces the untracked `CLAUDE.local.md`
 which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 `CLAUDE.local.md`; the default belongs here.
 
-## Next feature — household PDF generation and Epson printing
+## Next — native Mac companion and household proof
 
-Design: [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Start with full-snapshot and physical-copy
-delta planning, persisted artwork/face manifests, and downloadable PDFs produced by integrated
-Silhouette Card Maker code. The container must clone/fetch the latest upstream main, keep a
-working installation in the data bind mount, and use it if an update cannot be reached or
-validated. Freeze the generator version per job. Then validate the household's paper, cutter template, color
-recipe and front/back alignment before connecting the native Mac companion. The owner has
-approved the v6 layout and matching cutter template; v4 reproduction is no longer required.
-The container handles PDF generation while the Mac owns the Epson driver and print queue.
-The owner's
-600 PPI, crop 1 mm, skip-slot-4 recipe and Adobe/Epson Vivid settings are captured in
-[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). Ordinary fronts and manually refed
-double-faced cards must be separate batches.
+CLC now implements the PDF/job side of [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): full-snapshot
+and physical-copy delta plans, frozen artwork/face manifests, the actual cached upstream v6
+runtime, downloadable PDFs and an authenticated station protocol. Native Mac companion
+delivery is the next implementation stage.
 
-The final experience is an authorized household user preparing and queueing the latest deck
-or the copies needed since another snapshot. Drying tracking is explicitly out of scope;
-the household handles its usual wait outside CLC. Printing does not advance the assembled
-paper-deck marker. No PDF generation or printer submission is implemented yet.
+The household still needs to install its Epson Mac queue and validate color against Adobe,
+then test v6 cutter geometry and manual DFC page order/flip/alignment. The owner's 600 PPI,
+1 mm crop, skipped slot 4 and Epson Vivid recipe are preserved in
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The Mac must be awake for unattended
+ordinary fronts; DFCs remain separate manual-refeed batches. Drying, lamination and cutting
+tracking remain excluded. Printing does not advance the assembled paper-deck marker.
 
 ## Planned companion integration — ManaSync
 
@@ -57,13 +51,16 @@ summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security au
 
 **Comparison and image correctness**
 - MPC ZIPs deduplicate identifiers, XML exports do not encode paired DFC backs, and art
-  overrides are per card name. The PDF adapter needs physical copy counts, explicit face
-  pairing, source-specific bleed handling, and immutable art identity.
+  overrides are per card name. The dedicated PDF adapter now preserves physical copies, face
+  pairing and immutable art identity. Source-specific crop/bleed calibration remains part
+  of the physical proof; the initial adapter preserves the owner’s 1 mm crop.
 - Saved art choices currently use whole-record replacement and a 612-entry limit. The
   maintenance fixes preserve choices across searches and serialize saves within an overlay;
   multi-device concurrent edits still need versioning/conflict handling and history management.
 
 **UI polish**
+- Large authenticated PDF downloads currently become browser blobs before saving. Consider
+  streamed browser downloads for memory-constrained phones; the native station streams now.
 - Consider virtualizing the deck list for very large deck lists (not currently a
   measured problem).
 
@@ -89,8 +86,7 @@ summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security au
   Deck overlap remains. Existing collection database data is preserved.
 - Verified with 413 tests, zero lint errors (7 existing warnings), production/Docker builds,
   live Scryfall checks and disposable browser/API smoke tests. See
-  [PROJECT_REVIEW.md](PROJECT_REVIEW.md). PDF generation and physical print submission
-  remain the next implementation stage.
+  [PROJECT_REVIEW.md](PROJECT_REVIEW.md). This was the prerequisite for the v2.44 PDF work.
 
 ## Recently shipped (historical rationale)
 

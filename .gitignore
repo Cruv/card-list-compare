@@ -11,11 +11,13 @@ node_modules
 dist
 server/data/*.db*
 server/data/.jwt-dev-secret
+server/data/.print-claim-secret
 server/data/image-cache/
 server/data/downloads/
 server/data/silhouette-card-maker/
 server/data/print-jobs/
 data/.jwt-dev-secret
+data/.print-claim-secret
 data/*.db*
 data/image-cache/
 data/downloads/

@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { all, get, run, getDb } from '../db.js';
 import { requireAuth, requireAdmin, invalidateAuthCache, invalidateAllAuthCache } from '../middleware/auth.js';
 import { validatePassword } from '../middleware/validate.js';
+import { purgeUserPrintJobs } from '../lib/printQueue.js';
 
 const router = Router();
 
@@ -139,6 +140,9 @@ router.delete('/users/:id', (req, res) => {
 
   const user = get('SELECT id, username FROM users WHERE id = ?', [userId]);
   if (!user) return res.status(404).json({ error: 'User not found' });
+
+  try { purgeUserPrintJobs(userId); }
+  catch (error) { return res.status(error.status || 500).json({ error: error.message }); }
 
   logAdminAction(req.user.userId, req.user.username, 'delete_user', userId, user.username, null);
 

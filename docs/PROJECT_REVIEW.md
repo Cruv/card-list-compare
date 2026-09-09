@@ -16,9 +16,10 @@ sharing, notifications and household account administration. Native collection m
 has been removed at the owner's request; the planned ManaSync companion owns inventory.
 
 Proxy preparation currently searches MPC artwork and exports XML/image ZIPs, or queues
-Scryfall image ZIPs with caching. PDF composition and physical printing are not implemented.
-The next-feature proposal is [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md), with drying tracking
-excluded at the owner's request.
+Scryfall image ZIPs with caching. Household PDF composition, immutable jobs and the native
+Mac station protocol are implemented in v2.44.0; the software verification is separate from
+the pending physical color/cutter/duplex proof. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md).
+Drying tracking remains excluded at the owner's request.
 
 ## Initial v2.42.2 maintenance corrections (historical)
 
@@ -111,15 +112,36 @@ feature. [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md) records the supp
 Epson settings and sample reference; [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) records the
 remaining integration work.
 
+## v2.44.0: household PDFs and station protocol
+
+CLC now freezes a full snapshot or physical positive delta into a reviewed print plan,
+acquires every required face, and invokes the real Silhouette Card Maker v6 code. Ordinary
+fronts and paired DFC pages are separate downloadable artifacts. Saved MPC selections can
+be frozen from the artwork overlay. Default MPC searches now expand current source/language
+metadata rather than accidentally asking the upstream service for no sources or languages.
+
+The bind-mounted runtime updates from upstream main and retains a validated compatible
+installation on failed updates. ARM64 and AMD64 container checks generated real PDFs and
+restarted successfully without network access. Cached wheels also rebuilt a removed test
+environment offline. A 100-card stress fixture generated 15 pages / 881.5 MiB under a 2 GiB
+container memory limit; bounded merging and sequential source staging prevent keeping the
+whole high-resolution deck in memory. Limits fail the job before partial publication.
+
+Browser checks confirmed the paper baseline's eight-copy delta, the eleven-copy full deck
+with optional sideboard, separate PDF artifacts and missing-artwork feedback. The station
+API uses durable claims, submission events and explicit refeed/reconciliation states.
+Tests cover ownership, stale plans, cancellation, artifact integrity, retention, interrupted
+submissions, failed persistence and recovery. Validation: **486 tests passed**, zero lint
+errors (seven existing warnings), successful production/container builds and zero findings
+in both dependency audits. Native Mac delivery follows as a separate stage. Physical color,
+duplex alignment and cutter proof remain household setup work.
+
 ## Remaining work
 
 [ROADMAP.md](ROADMAP.md) retains the MPC copy/back export limitations, concurrent multi-device
 art edits, comparison-link revocation, invite expiry UI and live import checks. Inventory
 features belong in ManaSync; CLC will consume an agreed API instead of rebuilding collections.
 
-The print feature still needs a dedicated physical-copy planner with immutable source/target
-versions and artwork. A display diff or complete image ZIP is not yet a ready-to-print PDF.
-The adapter must run Silhouette Card Maker's code with a bind-mounted working installation
-and offline update fallback, then validate page layout, printer settings and color output.
-[PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) records the household setup, integration requirements
-and remaining inputs. Drying tracking remains excluded.
+[PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) records the native Mac delivery and physical printer/
+cutter proof. CLC does not claim a color match from software tests alone. Drying tracking
+remains excluded.

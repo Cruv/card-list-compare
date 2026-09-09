@@ -14,6 +14,7 @@ export const PRINT_RECIPE = Object.freeze({
 });
 const USABLE_SLOTS = [0, 1, 2, 3, 5, 6, 7];
 const MAX_PDF_BYTES = 1024 * 1024 * 1024;
+const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;
 const DEFAULT_DATA = process.env.DB_PATH ? path.dirname(path.resolve(process.env.DB_PATH))
   : fileURLToPath(new URL('../data', import.meta.url));
 
@@ -48,9 +49,12 @@ export function createPrintGenerator(options = {}) {
   return {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
-    async generate({ cards, outputDir, signal, onProgress = () => {} }) {
+    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES }) {
       const plan = planPrintSheets(cards);
       if (!path.isAbsolute(outputDir || '')) throw new Error('PDF output directory must be absolute');
+      if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes <= 0 || maxOutputBytes > MAX_OUTPUT_BYTES) {
+        throw new Error('PDF output budget must be a positive integer no larger than 2 GiB');
+      }
       if (generating) throw new Error('The PDF generator is busy');
       const captured = runtime.capture();
       generating = true;
@@ -66,6 +70,7 @@ export function createPrintGenerator(options = {}) {
           throw new Error('PDF output already exists; create a new job for a reprint');
         }
         let completedSheets = 0;
+        let completedBytes = 0;
         const totalSheets = plan.reduce((sum, group) => sum + group.chunks.length, 0);
         const python = path.join(captured.directory, 'venv/bin/python');
         const execute = args => run(python, [path.join(captured.directory, 'adapter.py'), ...args], {
@@ -88,6 +93,7 @@ export function createPrintGenerator(options = {}) {
             parts.push(path.join(chunkDirectory, 'sheet.pdf'));
             partBytes += (await fs.stat(parts.at(-1))).size;
             if (partBytes > MAX_PDF_BYTES) throw new Error('Generated PDF exceeds the 1 GiB artifact limit');
+            if (completedBytes + partBytes > maxOutputBytes) throw new Error('Generated PDFs exceed the remaining job storage budget');
             onProgress({ phase: 'generating', completedSheets: ++completedSheets, totalSheets });
           }
           const stagedOutput = path.join(working, `${group.id}.pdf`);
@@ -97,6 +103,11 @@ export function createPrintGenerator(options = {}) {
           await execute(['merge', mergeInput]);
           const size = (await fs.stat(stagedOutput)).size;
           if (!size || size > MAX_PDF_BYTES) throw new Error('Generated PDF exceeds the 1 GiB artifact limit');
+          if (completedBytes + size > maxOutputBytes) throw new Error('Generated PDFs exceed the remaining job storage budget');
+          completedBytes += size;
+          // Each final artifact is self-contained after the worker validates its
+          // merge; release the compressed sheet copies before the next group.
+          for (const filename of parts) await fs.rm(path.dirname(filename), { recursive: true, force: true });
           const hash = createHash('sha256');
           for await (const buffer of createReadStream(stagedOutput)) hash.update(buffer);
           const sha256 = hash.digest('hex');

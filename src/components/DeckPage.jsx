@@ -28,6 +28,7 @@ import TimelineOverlay from './TimelineOverlay';
 import RecommendationsOverlay from './RecommendationsOverlay';
 import MpcOverlay from './MpcOverlay';
 import PriceHistoryOverlay from './PriceHistoryOverlay';
+import PrintPanel from './PrintPanel';
 import './DeckPage.css';
 
 function formatDate(dateStr) {
@@ -875,7 +876,7 @@ export default function DeckPage({ deckId }) {
 
       {/* Tabs */}
       <nav className="deck-page-tabs">
-        {['snapshots', 'changelog', 'timeline', 'fulldeck', 'analytics', 'settings'].map(tab => (
+        {['snapshots', 'changelog', 'timeline', 'fulldeck', 'printing', 'analytics', 'settings'].map(tab => (
           <button
             key={tab}
             className={`deck-page-tab${activeTab === tab ? ' deck-page-tab--active' : ''}`}
@@ -887,6 +888,7 @@ export default function DeckPage({ deckId }) {
               changelog: 'Changelog',
               timeline: 'Timeline',
               fulldeck: 'Full Deck',
+              printing: 'Printing',
               analytics: 'Analytics',
               settings: 'Settings',
             }[tab]}
@@ -896,6 +898,7 @@ export default function DeckPage({ deckId }) {
 
       {/* Tab content */}
       <div className="deck-page-content">
+        {activeTab === 'printing' && <PrintPanel key={deckId} deck={deck} snapshots={snapshots} />}
 
         {/* ── Snapshots Tab ── */}
         {activeTab === 'snapshots' && (

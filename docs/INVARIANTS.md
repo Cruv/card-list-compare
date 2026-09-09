@@ -31,9 +31,12 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
   on graceful shutdown.
 - Writes made directly via `getDb().run(...)` **bypass persistence entirely**
   and are silently lost on restart unless some later helper call persists them.
-  Always write through the `run()` helper (`export function run`).
-- There are no cross-statement transactions. A loop of N `run()` calls does N
-  full-file rewrites — that's a known cost, accepted for simplicity.
+  Always write through `run()` (`export function run`) or the transaction helper.
+- `runTransaction()` (`export function runTransaction`) commits related SQL statements
+  and persists once. It restores the previous in-memory database if a statement or disk
+  write fails. Print-station state and its replay receipt must use this helper together;
+  acknowledging only one of those writes can authorize a duplicate physical submission.
+  A loop of N separate `run()` calls still does N full-file rewrites.
 
 **Do not "optimize" `persist()`** (debounce, batch, async) without preserving
 the temp+fsync+rename atomicity and the `loadDatabase()` recovery path. Behavior

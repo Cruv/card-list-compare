@@ -476,3 +476,37 @@ export async function downloadJobFile(deckId, jobId, deckName) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// Household PDFs and the native Mac print queue.
+export const previewPrintPlan = (deckId, options) =>
+  apiFetch(`/decks/${deckId}/print-plan`, { method: 'POST', body: JSON.stringify(options), timeout: 60_000 });
+export const createPrintJob = (deckId, options) =>
+  apiFetch(`/decks/${deckId}/print-jobs`, { method: 'POST', body: JSON.stringify(options) });
+export const getPrintJobs = (deckId) => apiFetch(`/decks/${deckId}/print-jobs`);
+export const queuePrintJob = (deckId, jobId) =>
+  apiFetch(`/decks/${deckId}/print-jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
+export const cancelPrintJob = (deckId, jobId) =>
+  apiFetch(`/decks/${deckId}/print-jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
+export const expirePrintArtifacts = (deckId, jobId) =>
+  apiFetch(`/decks/${deckId}/print-jobs/${jobId}/artifacts`, { method: 'DELETE' });
+
+export async function downloadPrintArtifact(downloadUrl, filename) {
+  // URLs come from the authenticated job response, and must stay on this origin.
+  if (!/^\/api\/decks\/\d+\/print-jobs\/[a-zA-Z0-9-]+\//.test(downloadUrl)) {
+    throw new Error('Invalid PDF download address');
+  }
+  const token = getToken();
+  const res = await fetch(downloadUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'PDF download failed');
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = (filename || 'cards.pdf').replace(/[^a-zA-Z0-9._ -]/g, '_');
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}

@@ -126,5 +126,7 @@ color proof against Adobe; GUI presets cannot be assumed to transfer to CUPS. Do
 cards remain a separate batch requiring manual flip/reload. Durable job IDs and submission
 reconciliation are needed to avoid duplicate output after interrupted connections.
 **Where.** [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md),
-[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). This is the selected architecture;
-the PDF/job API and companion are not implemented yet.
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The PDF/job API is implemented;
+native Mac companion delivery and physical validation follow. The production runtime uses
+Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
+The adapter keeps 600 PPI while generating one sheet at a time and merging compressed PDFs.

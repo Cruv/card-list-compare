@@ -35,3 +35,19 @@ export function createMpcOverrideSync({ loadRemote, saveRemote }) {
 
   return { load, save };
 }
+
+/** Freeze the displayed search defaults as well as custom art, including DFC backs. */
+export function collectPrintArtwork(overrides, fronts = [], backs = []) {
+  const result = new Map(overrides);
+  for (const card of [...fronts, ...backs]) {
+    if (!card.name || !card.identifier || card.hasMatch === false) continue;
+    const key = card.name.toLowerCase();
+    if (result.get(key)?.identifier) continue;
+    result.set(key, {
+      identifier: card.identifier, thumbnailUrl: card.thumbnailUrl,
+      dpi: card.dpi, sourceName: card.sourceName, extension: card.extension || 'png',
+    });
+  }
+  if (result.size > 612) throw new Error('Saved artwork exceeds 612 faces. Review or reset older choices before saving this deck.');
+  return result;
+}

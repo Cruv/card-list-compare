@@ -13,9 +13,12 @@ import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
 import mpcRoutes from './routes/mpcautofill.js';
+import printRoutes from './routes/print.js';
+import printStationRoutes from './routes/print-station.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 import { initDownloadQueue } from './lib/downloadQueue.js';
 import { initializePrintGenerator } from './lib/printGenerator.js';
+import { initPrintQueue } from './lib/printQueue.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -76,10 +79,14 @@ app.use('/api/share', shareRoutes);
 app.use('/api/shared-deck', sharedDeckRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/mpc', mpcRoutes);
+// Station credentials are deliberately separate from user sessions.
+app.use('/api/print-station', printStationRoutes);
+app.use('/api/decks', printRoutes);
 
 async function start() {
   await initDb();
   initDownloadQueue();
+  initPrintQueue();
   // Preparing/updating Python must not delay the web app or break offline startup.
   if (process.env.PRINT_ENABLED !== 'false') {
     initializePrintGenerator().then(status => {

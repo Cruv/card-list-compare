@@ -344,6 +344,7 @@ describe('invariant: docs/INVARIANTS.md content anchors resolve', () => {
     ['server/lib/deckToText.js', 'archidektToText'],
     ['server/db.js', 'export function persist'],
     ['server/db.js', 'export function run'],
+    ['server/db.js', 'export function runTransaction'],
     ['server/middleware/auth.js', 'invalidateAuthCache'],
     ['server/middleware/auth.js', 'invalidateAllAuthCache'],
     ['server/middleware/auth.js', 'password_changed_at'],

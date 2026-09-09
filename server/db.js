@@ -533,6 +533,25 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_download_jobs_expires ON image_download_jobs(expires_at)');
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_image_cache_mb', '500')`);
 
+  // Print jobs retain their own immutable snapshot texts/art selections. No
+  // snapshot/deck foreign keys: pruning or untracking must not mutate a print.
+  db.run(`CREATE TABLE IF NOT EXISTS print_jobs (
+    id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, tracked_deck_id INTEGER NOT NULL,
+    request_key TEXT NOT NULL, request_hash TEXT NOT NULL, plan_json TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'preparing', queue_requested INTEGER NOT NULL DEFAULT 0,
+    manifest_json TEXT, manifest_sha256 TEXT, steps_json TEXT NOT NULL DEFAULT '[]',
+    progress_json TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    queued_at TEXT, completed_at TEXT, expires_at TEXT, station_id TEXT,
+    claim_nonce TEXT, lease_expires_at TEXT, UNIQUE(user_id, request_key)
+  )`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_user_deck ON print_jobs(user_id, tracked_deck_id, created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_state ON print_jobs(state, queued_at, created_at)');
+  db.run(`CREATE TABLE IF NOT EXISTS print_job_events (
+    job_id TEXT NOT NULL, event_id TEXT NOT NULL, request_hash TEXT NOT NULL,
+    event_json TEXT NOT NULL, created_at TEXT NOT NULL,
+    PRIMARY KEY(job_id, event_id)
+  )`);
+
   // Migration: store MPC art overrides per deck (JSON blob)
   try {
     db.run('ALTER TABLE tracked_decks ADD COLUMN mpc_art_overrides TEXT');
@@ -669,4 +688,21 @@ export function run(sql, params = []) {
 
 export function getDb() {
   return db;
+}
+
+/** Commit related statements and persist once; restore memory if disk persistence fails. */
+export function runTransaction(statements) {
+  const previous = db.export();
+  try {
+    db.run('BEGIN');
+    for (const { sql, params = [] } of statements) db.run(sql, params);
+    db.run('COMMIT');
+    persist();
+  } catch (error) {
+    const Database = db.constructor;
+    db.close();
+    db = new Database(previous);
+    db.run('PRAGMA foreign_keys = ON');
+    throw error;
+  }
 }

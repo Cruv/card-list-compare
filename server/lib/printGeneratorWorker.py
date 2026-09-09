@@ -4,6 +4,7 @@ import io
 import gc
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import warnings
@@ -109,6 +110,10 @@ def chunk(request):
     subprocess.run(args, cwd=directory, stdin=subprocess.DEVNULL, check=True, timeout=90)
     validate_pdf(output, 2 if request["doubleFaced"] else 1)
     (directory / "result.json").write_text(json.dumps({"images": metadata}))
+    # The validated PDF and metadata are self-contained. Source artwork remains
+    # in the job staging area, so do not retain another copy for every sheet.
+    for folder in ("front", "back", "double_sided"):
+        shutil.rmtree(directory / folder)
 
 
 def merge(request):
