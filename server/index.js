@@ -15,6 +15,7 @@ import adminRoutes from './routes/admin.js';
 import mpcRoutes from './routes/mpcautofill.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 import { initDownloadQueue } from './lib/downloadQueue.js';
+import { initializePrintGenerator } from './lib/printGenerator.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -79,6 +80,12 @@ app.use('/api/mpc', mpcRoutes);
 async function start() {
   await initDb();
   initDownloadQueue();
+  // Preparing/updating Python must not delay the web app or break offline startup.
+  if (process.env.PRINT_ENABLED !== 'false') {
+    initializePrintGenerator().then(status => {
+      console.log('[PrintGenerator]', status.available ? `Ready: ${status.revision}` : 'Unavailable', status.fallbackReason || '');
+    }).catch(err => console.error('[PrintGenerator] Initialization failed:', err.message));
+  }
   app.listen(PORT, () => {
     console.log(`CardListCompare server running on port ${PORT}`);
     startNotificationScheduler();

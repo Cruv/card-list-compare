@@ -133,6 +133,26 @@ cycle. Email alerts require configured SMTP, a verified address, and enabled per
 notifications. Discord alerts use the configured per-deck webhook. Price alerts measure
 dollar change from a persisted baseline, not crossing an absolute deck-price target.
 
-CLC's existing queue generates image ZIPs. Automatic page layout and home-printer job
-submission are proposed in [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md), not current operational
-features. Drying, lamination and cutting remain outside CLC.
+### Silhouette runtime
+
+The container prepares the real Silhouette Card Maker in the background on startup. The
+working source, Python environment and offline wheel cache live in
+`data/silhouette-card-maker/` in the existing bind mount. Each startup checks upstream main,
+stages a candidate, checks the approved v6 geometry, generates ordinary and double-faced
+smoke PDFs, and selects a successful installation atomically. A failed update leaves the
+previous compatible installation usable. First boot without a usable cache and network
+access leaves PDFs unavailable while the rest of CLC starts normally. Restart to retry.
+Nginx resolves its fixed external proxy hosts on demand through the container's DNS
+servers; an unavailable external site no longer prevents the local web app from starting.
+
+`PRINT_ENABLED=false` disables preparation. For local Node development, install Python with
+venv/pip support and Git, or use the Docker image; `PRINT_PYTHON` can select a local Python.
+Do not copy a Windows or Mac venv into the Linux cache. Runtime compatibility is checked;
+an offline rebuild succeeds only if compatible wheels are already stored. Back up the whole
+data mount, including source and wheels, for offline recovery.
+
+The adapter invokes upstream once per seven-card sheet at 600 PPI and merges completed
+sheets. Double-faced cards remain a separate artifact. Allow at least 2 GiB of container
+memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
+driver is used. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the staged print API and Mac
+companion work. Drying, lamination and cutting remain outside CLC.

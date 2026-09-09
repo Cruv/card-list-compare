@@ -1,9 +1,9 @@
 # Household PDF and printing workflow
 
-Status: proposed next feature, reviewed 2026-09-08. **No PDF generator, print API, or
-printer bridge is implemented in CLC yet.** This design builds on the existing snapshot,
-paper-deck, artwork-selection, and image-download features. Household hardware settings
-still need to be supplied and tested.
+Status: implementation in stages, reviewed 2026-09-08. The cached Silhouette runtime and
+sheet-by-sheet PDF adapter are implemented. The print API, deck controls and native Mac
+companion are the next stage. The household's physical color, alignment and cutter proof
+still needs to be completed.
 
 The owner has approved **v6** as the new layout. The planned deployment separates Linux
 PDF generation from native Mac printing: the container does not require an Epson Linux
@@ -170,7 +170,9 @@ or later art edits must not alter a queued job's stored inputs.
 Upstream source: [Alan-Cha/silhouette-card-maker](https://github.com/Alan-Cha/silhouette-card-maker).
 The printing-capable CLC container must include the Git/Python runtime and run this project's
 actual PDF-generation code. An image ZIP plus instructions to run the tool manually is not
-the intended integration. The current Alpine Node image does not yet include this runtime.
+the intended integration. The Debian runtime image includes Git, Python, pip and venv
+support; Debian's manylinux wheels support both ARM64 and AMD64. The frontend/dependency
+build stages remain Alpine.
 Preserve upstream licensing when distributing its code.
 
 ### Container updates and offline fallback — owner requirement
@@ -198,8 +200,10 @@ HEAD at the successful update check, not the reference commit inspected below.
   CLC available and report PDF generation unavailable with a retry path. There is no cached
   fallback to use in that case.
 
-This automatic update/fallback behavior is a required part of the future implementation,
-not an existing container capability. Update activation must validate any adapter/color
+This update/fallback behavior is implemented in `server/lib/printGeneratorRuntime.js`.
+Startup preparation runs in the background; `PRINT_ENABLED=false` disables it. The adapter
+uses immutable version directories selected by an atomically written `active.json` file.
+Update activation must validate any adapter/color
 pipeline changes against the household recipe; never silently alter crop, scaling,
 registration or color settings because upstream defaults changed.
 

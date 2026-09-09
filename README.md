@@ -65,6 +65,14 @@ Then start with:
 docker compose up -d
 ```
 
+The image includes a background Silhouette Card Maker runtime. On startup it checks the
+latest upstream main and keeps a validated installation, dependencies and wheel cache in
+`./data/silhouette-card-maker/`. If an update fails, it retains its last compatible version.
+Without a usable cache on an offline first boot, the web app remains available and PDF
+generation stays unavailable. Set `PRINT_ENABLED=false` to disable runtime preparation.
+Allow at least 2 GiB of memory for 600 PPI sheet generation. The print-job interface is the
+next implementation stage; see [operations](docs/OPERATIONS.md#silhouette-runtime).
+
 ### docker cli
 
 Export `JWT_SECRET` in your shell with a strong, stable value before running this command. Docker CLI does not automatically read Compose's `.env` file; keep the same secret when recreating the container.

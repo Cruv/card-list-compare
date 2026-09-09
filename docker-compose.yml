@@ -16,6 +16,7 @@ services:
       # Put it in a local .env (see .env.example): JWT_SECRET=$(openssl rand -hex 32)
       - JWT_SECRET=${JWT_SECRET:-}
       - DB_PATH=/app/data/cardlistcompare.db
+      - PRINT_ENABLED=${PRINT_ENABLED:-true}
       - TZ=America/New_York
     volumes:
       # Bind mount — DB and data live on the host at ./data/

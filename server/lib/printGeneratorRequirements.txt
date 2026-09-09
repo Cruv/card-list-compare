@@ -1,0 +1,2 @@
+# CLC's merger/validator. Generator dependencies are selected from upstream's pinned requirements.
+pypdf==6.10.0
