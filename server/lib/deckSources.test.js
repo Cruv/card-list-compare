@@ -11,6 +11,8 @@ describe('canonical provider deck identities', () => {
       expect(parseDeckSourceUrl(`https://deckcheck.co/${path}/deck-title-12345678-1234-ABCD-ABCD-123456789ABC`))
         .toEqual({ provider: 'deckcheck', deckId: '12345678-1234-abcd-abcd-123456789abc', url: 'https://deckcheck.co/deck/12345678-1234-abcd-abcd-123456789abc' });
     }
+    expect(parseDeckSourceUrl('https://deckcheck.co/deck/opaque550e8400-e29b-41d4-a716-446655440000').deckId)
+      .toBe('opaque550e8400-e29b-41d4-a716-446655440000');
   });
 
   it('rejects foreign hosts, credentials, ports, unsafe paths and contradictory source claims', () => {

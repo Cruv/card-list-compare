@@ -172,6 +172,9 @@ Canonical provider identities now connect tracked Archidekt decks and explicitly
 manual Moxfield, DeckCheck, or Archidekt decks across the bridge. Creation reuses one existing
 source deck without changing its name, history, or paper marker. Ambiguous legacy duplicates
 stop for review; source identities never authorize an overwrite or infer card ownership.
+Native Archidekt tracking also reuses an explicitly linked manual deck, promoting its
+provider metadata and owner in place. Initial fetched content passes through D11's unknown
+baseline review, preserving the current digital deck, paper marker, and all history.
 
 **Where.** `server/lib/manasyncBridge.js`, `server/routes/manasync.js`,
 `src/components/ManaSyncOwnership.jsx`, `src/components/PrintQueue.jsx`,

@@ -280,3 +280,62 @@ it('keeps an existing pending candidate under review after the current head is r
   expect(observe(changedText)).toMatchObject({ changed: false, pendingReview: true, sourceSync: { currentText: baseText } });
   expect(source.reviewSource(1, 1, review('source'))).toMatchObject({ status: 'synced', currentText: changedText });
 });
+
+async function createManualSourceDeck(sourceLink = { provider: 'archidekt', deckId: '99', url: 'https://archidekt.com/decks/99' }) {
+  const { createIntegrationDeck } = await import('./deckCreation.js');
+  const { getInstanceId } = await import('./integrationSchema.js');
+  return createIntegrationDeck(1, { operationId: randomUUID(), name: 'My protected manual deck', deckText: localText,
+    expectedAccountId: '1', expectedInstanceId: getInstanceId(), sourceLink }).deck;
+}
+
+it('promotes the same ManaSync-created source deck on native tracking while protecting its digital and paper history', async () => {
+  const manual = await createManualSourceDeck();
+  const paperId = Number(manual.latestSnapshotId);
+  const latestId = db.run('INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,?)',
+    [manual.id, `${localText}\n// intentional local note`, 'My local edit']).lastInsertRowid;
+  db.run('UPDATE tracked_decks SET paper_snapshot_id = ?, notes = ? WHERE id = ?', [paperId, 'Keep my notes', manual.id]);
+  fetchDeck.mockResolvedValue(upstream(2));
+  const input = { trackedOwnerId: 1, archidektDeckId: 99, deckName: 'Provider display name', deckUrl: 'https://archidekt.com/decks/99/title' };
+  const promoted = await request(deckRouter, 'POST', '/', session[1], input);
+  expect(promoted).toMatchObject({ status: 200, body: { linkedExisting: true, deck: {
+    id: Number(manual.id), tracked_owner_id: 1, archidekt_deck_id: 99, source_type: 'archidekt',
+    deck_url: 'https://archidekt.com/decks/99', deck_name: 'My protected manual deck',
+    paper_snapshot_id: paperId, notes: 'Keep my notes', source_sync: { status: 'pending_review', pending: true }
+  } } });
+  expect(source.sourceSyncState(1, Number(manual.id))).toMatchObject({ baseText: null, sourceText: changedText,
+    currentText: `${localText}\n// intentional local note`, currentSnapshotId: String(latestId) });
+  expect(db.all('SELECT id FROM deck_snapshots WHERE tracked_deck_id = ?', [manual.id]).map(row => row.id)).toEqual([paperId, latestId]);
+  expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks WHERE user_id = 1').count).toBe(2);
+  const again = await request(deckRouter, 'POST', '/', session[1], input);
+  expect(again.body.deck.id).toBe(Number(manual.id));
+  expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks WHERE user_id = 1').count).toBe(2);
+  const other = await request(deckRouter, 'POST', '/', session[2], { ...input, trackedOwnerId: 2 });
+  expect(other.status).toBe(201);
+  expect(other.body.deck.id).not.toBe(Number(manual.id));
+  expect(db.get('SELECT COUNT(*) AS count FROM collection_cards').count).toBe(0);
+});
+
+it('rejects ambiguous native/manual source matches before metadata changes or provider fetches', async () => {
+  const manual = await createManualSourceDeck(null);
+  db.run('INSERT INTO integration_deck_sources (deck_id,user_id,provider,source_deck_id,canonical_url) VALUES (?,?,?,?,?)',
+    [manual.id, 1, 'archidekt', '1', 'https://archidekt.com/decks/1']);
+  const before = db.get('SELECT * FROM tracked_decks WHERE id = ?', [manual.id]);
+  fetchDeck.mockClear();
+  const result = await request(deckRouter, 'POST', '/', session[1], { trackedOwnerId: 1, archidektDeckId: 1, deckName: 'A duplicate' });
+  expect(result).toMatchObject({ status: 409, body: { error: 'source_identity_conflict' } });
+  expect(db.get('SELECT * FROM tracked_decks WHERE id = ?', [manual.id])).toEqual(before);
+  expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks').count).toBe(3);
+  expect(fetchDeck).not.toHaveBeenCalled();
+});
+
+it('retains one promoted deck and its unknown basis when the first source fetch is unavailable', async () => {
+  const manual = await createManualSourceDeck();
+  const originalError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  fetchDeck.mockRejectedValue(new Error('Provider unavailable'));
+  try {
+    const result = await request(deckRouter, 'POST', '/', session[1], { trackedOwnerId: 1, archidektDeckId: 99, deckName: 'Changed' });
+    expect(result).toMatchObject({ status: 200, body: { linkedExisting: true, deck: { id: Number(manual.id), source_sync: { status: 'unknown' } } } });
+    expect(source.sourceSyncState(1, Number(manual.id))).toMatchObject({ currentText: localText, sourceText: null, baseText: null });
+    expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks').count).toBe(3);
+  } finally { originalError.mockRestore(); }
+});

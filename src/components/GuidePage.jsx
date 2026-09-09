@@ -205,6 +205,8 @@ function DeckLibrary() {
         still use the proposal review flow; paper markers and holdings stay separate.
         If you already track the same Archidekt, Moxfield, or DeckCheck source, ManaSync reuses
         that deck and preserves your current list instead of adding a duplicate.
+        Tracking an Archidekt source later in CLC also reuses its manual deck; a different
+        fetched list waits in source review while your current and paper versions stay intact.
       </p>
       <h4>Archidekt changes and your local edits</h4>
       <p>

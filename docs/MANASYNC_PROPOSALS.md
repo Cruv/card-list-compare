@@ -96,6 +96,13 @@ belong independently to different accounts. An ambiguous legacy duplicate return
 Source claims are included in the immutable operation payload. Replays return the
 original receipt, even if the owner later edits the deck.
 
+If an Archidekt source first arrived as a manual deck, tracking that source through
+CLC later promotes the same deck ID to its selected Archidekt owner. Existing
+snapshots, current text, notes, and paper marker remain intact. Its first upstream
+observation goes through the ordinary source review: a different list with no
+acknowledged baseline is staged for review. Repeated tracking reuses the same
+deck; ambiguous existing duplicates are rejected before any metadata changes.
+
 ## Delivering a proposal
 
 `POST /api/decks/:deckId/proposals` requires `decks:propose` and this JSON shape:

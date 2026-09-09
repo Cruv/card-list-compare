@@ -10,6 +10,7 @@ import { refreshArchidektDeck, sourceSyncSummary, SourceSyncError } from '../lib
 import { fetchCardMetadata } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
 import { submitJob, getJobStatus } from '../lib/downloadQueue.js';
+import { trackArchidektDeck } from '../lib/deckTracking.js';
 
 const router = Router();
 
@@ -59,7 +60,7 @@ router.post('/', archidektLimiter, async (req, res) => {
   if (!trackedOwnerId || !archidektDeckId || !deckName) {
     return res.status(400).json({ error: 'trackedOwnerId, archidektDeckId, and deckName are required' });
   }
-  if (typeof archidektDeckId !== 'number' || !Number.isInteger(archidektDeckId) || archidektDeckId <= 0) {
+  if (typeof archidektDeckId !== 'number' || !Number.isSafeInteger(archidektDeckId) || archidektDeckId <= 0) {
     return res.status(400).json({ error: 'archidektDeckId must be a positive integer' });
   }
   if (!requireMaxLength(res, deckName, 200, 'Deck name')) return;
@@ -71,21 +72,8 @@ router.post('/', archidektLimiter, async (req, res) => {
   }
   if (owner.source_type === 'manual') return res.status(400).json({ error: 'Choose an Archidekt owner for an upstream deck' });
 
-  const existing = get(
-    'SELECT id FROM tracked_decks WHERE user_id = ? AND archidekt_deck_id = ?',
-    [req.user.userId, archidektDeckId]
-  );
-  if (existing) {
-    return res.status(409).json({ error: 'You are already tracking this deck' });
-  }
-
   try {
-    const result = run(
-      'INSERT INTO tracked_decks (user_id, tracked_owner_id, archidekt_deck_id, deck_name, deck_url) VALUES (?, ?, ?, ?, ?)',
-      [req.user.userId, trackedOwnerId, archidektDeckId, deckName, deckUrl || null]
-    );
-
-    const deckId = result.lastInsertRowid;
+    const { deckId, reused } = trackArchidektDeck(req.user.userId, { trackedOwnerId, archidektDeckId, deckName });
 
     // Fetch initial snapshot and extract commanders
     try {
@@ -96,8 +84,9 @@ router.post('/', archidektLimiter, async (req, res) => {
 
     const deck = get('SELECT * FROM tracked_decks WHERE id = ?', [deckId]);
     deck.source_sync = sourceSyncSummary(deck);
-    res.status(201).json({ deck });
+    res.status(reused ? 200 : 201).json({ deck, linkedExisting: reused });
   } catch (err) {
+    if (err instanceof SourceSyncError) return res.status(err.status).json({ error: err.code, message: err.message });
     console.error('Track deck error:', err);
     res.status(500).json({ error: 'Failed to track deck' });
   }
