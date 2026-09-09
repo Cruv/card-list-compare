@@ -24,11 +24,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.44.0';
+const APP_VERSION = '2.44.1';
 const WHATS_NEW = [
-  'Generate Silhouette PDFs for a whole snapshot or just the cards changed since another version',
-  'Save MPC artwork for home PDFs, with separate ordinary and double-faced batches',
-  'Review print batches, download PDFs and send authorized jobs to the household Mac queue',
+  'The native Mac companion can pick up household PDFs and use your verified Epson print settings',
+  'Double-faced batches wait for manual flip and reload before their back pages print',
+  'Print recovery checks submission history before retrying, helping prevent duplicate sheets',
 ];
 
 function getResetToken() {

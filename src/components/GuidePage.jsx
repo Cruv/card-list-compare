@@ -374,8 +374,10 @@ function ProxyPrinting() {
       </p>
       <p>
         Authorized household accounts can generate and send a batch to the Mac, or queue a
-        ready PDF later. The native station protocol keeps submission history and pauses for
-        manual DFC flip/reload. The Mac’s Epson driver and color recipe need a physical proof
+        ready PDF later. The Mac companion picks up queued PDFs, keeps submission history and
+        waits for manual DFC flip/reload. Set up the companion on the Mac using the repository’s
+        companion/mac instructions; its status, pause and resume controls manage the station.
+        The Mac’s Epson driver and color recipe need a physical proof
         before unattended use. Canceling is available before submission; uncertain submissions
         need review at the Mac. Spooler completion does not update the assembled paper deck.
         Drying, lamination and cutting remain outside CLC. Collection management belongs to ManaSync.

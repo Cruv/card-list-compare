@@ -15,6 +15,7 @@ npm ci && npm --prefix server ci # Install BOTH dependency trees (Node 22+)
 npm run dev              # Frontend ONLY (Vite, :5173, proxies /api → :3001)
 cd server && npm run dev # Backend (node --watch, :3001) — separate terminal, required
 npm test                 # Vitest client/server tests + invariant-sync tests
+python3 -m unittest discover -s companion/mac -p 'test_*.py' # Fake-printer companion tests
 npm run lint             # ESLint — errors block CI; warnings allowed (D6)
 npm run build            # Vite production build
 npm audit && npm --prefix server audit # Both dependency trees: release check (D3)
@@ -44,6 +45,7 @@ server/lib/enrichDeckText.js   Adds printing metadata (carry-forward + Scryfall)
 server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
 server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
+companion/mac/           Native Python print station, local Epson options, durable recovery
 server/routes/           auth, owners, decks, snapshots, share, shared-decks, admin, mpcautofill
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```

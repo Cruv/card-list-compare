@@ -5,12 +5,13 @@ briefly for rationale, not as a queue. (Replaces the untracked `CLAUDE.local.md`
 which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 `CLAUDE.local.md`; the default belongs here.
 
-## Next — native Mac companion and household proof
+## Next — household printer and cutter proof
 
-CLC now implements the PDF/job side of [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): full-snapshot
+CLC now implements [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): full-snapshot
 and physical-copy delta plans, frozen artwork/face manifests, the actual cached upstream v6
-runtime, downloadable PDFs and an authenticated station protocol. Native Mac companion
-delivery is the next implementation stage.
+runtime, downloadable PDFs and an authenticated station protocol. The
+[native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
+configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
 
 The household still needs to install its Epson Mac queue and validate color against Adobe,
 then test v6 cutter geometry and manual DFC page order/flip/alignment. The owner's 600 PPI,

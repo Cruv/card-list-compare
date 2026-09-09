@@ -114,8 +114,8 @@ choose gameplay-level versus exact-printing semantics; the old matcher is not a 
 ## D9 — Generate PDFs in CLC; print through a native Mac companion
 
 **Decision.** Adopt the owner's approved v6 layout with its matching cutting template.
-CLC's Linux container will run Silhouette Card Maker and manage immutable PDF jobs; a
-native Mac companion will claim authorized print jobs and submit through the installed
+CLC's Linux container runs Silhouette Card Maker and manages immutable PDF jobs; a
+native Mac companion claims authorized print jobs and submits through the installed
 Epson macOS driver and a validated local recipe. The initial registration mode remains
 three marks; v6 layout adoption does not itself select four marks.
 **Why.** PDF composition does not require a Linux printer driver. Keeping device rendering
@@ -126,7 +126,8 @@ color proof against Adobe; GUI presets cannot be assumed to transfer to CUPS. Do
 cards remain a separate batch requiring manual flip/reload. Durable job IDs and submission
 reconciliation are needed to avoid duplicate output after interrupted connections.
 **Where.** [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md),
-[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The PDF/job API is implemented;
-native Mac companion delivery and physical validation follow. The production runtime uses
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md), and
+[companion/mac](../companion/mac/README.md). The PDF/job API and Mac companion are implemented;
+physical validation remains. The production runtime uses
 Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
 The adapter keeps 600 PPI while generating one sheet at a time and merging compressed PDFs.

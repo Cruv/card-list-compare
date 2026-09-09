@@ -36,6 +36,14 @@ jobs:
       - name: Test (includes invariant-sync tests)
         run: npm test
 
+      - name: Set up Python for the Mac companion's portable tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Test print companion with fake printer and temporary state
+        run: python3 -m unittest discover -s companion/mac -p 'test_*.py'
+
       # Blocking since the backlog was cleared (docs/DECISIONS.md D6). Errors fail
       # the build; warnings are still allowed and visible in the log.
       - name: Lint

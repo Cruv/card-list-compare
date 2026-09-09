@@ -107,6 +107,13 @@ The native station chooses its printer/options locally, verifies artifacts and r
 submission intent before spooling. Replayed requests do not authorize repeated submissions;
 ambiguous physical outcomes require reconciliation. Manual DFC backs need explicit refeed.
 
+The [Mac companion](companion/mac/README.md) requires a private user-owned token/config
+and state directory. Downloads stay on the configured server origin and reject redirects.
+It uses fixed native command paths and argument arrays, verifies PDF hashes before sending,
+and preserves local submission receipts across restarts. Keep the state directory and CUPS
+job history for recovery. Its example leaves physical-proof flags disabled; tests and the
+local dry-run command never submit to a real printer.
+
 Print history retains private snapshot/art details after artifact expiry. Account deletion
 purges its jobs/files, but active physical submissions must first be reconciled. Legacy
 database backups retain their historical content. Paper/color/cutter correctness still

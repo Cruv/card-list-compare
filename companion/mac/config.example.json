@@ -1,0 +1,17 @@
+{
+  "server_url": "https://clc.example.test",
+  "station_token_file": "~/.config/clc-print-station/station-token",
+  "state_dir": "~/Library/Application Support/CLC Print Station",
+  "queue": "REPLACE_WITH_INSTALLED_EPSON_QUEUE",
+  "approved_recipe_ids": ["household-letter-v6"],
+  "recipe_verified": false,
+  "duplex_verified": false,
+  "driver_options": {},
+  "ordinary_output_order": "reverse",
+  "dfc_front_output_order": "reverse",
+  "dfc_back_output_order": "reverse",
+  "poll_seconds": 5,
+  "max_pdf_bytes": 1073741824,
+  "max_job_bytes": 2147483648,
+  "retention_days": 7
+}

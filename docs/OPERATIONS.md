@@ -167,6 +167,13 @@ station credential on the Mac. Rotating it revokes the old credential; claim ide
 use a separate `data/.print-claim-secret` so existing jobs can recover after rotation.
 Back up that private file with the database and artifacts.
 
+Install [companion/mac](../companion/mac/README.md) on the Mac outside Docker. Use its
+`doctor` and local `dry-run` commands before configuring physical-proof flags. Its private
+state directory contains the submission ledger and downloaded PDFs; preserve that state
+across upgrades and do not run multiple independent stations against one household token.
+The optional LaunchAgent is written on request and installed by the operator after proof.
+The repository's automated tests use fake submissions and never configure a printer.
+
 Jobs live under `data/print-jobs/`. The default quota is 10 GiB
 (`PRINT_STORAGE_MAX_MB=10240`). Preparation requires 5 GiB of working headroom for the
 retained job and temporary generation files. A retained job is capped at 2 GiB including

@@ -2,7 +2,7 @@
 
 Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, and proxy image exports.
 
-CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with separate ordinary and double-faced batches. Authorized household users can queue finished PDFs through the native Mac station protocol. Collection and purchase management belong to the planned ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with separate ordinary and double-faced batches. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the planned ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ## Supported Architectures
 
@@ -188,6 +188,12 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; DFC backs require manual reload and resume.
 
 Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. ManaSync inventory checks, drying, lamination and cutting tracking are outside this release.
+
+Install the [Mac companion](companion/mac/README.md) on the printer host separately from
+Docker. It uses Python 3.9+ and native CUPS commands, with a scoped token file and local
+SQLite receipts. Its dry run prints nothing; normal operation requires a configured Epson
+queue and accepted color/geometry proof. DFC backs remain blocked until manual reload and
+resume. The optional LaunchAgent starts it at login; sleeping Macs leave jobs queued.
 
 ### Printing Metadata
 

@@ -1,8 +1,8 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.44.0 implements print planning, PDF generation, artifact downloads and the
-household station API. Native Mac companion delivery is the next stage. Physical color,
-manual duplex and cutter calibration still require the household proof below.
+Status: CLC v2.44.1 includes print planning, PDF generation, artifact downloads, the household
+station API and a native Mac companion. Physical color, manual duplex and cutter calibration
+still require the household proof below.
 
 ## Using the Printing tab
 
@@ -140,6 +140,18 @@ All are authenticated; PDF bytes are streamed without nginx disk buffering. See
 [OPERATIONS.md](OPERATIONS.md) and [SECURITY.md](../SECURITY.md) for deployment details.
 
 ## Mac color and manual duplex acceptance
+
+The [Mac companion setup guide](../companion/mac/README.md) covers private configuration,
+station credentials, read-only driver checks, a local dry run, foreground operation and an
+optional start-at-login agent. It uses Python 3.9+ with no extra Python packages. The example
+leaves both physical-proof flags off and requires the actual installed queue/options.
+
+The companion streams and verifies PDFs, maintains a durable local SQLite submission ledger,
+and reconciles exact CUPS titles/job IDs before reporting outcomes. `status`, `pause`,
+`unpause` and `resume JOB_ID` control operation. Manual `release JOB_ID --paper-cleared`
+abandons an unresolved batch only after the operator has inspected and cleared its paper.
+Setup and dry-run commands do not print; `run` and `run --once` may submit authorized jobs.
+The Mac must stay awake, with the user logged in when using the optional LaunchAgent.
 
 The Mac must be awake and use the actual Epson driver with explicitly tested local options.
 The supplied Adobe settings enable **Let printer determine colors**; Epson uses **EPSON

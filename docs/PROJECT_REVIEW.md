@@ -17,7 +17,7 @@ has been removed at the owner's request; the planned ManaSync companion owns inv
 
 Proxy preparation currently searches MPC artwork and exports XML/image ZIPs, or queues
 Scryfall image ZIPs with caching. Household PDF composition, immutable jobs and the native
-Mac station protocol are implemented in v2.44.0; the software verification is separate from
+Mac station protocol shipped in v2.44.0, with the native Mac companion in v2.44.1. Verification is separate from
 the pending physical color/cutter/duplex proof. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md).
 Drying tracking remains excluded at the owner's request.
 
@@ -135,6 +135,27 @@ submissions, failed persistence and recovery. Validation: **486 tests passed**, 
 errors (seven existing warnings), successful production/container builds and zero findings
 in both dependency audits. Native Mac delivery follows as a separate stage. Physical color,
 duplex alignment and cutter proof remain household setup work.
+
+## v2.44.1: native Mac companion
+
+The companion uses native Mac printing with locally selected Epson options, verified PDF
+streaming, private SQLite receipts and a durable submission/reconciliation protocol. It
+provides read-only setup checks, a local dry run, pause/status/refeed controls and optional
+LaunchAgent generation. Physical operation requires an accepted recipe; DFC proof is a
+separate flag. Both flags default off.
+
+All **32 companion tests pass on macOS/Python 3.9**. Linux runs 31 tests successfully and
+skips the native `ipptool` fixture when that command is unavailable. CI runs the portable
+suite before image publication. The native parser test uses a disposable loopback IPP
+fixture, not the household spooler.
+
+A separate end-to-end test used actual CLC HTTP jobs and generated PDF artifacts with an
+injected fake CUPS implementation: eight copies, two PDFs, three pages and 40,085,052
+verified bytes. Exactly three fake submissions covered ordinary fronts, DFC fronts and
+manually resumed backs. An acceptance timeout, unknown history and a lost DFC completion
+acknowledgement recovered safely. Repeated final polls stayed idle without duplicate
+submissions. The harness rejected any actual printer command. No driver, household queue,
+LaunchAgent or deployment was installed or changed during this review.
 
 ## Remaining work
 
