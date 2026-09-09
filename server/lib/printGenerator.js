@@ -73,6 +73,7 @@ export function createPrintGenerator(options = {}) {
         });
         for (const group of plan) {
           const parts = [];
+          let partBytes = 0;
           for (const [index, chunk] of group.chunks.entries()) {
             if (signal?.aborted) throw signal.reason || new Error('PDF generation canceled');
             const chunkDirectory = path.join(working, `${group.id}-${index + 1}`);
@@ -85,6 +86,8 @@ export function createPrintGenerator(options = {}) {
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
             images.push(...result.images);
             parts.push(path.join(chunkDirectory, 'sheet.pdf'));
+            partBytes += (await fs.stat(parts.at(-1))).size;
+            if (partBytes > MAX_PDF_BYTES) throw new Error('Generated PDF exceeds the 1 GiB artifact limit');
             onProgress({ phase: 'generating', completedSheets: ++completedSheets, totalSheets });
           }
           const stagedOutput = path.join(working, `${group.id}.pdf`);

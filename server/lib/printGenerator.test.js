@@ -125,6 +125,25 @@ describe('cached generator runtime', () => {
 });
 
 describe('PDF adapter publication', () => {
+  it('rejects excessive compressed page data before allocating a whole-deck merger', async () => {
+    const directory = await temp();
+    const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed' }) };
+    const run = vi.fn(async (_command, args) => {
+      expect(args[1]).toBe('chunk');
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      const pdf = await fs.open(path.join(request.directory, 'sheet.pdf'), 'w');
+      await pdf.truncate(600 * 1024 * 1024); // Sparse fixture: does not allocate 600 MiB.
+      await pdf.close();
+      await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({ images: [] }));
+    });
+    const generator = createPrintGenerator({ runtime, run });
+    await expect(generator.generate({ outputDir: directory,
+      cards: Array.from({ length: 8 }, (_, i) => ({ id: `${i}`, frontPath: '/front.png' })),
+    })).rejects.toThrow('1 GiB');
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(await fs.readdir(directory)).toEqual([]);
+  });
+
   it('does not publish a partial ordinary artifact when a required DFC sheet fails', async () => {
     const directory = await temp();
     const release = vi.fn();

@@ -1,6 +1,7 @@
 """CLC adapter: upstream creates every sheet; pypdf only validates and merges PDFs."""
 import hashlib
 import io
+import gc
 import json
 from pathlib import Path
 import subprocess
@@ -62,19 +63,23 @@ def image_copy(source, destination):
 
 
 def validate_pdf(filename, count):
-    reader = PdfReader(filename, strict=True)
-    if len(reader.pages) != count:
-        raise ValueError(f"Expected {count} pages, got {len(reader.pages)}")
-    for page in reader.pages:
-        if list(map(float, page.mediabox)) != [0, 0, 792, 612] or page.rotation:
-            raise ValueError("Generated PDF does not have unrotated landscape Letter pages")
-        objects = page["/Resources"]["/XObject"].get_object()
-        images = [item.get_object() for item in objects.values() if item.get_object().get("/Subtype") == "/Image"]
-        if len(images) != 1 or images[0]["/Width"] != 6600 or images[0]["/Height"] != 5100:
-            raise ValueError("Generated PDF does not contain the expected 600 PPI page image")
-        if images[0]["/ColorSpace"] != "/DeviceRGB":
-            raise ValueError("Upstream changed its output color space")
-    return reader
+    # Passing a filename makes pypdf read the entire file into BytesIO. A file stream
+    # plus per-page cache eviction keeps validation proportional to one sheet.
+    with open(filename, "rb") as stream:
+        reader = PdfReader(stream, strict=True)
+        if len(reader.pages) != count:
+            raise ValueError(f"Expected {count} pages, got {len(reader.pages)}")
+        for page in reader.pages:
+            if list(map(float, page.mediabox)) != [0, 0, 792, 612] or page.rotation:
+                raise ValueError("Generated PDF does not have unrotated landscape Letter pages")
+            objects = page["/Resources"]["/XObject"].get_object()
+            images = [item.get_object() for item in objects.values() if item.get_object().get("/Subtype") == "/Image"]
+            if len(images) != 1 or images[0]["/Width"] != 6600 or images[0]["/Height"] != 5100:
+                raise ValueError("Generated PDF does not contain the expected 600 PPI page image")
+            if images[0]["/ColorSpace"] != "/DeviceRGB":
+                raise ValueError("Upstream changed its output color space")
+            reader.resolved_objects.clear()
+        reader.close()
 
 
 def chunk(request):
@@ -109,12 +114,17 @@ def chunk(request):
 def merge(request):
     writer = PdfWriter()
     for filename in request["inputs"]:
-        reader = PdfReader(filename, strict=True)
-        writer.append(reader, import_outline=False)
+        with open(filename, "rb") as stream:
+            reader = PdfReader(stream, strict=True)
+            writer.append(reader, import_outline=False)
+            reader.close()
     writer.add_metadata({"/Title": "CLC household-letter-v6", "/Creator": "CLC / Silhouette Card Maker"})
     with open(request["output"], "wb") as stream:
         writer.write(stream)
-    writer.close()
+    # PdfWriter.close() is a no-op. Release its compressed image objects before
+    # reopening the output, rather than retaining several copies of a whole deck.
+    del writer, reader
+    gc.collect()
     validate_pdf(request["output"], request["pageCount"])
 
 
@@ -142,7 +152,7 @@ def smoke(source, directory):
         chunk({"source": str(source), "directory": str(working), "label": "CLC runtime check",
                "doubleFaced": double_faced, "cards": cards if double_faced else [
                    {"id": card["id"], "frontPath": card["frontPath"]} for card in cards]})
-        reader = validate_pdf(working / "sheet.pdf", 2 if double_faced else 1)
+        reader = PdfReader(working / "sheet.pdf", strict=True)
         raster = reader.pages[0].images[0].image
         pixel(raster, 4, 519, (255, 255, 255))
         for index, slot in enumerate(usable_slots):
