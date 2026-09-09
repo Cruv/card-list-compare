@@ -135,6 +135,11 @@ change with its regression test.
   deck, digital snapshot, and immutable receipt in one transaction. The owner and operation ID
   identify replay across token rotation; changed payloads conflict. A deleted deck cannot be
   recreated by replaying its receipt. Creation does not set paper state or change holdings.
+- Native source tracking uses the same explicit `decks:create` grant and account pins.
+  It saves an immutable intent before fetching a canonical provider URL, reuses an existing
+  owner-scoped source identity, and reconciles observations without replacing paper history
+  or divergent local edits. Provider requests use fixed HTTPS endpoints, bounded reads, and
+  no redirects; inaccessible or unsupported lists retain the last saved state.
 - Outbound ManaSync credentials are kept only server-side, encrypted with AES-256-GCM using
   a separate CLC key. `MANASYNC_BRIDGE_KEY` accepts a base64 encoded 32-byte key; otherwise CLC
   creates `.manasync-bridge-key` with mode 0600 beside `DB_PATH`. Back up this file separately

@@ -29,13 +29,13 @@ function CardDiff({ title, before, after }) {
   </details>;
 }
 
-export default function SourceSyncReview({ deckId, manual = false, refreshKey, onChanged }) {
+export default function SourceSyncReview({ deckId, manual = false, sourceProvider = 'archidekt', refreshKey, onChanged }) {
   const { user } = useAuth();
   if (manual || !user) return null;
-  return <ScopedSourceSyncReview key={`${user.id}:${deckId}`} userId={user.id} deckId={deckId} refreshKey={refreshKey} onChanged={onChanged} />;
+  return <ScopedSourceSyncReview key={`${user.id}:${deckId}`} userId={user.id} deckId={deckId} sourceProvider={sourceProvider} refreshKey={refreshKey} onChanged={onChanged} />;
 }
 
-function ScopedSourceSyncReview({ userId, deckId, refreshKey, onChanged }) {
+function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, onChanged }) {
   const mounted = useRef(false);
   const workRef = useRef(null);
   const busyRef = useRef(false);
@@ -51,6 +51,7 @@ function ScopedSourceSyncReview({ userId, deckId, refreshKey, onChanged }) {
   const [notice, setNotice] = useState('');
   const [reload, setReload] = useState(0);
   const storageKey = sourceReviewKey(userId, deckId);
+  const providerName = { archidekt: 'Archidekt', moxfield: 'Moxfield', deckcheck: 'DeckCheck' }[state?.sourceProvider || sourceProvider] || 'Archidekt';
   function replace(value) { workRef.current = value; setWork(value); }
 
   useEffect(() => {
@@ -127,7 +128,7 @@ function ScopedSourceSyncReview({ userId, deckId, refreshKey, onChanged }) {
         return;
       }
       setState(confirmed); replace(cleared); setReviewed(false);
-      setNotice(body.action === 'keep' ? 'Current CLC deck kept. This Archidekt version is acknowledged.' : 'Reviewed digital deck saved. The paper snapshot remains unchanged.');
+      setNotice(body.action === 'keep' ? `Current CLC deck kept. This ${providerName} version is acknowledged.` : 'Reviewed digital deck saved. The paper snapshot remains unchanged.');
       try { await onChanged?.(); }
       catch (cause) { if (active()) setError(`Your decision was saved. Reload to refresh the deck: ${cause.message}`); }
     } catch (cause) {
@@ -156,37 +157,38 @@ function ScopedSourceSyncReview({ userId, deckId, refreshKey, onChanged }) {
   const locked = busy || !!work?.operation;
   const resultText = work?.action === 'source' ? basis?.sourceText : work?.action === 'merge' ? work.mergedText : basis?.currentText;
 
-  return <section className={`source-sync-review source-sync-review--${state?.status || 'unknown'}`} aria-label="Archidekt source review">
+  return <section className={`source-sync-review source-sync-review--${state?.status || 'unknown'}`} aria-label={`${providerName} source review`}>
     <div className="source-sync-heading">
-      <div><span className="source-sync-eyebrow">Source status</span><h2>{sourceStatusLabel(ready ? state?.status : 'unknown')}</h2></div>
+      <div><span className="source-sync-eyebrow">Source status</span><h2>{sourceStatusLabel(ready ? state?.status : 'unknown').replaceAll('Archidekt', providerName)}</h2></div>
       <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => { setLoading(true); setReload(value => value + 1); }}>Reload source status</button>
     </div>
-    <p>{state?.status === 'pending_review' ? 'Archidekt has a different list waiting for review. Your current CLC deck, including accepted ManaSync edits, is preserved.' : state?.status === 'local_changes' ? 'Your current digital deck includes local changes. Refresh checks Archidekt while keeping these edits protected.' : state?.status === 'synced' ? 'The current digital deck matches the last checked Archidekt list.' : 'Use Refresh above to check the Archidekt source. Your saved digital deck stays available.'} Decisions here never change the deck on Archidekt.</p>
+    <p>{state?.status === 'pending_review' ? `${providerName} has a different list waiting for review. Your current CLC deck, including accepted ManaSync edits, is preserved.` : state?.status === 'local_changes' ? `Your current digital deck includes local changes. Refresh checks ${providerName} while keeping these edits protected.` : state?.status === 'synced' ? `The current digital deck matches the last checked ${providerName} list.` : `Use Refresh above to check the ${providerName} source. Your saved digital deck stays available.`} Decisions here never change the deck on {providerName}.</p>
+    {state?.sourceTracking?.status === 'awaiting_source' && <p role="status" className="source-sync-warning">{state.sourceTracking.message}</p>}
     {state?.checkedAt && <p className="source-sync-checked">Last source check: {new Date(state.checkedAt).toLocaleString()}</p>}
     {loading && <p role="status">Loading source status…</p>}
     {error && <p role="alert" className="source-sync-error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     {ready && work && (state?.pending || work.dirty || work.operation) && <div className="source-sync-work">
-      {stale && !work.operation && <div className="source-sync-warning"><p>The saved deck or Archidekt candidate changed during this review. Your merged text is preserved.</p><button type="button" className="btn btn-secondary btn-sm" onClick={rebase} disabled={busy}>Review latest versions with my edits</button></div>}
+      {stale && !work.operation && <div className="source-sync-warning"><p>The saved deck or {providerName} candidate changed during this review. Your merged text is preserved.</p><button type="button" className="btn btn-secondary btn-sm" onClick={rebase} disabled={busy}>Review latest versions with my edits</button></div>}
       <div className="source-sync-comparisons">
         <CardDiff title="Local changes since saved source" before={basis.baseText} after={basis.currentText} />
-        <CardDiff title="Archidekt changes since saved source" before={basis.baseText} after={basis.sourceText} />
-        <CardDiff title="Changes if you use Archidekt" before={basis.currentText} after={basis.sourceText} />
+        <CardDiff title={`${providerName} changes since saved source`} before={basis.baseText} after={basis.sourceText} />
+        <CardDiff title={`Changes if you use ${providerName}`} before={basis.currentText} after={basis.sourceText} />
       </div>
       <details className="source-sync-raw"><summary>Original deck text for all three versions</summary>
         <label>Saved source basis<textarea readOnly value={basis.baseText ?? ''} /></label>
         <label>Current CLC digital deck<textarea readOnly value={basis.currentText ?? ''} /></label>
-        <label>Last observed Archidekt deck<textarea readOnly value={basis.sourceText ?? ''} /></label>
+        <label>Last observed {providerName} deck<textarea readOnly value={basis.sourceText ?? ''} /></label>
       </details>
       <fieldset disabled={locked}><legend>Choose the reviewed result</legend>
-        {[['keep', 'Keep current CLC deck'], ['source', 'Use Archidekt version'], ['merge', 'Edit a merged list']].map(([action, label]) => <label key={action}><input type="radio" name={`source-decision-${deckId}`} value={action} checked={work.action === action} onChange={() => update({ action })} />{label}</label>)}
+        {[['keep', 'Keep current CLC deck'], ['source', `Use ${providerName} version`], ['merge', 'Edit a merged list']].map(([action, label]) => <label key={action}><input type="radio" name={`source-decision-${deckId}`} value={action} checked={work.action === action} onChange={() => update({ action })} />{label}</label>)}
       </fieldset>
       {work.action === 'merge' && <label className="source-sync-merge">Reviewed merged deck list<textarea value={work.mergedText} maxLength={500000} readOnly={locked} onChange={event => update({ mergedText: event.target.value })} /></label>}
       {work.action === 'merge' && <CardDiff title="Changes in your reviewed merged deck" before={basis.currentText} after={resultText} />}
       <p>{work.action === 'keep' ? 'Keep the current CLC digital deck and acknowledge this source check.' : 'Save the selected result as the CLC digital deck. Your paper snapshot stays separate.'}</p>
       {work.operation ? <div className="source-sync-warning"><p>A source review response is unconfirmed. Recover this exact decision before making another.</p><button type="button" className="btn btn-primary btn-sm" disabled={busy || !storageSafe} onClick={decide}>Retry saved source review</button></div> : <>
         <label className="source-sync-confirm"><input type="checkbox" checked={reviewed} disabled={busy || !storageSafe || stale || !state.pending} onChange={event => setReviewed(event.target.checked)} />I reviewed the changes and the resulting digital deck.</label>
-        <button type="button" className="btn btn-primary btn-sm" disabled={busy || !storageSafe || stale || !state.pending || !reviewed || (work.action === 'merge' && !work.mergedText.trim())} onClick={decide}>{work.action === 'keep' ? 'Confirm keep current deck' : work.action === 'source' ? 'Confirm Archidekt version' : 'Save reviewed merged deck'}</button>
+        <button type="button" className="btn btn-primary btn-sm" disabled={busy || !storageSafe || stale || !state.pending || !reviewed || (work.action === 'merge' && !work.mergedText.trim())} onClick={decide}>{work.action === 'keep' ? 'Confirm keep current deck' : work.action === 'source' ? `Confirm ${providerName} version` : 'Save reviewed merged deck'}</button>
       </>}
     </div>}
   </section>;

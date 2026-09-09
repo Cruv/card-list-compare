@@ -676,6 +676,9 @@ export default function DeckPage({ deckId }) {
     return { mainboard: comparisonDiff.mainboard, sideboard: comparisonDiff.sideboard, hasSideboard: comparisonDiff.hasSideboard, commanders: commanders || [] };
   }, [comparisonDiff, commanders]);
 
+  const sourceProvider = deck?.source_sync?.sourceProvider || deck?.source_type || 'archidekt';
+  const sourceName = { archidekt: 'Archidekt', moxfield: 'Moxfield', deckcheck: 'DeckCheck' }[sourceProvider] || 'Archidekt';
+
   // --- Render ---
 
   if (loading) {
@@ -715,7 +718,7 @@ export default function DeckPage({ deckId }) {
           </button>
           {deck.deck_url && (
             <a href={deck.deck_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
-              Archidekt
+              {sourceName}
             </a>
           )}
           <button className="btn btn-sm btn-ghost-danger" onClick={handleUntrack} type="button">
@@ -724,7 +727,7 @@ export default function DeckPage({ deckId }) {
         </div>
       </div>
 
-      <SourceSyncReview deckId={deckId} manual={deck.source_type === 'manual'}
+      <SourceSyncReview deckId={deckId} manual={deck.source_type === 'manual'} sourceProvider={sourceProvider}
         refreshKey={`${snapshots[0]?.id}:${deck.source_sync?.status}:${deck.source_sync?.checkedAt}`}
         onChanged={async () => {
           setParsedDeck(null); setDeckCardMap(null); setDeckText(null);
@@ -800,7 +803,7 @@ export default function DeckPage({ deckId }) {
 
         {/* Meta line */}
         <div className="deck-page-meta">
-          <span className="deck-page-meta-owner">{deck.source_type === 'manual' ? 'Manual deck' : `@${deck.archidekt_username}`}</span>
+          <span className="deck-page-meta-owner">{deck.source_type === 'manual' ? 'Manual deck' : deck.archidekt_username ? `@${deck.archidekt_username}` : sourceName}</span>
           <span className="deck-page-meta-sep">&middot;</span>
           <span>{deck.snapshot_count} snapshot{deck.snapshot_count !== 1 ? 's' : ''}</span>
           {deck.share_id && (
@@ -1353,7 +1356,7 @@ export default function DeckPage({ deckId }) {
                 <option value="48">Every 48 hours</option>
                 <option value="168">Every 7 days</option>
               </select>
-              {deck.source_type === 'manual' && <p>Manual decks are saved in CLC and have no Archidekt source to refresh.</p>}
+              {deck.source_type === 'manual' && <p>Manual decks are saved in CLC and have no provider source to refresh.</p>}
             </div>
 
             {/* Webhook */}

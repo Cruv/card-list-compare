@@ -222,7 +222,11 @@ it('serializes concurrent upstream requests and compares against a review commit
 it('rejects incomplete upstream responses, permits a genuine empty deck and keeps user-set commander metadata', async () => {
   observe(); db.run('UPDATE tracked_decks SET commanders = ? WHERE id = 1', [JSON.stringify(['Chosen commander'])]);
   const before = state();
-  for (const data of [{ name: 'Missing cards' }, { cards: [{}] }, { cards: [{ quantity: 0, card: { name: 'Sol Ring' } }] }]) {
+  for (const data of [{ name: 'Missing cards' }, { cards: [{}] }, { cards: [{ quantity: 0, card: { name: 'Sol Ring' } }] },
+    upstream(1, { card: { name: 'Real\n2 Invented' } }),
+    upstream(1, { card: { name: 'Real', edition: { editioncode: 'CMM\n2 Invented' } } }),
+    upstream(1, { card: { name: 'Real', edition: { editioncode: 'CMM' }, collectorNumber: '396\n2 Invented' } }),
+  ]) {
     fetchDeck.mockResolvedValue(data);
     await expect(source.refreshArchidektDeck(1, 1)).rejects.toMatchObject({ code: 'invalid_source_response' });
     expect(state()).toEqual(before);

@@ -1,4 +1,4 @@
-import { all, get } from '../db.js';
+import { all, get, run } from '../db.js';
 
 const UUID_SUFFIX = /(?:^|-)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
@@ -62,4 +62,34 @@ export function findDecksBySource(userId, source) {
     WHERE d.user_id = ? AND ((s.provider = ? AND s.source_deck_id = ?) OR
       (? = 'archidekt' AND d.source_type = 'archidekt' AND CAST(d.archidekt_deck_id AS TEXT) = ?))
     ORDER BY d.id`, [userId, source.provider, source.deckId, source.provider, source.deckId]);
+}
+
+export function sourceTrackingState(userId, deckId) {
+  const deck = get('SELECT source_type, auto_refresh_hours FROM tracked_decks WHERE id = ? AND user_id = ?', [deckId, userId]);
+  if (!deck || deck.source_type === 'manual') return null;
+  const inferred = { status: 'tracked', message: deck.auto_refresh_hours == null
+    ? 'This provider source is linked. Scheduled refresh is paused; use Refresh to check it.'
+    : 'CLC is tracking this provider source.' };
+  // Older standalone tests and recovered native databases may predate the
+  // additive integration schema. They have no tracking status to advertise.
+  if (!get("SELECT name FROM sqlite_master WHERE type='table' AND name='integration_deck_sources'")) return inferred;
+  const row = get('SELECT tracking_status, tracking_message FROM integration_deck_sources WHERE user_id = ? AND deck_id = ?', [userId, deckId]);
+  if (!row?.tracking_status) return inferred;
+  if (row.tracking_status === 'tracked' && deck.auto_refresh_hours == null) return inferred;
+  return { status: row.tracking_status, message: deck.auto_refresh_hours == null
+    ? `${(row.tracking_message || '').replace('CLC will retry', 'Use Refresh to retry')} Scheduled refresh is paused.`
+    : row.tracking_message || '' };
+}
+
+export function recordSourceTrackingStatus(userId, deckId, status, message) {
+  if (!get("SELECT name FROM sqlite_master WHERE type='table' AND name='integration_deck_sources'")) return;
+  if (get('SELECT deck_id FROM integration_deck_sources WHERE user_id = ? AND deck_id = ?', [userId, deckId])) {
+    run('UPDATE integration_deck_sources SET tracking_status = ?, tracking_message = ? WHERE user_id = ? AND deck_id = ?', [status, message, userId, deckId]);
+  }
+}
+
+export function sourceFailureMessage(error) {
+  return error.code === 'unsupported_finish'
+    ? 'CLC cannot yet track etched source cards without changing their finish. The saved deck is preserved.'
+    : 'The complete provider list is unavailable. CLC will retry without replacing saved snapshots.';
 }

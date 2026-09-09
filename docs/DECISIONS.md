@@ -175,6 +175,12 @@ stop for review; source identities never authorize an overwrite or infer card ow
 Native Archidekt tracking also reuses an explicitly linked manual deck, promoting its
 provider metadata and owner in place. Initial fetched content passes through D11's unknown
 baseline review, preserving the current digital deck, paper marker, and all history.
+The explicit `decks:create` grant also permits native provider tracking from
+TapTogether through ManaSync. Identity and intent commit before network work;
+Archidekt, Moxfield and DeckCheck share source review and scheduled refresh.
+Provider failures have a per-deck status while retaining the last good snapshot.
+Explicit etched finishes remain unavailable until the text/identity contract
+can preserve them; they are never silently mapped to ordinary foil.
 
 **Where.** `server/lib/manasyncBridge.js`, `server/routes/manasync.js`,
 `src/components/ManaSyncOwnership.jsx`, `src/components/PrintQueue.jsx`,

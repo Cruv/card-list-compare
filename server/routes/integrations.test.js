@@ -277,3 +277,24 @@ it('rolls source binding and snapshot creation back together if the durable rece
   expect(db.get('SELECT COUNT(*) AS count FROM integration_deck_sources').count).toBe(0);
   expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(2);
 });
+
+it('requires an explicit creation grant for native source tracking and advertises supported providers', async () => {
+  const reader = await issue();
+  const creator = await issue(1, ['decks:read', 'decks:create']);
+  const { createStructuredDeckRouter } = await import('./structuredDecks.js');
+  const { createSourceTrackingService } = await import('../lib/sourceTracking.js');
+  const { observeSource } = await import('../lib/sourceSync.js');
+  const router = createStructuredDeckRouter({ trackSource: createSourceTrackingService({ refreshSource: async (userId, deckId) =>
+    observeSource(userId, deckId, { rawText: '2 Island', text: '2 Island', name: 'Actual source deck' }) }) });
+  const context = (await request(router, 'GET', '/context', reader.token)).body;
+  expect(context.capabilities.sourceTracking).toEqual(['archidekt', 'moxfield', 'deckcheck']);
+  const body = { operationId: randomUUID(), expectedAccountId: '1', expectedInstanceId: context.instanceId,
+    sourceLink: { provider: 'moxfield', deckId: 'AbC', url: 'https://moxfield.com/decks/AbC' } };
+  for (const token of [reader.token, sessions[1]]) expect((await request(router, 'POST', '/decks/track-source', token, body)).status).toBe(403);
+  const created = await request(router, 'POST', '/decks/track-source', creator.token, body);
+  expect(created).toMatchObject({ status: 201, body: { operationId: body.operationId, linkedExisting: false,
+    decks: [{ sourceTracking: { status: 'tracked' }, snapshots: [{ deckText: '2 Island' }] }] } });
+  const replayed = await request(router, 'POST', '/decks/track-source', creator.token, body);
+  expect(replayed).toMatchObject({ status: 200, body: { replayed: true, decks: created.body.decks } });
+  expect(db.get('SELECT COUNT(*) AS count FROM integration_source_tracks').count).toBe(1);
+});

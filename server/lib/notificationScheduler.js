@@ -204,7 +204,7 @@ async function checkDecksForChanges() {
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
     WHERE u.suspended = 0
-      AND d.source_type = 'archidekt' AND d.archidekt_deck_id > 0
+      AND d.source_type IN ('archidekt','moxfield','deckcheck')
       AND (
         (d.notify_on_change = 1 AND u.email IS NOT NULL AND u.email != '' AND u.email_verified = 1)
         OR (d.discord_webhook_url IS NOT NULL AND d.discord_webhook_url != '')
@@ -544,7 +544,7 @@ export async function autoRefreshScheduledDecks() {
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
     WHERE u.suspended = 0
-      AND d.source_type = 'archidekt' AND d.archidekt_deck_id > 0
+      AND d.source_type IN ('archidekt','moxfield','deckcheck')
       AND d.auto_refresh_hours IS NOT NULL
   `);
 

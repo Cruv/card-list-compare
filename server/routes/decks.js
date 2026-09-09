@@ -21,7 +21,7 @@ router.get('/', (req, res) => {
     SELECT d.*,
       (SELECT MAX(s.created_at) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as latest_snapshot_at,
       (SELECT COUNT(*) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as snapshot_count,
-      CASE WHEN d.source_type = 'manual' THEN 'Manual decks' ELSE o.archidekt_username END AS archidekt_username,
+      CASE WHEN d.source_type = 'manual' THEN 'Manual decks' WHEN o.source_type = 'linked' THEN 'Linked sources' ELSE o.archidekt_username END AS archidekt_username,
       sdv.id as share_id
     FROM tracked_decks d
     JOIN tracked_owners o ON d.tracked_owner_id = o.id
@@ -94,7 +94,7 @@ router.post('/', archidektLimiter, async (req, res) => {
 
 router.post('/refresh-all', archidektLimiter, async (req, res) => {
   const decks = all(
-    "SELECT * FROM tracked_decks WHERE user_id = ? AND source_type = 'archidekt' AND archidekt_deck_id > 0",
+    "SELECT * FROM tracked_decks WHERE user_id = ? AND source_type IN ('archidekt','moxfield','deckcheck')",
     [req.user.userId]
   );
 
@@ -238,8 +238,8 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
   if (!deck) {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
-  if (deck.source_type === 'manual' || deck.archidekt_deck_id <= 0) {
-    return res.status(409).json({ error: 'manual_deck_has_no_upstream', message: 'Manual decks do not refresh from Archidekt.' });
+  if (deck.source_type === 'manual') {
+    return res.status(409).json({ error: 'manual_deck_has_no_upstream', message: 'Manual decks have no upstream source to refresh.' });
   }
 
   try {

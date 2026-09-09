@@ -207,6 +207,9 @@ function DeckLibrary() {
         that deck and preserves your current list instead of adding a duplicate.
         Tracking an Archidekt source later in CLC also reuses its manual deck; a different
         fetched list waits in source review while your current and paper versions stay intact.
+        With the creation grant, new TapTogether provider links can also start tracking in
+        CLC automatically. Archidekt, Moxfield, and DeckCheck share this source review;
+        unreadable or unsupported lists show a waiting reason and preserve saved snapshots.
       </p>
       <h4>Archidekt changes and your local edits</h4>
       <p>

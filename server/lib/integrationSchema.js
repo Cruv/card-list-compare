@@ -38,6 +38,15 @@ export function initIntegrationSchema() {
       source_deck_id TEXT NOT NULL, canonical_url TEXT NOT NULL,
       UNIQUE(user_id, provider, source_deck_id)
     )`);
+    run(`CREATE TABLE IF NOT EXISTS integration_source_tracks (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      operation_id TEXT NOT NULL, payload_hash TEXT NOT NULL, deck_id INTEGER NOT NULL,
+      linked_existing INTEGER NOT NULL, receipt TEXT,
+      PRIMARY KEY(user_id, operation_id)
+    )`);
+    const sourceColumns = getDb().exec('PRAGMA table_info(integration_deck_sources)')[0].values;
+    if (!sourceColumns.some(column => column[1] === 'tracking_status')) run('ALTER TABLE integration_deck_sources ADD COLUMN tracking_status TEXT');
+    if (!sourceColumns.some(column => column[1] === 'tracking_message')) run('ALTER TABLE integration_deck_sources ADD COLUMN tracking_message TEXT');
     const creationColumns = getDb().exec('PRAGMA table_info(integration_deck_creations)')[0].values;
     if (!creationColumns.some(column => column[1] === 'linked_existing')) {
       run('ALTER TABLE integration_deck_creations ADD COLUMN linked_existing INTEGER NOT NULL DEFAULT 0');

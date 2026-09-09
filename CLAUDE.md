@@ -47,7 +47,7 @@ server/lib/               also: email, notificationScheduler, downloadQueue, pri
 server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
 companion/mac/           Native Python print station, local Epson options, durable recovery
 server/routes/           auth, owners, decks, snapshots, share, admin, mpcautofill, print(-station)
-server/lib/{manasyncBridge,deckProposals,sourceSync}.js  Scoped inventory, review, source protection
+server/lib/{manasyncBridge,deckProposals,sourceSync,sourceTracking}.js  Inventory, review, provider tracking
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```
 

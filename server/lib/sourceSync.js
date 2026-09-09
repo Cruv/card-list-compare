@@ -6,6 +6,8 @@ import { enrichDeckText } from './enrichDeckText.js';
 import { pruneSnapshots } from './pruneSnapshots.js';
 import { parse } from '../../src/lib/parser.js';
 import { COMMANDER_HEADER, MAINBOARD_HEADER, SIDEBOARD_HEADER } from '../../src/lib/constants.js';
+import { trackedDeckSourceLink, sourceTrackingState, recordSourceTrackingStatus, sourceFailureMessage } from './deckSources.js';
+import { fetchTrackedProviderSource } from './trackedProviderSource.js';
 
 export class SourceSyncError extends Error {
   constructor(status, code, message = code) { super(message); this.status = status; this.code = code; }
@@ -60,18 +62,18 @@ export function sourceTextKey(text) {
 function ownedDeck(userId, deckId) {
   const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [deckId, userId]);
   if (!deck) fail(404, 'deck_not_found');
-  if (deck.source_type === 'manual' || deck.archidekt_deck_id <= 0) fail(409, 'manual_deck_has_no_upstream');
+  if (deck.source_type === 'manual' || (deck.source_type === 'archidekt' && deck.archidekt_deck_id <= 0)) fail(409, 'manual_deck_has_no_upstream');
   return deck;
 }
 const sourceRow = deckId => get('SELECT * FROM deck_source_sync WHERE deck_id = ?', [deckId]);
 
 export function sourceSyncState(userId, deckId) {
-  ownedDeck(userId, deckId);
+  const deck = ownedDeck(userId, deckId);
   const row = sourceRow(deckId);
   const current = latestSnapshot(deckId);
   const status = row?.pending ? 'pending_review' : row?.base_text == null ? 'unknown'
     : sourceTextKey(current?.deck_text ?? null) === sourceTextKey(row.base_text) ? 'synced' : 'local_changes';
-  return { status, revision: row?.revision ?? 0, baseText: row?.base_text ?? null,
+  return { status, sourceProvider: deck.source_type || 'archidekt', sourceTracking: sourceTrackingState(userId, deckId), revision: row?.revision ?? 0, baseText: row?.base_text ?? null,
     sourceText: row?.source_text ?? null, currentText: current?.deck_text ?? null,
     currentSnapshotId: current ? String(current.id) : null,
     currentTextHash: current ? textHash(current.deck_text) : null,
@@ -79,7 +81,7 @@ export function sourceSyncState(userId, deckId) {
 }
 
 export function sourceSyncSummary(deck) {
-  if (deck.source_type === 'manual' || deck.archidekt_deck_id <= 0) return null;
+  if (deck.source_type === 'manual' || (deck.source_type === 'archidekt' && deck.archidekt_deck_id <= 0)) return null;
   const { status, pending, checkedAt } = sourceSyncState(deck.user_id, deck.id);
   return { status, pending, checkedAt };
 }
@@ -113,7 +115,7 @@ export function observeSource(userId, deckId, { rawText, text, name, commanders 
     const pending = !sameSource && !acknowledge;
     let changed = false;
     if (publish && !currentMatchesSource) {
-      run("INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,'Archidekt source')", [deckId, text]);
+      run("INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,?)", [deckId, text, `${deck.source_type} source`]);
       changed = true;
       const sourceHadCommander = previous?.base_raw_text && parse(previous.base_raw_text).commanders.length > 0;
       const savedCommanders = commanders.length || sourceHadCommander ? JSON.stringify(commanders) : deck.commanders;
@@ -129,9 +131,9 @@ export function observeSource(userId, deckId, { rawText, text, name, commanders 
     run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deckId]);
     const sourceSync = sourceSyncState(userId, deckId);
     return { changed, pendingReview: sourceSync.pending, sourceSync,
-      message: sourceSync.pending ? 'Archidekt changed. Review the source without replacing your current deck.'
-        : sourceSync.status === 'local_changes' ? 'Archidekt is unchanged. Your local changes are preserved.'
-          : changed ? 'New Archidekt snapshot saved' : 'Deck is up to date',
+      message: sourceSync.pending ? 'The provider changed. Review the source without replacing your current deck.'
+        : sourceSync.status === 'local_changes' ? 'The source is unchanged. Your local changes are preserved.'
+          : changed ? 'New provider snapshot saved' : 'Deck is up to date',
       previousText: current?.deck_text ?? null, deckText: latestSnapshot(deckId)?.deck_text ?? null };
   });
 }
@@ -164,22 +166,45 @@ const refreshes = new Map();
 export function refreshArchidektDeck(userId, deckId) {
   const key = `${userId}:${deckId}`;
   const task = (refreshes.get(key) || Promise.resolve()).catch(() => {}).then(async () => {
+    try {
     const deck = ownedDeck(userId, deckId);
-    const data = await fetchDeck(deck.archidekt_deck_id);
-    if (!data || !Array.isArray(data.cards) || data.cards.some(entry => {
-      const name = entry?.card?.oracleCard?.name || entry?.card?.name;
-      return !entry || !Number.isSafeInteger(entry.quantity) || entry.quantity <= 0 || typeof name !== 'string' || !name.trim();
-    })) {
-      fail(502, 'invalid_source_response', 'Archidekt returned an incomplete deck. Your current deck is preserved.');
+    let observation;
+    if (deck.source_type === 'archidekt') {
+      const data = await fetchDeck(deck.archidekt_deck_id);
+      if (Array.isArray(data?.cards) && data.cards.some(entry => /etched/i.test(entry?.modifier || ''))) {
+        const error = new Error('Unsupported etched source finish'); error.code = 'unsupported_finish'; throw error;
+      }
+      if (!data || !Array.isArray(data.cards) || data.cards.some(entry => {
+        const name = entry?.card?.oracleCard?.name || entry?.card?.name;
+        const set = entry?.card?.edition?.editioncode || '';
+        const collector = entry?.card?.collectorNumber || '';
+        return !entry || !Number.isSafeInteger(entry.quantity) || entry.quantity <= 0 || entry.quantity > 1000000 ||
+          typeof name !== 'string' || !name.trim() || /[\r\n]/.test(name) ||
+          (set && (typeof set !== 'string' || !/^[a-z0-9]+$/i.test(set))) ||
+          (collector && (typeof collector !== 'string' || !set || !/^[\w-]+$/.test(collector))) ||
+          !['Normal', 'Foil'].includes(entry.modifier || 'Normal');
+      })) fail(502, 'invalid_source_response', 'Archidekt returned an incomplete deck. Your current deck is preserved.');
+      const { text, commanders } = archidektToText(data);
+      observation = { rawText: text, commanders, name: data.name };
+    } else {
+      const link = trackedDeckSourceLink(deck);
+      if (!link || link.provider !== deck.source_type) fail(409, 'source_identity_conflict');
+      observation = await fetchTrackedProviderSource(link);
     }
-    const { text: rawText, commanders } = archidektToText(data);
+    const { rawText, commanders, name } = observation;
     const baseline = sourceRow(deckId)?.base_text ?? latestSnapshot(deckId)?.deck_text ?? null;
     let text = rawText;
     try {
-      const enriched = await enrichDeckText(rawText, baseline);
+      const enriched = deck.source_type === 'archidekt' ? await enrichDeckText(rawText, baseline) : rawText;
       if (preservesSourceIdentity(rawText, enriched)) text = enriched;
     } catch { /* preserve the fetched text */ }
-    return observeSource(userId, deckId, { rawText, text, name: data.name, commanders });
+    const result = observeSource(userId, deckId, { rawText, text, name, commanders });
+    recordSourceTrackingStatus(userId, deckId, 'tracked', result.pendingReview ? 'Provider changes are waiting for source review. Your current deck is preserved.' : 'CLC is tracking this provider source.');
+    return { ...result, sourceSync: sourceSyncState(userId, deckId) };
+    } catch (error) {
+      recordSourceTrackingStatus(userId, deckId, 'awaiting_source', sourceFailureMessage(error));
+      throw error;
+    }
   });
   refreshes.set(key, task);
   const clear = () => { if (refreshes.get(key) === task) refreshes.delete(key); };

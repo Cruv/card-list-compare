@@ -24,7 +24,8 @@ change the paper marker, or call CLC's ordinary deck editing routes.
   "version": 1,
   "instanceId": "stable-instance-uuid",
   "accountId": "1",
-  "capabilities": { "proposals": true, "deckCreation": true, "sourceLinks": true },
+  "capabilities": { "proposals": true, "deckCreation": true, "sourceLinks": true,
+    "sourceTracking": ["archidekt", "moxfield", "deckcheck"] },
   "scopes": ["decks:read", "decks:propose"]
 }
 ```
@@ -50,6 +51,63 @@ IDs as a tie-breaker. A missing paper marker is null. Deleted source decks do no
 request deletion of ManaSync holdings. Invalid, expired, or revoked integration
 credentials return 401; an insufficient scope returns 403; an inaccessible deck
 or proposal returns 404.
+
+Each deck also has `sourceTracking`: null for an untracked manual source, or
+`{status, message}` for a native tracker. Status is `tracked` or `awaiting_source`;
+a paused schedule has an explicit message. Provider access is separate from a
+pending source-review decision. A failed read retains the last good snapshots
+and paper marker and exposes its reason in CLC and the structured bundle.
+
+## Automatically tracking a provider deck
+
+`POST /api/integrations/v1/decks/track-source` requires `decks:create`. ManaSync
+calls it when a TapTogether provider URL should also be tracked in CLC. Send:
+
+```json
+{
+  "operationId": "durable-operation-uuid",
+  "expectedInstanceId": "stable-instance-uuid",
+  "expectedAccountId": "1",
+  "sourceLink": { "provider": "archidekt", "deckId": "123", "url": "https://archidekt.com/decks/123" },
+  "name": "Optional display name"
+}
+```
+
+Canonical identity, deck and immutable intent persist before the provider fetch.
+Repeated URLs and new operation IDs reuse one account-owned deck. A linked manual
+deck is promoted in place, retaining current text, snapshots, paper marker and
+notes. Native trackers keep their refresh preferences. New and promoted trackers
+default to hourly refresh with an immediate first fetch. Archidekt retains its
+numeric source ID; other providers use their explicit public ID and a negative
+local legacy sentinel. Requests use fixed HTTPS endpoints, bounded reads and
+deadlines. A partial or missing list never becomes an empty snapshot.
+
+The response is the normal deck bundle plus `operationId`, `linkedExisting`,
+`replayed`, and `tracking:{status,provider,message}`. Receipts survive lost replies
+and restarts; current source state is available through ordinary library reads.
+Ambiguous sources return `409 source_identity_conflict`; changed operation
+contents return `409 operation_conflict`; deleted results return
+`410 tracked_deck_deleted`. Optional `deckText` bootstrap is at most 500,000
+characters and only applies to a new deck with no acknowledged source baseline.
+Normal callers omit it and fetch the provider's real list.
+
+Provider edits remain on Archidekt, Moxfield or DeckCheck. CLC owns snapshots and
+paper history; ManaSync owns storage and organization. Verified changes may
+advance a source-following CLC head, while independent CLC edits require source
+review. Tracking never changes holdings or the paper marker.
+
+CLC's current text format cannot distinguish etched from ordinary foil. Explicit
+etched source cards therefore return `awaiting_source` with an unsupported-finish
+reason, retaining all last good snapshots and paper state. They are never mapped
+to ordinary foil. Moxfield can deny public API reads with 403; this is also a
+visible awaiting state, not a successful live sync. The existing CLC convention
+excludes maybeboard/considering and token-only boards from playable snapshots.
+Missing printing metadata remains unknown.
+
+Live read verification used public decks without credentials or database writes:
+Archidekt returned its card data and DeckCheck returned a parsed list. Moxfield
+returned 403, validating the unavailable path. Fixture tests cover normal and foil
+Moxfield parsing, malformed/partial data, etched refusal, and bounded transport.
 
 ## Creating a new deck
 

@@ -24,10 +24,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.45.1';
+const APP_VERSION = '2.45.2';
 const WHATS_NEW = [
-  'Reuse the same Archidekt, Moxfield, or DeckCheck deck across ManaSync and CLC',
-  'Keep your existing deck list and paper marker when a linked source is added again',
+  'Automatically track Archidekt, Moxfield, and DeckCheck sources added through ManaSync',
+  'Keep one deck across connected apps while preserving CLC snapshots and your paper marker',
+  'See when source tracking is waiting for a complete, readable provider list',
 ];
 
 function getResetToken() {
