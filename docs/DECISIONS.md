@@ -168,6 +168,10 @@ Corrections require explicit quantities, reasons where applicable, and current l
 Manual creation stores an immutable receipt per account and operation ID so token rotation
 can recover a lost response. The receipt survives deck deletion to prevent resurrection and
 is removed with its account. Account and instance pins prevent creation in a changed connection.
+Canonical provider identities now connect tracked Archidekt decks and explicitly linked
+manual Moxfield, DeckCheck, or Archidekt decks across the bridge. Creation reuses one existing
+source deck without changing its name, history, or paper marker. Ambiguous legacy duplicates
+stop for review; source identities never authorize an overwrite or infer card ownership.
 
 **Where.** `server/lib/manasyncBridge.js`, `server/routes/manasync.js`,
 `src/components/ManaSyncOwnership.jsx`, `src/components/PrintQueue.jsx`,

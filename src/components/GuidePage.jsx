@@ -203,6 +203,8 @@ function DeckLibrary() {
         with its first digital snapshot immediately. Existing tokens keep their permissions.
         Manual decks appear in the library and do not refresh from Archidekt. Subsequent edits
         still use the proposal review flow; paper markers and holdings stay separate.
+        If you already track the same Archidekt, Moxfield, or DeckCheck source, ManaSync reuses
+        that deck and preserves your current list instead of adding a duplicate.
       </p>
       <h4>Archidekt changes and your local edits</h4>
       <p>

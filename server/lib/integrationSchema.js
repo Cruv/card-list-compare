@@ -31,6 +31,17 @@ export function initIntegrationSchema() {
       deck_id INTEGER NOT NULL, receipt TEXT NOT NULL,
       PRIMARY KEY(user_id, operation_id)
     )`);
+    run(`CREATE TABLE IF NOT EXISTS integration_deck_sources (
+      deck_id INTEGER PRIMARY KEY REFERENCES tracked_decks(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL CHECK (provider IN ('archidekt','moxfield','deckcheck')),
+      source_deck_id TEXT NOT NULL, canonical_url TEXT NOT NULL,
+      UNIQUE(user_id, provider, source_deck_id)
+    )`);
+    const creationColumns = getDb().exec('PRAGMA table_info(integration_deck_creations)')[0].values;
+    if (!creationColumns.some(column => column[1] === 'linked_existing')) {
+      run('ALTER TABLE integration_deck_creations ADD COLUMN linked_existing INTEGER NOT NULL DEFAULT 0');
+    }
     const columns = getDb().exec('PRAGMA table_info(deck_snapshots)')[0].values;
     if (!columns.some(column => column[1] === 'origin_proposal_id')) {
       run('ALTER TABLE deck_snapshots ADD COLUMN origin_proposal_id TEXT');

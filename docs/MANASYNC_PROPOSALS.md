@@ -24,13 +24,21 @@ change the paper marker, or call CLC's ordinary deck editing routes.
   "version": 1,
   "instanceId": "stable-instance-uuid",
   "accountId": "1",
-  "capabilities": { "proposals": true, "deckCreation": true },
+  "capabilities": { "proposals": true, "deckCreation": true, "sourceLinks": true },
   "scopes": ["decks:read", "decks:propose"]
 }
 ```
 
 `GET /api/integrations/v1/decks` adds a `decks` array. Each deck has `id`, `name`,
-`url`, `latestSnapshotId`, `paperSnapshotId`, and `snapshots`. Every snapshot has
+`url`, `sourceLink`, `latestSnapshotId`, `paperSnapshotId`, and `snapshots`. `sourceLink`
+is explicitly null for an unlinked manual deck, or `{provider, deckId, url}` for
+Archidekt, Moxfield or DeckCheck. Tracked Archidekt IDs are read from the existing
+tracker; manual decks retain only explicitly supplied source identities. URLs
+are canonical HTTPS links, independent of presentation titles and share parameters.
+The full account library is returned so callers can check all sources before
+creating a new deck. A client that needs source deduplication must require
+`capabilities.sourceLinks` and complete source metadata rather than treating a
+legacy or failed read as an empty library. Every snapshot has
 stable string `id` and `deckId`, exact `deckText`, SHA-256 `textHash`, independent
 `isLatest`/`isPaper` flags, `createdAt`, `cards`, `unresolvedLines`, and `origin`.
 Card entries retain per-line names, quantities, sections, printing metadata,
@@ -60,7 +68,8 @@ or proposal returns 404.
 The name is nonblank and at most 200 characters. Text may be empty and is at
 most 500,000 characters. CLC preserves both exactly, including line endings.
 The result is the read-contract bundle above with exactly one `decks` entry,
-plus `operationId` and `replayed`. Status is 201 for creation and 200 for replay.
+plus `operationId`, `replayed`, and `linkedExisting`. Status is 201 for creation
+and 200 for replay or reuse of an existing source deck.
 The deck has one initial digital snapshot, no paper marker, and no upstream URL.
 
 Persist the operation ID, payload, and selected account/instance before sending.
@@ -74,6 +83,18 @@ atomically. Existing tokens do not gain creation access on upgrade.
 These decks appear under **Manual decks** in CLC. Archidekt refresh, bulk refresh,
 and scheduled refresh skip them. Creating a deck does not acquire, move, print,
 or remove cards. Subsequent edits still use the reviewed proposal flow.
+
+Creation optionally accepts `sourceLink`, for example
+`{"provider":"archidekt","deckId":"123","url":"https://archidekt.com/decks/123"}`.
+The provider, ID and URL must agree. If that account already tracks the source,
+CLC returns its existing deck with `linkedExisting: true`; the submitted name and
+text do not replace anything, and no snapshot or paper marker changes. Otherwise
+the new manual deck and its source binding commit with the receipt. Different
+operation IDs still resolve to the same saved source. The same provider deck may
+belong independently to different accounts. An ambiguous legacy duplicate returns
+`409 source_identity_conflict`, requiring review rather than an automatic merge.
+Source claims are included in the immutable operation payload. Replays return the
+original receipt, even if the owner later edits the deck.
 
 ## Delivering a proposal
 

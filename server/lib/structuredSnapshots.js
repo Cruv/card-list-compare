@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { parseLine } from '../../src/lib/parser.js';
 import { COMMANDER_HEADER, MAINBOARD_HEADER, SIDEBOARD_HEADER, COMMENT_LINE } from '../../src/lib/constants.js';
 import { all, get } from '../db.js';
+import { trackedDeckSourceLink } from './deckSources.js';
 
 export const textHash = text => createHash('sha256').update(text, 'utf8').digest('hex');
 
@@ -70,7 +71,7 @@ export function serializeDeck(deck) {
   const snapshots = all('SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC', [deck.id]);
   const latestId = snapshots[0]?.id ?? null;
   const paperId = snapshots.find(snapshot => snapshot.id === deck.paper_snapshot_id)?.id ?? null;
-  return { id: String(deck.id), name: deck.deck_name, url: deck.deck_url,
+  return { id: String(deck.id), name: deck.deck_name, url: deck.deck_url, sourceLink: trackedDeckSourceLink(deck),
     latestSnapshotId: latestId === null ? null : String(latestId),
     paperSnapshotId: paperId === null ? null : String(paperId),
     snapshots: snapshots.map(snapshot => serializeSnapshot(snapshot, latestId, paperId)) };

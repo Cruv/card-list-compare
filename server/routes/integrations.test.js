@@ -204,3 +204,76 @@ it('rejects invalid creation requests and rolls back the deck, snapshot, and man
   expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(2);
   expect(db.get("SELECT COUNT(*) AS count FROM tracked_owners WHERE source_type = 'manual'").count).toBe(0);
 });
+
+it('exposes complete canonical source metadata and reuses a tracked Archidekt deck without changing its history', async () => {
+  const creator = await issue(1, ['decks:read', 'decks:create']);
+  db.run('UPDATE tracked_decks SET paper_snapshot_id = 1, deck_url = ? WHERE id = 1', ['https://archidekt.com/decks/1/old-title']);
+  const input = await creationPayload(creator.token, { sourceLink: { provider: 'archidekt', deckId: '001', url: 'https://www.archidekt.com/decks/1/new-title?share=1' } });
+  const first = await request(structuredRouter, 'POST', '/decks', creator.token, input);
+  expect(first).toMatchObject({ status: 200, body: { linkedExisting: true, replayed: false, capabilities: { sourceLinks: true } } });
+  expect(first.body.decks[0]).toMatchObject({ id: '1', name: 'Deck 1', paperSnapshotId: '1',
+    sourceLink: { provider: 'archidekt', deckId: '1', url: 'https://archidekt.com/decks/1' } });
+  expect(first.body.decks[0].snapshots[0].deckText).toBe('1 Sol Ring (CMM) 410\r\n');
+  expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks').count).toBe(2);
+  expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(2);
+  expect(db.get('SELECT COUNT(*) AS count FROM tracked_owners').count).toBe(2);
+  db.run('INSERT INTO deck_snapshots (tracked_deck_id,deck_text) VALUES (?,?)', [1, '1 Later owner edit']);
+  const replay = await request(structuredRouter, 'POST', '/decks', creator.token, { ...input,
+    sourceLink: { url: 'https://archidekt.com/decks/1', deckId: '1', provider: 'archidekt' } });
+  expect(replay.body).toMatchObject({ linkedExisting: true, replayed: true, decks: first.body.decks });
+  expect((await request(structuredRouter, 'POST', '/decks', creator.token, { ...input, sourceLink: { provider: 'archidekt', deckId: '2', url: 'https://archidekt.com/decks/2' } })).body.error).toBe('operation_conflict');
+  const latest = (await request(structuredRouter, 'GET', '/decks', creator.token)).body;
+  expect(latest.capabilities.sourceLinks).toBe(true);
+  expect(latest.decks[0].snapshots[0].deckText).toBe('1 Later owner edit');
+});
+
+it('persists per-account manual source bindings and deduplicates new operation IDs after restart', async () => {
+  const creator = await issue(1, ['decks:read', 'decks:create']);
+  const other = await issue(2, ['decks:read', 'decks:create']);
+  const sourceLink = { provider: 'moxfield', deckId: 'Shared_AbC', url: 'https://www.moxfield.com/decks/Shared_AbC?share=1' };
+  const input = await creationPayload(creator.token, { sourceLink });
+  const first = await request(structuredRouter, 'POST', '/decks', creator.token, input);
+  expect(first).toMatchObject({ status: 201, body: { linkedExisting: false } });
+  expect(first.body.decks[0]).toMatchObject({ sourceLink: { ...sourceLink, url: 'https://moxfield.com/decks/Shared_AbC' }, paperSnapshotId: null });
+  const separate = await request(structuredRouter, 'POST', '/decks', other.token, await creationPayload(other.token, { sourceLink }));
+  expect(separate.body.decks[0].id).not.toBe(first.body.decks[0].id);
+  vi.resetModules();
+  db = await import('../db.js'); await db.initDb();
+  const schema = await import('../lib/integrationSchema.js'); schema.initIntegrationSchema(); schema.initIntegrationSchema();
+  structuredRouter = (await import('./structuredDecks.js')).default;
+  const reused = await request(structuredRouter, 'POST', '/decks', creator.token, { ...input, operationId: randomUUID(), deckText: '1 Different proposed list' });
+  expect(reused).toMatchObject({ status: 200, body: { linkedExisting: true, decks: first.body.decks } });
+  expect(db.get('SELECT COUNT(*) AS count FROM integration_deck_sources').count).toBe(2);
+  const manual = await request(structuredRouter, 'POST', '/decks', creator.token, { ...input, operationId: randomUUID(), sourceLink: null });
+  expect(manual.body.decks[0].sourceLink).toBeNull();
+  db.run('DELETE FROM tracked_decks WHERE id = ?', [first.body.decks[0].id]);
+  expect((await request(structuredRouter, 'POST', '/decks', creator.token, input)).status).toBe(410);
+  expect(db.get('SELECT COUNT(*) AS count FROM integration_deck_sources').count).toBe(1);
+});
+
+it('rejects ambiguous existing sources and invalid claims without creating or merging decks', async () => {
+  const creator = await issue(1, ['decks:read', 'decks:create']);
+  const input = await creationPayload(creator.token);
+  for (const sourceLink of [false, {}, { provider: 'archidekt', deckId: '1', url: 'https://moxfield.com/decks/1' },
+    { provider: 'deckcheck', deckId: 'abc', url: 'https://deckcheck.co/deck/other' }]) {
+    expect((await request(structuredRouter, 'POST', '/decks', creator.token, { ...input, sourceLink })).body.error).toBe('invalid_source_link');
+  }
+  const manual = await request(structuredRouter, 'POST', '/decks', creator.token, input);
+  db.run('INSERT INTO integration_deck_sources (deck_id,user_id,provider,source_deck_id,canonical_url) VALUES (?,?,?,?,?)',
+    [manual.body.decks[0].id, 1, 'archidekt', '1', 'https://archidekt.com/decks/1']);
+  const duplicate = await request(structuredRouter, 'POST', '/decks', creator.token, { ...input, operationId: randomUUID(),
+    sourceLink: { provider: 'archidekt', deckId: '1', url: 'https://archidekt.com/decks/1' } });
+  expect(duplicate).toMatchObject({ status: 409, body: { error: 'source_identity_conflict' } });
+  expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks').count).toBe(3);
+  expect(db.get('SELECT COUNT(*) AS count FROM integration_deck_creations').count).toBe(1);
+});
+
+it('rolls source binding and snapshot creation back together if the durable receipt cannot be saved', async () => {
+  const creator = await issue(1, ['decks:read', 'decks:create']);
+  const input = await creationPayload(creator.token, { sourceLink: { provider: 'deckcheck', deckId: 'abc123', url: 'https://deckcheck.co/app/deckview/abc123' } });
+  db.run("CREATE TRIGGER fail_source_creation BEFORE INSERT ON integration_deck_creations BEGIN SELECT RAISE(ABORT, 'receipt failure'); END");
+  await expect(request(structuredRouter, 'POST', '/decks', creator.token, input)).rejects.toThrow('receipt failure');
+  expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks').count).toBe(2);
+  expect(db.get('SELECT COUNT(*) AS count FROM integration_deck_sources').count).toBe(0);
+  expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(2);
+});

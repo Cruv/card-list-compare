@@ -24,12 +24,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.45.0';
+const APP_VERSION = '2.45.1';
 const WHATS_NEW = [
-  'Connect ManaSync using your own domain or port to see originals, incoming cards, and proxies',
-  'Check your print list against ManaSync and open missing originals in Mana Pool',
-  'Review pending prints in ManaSync, confirm usable copies, and keep their actual front/back art',
-  'Create and review ManaSync deck edits, and keep them safe when Archidekt refreshes',
+  'Reuse the same Archidekt, Moxfield, or DeckCheck deck across ManaSync and CLC',
+  'Keep your existing deck list and paper marker when a linked source is added again',
 ];
 
 function getResetToken() {

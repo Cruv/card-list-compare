@@ -10,7 +10,7 @@ const router = Router();
 
 function context(req) {
   return { version: 1, instanceId: getInstanceId(), accountId: String(req.user.userId),
-    capabilities: { proposals: true, deckCreation: true }, scopes: req.integrationScopes };
+    capabilities: { proposals: true, deckCreation: true, sourceLinks: true }, scopes: req.integrationScopes };
 }
 
 router.get('/context', requireIntegration('decks:read'), (req, res) => res.json(context(req)));
@@ -20,8 +20,8 @@ router.get('/decks', requireIntegration('decks:read'), (req, res) => {
 });
 router.post('/decks', requireIntegration('decks:create'), (req, res, next) => {
   try {
-    const { deck, operationId, replayed } = createIntegrationDeck(req.user.userId, req.body);
-    res.status(replayed ? 200 : 201).json({ ...context(req), decks: [deck], operationId, replayed });
+    const { deck, operationId, replayed, linkedExisting } = createIntegrationDeck(req.user.userId, req.body);
+    res.status(replayed || linkedExisting ? 200 : 201).json({ ...context(req), decks: [deck], operationId, replayed, linkedExisting });
   } catch (error) {
     if (error instanceof ProposalError) res.status(error.status).json({ error: error.code, message: error.message });
     else next(error);
