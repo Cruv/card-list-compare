@@ -25,10 +25,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.46.0';
+const APP_VERSION = '2.47.1';
 const WHATS_NEW = [
-  'Install the Mac print companion once with its own Python runtime and automatic startup',
-  'Manage versioned companion updates and rollback from Print Station while preserving your print history',
+  'Keep reviewed ManaSync edits when refreshing and safely recover interrupted decisions',
+  'Preserve commander choices and stop unsupported provider printings from changing card identity',
+  'Pause ManaSync delivery for suspended accounts and keep account cleanup reliable',
 ];
 
 function getResetToken() {

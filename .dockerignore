@@ -15,3 +15,4 @@ data
 **/.env.*
 **/__pycache__
 **/*.pyc
+**/.manasync-bridge-key

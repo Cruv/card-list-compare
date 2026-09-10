@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { sourceBatchFeedback } from '../lib/sourceSync';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import {
@@ -271,21 +272,17 @@ function DeckTrackerSettings({ confirm }) {
   }
 
   async function handleBulkRefresh() {
-    const ids = [...selectedDecks];
-    let ok = 0, fail = 0;
+    const ids = trackedDecks.filter(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual').map(deck => deck.id);
+    const results = [];
     for (const id of ids) {
       try {
-        await refreshDeck(id);
-        ok++;
+        results.push(await refreshDeck(id));
       } catch {
-        fail++;
+        results.push({ error: true });
       }
     }
-    if (fail > 0) {
-      toast(`Refreshed ${ok} decks, ${fail} failed`, 'error');
-    } else {
-      toast.success(`Refreshed ${ok} decks`);
-    }
+    const feedback = sourceBatchFeedback({ results });
+    toast(feedback.message, feedback.tone);
     await refresh();
   }
 
@@ -333,14 +330,8 @@ function DeckTrackerSettings({ confirm }) {
     setError(null);
     try {
       const data = await refreshAllDecks();
-      const { summary } = data;
-      if (summary.failed > 0) {
-        toast(`Refreshed ${summary.total} decks: ${summary.changed} updated, ${summary.failed} failed`, 'error', 5000);
-      } else if (summary.changed > 0) {
-        toast.success(`Refreshed ${summary.total} decks: ${summary.changed} updated`);
-      } else {
-        toast('All decks are up to date', 'info');
-      }
+      const feedback = sourceBatchFeedback(data);
+      toast(feedback.message, feedback.tone, 5000);
       await refresh();
     } catch (err) {
       setError(err.message);
@@ -444,10 +435,10 @@ function DeckTrackerSettings({ confirm }) {
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={handleRefreshAll}
-                disabled={refreshingAll}
+                disabled={refreshingAll || trackedDecks.every(deck => deck.source_type === 'manual')}
                 type="button"
               >
-                {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.length})`}
+                {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.filter(deck => deck.source_type !== 'manual').length})`}
               </button>
             </div>
           </div>
@@ -462,8 +453,8 @@ function DeckTrackerSettings({ confirm }) {
               </div>
               {selectedDecks.size > 0 && (
                 <div className="settings-tracker-bulk-bar-right">
-                  <button className="btn btn-primary btn-sm" onClick={handleBulkRefresh} type="button">
-                    Refresh ({selectedDecks.size})
+                  <button className="btn btn-primary btn-sm" onClick={handleBulkRefresh} disabled={!trackedDecks.some(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual')} type="button">
+                    Refresh ({trackedDecks.filter(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual').length})
                   </button>
                   <button className="btn btn-secondary btn-sm" onClick={handleBulkExport} type="button">
                     Export ({selectedDecks.size})

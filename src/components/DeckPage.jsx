@@ -27,6 +27,10 @@ import Skeleton from './Skeleton';
 import TimelineOverlay from './TimelineOverlay';
 import RecommendationsOverlay from './RecommendationsOverlay';
 import MpcOverlay from './MpcOverlay';
+import ManaSyncOwnership from './ManaSyncOwnership';
+import ProposalReview from './ProposalReview';
+import SourceSyncReview from './SourceSyncReview';
+import { sourceRefreshFeedback } from '../lib/sourceSync';
 import PriceHistoryOverlay from './PriceHistoryOverlay';
 import PrintPanel from './PrintPanel';
 import './DeckPage.css';
@@ -168,6 +172,7 @@ export default function DeckPage({ deckId }) {
     try {
       const data = await getDeckSnapshots(deckId);
       setSnapshots(data.snapshots);
+      return data.snapshots;
     } catch {
       toast.error('Failed to load snapshots');
     } finally {
@@ -246,11 +251,11 @@ export default function DeckPage({ deckId }) {
     }
   }
 
-  async function loadFullDeck() {
-    if (snapshots.length === 0) return;
+  async function loadFullDeck(snapshotId = snapshots[0]?.id) {
+    if (!snapshotId) return;
     setDeckLoading(true);
     try {
-      const data = await getSnapshot(deckId, snapshots[0].id);
+      const data = await getSnapshot(deckId, snapshotId);
       const rawText = data.snapshot.deck_text;
       setDeckText(rawText);
       const parsed = parse(rawText);
@@ -273,7 +278,8 @@ export default function DeckPage({ deckId }) {
     setRefreshing(true);
     try {
       const result = await refreshDeck(deckId);
-      toast(result.changed ? 'New snapshot saved!' : 'No changes detected.', result.changed ? 'success' : 'info');
+      const feedback = sourceRefreshFeedback(result);
+      toast(feedback.message, feedback.tone);
       await Promise.all([loadDeck(), loadSnapshots()]);
       // Reset cached tab data so it reloads
       setChangelogData(null); setChangelogCardMap(null); setChangelogTexts(null);
@@ -670,6 +676,9 @@ export default function DeckPage({ deckId }) {
     return { mainboard: comparisonDiff.mainboard, sideboard: comparisonDiff.sideboard, hasSideboard: comparisonDiff.hasSideboard, commanders: commanders || [] };
   }, [comparisonDiff, commanders]);
 
+  const sourceProvider = deck?.source_sync?.sourceProvider || deck?.source_type || 'archidekt';
+  const sourceName = { archidekt: 'Archidekt', moxfield: 'Moxfield', deckcheck: 'DeckCheck' }[sourceProvider] || 'Archidekt';
+
   // --- Render ---
 
   if (loading) {
@@ -704,12 +713,12 @@ export default function DeckPage({ deckId }) {
           &larr; Back to Library
         </button>
         <div className="deck-page-topbar-actions">
-          <button className="btn btn-primary btn-sm" onClick={handleRefresh} disabled={refreshing} type="button">
+          <button className="btn btn-primary btn-sm" onClick={handleRefresh} disabled={refreshing || deck.source_type === 'manual'} title={deck.source_type === 'manual' ? 'Manual decks have no upstream source to refresh' : undefined} type="button">
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           {deck.deck_url && (
             <a href={deck.deck_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
-              Archidekt
+              {sourceName}
             </a>
           )}
           <button className="btn btn-sm btn-ghost-danger" onClick={handleUntrack} type="button">
@@ -717,6 +726,16 @@ export default function DeckPage({ deckId }) {
           </button>
         </div>
       </div>
+
+      <SourceSyncReview deckId={deckId} manual={deck.source_type === 'manual'} sourceProvider={sourceProvider}
+        refreshKey={`${snapshots[0]?.id}:${deck.source_sync?.status}:${deck.source_sync?.checkedAt}`}
+        onChanged={async () => {
+          setParsedDeck(null); setDeckCardMap(null); setDeckText(null);
+          setChangelogData(null); setChangelogCardMap(null); setChangelogTexts(null); setTimelineData(null);
+          const updated = await loadSnapshots();
+          await Promise.all([loadDeck(), ...(activeTab === 'fulldeck' && updated?.[0] ? [loadFullDeck(updated[0].id)] : []),
+            ...(activeTab === 'changelog' ? [loadChangelog()] : []), ...(activeTab === 'timeline' ? [loadTimeline()] : [])]);
+        }} />
 
       {/* Header */}
       <div className="deck-page-header">
@@ -784,7 +803,7 @@ export default function DeckPage({ deckId }) {
 
         {/* Meta line */}
         <div className="deck-page-meta">
-          <span className="deck-page-meta-owner">@{deck.archidekt_username}</span>
+          <span className="deck-page-meta-owner">{deck.source_type === 'manual' ? 'Manual deck' : deck.archidekt_username ? `@${deck.archidekt_username}` : sourceName}</span>
           <span className="deck-page-meta-sep">&middot;</span>
           <span>{deck.snapshot_count} snapshot{deck.snapshot_count !== 1 ? 's' : ''}</span>
           {deck.share_id && (
@@ -1145,6 +1164,13 @@ export default function DeckPage({ deckId }) {
           </div>
         )}
 
+        <ProposalReview deckId={deckId} onChanged={async () => {
+          setParsedDeck(null); setDeckCardMap(null); setDeckText(null); setChangelogData(null); setTimelineData(null);
+          const updated = await loadSnapshots();
+          await Promise.all([loadDeck(), ...(activeTab === 'fulldeck' && updated?.[0] ? [loadFullDeck(updated[0].id)] : []),
+            ...(activeTab === 'changelog' ? [loadChangelog()] : []), ...(activeTab === 'timeline' ? [loadTimeline()] : [])]);
+        }} />
+
         {/* ── Full Deck Tab ── */}
         {activeTab === 'fulldeck' && (
           <div className="deck-page-tab-panel">
@@ -1191,6 +1217,7 @@ export default function DeckPage({ deckId }) {
                     <button className="btn btn-secondary btn-sm" type="button" onClick={() => setDownloadJob(null)}>Dismiss</button>
                   </div>
                 )}
+                <ManaSyncOwnership deckId={deckId} parsedDeck={parsedDeck} cardMap={deckCardMap} deckText={deckText} />
                 <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} />
               </>
             )}
@@ -1291,6 +1318,7 @@ export default function DeckPage({ deckId }) {
                 <span className="deck-page-settings-label">Email on deck change:</span>
                 <button
                   className={`btn btn-secondary btn-sm${deck.notify_on_change ? ' btn--active' : ''}`}
+                  disabled={deck.source_type === 'manual'}
                   onClick={async () => {
                     try {
                       await updateDeckNotify(deckId, !deck.notify_on_change);
@@ -1311,6 +1339,7 @@ export default function DeckPage({ deckId }) {
               <select
                 className="deck-page-settings-select"
                 value={deck.auto_refresh_hours || ''}
+                disabled={deck.source_type === 'manual'}
                 onChange={async (e) => {
                   const val = e.target.value ? parseInt(e.target.value, 10) : null;
                   try {
@@ -1327,6 +1356,7 @@ export default function DeckPage({ deckId }) {
                 <option value="48">Every 48 hours</option>
                 <option value="168">Every 7 days</option>
               </select>
+              {deck.source_type === 'manual' && <p>Manual decks are saved in CLC and have no provider source to refresh.</p>}
             </div>
 
             {/* Webhook */}

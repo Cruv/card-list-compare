@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { previewPrintPlan, createPrintJob, getPrintJobs, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact } from '../lib/api';
+import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintQueue, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations } from '../lib/api';
+import PrintPlanOwnership from './PrintPlanOwnership';
+import PrintQueue from './PrintQueue';
 import './PrintPanel.css';
 
 const STATES = {
@@ -9,6 +11,20 @@ const STATES = {
   uncertain: 'Submission needs review on the Mac', failed: 'Failed', canceled: 'Canceled', expired: 'PDFs expired',
 };
 const CANCELABLE = new Set(['preparing', 'ready', 'queued', 'claimed']);
+
+function ProxyConfirmationStatus({ items }) {
+  if (!items.length) return <p className="print-panel-meta">This prepared batch is waiting to appear in ManaSync&rsquo;s Pending prints.</p>;
+  const confirmed = items.reduce((sum,item) => sum + item.confirmed,0);
+  const dismissed = items.reduce((sum,item) => sum + (item.pendingProxy?.dismissedQuantity || 0),0);
+  const remaining = items.reduce((sum,item) => sum + item.remaining,0);
+  const error = items.find(item => item.pendingProxy?.error)?.pendingProxy.error;
+  return <div className="print-panel-confirmation" role="status">
+    <strong>{remaining > 0 ? 'Awaiting quantity confirmation' : 'Quantity confirmation complete'}</strong>
+    <p>{confirmed} confirmed · {dismissed} dismissed · {remaining} pending</p>
+    {items.some(item => item.pendingProxy?.status === 'disconnected') && <p>Connect ManaSync to send this batch to Pending prints.</p>}
+    {error && <p>{error}</p>}
+  </div>;
+}
 
 function snapshotLabel(snapshot) {
   if (!snapshot) return 'Unknown snapshot';
@@ -31,6 +47,7 @@ export default function PrintPanel({ deck, snapshots }) {
   const [replacePrintings, setReplacePrintings] = useState(true);
   const [plan, setPlan] = useState(null);
   const [jobs, setJobs] = useState([]);
+  const [confirmationItems, setConfirmationItems] = useState([]);
   const [capabilities, setCapabilities] = useState({});
   const [generator, setGenerator] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -38,17 +55,22 @@ export default function PrintPanel({ deck, snapshots }) {
   const [connectionError, setConnectionError] = useState('');
   const [notice, setNotice] = useState('');
   const [pendingAction, setPendingAction] = useState(null);
+  const [recordingJobId, setRecordingJobId] = useState(null);
+  const [recordError, setRecordError] = useState(null);
+  const stagedJobsRef = useRef(new Set());
   const requestRef = useRef(null);
   const revisionRef = useRef(0);
 
   useEffect(() => {
     let active = true;
     let timer;
+    let pollCount = 0;
     async function poll() {
       try {
-        const data = await getPrintJobs(deck.id);
+        const [data, queue] = await Promise.all([getPrintJobs(deck.id),pollCount++ % 4 === 0 ? getPrintQueue(deck.id) : null]);
         if (!active) return;
         setJobs(data.jobs);
+        if (queue) setConfirmationItems(queue.items);
         setCapabilities(data.capabilities);
         setGenerator(data.generator);
         setConnectionError('');
@@ -142,6 +164,21 @@ export default function PrintPanel({ deck, snapshots }) {
     } catch (err) { setError(err.message); }
   }
 
+  async function recordPrintedProxies(job) {
+    if (busy) return;
+    setBusy(true);
+    setRecordError(null);
+    try {
+      // Staging is idempotent for the batch; confirming physical quantities is separate.
+      if (!stagedJobsRef.current.has(job.id)) {
+        await stagePrintJobConfirmations(job.id);
+        stagedJobsRef.current.add(job.id);
+      }
+      setRecordingJobId(job.id);
+    } catch (err) { setRecordError({ jobId: job.id, message: err.message }); }
+    finally { setBusy(false); }
+  }
+
   return (
     <div className="print-panel">
       <form className="print-panel-card" onSubmit={preview}>
@@ -174,7 +211,7 @@ export default function PrintPanel({ deck, snapshots }) {
         </div>
         <label className="print-panel-check"><input type="checkbox" checked={includeSideboard} disabled={busy} onChange={e => change(setIncludeSideboard, e.target.checked)} />Include sideboard</label>
         {mode === 'changes' && <label className="print-panel-check"><input type="checkbox" checked={replacePrintings} disabled={busy} onChange={e => change(setReplacePrintings, e.target.checked)} />Replace copies when the set or printing changes</label>}
-        <p className="print-panel-meta">Foil-only changes do not need a new proxy. This compares deck versions; ManaSync inventory checks will come later.</p>
+        <p className="print-panel-meta">Review the print list to check ManaSync ownership and shop for missing originals in Mana Pool. When the PDFs are ready, the batch and its artwork appear in ManaSync&rsquo;s Proxy binder under Pending prints. After printing, confirm usable copies in either app or dismiss failed copies. Foil-only changes do not need a new proxy.</p>
         {artSource === 'saved-mpc' && <p className="print-panel-meta">Save your selections in Proxy Printing first. Every required face must have saved art; missing choices stop the batch.</p>}
         <button className="btn btn-primary" type="submit" disabled={busy || !snapshots.length || (mode === 'changes' && !baseline)}>{busy ? 'Working…' : 'Review print list'}</button>
       </form>
@@ -188,6 +225,7 @@ export default function PrintPanel({ deck, snapshots }) {
         <p>{plan.source ? `Snapshot #${plan.source.id} → ` : ''}Snapshot #{plan.target.id}{plan.includeSideboard ? ' · Mainboard and sideboard' : ' · Mainboard'}</p>
         <p className="print-panel-meta">Letter · v6 · 600 PPI · 1 mm crop · 7 cards per sheet. Sheet counts appear after artwork and both faces have been verified.</p>
         <ul className="print-panel-cards">{plan.cards.map((card, index) => <li key={index}>{card.quantity}× {card.displayName}{card.setCode ? ` (${card.setCode}) ${card.collectorNumber || ''}` : ''}</li>)}</ul>
+        {plan.totalCopies > 0 && <PrintPlanOwnership key={plan.planHash} plan={plan} />}
         {plan.missingArtwork?.length > 0 && <div className="print-panel-error" role="alert">Save artwork for these cards before generating:{'\n'}{plan.missingArtwork.map(card => `${card.quantity}× ${card.displayName} (${card.face})`).join('\n')}</div>}
         {plan.totalCopies === 0 ? <p>There are no new copies to print for these options.</p> : <div className="print-panel-actions">
           <button className="btn btn-primary" disabled={busy || !generator?.available || !!plan.missingArtwork?.length || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>
@@ -212,6 +250,7 @@ export default function PrintPanel({ deck, snapshots }) {
           <p className="print-panel-meta">Batch {job.id.slice(0, 8)} · {new Date(job.createdAt).toLocaleString()}</p>
           <p className="print-panel-meta">{job.source ? `Snapshot #${job.source.id} → ` : ''}Snapshot #{job.target?.id} · {job.artSource === 'saved-mpc' ? 'Saved MPC artwork' : 'Scryfall printings'}{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets generated` : ''}</p>
           {job.error && <div className="print-panel-error" role="alert">{job.error}</div>}
+          {job.proxyStagingError && <p className="print-panel-error" role="alert">Pending proxy review: {job.proxyStagingError}</p>}
           {job.state === 'awaiting_refeed' && <p>Flip and reload this batch at the rear feeder, then confirm the matching batch in <a href="#print-station">Print Station</a>. Other CLC batches wait until this batch is finished.</p>}
           {job.state === 'uncertain' && <p>The Mac needs to reconcile this batch with Epson’s queue. Check the companion before creating another batch.</p>}
           {job.state === 'completed' && <p className="print-panel-meta">The spooler reports completion. Check the sheets before laminating; update your paper-deck marker after assembly.</p>}
@@ -220,8 +259,16 @@ export default function PrintPanel({ deck, snapshots }) {
             {job.state === 'ready' && capabilities.canQueue && <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => jobAction(queuePrintJob, job)}>Send to Mac</button>}
             {CANCELABLE.has(job.state) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(cancelPrintJob, job)}>Cancel batch</button>}
             {job.manifestSha256 && <button className="btn btn-secondary btn-sm" type="button" onClick={() => downloadManifest(job)}>Download batch details</button>}
+            {job.manifestSha256 && <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => recordPrintedProxies(job)}>View proxy confirmation</button>}
             {['ready', 'completed', 'failed', 'canceled'].includes(job.state) && job.artifacts?.length > 0 && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(expirePrintArtifacts, job)}>Remove PDFs</button>}
           </div>
+          {job.manifestSha256 && <ProxyConfirmationStatus items={confirmationItems.filter(item => item.printJobId === job.id)} />}
+          {recordError?.jobId === job.id && <p className="print-panel-error" role="alert">{recordError.message}</p>}
+          {recordingJobId === job.id && <section className="mana-sync" aria-label={`Printed proxies for batch ${job.id}`}>
+            <p>This is the same pending batch shown in ManaSync&rsquo;s Proxy binder. A quantity confirmed or dismissed in either app updates both. Its saved artwork stays attached to the copies you keep.</p>
+            <PrintQueue key={job.id} deckId={deck.id} printJobId={job.id} />
+            <button className="btn btn-secondary btn-sm" type="button" onClick={() => setRecordingJobId(null)}>Close proxy confirmation</button>
+          </section>}
           {job.state === 'ready' && <p className="print-panel-meta">PDFs are kept for seven days. Removing PDFs keeps the batch record; create a new batch to generate them again.</p>}
         </article>)}
       </section>

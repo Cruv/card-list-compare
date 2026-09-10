@@ -46,7 +46,8 @@ server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
 server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
 companion/mac/           Native station/controls, versioned installer/updater, local Epson options/receipts
-server/routes/           auth, owners, decks, snapshots, share, shared-decks, admin, mpcautofill
+server/routes/           auth, owners, decks, snapshots, share, admin, integrations, print(-station-management)
+server/lib/{manasyncBridge,deckProposals,sourceSync,sourceTracking}.js  Inventory, review, provider tracking
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```
 
@@ -56,6 +57,7 @@ src/components/          UI components; admin/ subdir is the full-page admin pan
    direct `getDb().run()` writes are silently lost. `persist()` is atomic
    (temp+fsync+rename) with `.bak` recovery (v2.40.3) — keep it that way. Write
    via helpers only; `runTransaction()` persists related statements and restores memory on failure.
+   Export only through `exportDatabase()` — raw sql.js export disables foreign-key cleanup.
 2. **Card-line regex is single-sourced** — `CARD_LINE_PATTERN` in
    `src/lib/constants.js`, consumed by parser.js and server enrichment. Never
    fork a local copy (two forks drifted and corrupted data; test-guarded).
@@ -126,6 +128,7 @@ drift, deploy) · `docs/ROADMAP.md` (the committed backlog) · `SECURITY.md` (de
 model) · `docs/PRINT_WORKFLOW.md` (PDF jobs and native Mac station workflow).
 `docs/MANASYNC_INTEGRATION.md` defines ManaSync as the inventory/purchase boundary (D8).
 CLC has no native collections; legacy DB rows remain for a future deliberate migration.
+`docs/MANASYNC_BRIDGE.md` + `docs/MANASYNC_PROPOSALS.md` define the optional bridge contract.
 Check DECISIONS.md before changing an approach; amend it in the same commit.
 
 ## Concurrent sessions (the owner may run parallel Claude sessions here)

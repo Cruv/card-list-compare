@@ -31,7 +31,7 @@ and `DOWNLOADS_DIR` can override those paths. A database restore that references
 ZIP requires a new image download. Never run two backend processes against one `DB_PATH`:
 each process owns an independent in-memory database and can overwrite the other's writes.
 
-Native CLC collections have been retired in favor of the planned ManaSync companion.
+Native CLC collections have been retired in favor of the optional ManaSync companion.
 The Collection UI and `/api/collection` routes are removed, but `collection_cards` schema
 and rows are retained in database backups. There is no migration/export to ManaSync yet;
 do not drop the table as cleanup. Review any eventual transfer against ManaSync's format.
@@ -237,3 +237,23 @@ whole data directory before deployment/schema upgrades. Artifact expiry keeps pr
 snapshot text/art identity in the database; deleting an account purges that history and
 its files after active physical submissions have been reconciled. Untracking or pruning
 a source snapshot does not rewrite a frozen print job.
+
+## §9 — ManaSync connection recovery
+
+CLC encrypts saved ManaSync credentials, including the original credential retained by each
+pending print report. Back up `.manasync-bridge-key` beside `DB_PATH` as well as the database,
+or retain the separately managed `MANASYNC_BRIDGE_KEY`. A database-only admin export does
+not contain the key. Restore the matching key before retrying operations.
+
+Enter the server-reachable ManaSync URL and user integration token in CLC Settings.
+Custom domains, ports, and reverse-proxy base paths need no server allowlist. Compose
+forwards only the optional managed encryption key for this connection.
+See [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md) for connection and receipt recovery. Token
+rotation must reconcile uncertain reports against the original actor's receipts; do not
+resubmit them with replacement operation IDs or credit inventory from print-station status.
+
+Native batches staged for inventory reporting retain exact source faces under
+`manasync-artwork/<userId>/` beside `DB_PATH`. Back up this directory along with the database
+and bridge encryption key. Native print-job expiry does not remove these retained faces.
+Once reported, ManaSync stores its own account-owned image bytes in PostgreSQL and its usual
+database backups. Do not substitute current MPC artwork for a pending batch’s saved hashes.

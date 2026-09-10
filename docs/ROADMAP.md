@@ -26,23 +26,29 @@ page order/flip/alignment. The owner's 600 PPI,
 ordinary fronts; DFCs remain separate manual-refeed batches. Drying, lamination and cutting
 tracking remain excluded. Printing does not advance the assembled paper-deck marker.
 
-## Planned companion integration — ManaSync
+## Optional companion integration — ManaSync
 
-Context and open decisions: [MANASYNC_INTEGRATION.md](MANASYNC_INTEGRATION.md), captured
-from the owner's Discord proposal and conversation screenshots. Coordinate CLC with a
-per-user purchase/inventory companion: Mana Pool orders, manual buys, ManaBox scan-session
-CSV imports and collection reconciliation, separate proxy counts, deck allocations and
-QR-labeled storage. CLC should consult inventory to avoid duplicate purchases/reprints and
-record proxy batches through an agreed API.
+The bridge now implements explicit user-scoped connections, ownership and original-card
+shortages, durable confirmed-print reporting, structured deck snapshots, optional manual
+deck creation, and reviewed deck proposals. Archidekt source changes are reviewed separately
+when local edits exist. Setup and contracts are in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md)
+and [MANASYNC_PROPOSALS.md](MANASYNC_PROPOSALS.md).
 
-ManaSync exclusively owns collection management; native CLC collections and expansion
-plans have been removed (D8). Legacy collection rows remain in the database for a future
-explicit migration; no export or migration has shipped. The working direction is PWA first
-with offline collection access; native iOS and a Discord CSV bot are optional later ideas.
-ManaSync's reconciliation authority relative to ManaBox, actual vendor/CSV capabilities,
-and the companion repo/API remain to be agreed.
-Preserve the intended collaboration split: owner continues CLC; Denny starts the companion
-and shares a repo/backlog. This is future integration context, not implemented functionality.
+ManaSync exclusively owns collection management (D8). CLC's PDF/Mac printing workflow and
+ManaSync physical-print confirmations remain explicit separate actions: generating or
+spooling sheets does not credit inventory or advance the paper marker. Legacy collection
+rows remain in backups with no automatic migration. Broader vendor, ManaBox, and offline
+companion work belongs in ManaSync; [the original discussion](MANASYNC_INTEGRATION.md)
+remains historical context.
+
+### Next bridge work
+
+- Run the paired ManaSync `scripts/verify-clc-bridge.mjs` harness against this integrated
+  branch and its matching ManaSync revision. The repository URL is still needed locally;
+  CLC-only fixtures do not establish compatibility with a deployed ManaSync server.
+- Ownership currently informs review and shopping; it does not automatically remove copies
+  from PDFs. Inventory-aware print reduction needs ManaSync to distinguish usable unallocated
+  proxies and define reservations, so a copy committed to another deck is not counted twice.
 
 ## Open — reviewed 2026-09-08
 

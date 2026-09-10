@@ -1,6 +1,8 @@
 import { memo } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
 import './DeckGridCard.css';
+import { sourceStatusLabel } from '../lib/sourceSync';
+import './SourceSyncReview.css';
 
 function formatDate(dateStr) {
   if (!dateStr) return null;
@@ -65,13 +67,15 @@ export default memo(function DeckGridCard({ deck, bulkMode, isSelected, onToggle
       )}
 
       <div className="deck-grid-card-meta">
-        <span className="deck-grid-card-owner">@{deck.archidekt_username}</span>
+        <span className="deck-grid-card-owner">{deck.source_type === 'manual' ? 'Manual deck' : `@${deck.archidekt_username}`}</span>
         <span className="deck-grid-card-snapshots">{deck.snapshot_count} snap{deck.snapshot_count !== 1 ? 's' : ''}</span>
         {deck.latest_snapshot_at && (
           <span className="deck-grid-card-date">Last Updated: {formatDate(deck.latest_snapshot_at)}</span>
         )}
         {deck.share_id && <span className="deck-grid-card-badge deck-grid-card-badge--shared">Shared</span>}
         {deck.paper_snapshot_id && <span className="deck-grid-card-badge deck-grid-card-badge--paper">Paper</span>}
+        {deck.source_type !== 'manual' && ['pending_review', 'local_changes'].includes(deck.source_sync?.status) &&
+          <span className={`source-sync-badge${deck.source_sync.status === 'pending_review' ? ' source-sync-badge--pending' : ''}`}>{sourceStatusLabel(deck.source_sync.status)}</span>}
       </div>
 
       {tags.length > 0 && (

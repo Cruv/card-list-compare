@@ -47,8 +47,16 @@ page counts and timestamps. Station steps separately record submission and spool
 
 CLC does not infer available physical inventory from a snapshot difference. Real cards,
 purchases, proxy counts and deck allocations belong to
-[ManaSync](MANASYNC_INTEGRATION.md), whose API is a future integration. PDF creation or
-spooler acceptance must not be treated as confirmed inventory production.
+[ManaSync](MANASYNC_BRIDGE.md). Its optional bridge checks ownership for the reviewed print list, provides a Mana Pool
+link for missing originals, and also offers ownership in Full Deck. The print list remains
+the user's selection; inventory never silently removes copies or prevents a deliberate
+reprint. Once the immutable PDFs are prepared, CLC automatically sends their planned copies
+and exact front/back artwork to **ManaSync → Proxy binder → Pending prints**. These plans are
+excluded from available inventory. Confirm usable quantities or dismiss failed/cancelled
+copies in ManaSync or CLC's **View proxy confirmation** panel. A partial confirmation leaves
+the remainder pending; each decision updates both apps. Simultaneous decisions check the
+same server revision before changing inventory. Disconnected batches retain their artwork
+and wait for the connection. The native spooler state remains separate from this quantity review.
 
 ## Household recipe
 

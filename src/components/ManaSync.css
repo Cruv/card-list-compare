@@ -1,0 +1,20 @@
+.mana-sync { margin: 1.25rem 0; }
+.mana-sync summary { cursor: pointer; font-weight: 600; padding: .6rem 0; }
+.mana-sync p { font-size: .9rem; line-height: 1.5; }
+.mana-sync-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: .7rem 0; }
+.mana-sync label { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.mana-sync input,.mana-sync select,.mana-sync textarea { background: var(--bg-secondary, #222); color: inherit; border: 1px solid var(--border-color, #666); border-radius: 5px; padding: .5rem; max-width: 100%; }
+.mana-sync input[type=number] { width: 6rem; }
+.mana-sync .user-settings-form label { margin-top: .6rem; }
+.mana-sync small { display: block; overflow-wrap: anywhere; }
+.mana-sync-table-wrap { overflow-x: auto; margin: 1rem 0; }
+.mana-sync table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.mana-sync th,.mana-sync td { text-align: left; vertical-align: top; padding: .6rem; border-bottom: 1px solid var(--border-color, #555); }
+.mana-sync-list { display: block; width: 100%; box-sizing: border-box; }
+.mana-sync-print-queue,.mana-sync-print-item,.mana-sync-inspection { border-top: 1px solid var(--border-color, #555); margin-top: 1rem; padding-top: .8rem; }
+.mana-sync-operation { margin: .8rem 0; padding: .7rem; border: 1px solid var(--border-color, #555); border-radius: 6px; }
+.mana-sync-inspection label { margin: .7rem 0; }
+.mana-sync-artwork-faces { display: flex; flex-wrap: wrap; gap: 1rem; }
+.mana-sync-artwork-faces figure { margin: 0; max-width: 100%; width: 170px; }
+.mana-sync-artwork-faces img { display: block; width: 100%; height: auto; border-radius: 8px; }
+.mana-sync-artwork-faces figcaption { margin-top: .4rem; font-size: .85rem; }

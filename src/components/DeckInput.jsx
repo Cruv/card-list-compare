@@ -5,6 +5,8 @@ import { parse } from '../lib/parser';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import './DeckInput.css';
+import { sourceRefreshFeedback, sourceStatusLabel } from '../lib/sourceSync';
+import './SourceSyncReview.css';
 
 const INITIAL_SNAP_LIMIT = 5;
 
@@ -280,8 +282,8 @@ export default function DeckInput({ label, value, onChange, user }) {
     setRefreshingDeckId(deckId);
     try {
       const result = await refreshDeck(deckId);
-      const msg = result.changed ? 'New snapshot saved!' : 'No changes detected.';
-      toast(msg, result.changed ? 'success' : 'info');
+      const feedback = sourceRefreshFeedback(result);
+      toast(feedback.message, feedback.tone);
       if (expandedDeckId === deckId) {
         const data = await getDeckSnapshots(deckId);
         setDeckSnapshots(data.snapshots);
@@ -533,15 +535,17 @@ export default function DeckInput({ label, value, onChange, user }) {
                         {expandedDeckId === deck.id ? '\u25BC' : '\u25B6'} {deck.deck_name}
                       </span>
                       <span className="deck-input-tracked-deck-meta">
-                        {deck.archidekt_username} &middot; {deck.snapshot_count} snap{deck.snapshot_count !== 1 ? 's' : ''}
+                        {deck.source_type === 'manual' ? 'Manual deck' : deck.archidekt_username} &middot; {deck.snapshot_count} snap{deck.snapshot_count !== 1 ? 's' : ''}
                       </span>
+                      {deck.source_type !== 'manual' && ['pending_review', 'local_changes'].includes(deck.source_sync?.status) &&
+                        <span className={`source-sync-badge${deck.source_sync.status === 'pending_review' ? ' source-sync-badge--pending' : ''}`}>{sourceStatusLabel(deck.source_sync.status)}</span>}
                     </button>
                     <button
                       className="deck-input-tracked-refresh"
                       onClick={(e) => handleRefreshDeck(e, deck.id)}
-                      disabled={refreshingDeckId === deck.id}
+                      disabled={refreshingDeckId === deck.id || deck.source_type === 'manual'}
                       type="button"
-                      title="Refresh deck from Archidekt"
+                      title={deck.source_type === 'manual' ? 'Manual decks have no Archidekt source' : 'Refresh deck from Archidekt'}
                     >
                       {refreshingDeckId === deck.id ? '...' : '\u21BB'}
                     </button>

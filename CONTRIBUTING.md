@@ -45,5 +45,5 @@ are allowed. Run `npm audit` and `npm --prefix server audit` for release checks.
 
 CI runs tests and lint for pull requests and main/tag pushes, then builds the
 Docker image. It publishes to GHCR on main/tag pushes; pull requests only build.
-The proposed PDF/printer integration lives in
-[docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.md); it is not shipped functionality.
+The native PDF/Mac print workflow and explicit ManaSync inventory confirmation
+are documented in [docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.md).

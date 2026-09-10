@@ -521,6 +521,40 @@ export async function downloadPrintArtifact(downloadUrl, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
+// Optional ManaSync ownership and confirmed physical-print bridge.
+export const getManaSyncConnection = () => apiFetch('/manasync/connection');
+export const connectManaSync = data => apiFetch('/manasync/connection',{method:'PUT',body:JSON.stringify(data)});
+export const disconnectManaSync = () => apiFetch('/manasync/connection',{method:'DELETE'});
+export const getManaSyncAvailability = by => apiFetch(`/manasync/availability?by=${by}`);
+export const getManaSyncContainers = () => apiFetch('/manasync/containers');
+export const getPrintQueue = deckId => apiFetch(`/manasync/print-queue${deckId ? `?deckId=${deckId}` : ''}`);
+export const refreshPendingProxyPrints = () => apiFetch('/manasync/print-queue/refresh',{method:'POST',body:JSON.stringify({})});
+export const queuePrintItem = data => apiFetch('/manasync/print-queue',{method:'POST',body:JSON.stringify(data)});
+export const cancelPrintItem = id => apiFetch(`/manasync/print-queue/${id}/cancel`,{method:'POST'});
+export const confirmPrinted = (id,data) => apiFetch(`/manasync/print-queue/${id}/confirm`,{method:'POST',body:JSON.stringify(data)});
+export const retryPrintReport = id => apiFetch(`/manasync/operations/${id}/retry`,{method:'POST'});
+export const bindPrintReport = (id,containerId,expectedConnection) => apiFetch(`/manasync/operations/${id}/bind`,{method:'POST',body:JSON.stringify({containerId,expectedConnection})});
+export const reconcilePrintReport = id => apiFetch(`/manasync/operations/${id}/reconcile`);
+export const correctPrintReport = (id,data) => apiFetch(`/manasync/operations/${id}/correct`,{method:'POST',body:JSON.stringify(data)});
+
+export const queuePrintBatch = items => apiFetch('/manasync/print-queue/batch',{method:'POST',body:JSON.stringify({items})});
+
+export const stagePrintJobConfirmations = jobId =>
+  apiFetch(`/manasync/print-jobs/${encodeURIComponent(jobId)}/confirmation-queue`, { method: 'POST', body: '{}' });
+
+export async function getPrintQueueArtwork(itemId, face, signal) {
+  if (!['front', 'back'].includes(face)) throw new Error('Invalid artwork face');
+  const token = getToken();
+  // Construct the same-origin route; never send credentials to an artwork URL.
+  const res = await fetch(`${API_BASE}/manasync/print-queue/${encodeURIComponent(itemId)}/artwork/${face}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}, signal,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Saved proxy artwork could not be loaded');
+  }
+  return res.blob();
+}
 // Household station management uses the signed-in user's account, never station credentials.
 export const getPrintStationStatus = (signal) =>
   apiFetch('/print-station-management/status', { signal, timeout: 10_000 });

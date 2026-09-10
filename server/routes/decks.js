@@ -6,13 +6,11 @@ import { existsSync, createReadStream } from 'fs';
 import { archidektLimiter } from '../middleware/rateLimit.js';
 import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { parse } from '../../src/lib/parser.js';
-import { fetchDeck } from '../lib/archidekt.js';
-import { archidektToText } from '../lib/deckToText.js';
-import { enrichDeckText } from '../lib/enrichDeckText.js';
-import { pruneSnapshots } from '../lib/pruneSnapshots.js';
+import { refreshArchidektDeck, sourceSyncSummary, SourceSyncError } from '../lib/sourceSync.js';
 import { fetchCardMetadata } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
 import { submitJob, getJobStatus } from '../lib/downloadQueue.js';
+import { trackArchidektDeck } from '../lib/deckTracking.js';
 
 const router = Router();
 
@@ -23,7 +21,7 @@ router.get('/', (req, res) => {
     SELECT d.*,
       (SELECT MAX(s.created_at) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as latest_snapshot_at,
       (SELECT COUNT(*) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as snapshot_count,
-      o.archidekt_username,
+      CASE WHEN d.source_type = 'manual' THEN 'Manual decks' WHEN o.source_type = 'linked' THEN 'Linked sources' ELSE o.archidekt_username END AS archidekt_username,
       sdv.id as share_id
     FROM tracked_decks d
     JOIN tracked_owners o ON d.tracked_owner_id = o.id
@@ -52,6 +50,7 @@ router.get('/', (req, res) => {
     for (const deck of decks) deck.tags = [];
   }
 
+  for (const deck of decks) deck.source_sync = sourceSyncSummary(deck);
   res.json({ decks });
 });
 
@@ -61,7 +60,7 @@ router.post('/', archidektLimiter, async (req, res) => {
   if (!trackedOwnerId || !archidektDeckId || !deckName) {
     return res.status(400).json({ error: 'trackedOwnerId, archidektDeckId, and deckName are required' });
   }
-  if (typeof archidektDeckId !== 'number' || !Number.isInteger(archidektDeckId) || archidektDeckId <= 0) {
+  if (typeof archidektDeckId !== 'number' || !Number.isSafeInteger(archidektDeckId) || archidektDeckId <= 0) {
     return res.status(400).json({ error: 'archidektDeckId must be a positive integer' });
   }
   if (!requireMaxLength(res, deckName, 200, 'Deck name')) return;
@@ -71,41 +70,23 @@ router.post('/', archidektLimiter, async (req, res) => {
   if (!owner) {
     return res.status(404).json({ error: 'Tracked owner not found' });
   }
-
-  const existing = get(
-    'SELECT id FROM tracked_decks WHERE user_id = ? AND archidekt_deck_id = ?',
-    [req.user.userId, archidektDeckId]
-  );
-  if (existing) {
-    return res.status(409).json({ error: 'You are already tracking this deck' });
-  }
+  if (owner.source_type === 'manual') return res.status(400).json({ error: 'Choose an Archidekt owner for an upstream deck' });
 
   try {
-    const result = run(
-      'INSERT INTO tracked_decks (user_id, tracked_owner_id, archidekt_deck_id, deck_name, deck_url) VALUES (?, ?, ?, ?, ?)',
-      [req.user.userId, trackedOwnerId, archidektDeckId, deckName, deckUrl || null]
-    );
-
-    const deckId = result.lastInsertRowid;
+    const { deckId, reused } = trackArchidektDeck(req.user.userId, { trackedOwnerId, archidektDeckId, deckName });
 
     // Fetch initial snapshot and extract commanders
     try {
-      const apiData = await fetchDeck(archidektDeckId);
-      const { text, commanders } = archidektToText(apiData);
-      // Enrich with Scryfall fallback for any cards missing metadata
-      let enrichedText = text;
-      try { enrichedText = await enrichDeckText(text, null); } catch { /* non-fatal */ }
-      run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deckId, enrichedText]);
-      pruneSnapshots(deckId);
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), commanders = ? WHERE id = ?',
-        [JSON.stringify(commanders || []), deckId]);
+      await refreshArchidektDeck(req.user.userId, deckId);
     } catch (fetchErr) {
       console.error('Initial snapshot fetch failed:', fetchErr);
     }
 
     const deck = get('SELECT * FROM tracked_decks WHERE id = ?', [deckId]);
-    res.status(201).json({ deck });
+    deck.source_sync = sourceSyncSummary(deck);
+    res.status(reused ? 200 : 201).json({ deck, linkedExisting: reused });
   } catch (err) {
+    if (err instanceof SourceSyncError) return res.status(err.status).json({ error: err.code, message: err.message });
     console.error('Track deck error:', err);
     res.status(500).json({ error: 'Failed to track deck' });
   }
@@ -113,47 +94,20 @@ router.post('/', archidektLimiter, async (req, res) => {
 
 router.post('/refresh-all', archidektLimiter, async (req, res) => {
   const decks = all(
-    'SELECT * FROM tracked_decks WHERE user_id = ?',
+    "SELECT * FROM tracked_decks WHERE user_id = ? AND source_type IN ('archidekt','moxfield','deckcheck')",
     [req.user.userId]
   );
 
   if (decks.length === 0) {
-    return res.json({ results: [], summary: { total: 0, changed: 0, failed: 0 } });
+    return res.json({ results: [], summary: { total: 0, changed: 0, failed: 0, pendingReview: 0 } });
   }
 
   const results = [];
 
   for (const deck of decks) {
     try {
-      const apiData = await fetchDeck(deck.archidekt_deck_id);
-      const { text, commanders } = archidektToText(apiData);
-
-      const latest = get(
-        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-        [deck.id]
-      );
-
-      // Enrich with carry-forward from previous snapshot + Scryfall fallback
-      let enrichedText = text;
-      try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
-
-      if (latest && latest.deck_text === enrichedText) {
-        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-        results.push({ deckId: deck.id, deckName: deck.deck_name, changed: false });
-      } else {
-        run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-        pruneSnapshots(deck.id);
-        // Update commanders if detected (don't blank out user-set values)
-        const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-        if (cmdsJson) {
-          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
-            [apiData.name || deck.deck_name, cmdsJson, deck.id]);
-        } else {
-          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-            [apiData.name || deck.deck_name, deck.id]);
-        }
-        results.push({ deckId: deck.id, deckName: deck.deck_name, changed: true });
-      }
+      const { changed, pendingReview, message, sourceSync } = await refreshArchidektDeck(req.user.userId, deck.id);
+      results.push({ deckId: deck.id, deckName: deck.deck_name, changed, pendingReview, message, sourceSync });
     } catch (err) {
       console.error(`Refresh failed for deck ${deck.id}:`, err.message);
       results.push({ deckId: deck.id, deckName: deck.deck_name, error: err.message });
@@ -164,6 +118,7 @@ router.post('/refresh-all', archidektLimiter, async (req, res) => {
     total: results.length,
     changed: results.filter(r => r.changed).length,
     failed: results.filter(r => r.error).length,
+    pendingReview: results.filter(r => r.pendingReview).length,
   };
 
   res.json({ results, summary });
@@ -193,6 +148,9 @@ router.patch('/:id', (req, res) => {
   }
 
   const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold, priceAlertMode, autoRefreshHours } = req.body;
+  if (deck.source_type === 'manual' && (autoRefreshHours != null || notifyOnChange === true)) {
+    return res.status(409).json({ error: 'manual_deck_has_no_upstream', message: 'Manual decks do not refresh from Archidekt.' });
+  }
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -280,39 +238,15 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
   if (!deck) {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
+  if (deck.source_type === 'manual') {
+    return res.status(409).json({ error: 'manual_deck_has_no_upstream', message: 'Manual decks have no upstream source to refresh.' });
+  }
 
   try {
-    const apiData = await fetchDeck(deck.archidekt_deck_id);
-    const { text, commanders } = archidektToText(apiData);
-
-    const latest = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-      [deck.id]
-    );
-
-    // Enrich with carry-forward from previous snapshot + Scryfall fallback
-    let enrichedText = text;
-    try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
-
-    if (latest && latest.deck_text === enrichedText) {
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-      return res.json({ changed: false, message: 'Deck is up to date' });
-    }
-
-    run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-    pruneSnapshots(deck.id);
-    // Update commanders if detected (don't blank out user-set values)
-    const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-    if (cmdsJson) {
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
-        [apiData.name || deck.deck_name, cmdsJson, deck.id]);
-    } else {
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-        [apiData.name || deck.deck_name, deck.id]);
-    }
-
-    res.json({ changed: true, message: 'New snapshot saved' });
+    const { changed, pendingReview, message, sourceSync } = await refreshArchidektDeck(req.user.userId, id);
+    res.json({ changed, pendingReview, message, sourceSync });
   } catch (err) {
+    if (err instanceof SourceSyncError) return res.status(err.status).json({ error: err.code, message: err.message });
     console.error('Refresh error:', err);
     res.status(502).json({ error: `Failed to refresh from Archidekt: ${err.message}` });
   }

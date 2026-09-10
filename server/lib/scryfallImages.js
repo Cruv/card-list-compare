@@ -134,6 +134,7 @@ export async function fetchCardImageUrls(cards) {
           entry.setCode = card.set || entry.setCode;
           entry.collectorNumber = String(card.collector_number || entry.collectorNumber);
           entry.scryfallId = card.id;
+          entry.oracleId = card.oracle_id || null;
           entry.faceNames = card.card_faces?.map(face => face.name) || [card.name];
           entry.isDFC = !card.image_uris && card.card_faces?.length >= 2;
           entry.imageUrls = entry.isDFC

@@ -19,7 +19,10 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
 
 - The `run()` helper in `server/db.js` calls `persist()` after **every** write
   statement. `persist()` (`export function persist`) serializes the **entire
-  database** with `db.export()`.
+  database** through `exportDatabase()` (`export function exportDatabase`).
+  All exports, including read-only admin statistics and downloads, use that helper: sql.js
+  resets connection pragmas during export, so it immediately restores foreign keys. Exporting
+  during a transaction is forbidden because it would close the active SQLite connection.
 - **The write is atomic** (added v2.40.3): `persist()` writes to
   `DB_PATH.tmp`, `fsync`s it, then `rename`s over `DB_PATH`. `rename(2)` is
   atomic, so a crash mid-write (SIGKILL, OOM, power loss) leaves the live file
@@ -37,6 +40,9 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
   write fails. Print-station state and its replay receipt must use this helper together;
   acknowledging only one of those writes can authorize a duplicate physical submission.
   A loop of N separate `run()` calls still does N full-file rewrites.
+- `transaction()` provides the same atomic persistence for synchronous callback writes.
+  Keep deck creation, proposal/source review decisions, and their replay receipts together;
+  statement or persistence failure must restore both memory and the durable database.
 
 **Do not "optimize" `persist()`** (debounce, batch, async) without preserving
 the temp+fsync+rename atomicity and the `loadDatabase()` recovery path. Behavior

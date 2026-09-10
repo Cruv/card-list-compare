@@ -9,12 +9,18 @@ import authRoutes from './routes/auth.js';
 import ownerRoutes from './routes/owners.js';
 import deckRoutes from './routes/decks.js';
 import snapshotRoutes from './routes/snapshots.js';
+import sourceSyncRoutes from './routes/sourceSync.js';
 import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
 import mpcRoutes from './routes/mpcautofill.js';
 import printRoutes from './routes/print.js';
 import printStationRoutes from './routes/print-station.js';
+import integrationTokenRoutes from './routes/integrationTokens.js';
+import structuredDeckRoutes from './routes/structuredDecks.js';
+import proposalRoutes from './routes/proposals.js';
+import manasyncRouter, { startManaSyncRetryWorker } from './routes/manasync.js';
+import { initIntegrationSchema } from './lib/integrationSchema.js';
 import printStationManagementRoutes from './routes/print-station-management.js';
 import { resetPrintStationManagement } from './lib/printStationManagement.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
@@ -48,7 +54,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "https://cards.scryfall.io", "https://*.scryfall.io", "https://drive.google.com", "data:"],
+      imgSrc: ["'self'", "https://cards.scryfall.io", "https://*.scryfall.io", "https://drive.google.com", "data:", "blob:"],
       connectSrc: ["'self'", "https://api.scryfall.com", "https://archidekt.com", "https://www.archidekt.com", "https://mpcfill.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
@@ -75,6 +81,10 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/owners', ownerRoutes);
+app.use('/api/integrations/tokens', integrationTokenRoutes);
+app.use('/api/integrations/v1', structuredDeckRoutes);
+app.use('/api/decks', proposalRoutes);
+app.use('/api/decks', sourceSyncRoutes);
 app.use('/api/decks', deckRoutes);
 app.use('/api/decks', snapshotRoutes);
 app.use('/api/share', shareRoutes);
@@ -85,9 +95,12 @@ app.use('/api/mpc', mpcRoutes);
 app.use('/api/print-station', printStationRoutes);
 app.use('/api/print-station-management', printStationManagementRoutes);
 app.use('/api/decks', printRoutes);
+app.use('/api/manasync', manasyncRouter);
 
 async function start() {
   await initDb();
+  initIntegrationSchema();
+  startManaSyncRetryWorker();
   resetPrintStationManagement();
   initDownloadQueue();
   initPrintQueue();

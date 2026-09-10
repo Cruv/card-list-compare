@@ -1,5 +1,12 @@
 # ManaSync: inventory and purchasing integration context
 
+**Current implementation:** the optional CLC bridge now provides scoped deck reads/creation,
+reviewed proposals, ownership/shortage queries, and explicit physical-print reporting. See
+[MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md) and [MANASYNC_PROPOSALS.md](MANASYNC_PROPOSALS.md)
+for the implemented API and setup. The discussion below remains historical design context;
+its proposed endpoints and companion stack do not define the shipped contract.
+
+
 Captured 2026-09-08 from the owner's supplied Discord proposal and ten conversation
 screenshots (Photos 1–10). This note preserves the product discussion for future work;
 it is not a shipped feature, finalized API contract, or verification of vendor capabilities.
