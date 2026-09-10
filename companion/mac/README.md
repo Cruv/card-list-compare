@@ -63,6 +63,19 @@ locally and retain both proof flags as false. The
 [recorded Mac setup](../../docs/HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09)
 explains the observed color/profile flags and Windows controls without verified equivalents.
 
+On first use, macOS may request Local Network access separately for **EPSON Printer
+(rastertoescpII)**, the actual print filter. Allow it locally. Permissions for Epson's
+setup or supply-level helpers do not cover this filter. A queue can remain at **Looking
+for printer** even when `doctor` and direct printer status queries succeed. Check
+**System Settings → Privacy & Security → Local Network** and any pending permission
+prompt before changing the queue or its color settings.
+[Epson documents this filter-specific permission](https://epson.com/faq/SPT_SEQUOIA-NS~faq-0000b89-macos_15).
+
+If granting permission leaves an existing job stuck, reconcile its status and the
+printer's status before pausing/resuming that same job in Print Center. Do not submit a
+second copy to test connectivity. The household's first test needed this resume after
+permission was granted; the existing job then connected successfully.
+
 The companion fixes `media=Letter`, `sides=one-sided`, `number-up=1`, `print-scaling=none`,
 `fit-to-page=false` and one copy per pass. Do not add these reserved options to
 `driver_options`. The default ordinary output order is `reverse`, matching the supplied

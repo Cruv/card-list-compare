@@ -183,6 +183,20 @@ The companion's read-only doctor check validated all 66 captured options against
 installed queue, confirmed it accepts requests, and read its job history successfully.
 The 32 companion tests also passed. No station credentials or background worker were installed.
 
+### First front-only Mac test — 2026-09-09
+
+The owner loaded paper and authorized one front-only page. Submitted page 1 of the supplied
+`Sauron.pdf` once through Preview with **CLC Uinkit 54lb - Fronts**, one copy and automatic
+duplex off. This uses the historical v4 sample to compare rendering; it does not validate
+the new v6 cutting template or the companion's command-line rendering path.
+
+The job initially stalled at **Looking for printer** because macOS was waiting for Local
+Network permission for **EPSON Printer (rastertoescpII)**. Setup and supply-level helpers
+already had their own permissions; direct IPPS status queries also worked. After the owner
+answered the local prompt, pausing and resuming the same unprinted job restored the
+connection. No second submission was created, and no driver/color settings were changed.
+See the [first-use permission guidance](../companion/mac/README.md#configure-without-printing).
+
 The GUI explicitly saved `EPIJ_CCor=3` for Vivid (the PPD default 12 has the same label),
 media 92, Best quality 307, rear source 0, custom mode 3, and `Resolution=720x720dpi`.
 That driver raster resolution does not change the generator's 600 PPI recipe. Media 92
