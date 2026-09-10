@@ -154,7 +154,7 @@ Setup and dry-run commands do not print; `run` and `run --once` may submit autho
 The Mac must stay awake, with the user logged in when using the optional LaunchAgent.
 
 The Mac must be awake and use the actual Epson driver with explicitly tested local options.
-The supplied Adobe settings enable **Let printer determine colors**; Epson uses **EPSON
+The supplied Windows Adobe settings enable **Let printer determine colors**; Epson uses **EPSON
 Vivid**, Ultra Premium Photo Paper Glossy, Best quality, rear feed and Actual Size. No
 custom ICC profile is selected in the screenshots. The source PDF is untagged DeviceRGB.
 The adapter preserves upstream's RGB composition without adding an ICC transform; the
@@ -164,6 +164,10 @@ Epson documents [EPSON Vivid on Mac](https://files.support.epson.com/docid/cpd5/
 Its presence does not prove a Windows/Mac color match. Adobe GUI presets are not inherited
 by `lp`; inspect the actual driver's options with [CUPS](https://www.cups.org/doc/options.html).
 Keep manual Adobe printing available until the unattended path matches an accepted proof.
+On this Mac, Reader 26.002.21901 forces Print As Image and disables Adobe's own color
+controls. Its native Printer dialog still exposes EPSON Color Controls and the saved Vivid
+preset. See the [verified Reader setup and comparison](HOUSEHOLD_PRINT_RECIPE.md#adobe-reader-on-the-mac--2026-09-09);
+do not assume the Windows Adobe checkboxes can be reproduced on this Reader version.
 
 Before enabling unattended printing:
 

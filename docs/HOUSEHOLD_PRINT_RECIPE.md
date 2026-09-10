@@ -3,8 +3,8 @@
 Status: the Windows process below is the accepted reference. CLC now implements PDF
 generation and the native Mac companion. The Mac driver and a matching GUI preset were
 configured on 2026-09-09. The first Mac page printed, but the owner rejected its colors;
-the owner subsequently found clogged yellow/magenta nozzles. Color/cutter/duplex proof
-remains outstanding. See
+the owner subsequently found clogged yellow/magenta nozzles and now reports recovery
+after cleaning. Repeat color/shadow, cutter and duplex proof remains outstanding. See
 [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Preserve this reference across upgrades.
 
 **Updated decision:** the owner has approved adopting **v6** for the new integration.
@@ -207,20 +207,22 @@ EPSON Vivid and zero color adjustments. Job completion does not approve this rec
 
 The owner then checked the nozzles and reported **yellow partially clogged and magenta
 completely clogged**. This confirms an ink-delivery fault; the first sheet cannot establish
-whether the Mac color recipe matches the Windows reference. Cleaning/recovery has not yet
-been confirmed. Keep the existing driver/color settings unchanged while resolving this.
+whether the Mac color recipe matches the Windows reference. The owner subsequently
+reported completing nozzle cleaning and confirmed that **magenta and yellow now print
+fine**. This records owner-confirmed nozzle recovery; no repeat card color/shadow proof
+has been accepted. Keep the existing driver/color settings for the next comparison.
 The owner also reports crushed blacks/shadow detail on Gothmog and agreed to reassess
 after cleaning. Preserve this as a separate quality check; restoring magenta/yellow does
 not by itself establish acceptable shadow detail. The owner authorized installing Adobe
 Acrobat Reader on the Mac for a subsequent comparison with the Windows/Adobe reference.
 
-Follow the printer's cleaning prompts and repeat **Maintenance → Print Head Nozzle Check**
-using plain paper in lower **Cassette 2**. Once every color pattern is complete, repeat the
-same single front page with the same Preview preset to isolate the effect of restoring ink
-delivery. If the colors still differ, compare the renderer/color path next.
+A repeat of the same single front page with the same Preview preset would isolate the
+effect of restoring ink delivery. The next submitted test instead uses Adobe, as recorded
+below, so any improvement cannot be attributed to the renderer alone. Epson's nozzle
+check procedure uses **Maintenance → Print Head Nozzle Check** and plain paper in lower
+**Cassette 2**.
 [Epson ET-8550 nozzle-check instructions](https://files.support.epson.com/docid/cpd5/cpd59879/source/printers/source/ink_functions/tasks/et8500_8550_l8160_l8180/checking_nozzles_lcd_et8500_l8180.html)
-The assistant has not started cleaning or submitted an additional card print. Both
-companion proof flags remain unapproved.
+The owner handled cleaning. Both companion proof flags remain unapproved.
 
 The GUI explicitly saved `EPIJ_CCor=3` for Vivid (the PPD default 12 has the same label),
 media 92, Best quality 307, rear source 0, custom mode 3, and `Resolution=720x720dpi`.
@@ -249,8 +251,32 @@ signatures identify Adobe Inc.; notarization and deep code-signature verificatio
 The app includes native arm64 and x86_64 executables, and its package receipts match the
 installed version. Reader launched successfully; no subscription or trial was started.
 
-The current Reader print dialog's printer-managed-color option still needs verification.
-Use the unchanged Sauron PDF for any subsequent comparison, with Actual Size/100%, the
-recorded Epson media/color preset and Print As Image off to match the Windows reference.
-No additional card page was submitted during installation. Nozzle recovery and acceptable
-color/shadow detail must be confirmed before approving the print recipe.
+The installed Reader's Advanced Print Setup forces **Print As Image** on and disables its
+control, with the message "Only Print As Image is currently supported from MacOS14 onwards."
+**Let printer determine colors** is unchecked and disabled. The grays/Preserve Black
+controls are also disabled; their displayed defaults are not evidence of active processing.
+This Mac dialog cannot reproduce the Windows Adobe settings verbatim. The observed UI is
+the evidence for this installed version; do not generalize older Adobe instructions to it.
+
+Reader's **Printer…** dialog still exposes the native Epson controls. Verified **EPSON
+Color Controls** selected and ColorSync unselected, with **CLC Uinkit 54lb - Fronts**,
+Rear Paper Feeder, Ultra Premium Photo Paper Glossy, Best Quality, the saved Manual/Vivid
+settings, zero brightness/contrast/saturation/color adjustments and duplex Off. Adobe's
+image mode does not by itself establish that Epson color processing is bypassed, nor do
+these selections prove Windows-equivalent output. The saved driver resolution and the
+PDF's source PPI do not establish Adobe's intermediate rasterization resolution.
+
+### Post-cleaning Adobe front-page test — 2026-09-09
+
+After the owner confirmed nozzle recovery, submitted page **1** of the unchanged Sauron
+PDF from Reader at **Actual size**, Auto orientation, one copy, grayscale off, using the
+native fronts preset above. Both Adobe's page selection and the native range were set to
+1–1. The native dialog's Print button returned to Adobe without creating a CUPS job;
+the subsequent Adobe Print click created **local job 6 at 22:48:07**. Only one new card
+job was submitted. Its receipt identifies Acrobat Reader and one rendered impression,
+one copy, one-sided, RGB, rear feed, glossy media 92, Best quality 307, Vivid 3, vendor color
+matching and zero color adjustments. The printer connected and began processing the job.
+Spooler completion and the owner's color/shadow assessment remain pending. In particular,
+compare Terror of the Peaks' reds and Gothmog's purple border and
+dark artwork with the accepted Windows output. This v4 sample still does not validate v6
+cut geometry or the companion's rendering path.
