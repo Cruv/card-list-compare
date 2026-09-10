@@ -24,11 +24,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.44.1';
+const APP_VERSION = '2.44.2';
 const WHATS_NEW = [
-  'The native Mac companion can pick up household PDFs and use your verified Epson print settings',
-  'Double-faced batches wait for manual flip and reload before their back pages print',
-  'Print recovery checks submission history before retrying, helping prevent duplicate sheets',
+  'Mac printing now explicitly uses landscape so card sheets are not clipped by portrait defaults',
 ];
 
 function getResetToken() {

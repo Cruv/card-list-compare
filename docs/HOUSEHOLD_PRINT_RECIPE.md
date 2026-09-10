@@ -299,9 +299,12 @@ Submitted **local job 7** at **23:00:51**, titled
 `CLC-PROOF-sauron-companion-20260909`. It connected and began printing. The receipt confirms
 page range 1–1, one copy, one-sided Letter, no scaling, rear feeder, glossy media, Best,
 RGB/720 dpi, Vivid, vendor color matching, profile 2 and zero color corrections, matching
-the core Epson settings in the accepted Adobe job. Spooler completion and the owner's
-comparison with the Adobe sheet remain pending. Matching options alone do not approve
-the companion's rendering. Its 32 automated tests also passed before this submission.
+the core Epson settings in the accepted Adobe job. It completed at **23:05:30** with one
+impression and one sheet. The owner rejected its **orientation**: the landscape artwork
+printed on a portrait sheet, leaving a large blank top area and clipping the right-hand
+cards. Color equivalence was not separately accepted. Matching media/color options alone
+does not approve the companion's rendering. Its then-current 32 automated tests passed
+before submission but did not cover the missing orientation setting.
 
 The matching upstream `cutting_templates/letter-standard-v6.studio3` was prepared locally
 with its license for the next geometry proof (SHA-256
@@ -310,3 +313,20 @@ with its license for the next geometry proof (SHA-256
 belongs with newly generated v6 PDFs, not the historical Sauron v4 color sheet. Original
 card images are needed to validate the 1 mm crop; extracting already cropped Sauron tiles
 and cropping them again would not prove the configured recipe. No cutter was operated.
+
+### Landscape correction — v2.44.2
+
+The companion previously supplied Letter media and no scaling without requesting landscape.
+It now fixes `orientation-requested=4` on ordinary and DFC passes, as defined by
+[CUPS orientation options](https://www.cups.org/doc/options.html#ORIENTATION). The `landscape`
+alias and orientation overrides are reserved. Fixed page options are included in the recipe
+fingerprint, preventing an upgrade from silently rotating the remaining pages of an active
+batch. Epson color, paper, quality and scale settings are unchanged. Regression coverage
+now checks every pass's orientation and rejects orientation changes during an active job.
+An offline run through the Mac's `cgpdftoraster` with the installed Epson PPD and corrected
+options produced a full-size rotated sheet containing all seven cards and three registration
+marks. Decoding and visually inspecting the raster confirmed the result; its portrait-shaped
+feed raster and debug log alone did not describe the artwork's actual rotation. This check
+sent no printer job. The app's 486 tests, 35 companion tests, lint (zero errors), build and
+both dependency audits passed for the correction.
+The physical orientation/color comparison must pass before advancing to v6 cutting proof.

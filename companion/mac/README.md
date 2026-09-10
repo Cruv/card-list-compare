@@ -8,7 +8,7 @@ print preset. Physical printing is disabled until `recipe_verified` is explicitl
 
 CLC generates the PDFs with Silhouette Card Maker. The companion keeps the server's card
 copies, 600 PPI, 1 mm crop, Letter v6 layout, skipped slot and registration geometry intact.
-It submits one copy at actual size, with automatic duplex disabled. Ordinary fronts and
+It submits one copy in landscape at actual size, with automatic duplex disabled. Ordinary fronts and
 DFC front/back passes are separate submissions. The local queue, media/color driver
 options and page order are configured here; server data cannot supply executable paths,
 printer destinations or CUPS options.
@@ -76,9 +76,11 @@ printer's status before pausing/resuming that same job in Print Center. Do not s
 second copy to test connectivity. The household's first test needed this resume after
 permission was granted; the existing job then connected successfully.
 
-The companion fixes `media=Letter`, `sides=one-sided`, `number-up=1`, `print-scaling=none`,
-`fit-to-page=false` and one copy per pass. Do not add these reserved options to
-`driver_options`. The default ordinary output order is `reverse`, matching the supplied
+The companion fixes `media=Letter`, `orientation-requested=4` (landscape), `sides=one-sided`,
+`number-up=1`, `print-scaling=none`, `fit-to-page=false` and one copy per pass. Landscape must
+be explicit: the native Mac command-line path can otherwise place a landscape PDF on a
+portrait Letter sheet and clip its right edge. Do not add these reserved options or the
+`landscape` alias to `driver_options`. The default ordinary output order is `reverse`, matching the supplied
 Windows reference. The two DFC output-order settings are independent and remain unverified
 defaults until the actual rear-feeder flip/reload sequence is tested. Never enable automatic
 duplex or reverse pages in two different layers to compensate without checking the proof.
@@ -166,6 +168,11 @@ is recorded as a pre-submission failure. Any replacement printing must be an
 explicit new CLC request after inspecting what actually
 printed. Network/report retries reuse durable event IDs. Recipe or queue changes during an
 active job are rejected; restore the original settings to finish that job consistently.
+The fingerprint includes the companion's fixed page settings as well as local driver
+options. Finish or reconcile active batches before updating the companion. Versions before
+2.44.2 omitted landscape and fixed settings from the fingerprint; old in-flight records
+will stop under the new code rather than silently change orientation. Use the prior version
+to reconcile those batches first; never erase receipts or rewrite fingerprints to resume.
 
 PDF limits default to 1 GiB per artifact and 2 GiB per job. Hashing and downloading stream
 in 256 KiB blocks. Completed/failed local PDF directories expire after seven days; active,

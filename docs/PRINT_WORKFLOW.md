@@ -1,6 +1,6 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.44.1 includes print planning, PDF generation, artifact downloads, the household
+Status: CLC v2.44.2 includes print planning, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test;
 companion rendering, manual duplex and cutter calibration still require the proof below.
 
@@ -152,6 +152,9 @@ and reconciles exact CUPS titles/job IDs before reporting outcomes. `status`, `p
 abandons an unresolved batch only after the operator has inspected and cleared its paper.
 Setup and dry-run commands do not print; `run` and `run --once` may submit authorized jobs.
 The Mac must stay awake, with the user logged in when using the optional LaunchAgent.
+Every pass explicitly requests landscape Letter at actual size; a landscape PDF alone does
+not ensure the Mac command-line filter rotates it onto the loaded sheet. Fixed page settings
+are included in the durable recipe fingerprint so they cannot change during an active batch.
 
 The Mac must be awake and use the actual Epson driver with explicitly tested local options.
 The supplied Windows Adobe settings enable **Let printer determine colors**; Epson uses **EPSON
@@ -178,6 +181,8 @@ Before enabling unattended printing:
    Repeat this comparison if the reference driver, media or color settings change.
 3. Compare the companion's rendering with that Mac Adobe proof, keeping PDF bytes, paper,
    source, quality, scaling and color settings fixed. Record the approved local recipe.
+   The first companion sheet exposed portrait clipping; 2.44.2 adds explicit landscape,
+   and its corrected physical proof remains pending.
 4. Verify v6 cut geometry, registration/Studio settings and the 1 mm crop on actual stock.
 5. Separately prove DFC front/back page order, flip direction, rotation and alignment.
    The supplied two-sided preset was visible but its settings were not opened.

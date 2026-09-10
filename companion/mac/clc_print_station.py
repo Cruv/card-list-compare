@@ -30,9 +30,9 @@ SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
 VALUE = re.compile(r"[A-Za-z0-9_.:/+-]{1,100}\Z")
 FIXED_OPTIONS = {"media": "Letter", "sides": "one-sided", "number-up": "1",
-                 "print-scaling": "none", "fit-to-page": "false"}
+                 "print-scaling": "none", "fit-to-page": "false", "orientation-requested": "4"}
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
-                                       "job-name", "job-hold-until", "job-sheets"}
+                                       "job-name", "job-hold-until", "job-sheets", "landscape"}
 TERMINAL = {"completed", "failed", "canceled"}
 
 
@@ -118,7 +118,9 @@ def load_config(path):
 def recipe_fingerprint(config):
     fields = ["queue", "driver_options", "ordinary_output_order", "dfc_front_output_order",
               "dfc_back_output_order"]
-    return hashlib.sha256(json.dumps({key: config.get(key) for key in fields}, sort_keys=True).encode()).hexdigest()
+    recipe = {key: config.get(key) for key in fields}
+    recipe["fixed_options"] = FIXED_OPTIONS
+    return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -417,7 +419,7 @@ class Cups:
         pages = artifact["backPages"] if phase == "backs" else artifact["frontPages"]
         order = (self.config["ordinary_output_order"] if artifact["kind"] == "ordinary"
                  else self.config["dfc_back_output_order" if phase == "backs" else "dfc_front_output_order"])
-        options = {**FIXED_OPTIONS, **self.config["driver_options"], "outputorder": order}
+        options = {**self.config["driver_options"], **FIXED_OPTIONS, "outputorder": order}
         args = ["/usr/bin/lp", "-h", "localhost", "-d", self.config["queue"], "-n", "1", "-t", title,
                 "-P", ",".join(str(page) for page in pages)]
         for key, value in sorted(options.items()):

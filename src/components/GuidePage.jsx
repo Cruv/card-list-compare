@@ -375,7 +375,8 @@ function ProxyPrinting() {
       <p>
         Authorized household accounts can generate and send a batch to the Mac, or queue a
         ready PDF later. The Mac companion picks up queued PDFs, keeps submission history and
-        waits for manual DFC flip/reload. Set up the companion on the Mac using the repository’s
+        prints Letter sheets in landscape at actual size and waits for manual DFC flip/reload.
+        Set up the companion on the Mac using the repository’s
         companion/mac instructions; its status, pause and resume controls manage the station.
         The Mac’s Epson driver and color recipe need a physical proof
         before unattended use. Canceling is available before submission; uncertain submissions

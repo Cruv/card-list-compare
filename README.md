@@ -191,7 +191,8 @@ Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for re
 
 Install the [Mac companion](companion/mac/README.md) on the printer host separately from
 Docker. It uses Python 3.9+ and native CUPS commands, with a scoped token file and local
-SQLite receipts. Its dry run prints nothing; normal operation requires a configured Epson
+SQLite receipts. It explicitly prints landscape Letter at actual size. Its dry run prints
+nothing; normal operation requires a configured Epson
 queue and accepted color/geometry proof. DFC backs remain blocked until manual reload and
 resume. The optional LaunchAgent starts it at login; sleeping Macs leave jobs queued.
 
