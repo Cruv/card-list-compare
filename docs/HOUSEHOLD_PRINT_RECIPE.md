@@ -330,3 +330,14 @@ feed raster and debug log alone did not describe the artwork's actual rotation. 
 sent no printer job. The app's 486 tests, 35 companion tests, lint (zero errors), build and
 both dependency audits passed for the correction.
 The physical orientation/color comparison must pass before advancing to v6 cutting proof.
+
+The offline baseline without orientation reproduced the clipped right column. The corrected
+raster contained exactly one page at 100% scale; adding the alternative `landscape=true`
+rotated it in the opposite direction, so retain only `orientation-requested=4`.
+
+After the corrected preflight, submitted one fresh page-1/front-only comparison as
+**local job 8 at 23:26:16**, titled `CLC-PROOF-sauron-landscape-20260909`, from the same
+original Sauron PDF. It uses a new durable calibration identity and leaves job 7's receipt
+intact; the failed physical proof was not retried under its old identity. The queue accepted
+the job and connected to the printer. Physical confirmation of orientation, size and color
+is pending; the production worker remains unconfigured and both proof flags remain false.
