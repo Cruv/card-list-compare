@@ -63,3 +63,25 @@ checks, partial confirmation/dismissal across apps, and desktop/phone layout cap
 Its native print manifest uses synthetic images. The household Adobe color test and corrected
 native landscape sheet have passed; v6 cutter geometry and manual DFC refeed alignment
 still need physical proof. See [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+
+## Integrated follow-up verification — 2026-09-10
+
+The v2.47 integration retains the current Mac station controls and accepted household
+recipe. Follow-up v2.47.1 addresses proposal draft/retry loss, provider collector-number
+identity loss, manually assigned commander loss on source review, suspended-account
+outbox delivery, and database exports disabling foreign-key cleanup. The integration also
+permits authenticated artwork blob previews under the production image policy.
+
+Validation: 784 app tests and 68 companion tests pass; lint has zero errors and seven
+existing warnings; both dependency audits are clean. The production frontend and Docker
+image build. An isolated container with disposable accounts and synthetic artwork passed
+46 API checks for scoped access, account isolation, private artwork, and fake-station
+pause/receipt replay. No real print job was claimed, queued, or submitted.
+
+Browser checks verified private artwork under production CSP, draft retention through
+refresh/switch, preservation during a concurrent-client change, explicit re-review, and
+committing the reviewed digital snapshot without changing the paper marker. Recovery
+regressions cover authentication failures, uncertain responses, malformed receipts, and
+multiple saved operations. The paired ManaSync server harness remains outstanding until
+its repository and matching API implementation are available; CLC fixtures are not proof
+of cross-app compatibility.

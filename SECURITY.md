@@ -185,7 +185,11 @@ change with its regression test.
   and moves use reviewed lot revisions; conflicts require another read and explicit review.
   Server-side token scopes also prevent changing real inventory. Disconnecting pauses delivery
   while retaining encrypted credentials on outstanding operations for reconciliation.
-- Database export restores SQLite foreign-key enforcement. Deleting an account cascades its
+  Suspension also pauses all ManaSync requests and retry workers without discarding queued
+  operations. Every remote request checks current account status, including between artwork
+  uploads; reinstatement resumes the same saved IDs, credentials, and payloads.
+- Every database export, including admin statistics and downloads, restores SQLite foreign-key
+  enforcement; exports during a transaction are rejected. Deleting an account cascades its
   connections, print operations, decks, proposals, and tokens, preventing reused user IDs from
   inheriting saved credentials.
 - Archidekt reconciliation decisions require an authenticated owner session. Integration

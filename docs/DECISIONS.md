@@ -175,7 +175,8 @@ without claiming planned copies were printed. A batch and account identify one i
 pending plan, even after disconnects, restarts, source-art cleanup, or lost responses.
 
 **Cost.** The CLC database contains encrypted credential copies on pending operations and a
-small print outbox. The separate CLC key must survive database restores. Six automatic attempts
+small print outbox. Account suspension pauses each remote request and worker retry, preserving
+original operation identities for reinstatement. The separate CLC key must survive database restores. Six automatic attempts
 use exponential backoff; users can retry the same operation or inspect a blocked receipt.
 Corrections require explicit quantities, reasons where applicable, and current lot revisions.
 Manual creation stores an immutable receipt per account and operation ID so token rotation

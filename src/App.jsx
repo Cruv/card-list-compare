@@ -25,11 +25,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.47.0';
+const APP_VERSION = '2.47.1';
 const WHATS_NEW = [
-  'Connect ManaSync to review owned cards, shopping shortages, and usable proxy copies',
-  'Share tracked decks across connected apps while reviewing changes and preserving your paper marker',
-  'Keep native Mac print station controls, managed updates, and the validated Epson settings',
+  'Keep reviewed ManaSync edits when refreshing and safely recover interrupted decisions',
+  'Preserve commander choices and stop unsupported provider printings from changing card identity',
+  'Pause ManaSync delivery for suspended accounts and keep account cleanup reliable',
 ];
 
 function getResetToken() {

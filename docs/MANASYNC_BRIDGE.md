@@ -20,6 +20,14 @@ In ManaSync's disposable Docker integration stack, the browser opens CLC at
 `http://localhost:8080` and ManaSync at `http://localhost:8081`, but CLC's outbound connection
 uses **`http://app:8081`**. ManaSync's CLC connection uses **`http://clc`**.
 
+## Paused account delivery
+
+Suspending a CLC account pauses its ManaSync requests, including queued confirmations,
+dismissals, and artwork uploads. The outbox keeps its original operation IDs, credentials,
+and payloads. Reinstating the account lets those same operations resume; it does not create
+new inventory increments. A request already sent before suspension may finish remotely,
+so receipt recovery still uses the original identity.
+
 ## Connect your accounts
 
 1. In ManaSync, create a dedicated API token with `inventory:read` and `proxies:write` only.

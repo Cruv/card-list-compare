@@ -343,6 +343,7 @@ describe('invariant: docs/INVARIANTS.md content anchors resolve', () => {
     ['src/lib/fetcher.js', 'archidektToText'],
     ['server/lib/deckToText.js', 'archidektToText'],
     ['server/db.js', 'export function persist'],
+    ['server/db.js', 'export function exportDatabase'],
     ['server/db.js', 'export function run'],
     ['server/db.js', 'export function runTransaction'],
     ['server/db.js', 'export function transaction'],

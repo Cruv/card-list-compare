@@ -57,6 +57,7 @@ src/components/          UI components; admin/ subdir is the full-page admin pan
    direct `getDb().run()` writes are silently lost. `persist()` is atomic
    (temp+fsync+rename) with `.bak` recovery (v2.40.3) — keep it that way. Write
    via helpers only; `runTransaction()` persists related statements and restores memory on failure.
+   Export only through `exportDatabase()` — raw sql.js export disables foreign-key cleanup.
 2. **Card-line regex is single-sourced** — `CARD_LINE_PATTERN` in
    `src/lib/constants.js`, consumed by parser.js and server enrichment. Never
    fork a local copy (two forks drifted and corrupted data; test-guarded).

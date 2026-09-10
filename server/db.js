@@ -678,7 +678,8 @@ export function persist() {
 // sql.js export closes/reopens the SQLite connection, resetting connection
 // pragmas. Restore foreign keys immediately or later account/deck deletions
 // silently leave credentials, outboxes, and other dependent rows behind.
-function exportDatabase() {
+export function exportDatabase() {
+  if (transactionActive) throw new Error('Cannot export the database during a transaction');
   try {
     return Buffer.from(db.export());
   } finally {

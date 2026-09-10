@@ -1,7 +1,7 @@
 /** Native PDFs publish plans, never inventory. Only reviewed confirmations create holdings. */
 import { randomUUID } from 'node:crypto';
 import { all, get, run, transaction } from '../db.js';
-import { BridgeError, connectionFor, remote, artworkCard, assertExpectedConnection, listQueue } from './manasyncBridge.js';
+import { BridgeError, connectionFor, remote, artworkCard, assertExpectedConnection, listQueue, isBridgeUserActive } from './manasyncBridge.js';
 import { stagePrintJob, uploadOperationArtwork } from './printJobBridge.js';
 
 const activePlans = new Set(), activeActions = new Set();
@@ -73,7 +73,7 @@ export async function stagePreparedPrintJob(userId, jobId) {
 }
 
 export async function syncPendingProxy(userId,id,manual=false) {
-  if (activePlans.has(id)) return;
+  if (activePlans.has(id) || !isBridgeUserActive(userId)) return;
   let plan = planFor(userId,id);
   if (!plan || plan.status === 'dismissed' || (!manual && plan.next_attempt > Date.now())) return;
   const connection = connectionFor(userId);
@@ -157,6 +157,7 @@ export async function confirmPendingProxy(userId,itemId,data) {
 }
 
 export async function reportPendingAction(userId,id,manual=false) {
+  if (!isBridgeUserActive(userId)) return;
   const operation = get('SELECT * FROM manasync_print_operations WHERE id=? AND user_id=? AND pending_id IS NOT NULL',[id,userId]);
   if (!operation || activeActions.has(id) || operation.status === 'reported'
     || (!manual && (operation.status !== 'pending' || operation.next_attempt > Date.now() || operation.attempts >= 6))) return;
@@ -243,7 +244,8 @@ export async function processPendingProxyPlans() {
       ORDER BY created_at LIMIT 2`,[Date.now()]);
     for (const job of jobs) await stagePreparedPrintJob(job.user_id,job.id);
     const plans = all(`SELECT p.item_id,p.user_id FROM manasync_pending_proxy_plans p JOIN manasync_connections c ON c.user_id=p.user_id
-      WHERE p.status!='dismissed' AND p.next_attempt<=? AND c.connected=1
+      JOIN users u ON u.id=p.user_id
+      WHERE u.suspended=0 AND p.status!='dismissed' AND p.next_attempt<=? AND c.connected=1
       AND (p.account_id IS NULL OR (p.account_id=c.account_id AND p.base_url=c.base_url))
       ORDER BY p.next_attempt,p.created_at LIMIT 4`,[Date.now()]);
     for (const plan of plans) await syncPendingProxy(plan.user_id,plan.item_id);

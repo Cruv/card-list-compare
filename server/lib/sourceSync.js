@@ -239,7 +239,13 @@ export function reviewSource(userId, deckId, input) {
     if (action !== 'keep' && text !== state.currentText) {
       resultSnapshotId = String(run('INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,?)',
         [deckId, text, action === 'source' ? 'Reviewed Archidekt source' : 'Reviewed source merge']).lastInsertRowid);
-      run('UPDATE tracked_decks SET commanders = ? WHERE id = ?', [JSON.stringify(parse(text).commanders), deckId]);
+      const commanders = parse(text).commanders;
+      const hasCommanderHeading = text.split(/\r?\n/).some(line => COMMANDER_HEADER.test(line));
+      // Match deckProposals.updateReviewedCommanders: untagged source/merge
+      // lists preserve manual metadata; explicit commander edits replace it.
+      if (commanders.length || hasCommanderHeading || parse(state.currentText || '').commanders.length) {
+        run('UPDATE tracked_decks SET commanders = ? WHERE id = ?', [JSON.stringify(commanders), deckId]);
+      }
       pruneSnapshots(deckId);
     }
     saveRow(deckId, { ...row, base_raw_text: row.source_raw_text, base_text: row.source_text, pending: 0 });

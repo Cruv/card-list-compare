@@ -46,8 +46,6 @@ remains historical context.
 - Run the paired ManaSync `scripts/verify-clc-bridge.mjs` harness against this integrated
   branch and its matching ManaSync revision. The repository URL is still needed locally;
   CLC-only fixtures do not establish compatibility with a deployed ManaSync server.
-- Review proposal recovery, provider printing identity, commander preservation, and suspended
-  user retry behavior before enabling the bridge for the pod.
 - Ownership currently informs review and shopping; it does not automatically remove copies
   from PDFs. Inventory-aware print reduction needs ManaSync to distinguish usable unallocated
   proxies and define reservations, so a copy committed to another deck is not counted twice.

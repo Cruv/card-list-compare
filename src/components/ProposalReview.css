@@ -11,3 +11,9 @@
 .proposal-review-check input { width: auto; }
 .proposal-review-actions { display: flex; gap: .6rem; flex-wrap: wrap; }
 .proposal-review-error { color: var(--danger, #e57373); }
+.proposal-review-recovery { margin: 1rem 0; padding: .8rem; border: 1px solid var(--accent-yellow); border-radius: .5rem; background: var(--bg-secondary); }
+.proposal-review-recovery > div + div { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color); }
+.proposal-review-recovery p { margin: .5rem 0; overflow-wrap: anywhere; }
+.proposal-review-draft-status { margin-bottom: 1rem; color: var(--text-secondary); font-size: var(--fs-sm); }
+.proposal-review textarea { color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: .4rem; padding: .6rem; }
+@media (max-width: 520px) { .proposal-review-texts { grid-template-columns: minmax(0, 1fr); } }

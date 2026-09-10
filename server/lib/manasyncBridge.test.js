@@ -162,6 +162,23 @@ describe('ManaSync durable physical-print bridge',() => {
     expect(writes[1].headers.Authorization).toBe(writes[0].headers.Authorization);
     expect(lots).toHaveLength(1);expect(bridge.listQueue(1)[0].operations[0].receipt.replayed).toBe(true);
   });
+  it('pauses suspended users without consuming retries and resumes the same uncertain acquisition',async () => {
+    await connect(); const item = queue(), operationId = randomUUID(); nextFailure = 'timeout';
+    expect((await confirm(1,item.id,{operationId,quantity:2})).status).toBe('pending');
+    db.run('UPDATE manasync_print_operations SET next_attempt=0 WHERE id=?',[operationId]);
+    const original = db.get('SELECT * FROM manasync_print_operations WHERE id=?',[operationId]);
+    db.run('UPDATE users SET suspended=1 WHERE id=1');
+    fetch.mockClear();
+    await bridge.processPending(); await bridge.reportOperation(1,operationId,true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(db.get('SELECT * FROM manasync_print_operations WHERE id=?',[operationId])).toEqual(original);
+    db.run('UPDATE users SET suspended=0 WHERE id=1');
+    await bridge.processPending();
+    expect(writes).toHaveLength(2); expect(lots).toHaveLength(1);
+    expect(writes[1].body).toBe(original.payload_json);
+    expect(writes[1].headers.Authorization).toBe(writes[0].headers.Authorization);
+    expect(db.get('SELECT status FROM manasync_print_operations WHERE id=?',[operationId]).status).toBe('reported');
+  });
   it('pauses on replacement credentials and reconciles the old actor receipt without repeating acquisition',async () => {
     await connect();const item=queue();const operationId=randomUUID();nextFailure='timeout';
     await confirm(1,item.id,{operationId,quantity:2});

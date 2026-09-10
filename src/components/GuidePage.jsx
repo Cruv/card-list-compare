@@ -194,7 +194,10 @@ function DeckLibrary() {
         to send deck edits back for review. Each deck&rsquo;s <strong>ManaSync proposals</strong>
         panel compares the submitted base, proposed text, and current digital latest.
         Accept or explicitly revise the text to create a new digital snapshot, or reject it.
-        Changed or pruned bases require review. Paper state changes only when you separately
+        Reviewed edits survive refreshing or switching proposals in this browser. When the basis
+        changes, review it again while keeping your text. If a response is lost, retry the saved
+        decision before starting another. Changed or pruned bases require review.
+        Paper state changes only when you separately
         mark the physical deck as updated; proposal decisions never change collection holdings.
       </p>
       <p>

@@ -118,6 +118,45 @@ describe('native pending proxy plans',() => {
     expect(receipts.size).toBe(0); expect(first().operations).toEqual([]);
   });
 
+  it('retains a suspended user’s print plan locally and publishes the same item after reinstatement',async () => {
+    await connect(); db.run('UPDATE users SET suspended=1 WHERE id=1');
+    fetch.mockClear(); await plans.processPendingProxyPlans();
+    const item = first();
+    expect(item.pendingProxy.remainingQuantity).toBe(3);
+    expect(fetch).not.toHaveBeenCalled();
+    await plans.refreshPendingProxyPlans(1);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(db.get('SELECT attempts FROM manasync_pending_proxy_plans WHERE item_id=?',[item.id]).attempts).toBe(0);
+    db.run('UPDATE users SET suspended=0 WHERE id=1');
+    await plans.processPendingProxyPlans();
+    expect(first().id).toBe(item.id);
+    expect(pending.get(item.id)).toMatchObject({quantity:3,confirmedQuantity:0,status:'pending'});
+    expect(receipts.size).toBe(0);
+  });
+
+  it.each(['confirm','dismiss'])('pauses suspended users’ pending %s decisions and resumes the same payload',async kind => {
+    await publish();
+    fetch.mockImplementation((url,options) => url.endsWith(`/${kind}`) ? Promise.reject(new Error('Offline before delivery')) : fakeManaSync(url,options));
+    if (kind === 'confirm') await confirm(1);
+    else await bridge.cancelItem(1,first().id);
+    db.run('UPDATE manasync_print_operations SET next_attempt=0');
+    db.run('UPDATE manasync_pending_proxy_plans SET next_attempt=0');
+    const original = db.get('SELECT * FROM manasync_print_operations');
+    expect(original.status).toBe('pending');
+    db.run('UPDATE users SET suspended=1 WHERE id=1');
+    fetch.mockImplementation(fakeManaSync); fetch.mockClear();
+    await bridge.processPending(); await bridge.reportOperation(1,original.id,true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(db.get('SELECT * FROM manasync_print_operations')).toEqual(original);
+    db.run('UPDATE users SET suspended=0 WHERE id=1');
+    await bridge.processPending();
+    const delivery = requests.find(request => request.url.endsWith(`/${kind}`));
+    expect(delivery.body).toBe(original.payload_json);
+    expect(delivery.headers.Authorization).toBe('Bearer actor-one');
+    expect(db.get('SELECT status FROM manasync_print_operations').status).toBe('reported');
+    expect(receipts.size).toBe(1);
+  });
+
   it('confirms usable quantities only by remote pending endpoint and retains partial/external history',async () => {
     const item = await publish();
     expect((await confirm(1)).status).toBe('reported');
