@@ -25,11 +25,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.47.1';
+const APP_VERSION = '2.47.2';
 const WHATS_NEW = [
-  'Keep reviewed ManaSync edits when refreshing and safely recover interrupted decisions',
-  'Preserve commander choices and stop unsupported provider printings from changing card identity',
-  'Pause ManaSync delivery for suspended accounts and keep account cleanup reliable',
+  'Keep paper reload confirmations tied to the exact double-sided batch waiting for its back pass',
 ];
 
 function getResetToken() {

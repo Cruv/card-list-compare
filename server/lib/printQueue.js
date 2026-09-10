@@ -421,8 +421,12 @@ export function reportPrintJob(id, event) {
     if (!next?.requiresRefeed || next.refeedConfirmed || steps.some(item => ['submitting', 'submitted'].includes(item.state))) throw printError('This job is not ready for refeed', 409);
     state = 'awaiting_refeed';
   } else if (event.state === 'refeed') {
-    if (state !== 'awaiting_refeed' || !next?.requiresRefeed || next.state !== 'pending') throw printError('This job is not waiting for a paper refeed', 409);
-    Object.assign(next, { refeedConfirmed: true, refeedAt: now() }); state = 'claimed';
+    const front = steps.find(item => item.artifactId === event.artifactId && item.phase === 'fronts');
+    if (state !== 'awaiting_refeed' || !step || step !== next || step.phase !== 'backs'
+      || !step.requiresRefeed || step.refeedConfirmed || step.state !== 'pending' || front?.state !== 'completed') {
+      throw printError('This exact back pass is not waiting for a paper refeed after completed fronts', 409);
+    }
+    Object.assign(step, { refeedConfirmed: true, refeedAt: now() }); state = 'claimed';
   } else if (event.state === 'uncertain') {
     if (!step || !['submitting', 'submitted', 'uncertain'].includes(step.state)) throw printError('No submission exists to reconcile', 409);
     Object.assign(step, { state: 'uncertain', detail: event.detail || 'Submission outcome unknown' }); state = 'uncertain'; error = step.detail;

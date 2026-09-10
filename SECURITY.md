@@ -106,7 +106,9 @@ installed as the unprivileged service user, and activated only after validation.
 uses argument arrays with closed stdin, bounded subprocesses and no user-provided commands.
 The native station chooses its printer/options locally, verifies artifacts and records
 submission intent before spooling. Replayed requests do not authorize repeated submissions;
-ambiguous physical outcomes require reconciliation. Manual DFC backs need explicit refeed.
+ambiguous physical outcomes require reconciliation. Manual DFC backs need explicit refeed
+for the exact pending back pass, after that artifact's fronts have completed. Stale or
+wrong-artifact confirmations cannot release a later batch.
 
 The [Mac companion](companion/mac/README.md) requires a private user-owned token/config
 and state directory. Downloads stay on the configured server origin and reject redirects.

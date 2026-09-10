@@ -225,6 +225,53 @@ describe('station submission, manual refeed, and ambiguity', () => {
     report(job, 'submitted', { ...back, spoolerId: 'Epson-2' }); report(job, 'completed', { ...back, spoolerId: 'Epson-2' });
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
   });
+  it('binds refeed reports to the exact pending back pass and never reuses a prior batch confirmation', async () => {
+    db.run("UPDATE deck_snapshots SET deck_text = '8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+    services.generatePrintPdfs.mockImplementationOnce(async ({ outputDir }) => {
+      mkdirSync(outputDir, { recursive: true });
+      const artifacts = ['fronts', 'double-faced'].map((id, index) => {
+        const bytes = Buffer.from(`%PDF-1.4\nFixture ${id}\n%%EOF\n`), path = join(outputDir, `${id}.pdf`);
+        writeFileSync(path, bytes);
+        return { id, kind: 'dfc', path, sha256: hash(bytes), size: bytes.length, pageCount: 2, sheetCount: 1, cardCount: index ? 1 : 7, slotMap: [] };
+      });
+      return { revision: 'fixture', runtimeVersion: 'fixture', recipe: { id: 'household-letter-v6' }, artifacts, slots: [], images: [] };
+    });
+    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
+    const firstFront = { artifactId: 'fronts', phase: 'fronts' }, firstBack = { artifactId: 'fronts', phase: 'backs' };
+    const secondFront = { artifactId: 'double-faced', phase: 'fronts' }, secondBack = { artifactId: 'double-faced', phase: 'backs' };
+    const finish = (pass, spoolerId) => {
+      report(job, 'submitting', pass); report(job, 'submitted', { ...pass, spoolerId }); report(job, 'completed', { ...pass, spoolerId });
+    };
+    const sendRefeed = extras => station(`/jobs/${job.id}/report`, 'POST', {
+      claimToken: job.claimToken, eventId: crypto.randomUUID(), state: 'refeed', ...extras,
+    });
+    expect((await sendRefeed(firstBack)).status).toBe(409); // fronts have not printed
+    finish(firstFront, 'Epson-1');
+    const before = db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id]);
+    for (const wrong of [{}, { artifactId: 'fronts' }, { phase: 'backs' }, firstFront, secondBack]) {
+      expect((await sendRefeed(wrong)).status).toBe(409);
+      expect(db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id])).toEqual(before);
+    }
+    const original = { claimToken: job.claimToken, eventId: crypto.randomUUID(), state: 'refeed', ...firstBack };
+    expect(queue.reportPrintJob(job.id, original).replayed).toBe(false);
+    finish(firstBack, 'Epson-2'); finish(secondFront, 'Epson-3');
+    const held = db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id]);
+    expect(held.state).toBe('awaiting_refeed');
+    expect(queue.reportPrintJob(job.id, original).replayed).toBe(true);
+    expect((await sendRefeed(firstBack)).status).toBe(409);
+    expect(db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id])).toEqual(held);
+    expect((await sendRefeed(secondBack)).status).toBe(200);
+    finish(secondBack, 'Epson-4');
+    expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
+  });
+  it('rejects refeed when the matching front completion is absent from a malformed recovered step list', async () => {
+    db.run("UPDATE deck_snapshots SET deck_text = '1 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
+    const steps = job.steps.filter(step => step.phase === 'backs');
+    db.run("UPDATE print_jobs SET state='awaiting_refeed', steps_json=? WHERE id=?", [JSON.stringify(steps), job.id]);
+    expect(() => report(job, 'refeed', { artifactId: 'double-faced', phase: 'backs' })).toThrow('completed fronts');
+    expect(queue.getOwnedPrintJob(1, 1, job.id).steps[0].refeedConfirmed).toBe(false);
+  });
   it('turns restart after submission intent into uncertainty and requires reconciliation before retry', async () => {
     await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
     report(job, 'submitting', ordinary());
