@@ -3,12 +3,14 @@
 This companion polls CLC for explicitly queued print jobs and submits their verified PDFs
 to one locally configured Epson CUPS queue. It runs outside Docker, uses Python 3.9+ and
 macOS's native `lp`, `lpstat`, `lpoptions` and `ipptool`, and needs no Python packages.
+The managed installer bundles its own Python runtime; it does not require a Git checkout
+or a separately installed Python. Source-based operation remains available for development.
 Installing or running this code does not install an Epson driver or reproduce an Adobe
 print preset. Physical printing is disabled until `recipe_verified` is explicitly enabled.
 
 CLC generates the PDFs with Silhouette Card Maker. The companion keeps the server's card
 copies, 600 PPI, 1 mm crop, Letter v6 layout, skipped slot and registration geometry intact.
-It submits one copy at actual size, with automatic duplex disabled. Ordinary fronts and
+It submits one copy in landscape at actual size, with automatic duplex disabled. Ordinary fronts and
 DFC front/back passes are separate submissions. The local queue, media/color driver
 options and page order are configured here; server data cannot supply executable paths,
 printer destinations or CUPS options.
@@ -16,8 +18,85 @@ printer destinations or CUPS options.
 See the [household print recipe](../../docs/HOUSEHOLD_PRINT_RECIPE.md) for the working Windows
 reference: Uinkit 200 gsm double-sided glossy Letter, ET-8550 rear paper feeder, Ultra
 Premium Photo Paper Glossy, Best quality and printer-managed EPSON Vivid. The generated
-DeviceRGB output is not an ICC-converted proof. The Mac automated rendering path still
-needs comparison with the accepted Adobe output using the same PDF, paper and driver.
+DeviceRGB output is not an ICC-converted proof. The owner accepted the household Mac's
+corrected companion sheet against Adobe on 2026-09-10. Keep its recorded settings fixed;
+v6 cut geometry and manual duplex still need physical proof before enabling their flags.
+
+## Install once, manage from CLC
+
+Extract the `clc-print-station-macos-arm64.tar.gz` package on an Apple Silicon Mac, or the
+`x86_64` package on an Intel Mac. Open **Install CLC Print Station.command** inside the
+extracted `CLC-Print-Station` folder. The installer uses the included runtime, asks for the
+CLC origin, installed Epson queue and hidden station token when no configuration exists,
+and installs a user LaunchAgent. No administrator password is needed for this user service.
+The Epson driver is a separate prerequisite. This package is not Developer-ID signed or
+notarized; it does not remove macOS quarantine or bypass approval for downloaded software.
+
+Printing starts **paused**. An existing private configuration is preserved, including its
+driver options and proof flags. A new configuration leaves both proof flags off and requires
+the actual local Epson recipe described below. The service can report setup health without
+being able to print. Set the server's matching `PRINT_STATION_TOKEN` and household user grants
+in the container configuration, then open **Print Station** in CLC for daily operation.
+
+The default installation is:
+
+| Location | Purpose |
+| --- | --- |
+| `~/.config/clc-print-station/config.json` and `station-token` | Private connection and print settings |
+| `~/Library/Application Support/CLC Print Station/station.sqlite3` | Durable print and control receipts |
+| `~/Library/Application Support/CLC Print Station/app/versions/` | Complete versioned code and Python runtimes |
+| `app/current`, `app/previous` | Atomic current selection and retained rollback version |
+| `~/Library/LaunchAgents/local.clc.print-station.plist` | Start at login and restart the stable launcher after failure |
+
+The Mac must be awake and this user logged in. The downloaded installer folder may be moved
+or removed after installation; the installed service uses its own copy. Keep configuration,
+state and installed versions on the Mac's local disk, not an SMB share. Logs live beside the
+ledger; at service startup, logs over 5 MiB rotate with three retained backups. The CLC page
+shows bounded structured activity rather than exposing arbitrary local log files.
+
+Administrators can **Check for updates**, install the displayed newer version, or roll back
+to the retained version. Updates use published stable packages from the fixed
+[`Cruv/card-list-compare` GitHub repository](https://github.com/Cruv/card-list-compare/releases).
+App releases without companion assets are skipped. Network failure preserves the current
+installation. The manager verifies GitHub asset digests, the release manifest, archive size,
+contained paths/links and every bundled file, then runs a no-print runtime self-check before
+selecting a version. This trusts the repository publisher over HTTPS; it is not an Apple
+code-signing guarantee. CLC cannot choose a different publisher or send executable code.
+
+An update requires an idle ledger and leaves the station paused. Active prints, uncertain
+outcomes and DFC refeed waits block version changes. An explicitly abandoned/reconciled
+terminal batch retains its receipt history without blocking future updates. Code/runtime
+rollback preserves configuration, the token, PDFs and the ledger. The first installation
+has no previous version to roll back to. No version change prints a test sheet automatically.
+
+For migration from a running checkout, pause it and unload its existing LaunchAgent first.
+Move that old plist to a backup path before installing; a conflicting existing LaunchAgent
+is rejected. Do not erase the print ledger to make installation succeed. To use a nondefault
+existing configuration, invoke the extracted installer with `--config /absolute/config.json`.
+`--no-launch` installs paused and writes the plist without loading the service.
+
+## Build and publish packages
+
+On a Mac, from the repository root, build a package for its native architecture:
+
+```bash
+python3 companion/mac/build_bundle.py --output /tmp/clc-station-package
+```
+
+The builder requires matching app/companion versions, downloads a pinned SHA-256-verified
+Python standalone runtime into a local cache, includes its license notices and source
+metadata, and refuses to overwrite an existing package output. It does not publish or print.
+The pinned runtime is CPython 3.13.15 from the
+[python-build-standalone 20260901 release](https://github.com/astral-sh/python-build-standalone/releases/tag/20260901).
+Build archives and runtime caches stay outside Git.
+
+The manually dispatched **Build Mac Print Station Packages** workflow tests/builds each
+native architecture and assembles `clc-print-station-manifest.json`. Its default only
+uploads CI artifacts. The optional draft upload requires an already-existing matching
+`vX.Y.Z` draft release and does not create a tag or publish that draft. After explicit
+release approval, publish the matching draft with both archives and the combined manifest;
+only then can installed companions discover that release. Ordinary branch pushes do not
+publish companion packages or silently update household Macs.
 
 ## Configure without printing
 
@@ -54,9 +133,33 @@ invented universal Epson option names. `doctor` rejects unadvertised configured 
 checks queue availability and tests read-only job reconciliation. It reports the chosen
 recipe fingerprint and proof flags. A successful report is not a color or alignment proof.
 
-The companion fixes `media=Letter`, `sides=one-sided`, `number-up=1`, `print-scaling=none`,
-`fit-to-page=false` and one copy per pass. Do not add these reserved options to
-`driver_options`. The default ordinary output order is `reverse`, matching the supplied
+For the household's installed **ET-8550 driver 13.45**, the
+[driver-options example](epson-et8550-13.45-driver-options.example.json) captures the
+advertised options saved by the native **CLC Uinkit 54lb - Fronts** preset. Copy its object
+into `driver_options` and use the installed queue name `EPSON_ET_8550_Series`. This is an
+unproved automation starting point, not a ready-to-run configuration: set the server/token
+locally and retain both proof flags as false until their respective physical checks pass. The
+[recorded Mac setup](../../docs/HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09)
+explains the observed color/profile flags and Windows controls without verified equivalents.
+
+On first use, macOS may request Local Network access separately for **EPSON Printer
+(rastertoescpII)**, the actual print filter. Allow it locally. Permissions for Epson's
+setup or supply-level helpers do not cover this filter. A queue can remain at **Looking
+for printer** even when `doctor` and direct printer status queries succeed. Check
+**System Settings → Privacy & Security → Local Network** and any pending permission
+prompt before changing the queue or its color settings.
+[Epson documents this filter-specific permission](https://epson.com/faq/SPT_SEQUOIA-NS~faq-0000b89-macos_15).
+
+If granting permission leaves an existing job stuck, reconcile its status and the
+printer's status before pausing/resuming that same job in Print Center. Do not submit a
+second copy to test connectivity. The household's first test needed this resume after
+permission was granted; the existing job then connected successfully.
+
+The companion fixes `media=Letter`, `orientation-requested=4` (landscape), `sides=one-sided`,
+`number-up=1`, `print-scaling=none`, `fit-to-page=false` and one copy per pass. Landscape must
+be explicit: the native Mac command-line path can otherwise place a landscape PDF on a
+portrait Letter sheet and clip its right edge. Do not add these reserved options or the
+`landscape` alias to `driver_options`. The default ordinary output order is `reverse`, matching the supplied
 Windows reference. The two DFC output-order settings are independent and remain unverified
 defaults until the actual rear-feeder flip/reload sequence is tested. Never enable automatic
 duplex or reverse pages in two different layers to compensate without checking the proof.
@@ -144,13 +247,18 @@ is recorded as a pre-submission failure. Any replacement printing must be an
 explicit new CLC request after inspecting what actually
 printed. Network/report retries reuse durable event IDs. Recipe or queue changes during an
 active job are rejected; restore the original settings to finish that job consistently.
+The fingerprint includes the companion's fixed page settings as well as local driver
+options. Finish or reconcile active batches before updating the companion. Versions before
+2.44.2 omitted landscape and fixed settings from the fingerprint; old in-flight records
+will stop under the new code rather than silently change orientation. Use the prior version
+to reconcile those batches first; never erase receipts or rewrite fingerprints to resume.
 
 PDF limits default to 1 GiB per artifact and 2 GiB per job. Hashing and downloading stream
 in 256 KiB blocks. Completed/failed local PDF directories expire after seven days; active,
 uncertain and awaiting-refeed files are retained. Job/pass/event tombstones remain in the
 ledger to prevent duplicate submission. Do not delete the ledger to retry a print.
 
-## Optional start at login
+## Optional start at login for a source checkout
 
 Use an absolute Python executable and keep this checkout/path stable. The following command
 only writes a user LaunchAgent plist; it does not load launchd or contact the printer:
@@ -186,6 +294,29 @@ pass states. A PDF download-only job is never claimed. Lease heartbeats retain t
 submission/manual-refeed/uncertain states are never automatically requeued for printing.
 The companion refuses external download origins and all HTTP redirects, keeping its token
 on the configured CLC origin. [CUPS command options](https://www.cups.org/doc/options.html)
+
+### CLC station controls
+
+Open **Print Station** in CLC to see this Mac's heartbeat, printer check, version, proof
+flags, active batch and recent events. Authorized household print users can pause/unpause
+and confirm the exact waiting DFC batch has been flipped and reloaded. Administrators have
+version controls when a managed installation is available; a source checkout reports those
+as unsupported. The existing CLI controls remain available.
+
+`run` now reports setup health even with `recipe_verified: false`. It does not claim jobs
+or submit pages until the local recipe is verified and the station is unpaused. A failed
+management heartbeat blocks fresh claims/submissions; submitted jobs retain their original
+reconciliation path. The Mac has no inbound control listener and does not enable printer
+sharing. Proof flags, queue and Epson options cannot be changed remotely.
+
+Controls arrive through `POST /api/print-station/heartbeat` alongside status, recent bounded
+events and durable receipts. Pause/refeed changes and their receipts commit together in the
+local ledger. Replays never reapply a control, and changed payloads under the same ID are
+rejected. Refeed includes the current job and back-pass artifact. Controls expire after
+five minutes; a delivered control's late receipt still records what actually happened.
+The local ledger retains control tombstones and the latest 200 diagnostic events. Version
+changes require no active local batch, preserve the ledger/configuration and leave printing
+paused until an operator unpauses. Never remove receipts to force an update or reprint.
 
 ```bash
 python3 -m unittest discover -s companion/mac -p 'test_*.py'

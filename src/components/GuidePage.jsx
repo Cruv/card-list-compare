@@ -478,8 +478,17 @@ function ProxyPrinting() {
       <p>
         Authorized household accounts can generate and send a batch to the Mac, or queue a
         ready PDF later. The Mac companion picks up queued PDFs, keeps submission history and
-        waits for manual DFC flip/reload. Set up the companion on the Mac using the repository’s
-        companion/mac instructions; its status, pause and resume controls manage the station.
+        prints Letter sheets in landscape at actual size and waits for manual DFC flip/reload.
+        Install the self-contained Mac companion using the repository’s
+        companion/mac instructions. It includes its runtime, starts at login and initially
+        keeps printing paused. Then open <strong>Print Station</strong> from the navigation
+        or a deck’s Printing tab. It shows the Mac’s connection, printer health, current batch,
+        recipe proof status and recent activity. Pausing stops new station work; pages already
+        sent to Epson keep printing. To resume double-faced cards, match the batch shown and
+        confirm that you have physically flipped and reloaded those sheets. Offline or stale
+        status disables controls. Administrators can check for a companion update and install
+        the displayed version or roll back to the retained version while the station is idle.
+        Version changes preserve print history and leave the station paused until you unpause it.
         The Mac’s Epson driver and color recipe need a physical proof
         before unattended use. Canceling is available before submission; uncertain submissions
         need review at the Mac. Spooler completion does not update the assembled paper deck or

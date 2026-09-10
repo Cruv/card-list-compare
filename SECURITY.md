@@ -54,7 +54,8 @@ the global limit applies to requests actually handled by the Node backend.
 ## Browser hardening
 
 - **CSP** on document responses (nginx): `default-src 'self'`, `script-src 'self'` (the Vite
-  build has no inline scripts), external images limited to Scryfall + Google Drive (MPC art),
+  build has no inline scripts), external images limited to Scryfall + Google Drive (MPC art).
+  Image-only `blob:` URLs allow private artwork fetched with the signed-in user’s credentials;
   `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`. This is the main mitigation
   for the token-in-localStorage exposure. Adding a new external resource host means updating
   the CSP in `nginx.conf` (two places: server block + `= /index.html`).
@@ -113,6 +114,26 @@ It uses fixed native command paths and argument arrays, verifies PDF hashes befo
 and preserves local submission receipts across restarts. Keep the state directory and CUPS
 job history for recovery. Its example leaves physical-proof flags disabled; tests and the
 local dry-run command never submit to a real printer.
+
+Station management is a separate user-authenticated surface: administrators or explicitly
+authorized household users can read live status/events and request pause, unpause or a
+specific manual DFC refeed. Update checks, version changes and rollback require administrator
+status. The browser never receives the station token. The Mac polls outbound for a fixed
+allowlist of controls; commands cannot contain executable paths, printer options, arbitrary
+URLs or scripts. Local proof flags remain local. Refeed commands bind the job and artifact,
+and commands expire and carry durable idempotency receipts. Software version changes cannot
+proceed while the local ledger contains an active, uncertain or awaiting-refeed batch.
+Telemetry is bounded and credential-redacted; only authorized household operators see it.
+
+The managed installer bundles a pinned standalone Python runtime and preserves its upstream
+license/source metadata. Version updates use only stable GitHub assets from the fixed
+`Cruv/card-list-compare` publisher, with no station credential attached to those downloads.
+They validate GitHub asset SHA-256 values, a matching release manifest, bounded archive
+contents and contained links, per-file checksums and a no-print startup self-check. The
+publisher remains trusted to distribute executable updates; checksum validation is not
+Developer-ID signing or notarization. Packages do not remove macOS quarantine. CLC users
+cannot provide an update URL or replace the printer recipe. Version rollback preserves
+current credentials and submission records rather than restoring an old state backup.
 
 Print history retains private snapshot/art details after artifact expiry. Account deletion
 purges its jobs/files, but active physical submissions must first be reconciled. Legacy

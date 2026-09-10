@@ -577,6 +577,25 @@ export async function initDb() {
     PRIMARY KEY(job_id, event_id)
   )`);
 
+  // Station telemetry stays in memory; commands and acknowledgements survive
+  // server restarts. Retain command identities to prevent accidental replay.
+  db.run(`CREATE TABLE IF NOT EXISTS print_station_commands (
+    id TEXT PRIMARY KEY, station_id TEXT NOT NULL, requester_id INTEGER NOT NULL,
+    request_key TEXT NOT NULL, request_hash TEXT NOT NULL, payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+    delivered_at TEXT, acknowledged_at TEXT, message TEXT, receipt_hash TEXT,
+    UNIQUE(requester_id, request_key)
+  )`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_station_commands_pending ON print_station_commands(station_id, status, created_at)');
+  db.run(`CREATE TABLE IF NOT EXISTS print_station_events (
+    id TEXT PRIMARY KEY, at TEXT NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL,
+    event_hash TEXT NOT NULL, received_at TEXT NOT NULL
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS print_station_controls (
+    station_id TEXT PRIMARY KEY, paused INTEGER NOT NULL DEFAULT 0
+  )`);
+  db.run("INSERT OR IGNORE INTO print_station_controls (station_id, paused) VALUES ('household', 0)");
+
   // Migration: store MPC art overrides per deck (JSON blob)
   try {
     db.run('ALTER TABLE tracked_decks ADD COLUMN mpc_art_overrides TEXT');

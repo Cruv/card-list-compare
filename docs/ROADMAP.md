@@ -12,9 +12,15 @@ and physical-copy delta plans, frozen artwork/face manifests, the actual cached 
 runtime, downloadable PDFs and an authenticated station protocol. The
 [native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
 configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
+CLC's Print Station page now reports live station health and controls pause/refeed through
+durable commands; managed version controls are restricted to administrators and idle stations.
+The self-contained Mac installer now bundles its runtime, starts paused at login, and
+supports checked version updates and rollback without replacing configuration or print history.
 
-The household still needs to install its Epson Mac queue and validate color against Adobe,
-then test v6 cutter geometry and manual DFC page order/flip/alignment. The owner's 600 PPI,
+The household Mac now has Epson driver 13.45, a saved Uinkit fronts preset, an accepted
+Adobe color test after nozzle cleaning, and an accepted companion sheet after the landscape
+fix. Remaining work is to test v6 cutter geometry and manual DFC
+page order/flip/alignment. The owner's 600 PPI,
 1 mm crop, skipped slot 4 and Epson Vivid recipe are preserved in
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The Mac must be awake for unattended
 ordinary fronts; DFCs remain separate manual-refeed batches. Drying, lamination and cutting
@@ -34,6 +40,17 @@ spooling sheets does not credit inventory or advance the paper marker. Legacy co
 rows remain in backups with no automatic migration. Broader vendor, ManaBox, and offline
 companion work belongs in ManaSync; [the original discussion](MANASYNC_INTEGRATION.md)
 remains historical context.
+
+### Next bridge work
+
+- Run the paired ManaSync `scripts/verify-clc-bridge.mjs` harness against this integrated
+  branch and its matching ManaSync revision. The repository URL is still needed locally;
+  CLC-only fixtures do not establish compatibility with a deployed ManaSync server.
+- Review proposal recovery, provider printing identity, commander preservation, and suspended
+  user retry behavior before enabling the bridge for the pod.
+- Ownership currently informs review and shopping; it does not automatically remove copies
+  from PDFs. Inventory-aware print reduction needs ManaSync to distinguish usable unallocated
+  proxies and define reservations, so a copy committed to another deck is not counted twice.
 
 ## Open — reviewed 2026-09-08
 

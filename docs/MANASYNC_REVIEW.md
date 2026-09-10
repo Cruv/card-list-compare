@@ -1,9 +1,9 @@
 # Review the ManaSync integration
 
-This branch starts from `codex/project-audit-print-workflow` at
-`f527e0ac34e0dbdcf854693d0407381d0a5717e0` (v2.44.1). It carries forward the local
-ManaSync ownership, print confirmation, deck creation/proposal, and protected Archidekt
-refresh work while retaining the native PDF/Mac print workflow and full printing identity.
+PR #5 brings ManaSync ownership, pending proxy artwork, deck creation/proposals, and
+protected provider refresh into `codex/project-audit-print-workflow`. Its original base was
+v2.44.1; the integrated branch also retains the v2.46 Mac station dashboard, managed
+installer/update/rollback, and the accepted Epson landscape/color recipe.
 
 The paired ManaSync server needs the scoped inventory/deck integration APIs, persistent
 proxy artwork, and pending-proxy APIs described in [the bridge contract](MANASYNC_BRIDGE.md).
@@ -60,5 +60,6 @@ docker build -t clc-review .
 The paired ManaSync checkout's `scripts/verify-clc-bridge.mjs` runs both real servers against
 disposable databases. Set `CLC_BRIDGE_BROWSER=1` to include browser interaction, custom-art
 checks, partial confirmation/dismissal across apps, and desktop/phone layout captures.
-Its native print manifest uses synthetic images; physical Epson printing and cutting still
-need a hardware proof.
+Its native print manifest uses synthetic images. The household Adobe color test and corrected
+native landscape sheet have passed; v6 cutter geometry and manual DFC refeed alignment
+still need physical proof. See [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).

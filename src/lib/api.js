@@ -18,21 +18,30 @@ async function apiFetch(path, options = {}) {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  const callerSignal = options.signal;
+  const cancel = () => controller.abort();
+  callerSignal?.addEventListener('abort', cancel, { once: true });
+  if (callerSignal?.aborted) controller.abort();
 
   let res;
+  let data;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
       signal: controller.signal,
     });
+    // Keep cancellation and timeout active until the response body is consumed.
+    data = res.ok ? await res.json() : await res.json().catch(() => ({}));
   } catch (err) {
+    if (callerSignal?.aborted) throw err;
     if (err.name === 'AbortError') {
       throw new Error('Request timed out. Please try again.');
     }
     throw new Error('Network error. Check your connection and try again.');
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', cancel);
   }
 
   if (res.status === 401) {
@@ -42,13 +51,12 @@ async function apiFetch(path, options = {}) {
   }
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
     const error = new Error(data.error || `Request failed: ${res.status}`);
     error.status = res.status;
     throw error;
   }
 
-  return res.json();
+  return data;
 }
 
 // Auth
@@ -547,3 +555,8 @@ export async function getPrintQueueArtwork(itemId, face, signal) {
   }
   return res.blob();
 }
+// Household station management uses the signed-in user's account, never station credentials.
+export const getPrintStationStatus = (signal) =>
+  apiFetch('/print-station-management/status', { signal, timeout: 10_000 });
+export const sendPrintStationCommand = (command, signal) =>
+  apiFetch('/print-station-management/commands', { method: 'POST', body: JSON.stringify(command), signal });

@@ -13,6 +13,7 @@ const DeckLibrary = lazy(() => import('./components/DeckLibrary'));
 const DeckPage = lazy(() => import('./components/DeckPage'));
 const SharedDeckView = lazy(() => import('./components/SharedDeckView'));
 const GuidePage = lazy(() => import('./components/GuidePage'));
+const PrintStationPage = lazy(() => import('./components/PrintStationPage'));
 import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
@@ -24,11 +25,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.45.2';
+const APP_VERSION = '2.47.0';
 const WHATS_NEW = [
-  'Automatically track Archidekt, Moxfield, and DeckCheck sources added through ManaSync',
-  'Keep one deck across connected apps while preserving CLC snapshots and your paper marker',
-  'See when source tracking is waiting for a complete, readable provider list',
+  'Connect ManaSync to review owned cards, shopping shortages, and usable proxy copies',
+  'Share tracked decks across connected apps while reviewing changes and preserving your paper marker',
+  'Keep native Mac print station controls, managed updates, and the validated Epson settings',
 ];
 
 function getResetToken() {
@@ -47,6 +48,7 @@ const AUTH_ROUTES = {
   library: 'The deck library',
   libraryDeck: 'This deck',
   admin: 'The admin panel',
+  printStation: 'The print station',
 };
 
 export default function App() {
@@ -280,6 +282,17 @@ export default function App() {
       <ErrorBoundary>
         <Suspense fallback={<div className="app-loading">Loading...</div>}>
           <UserSettings />
+        </Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  // Household print station (authenticated)
+  if (route === 'printStation' && user) {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <PrintStationPage key={user.id} />
         </Suspense>
       </ErrorBoundary>
     );

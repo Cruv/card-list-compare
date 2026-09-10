@@ -151,6 +151,16 @@ Do not copy a Windows or Mac venv into the Linux cache. Runtime compatibility is
 an offline rebuild succeeds only if compatible wheels are already stored. Back up the whole
 data mount, including source and wheels, for offline recovery.
 
+On macOS/OrbStack, keep the live data bind mount on the Docker host's local filesystem.
+An SMB-backed scratch directory under the household's `/Volumes/Storage` share produced
+open-file `.smbdelete*` tombstones held by OrbStack: upstream generated and validated its
+PDF, but the adapter's final directory cleanup failed with `Directory not empty`. This
+does not establish a problem with native local storage. The calibration succeeded using
+container-local scratch and copying finalized artifacts to SMB. Use SMB for finalized
+exports or backups, not this stack's live generation/cache/database directory. Do not
+suppress cleanup errors or move production staging across filesystems without preserving
+its atomic publication guarantees.
+
 The adapter invokes upstream once per seven-card sheet at 600 PPI and merges completed
 sheets. Double-faced cards remain a separate artifact. Allow at least 2 GiB of container
 memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
@@ -171,8 +181,41 @@ Install [companion/mac](../companion/mac/README.md) on the Mac outside Docker. U
 `doctor` and local `dry-run` commands before configuring physical-proof flags. Its private
 state directory contains the submission ledger and downloaded PDFs; preserve that state
 across upgrades and do not run multiple independent stations against one household token.
-The optional LaunchAgent is written on request and installed by the operator after proof.
+The self-contained Mac installer includes Python and installs a user LaunchAgent, initially
+paused. It can report setup health before proof flags are enabled. For source development,
+the optional LaunchAgent writer remains available separately.
 The repository's automated tests use fake submissions and never configure a printer.
+
+The **Print Station** page centralizes health, version, event history, pause/unpause and
+batch-specific DFC reload controls. It requires the same household authorization as
+physical queue requests; only administrators may request version checks/changes. Install
+matching server and companion versions for the heartbeat/control protocol. A companion
+that cannot contact this protocol stops new submissions while retaining its ledger for
+reconciliation. Starting an unverified companion is supported for setup/telemetry and does
+not enable physical printing. A source checkout reports managed updates as unavailable.
+
+Live health is kept in server memory to avoid rewriting the entire sql.js database every
+five seconds. Server restart correctly resets the station to offline. Control intents and
+receipts are durable database rows; the Mac also retains local idempotency records. Commands
+expire after five minutes if not applied. A late receipt can still settle a command that
+was delivered in time; expiry is not proof that its action did not occur. Do not recreate
+an uncertain request without inspecting its receipt and the current station state.
+
+Managed code/runtime versions live under the local state directory's `app/versions`, with
+`current` and `previous` selections. The installer preserves an existing config/token/ledger
+and refuses to migrate an active station. Restarting launchd selects a complete installed
+version through a stable launcher; moving the original checkout or extracted installer
+does not affect it. Keep these paths on local Mac storage. Back up the entire state and
+private configuration together. Do not restore just an old ledger over newer print receipts.
+
+Companion updates come from stable published GitHub release assets in the fixed CLC repo.
+The updater checks archive/manifest digests, path containment and startup self-check before
+activation. It retains the prior version and does not switch on download/validation failure.
+Updates and rollback wait for no active local job; ambiguous submissions and DFC waits block
+them. They preserve the current ledger/config and leave the station paused. Log files rotate
+at launch when over 5 MiB, keeping three backups. A package's first installation has no
+rollback version. See the companion README for installer migration and the explicit
+build/draft-publication workflow; pushing a feature branch does not publish an update.
 
 Jobs live under `data/print-jobs/`. The default quota is 10 GiB
 (`PRINT_STORAGE_MAX_MB=10240`). Preparation requires 5 GiB of working headroom for the
