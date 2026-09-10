@@ -123,14 +123,34 @@ and EPSON Vivid controls on the Mac permits validation against the owner's Adobe
 output while CLC handles generation, storage and household requests.
 **Cost.** The Mac must be awake/available to submit. Its automated rendering path needs a
 color proof against Adobe; GUI presets cannot be assumed to transfer to CUPS. Double-faced
-cards remain a separate batch requiring manual flip/reload. Durable job IDs and submission
+cards use separate one-sheet packets requiring manual flip/reload. Durable job IDs and submission
 reconciliation are needed to avoid duplicate output after interrupted connections.
 **Where.** [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md),
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md), and
 [companion/mac](../companion/mac/README.md). The PDF/job API and Mac companion are implemented;
 physical validation remains. The production runtime uses
 Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
-The adapter keeps 600 PPI while generating one sheet at a time and merging compressed PDFs.
+The adapter keeps 600 PPI while generating one sheet at a time and merging ordinary fronts.
+
+**One-sheet DFC packets (2026-09-10).** Keep each deck isolated and print its ordinary fronts
+first. Each subsequent DFC artifact contains at most seven copies on exactly two pages:
+front, then back. Partial sheets are intentional; easier paper handling takes priority over
+filling every position. Numbered packet IDs and the printed `CLC <job-short-ID> DFC x/y`
+label connect the physical sheet to its waiting pass. Labels use upstream's existing front
+margin, preserving the v6 geometry, crop and registration marks. Legacy artifacts are not
+rewritten; their multi-sheet layout and missing job labels require preview/all-page review.
+
+After a front pass completes, hold the household queue and alert the operator. Only an
+explicit confirmation for the exact waiting job/packet permits its one-sided back pass;
+the next packet waits until that pass completes. The wait remains visible while paused.
+Default Mac notifications with Glass sound and optional locally configured Discord delivery
+are reminders, never print authorization. Dismissal and delivery failure cannot resume a
+job. Webhook credentials stay in the private Mac config, and only its configured user ID
+can be mentioned. No webhook was configured or sent during implementation.
+
+The real cached generator passed offline rendering/pixel checks for one ordinary card and
+eight DFCs split into seven-copy and one-copy packets. No paper was printed; the household
+v6 cutting and manual duplex proofs remain separate pending work.
 
 **Management extension (2026-09-10).** Keep the validated native Epson submission path and
 make CLC the station management interface. The Mac polls outbound for health/control work;

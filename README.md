@@ -2,7 +2,7 @@
 
 Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, and proxy image exports.
 
-CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with separate ordinary and double-faced batches. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with ordinary fronts followed by separate, one-sheet double-faced packets for that deck. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ## Supported Architectures
 
@@ -183,12 +183,18 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Whole deck or changes** — choose exact snapshots, default to the paper baseline, include sideboards optionally, and review physical copy counts.
 - **Silhouette Card Maker v6** — actual upstream generation at 600 PPI, Letter, standard cards, 1 mm crop, three registration marks and seven cards per sheet.
 - **Chosen artwork** — exact Scryfall printings or saved MPC fronts/backs. Use **Save art for home PDFs** in the MPC overlay to freeze all displayed matches.
-- **Complete batches** — separate ordinary fronts and alternating DFC front/back PDFs; every required face must validate before publication.
+- **Complete batches** — ordinary fronts first, then DFC packets of up to seven copies. Each DFC PDF has page 1 fronts and page 2 backs, with a printed job/packet label; every required face must validate before publication.
 - **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation.
-- **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; DFC backs require manual reload and resume.
+- **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; each DFC front pass completes before a flip alert and explicit reload confirmation. Its back pass finishes before the next packet; other CLC jobs wait.
 - **Print Station** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, and confirm a specific DFC paper reload. Administrators also see managed version controls when the station supports them.
 
 Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
+
+Flip alerts use a Mac notification and Glass sound by default, with optional Discord delivery
+configured privately on the Mac. Dismissing an alert never resumes printing; the waiting
+packet stays visible in **Print Station**, including while paused. Earlier PDFs remain
+unchanged and may contain several DFC sheets without a job label: preview all pages and
+match the exact waiting packet before reloading. See the [packet sequence and alerts](docs/PRINT_WORKFLOW.md#double-faced-packets-and-flip-alerts).
 
 Install the [Mac companion](companion/mac/README.md) on the printer host separately from
 Docker. It uses Python 3.9+ and native CUPS commands, with a scoped token file and local

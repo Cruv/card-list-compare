@@ -112,6 +112,8 @@ function artifactRecord(row, artifact, station) {
   return {
     id: artifact.id, kind: artifact.kind, sha256: artifact.sha256, size: artifact.size,
     pageCount: artifact.pageCount, sheetCount: artifact.sheetCount, cardCount: artifact.cardCount,
+    ...(artifact.label ? { label: artifact.label } : {}),
+    ...(artifact.packetIndex ? { packetIndex: artifact.packetIndex, packetCount: artifact.packetCount } : {}),
     frontPages: artifact.kind === 'dfc' ? Array.from({ length: artifact.sheetCount }, (_, n) => n * 2 + 1) : Array.from({ length: artifact.pageCount }, (_, n) => n + 1),
     backPages: artifact.kind === 'dfc' ? Array.from({ length: artifact.sheetCount }, (_, n) => n * 2 + 2) : [],
     downloadUrl: station
@@ -215,15 +217,31 @@ export async function processNextPrintJob() {
     if (maxOutputBytes <= 0) throw printError('Source images exceed the print-job storage limit', 507);
     const generated = await generatePrintPdfs({
       cards: copies.map(copy => ({ id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}) })),
-      outputDir: join(jobDir(row.id), 'output'), maxOutputBytes, signal: controller.signal, onProgress: progress,
+      outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
+      maxOutputBytes, signal: controller.signal, onProgress: progress,
     });
     assertActive();
     if (totalStorage(jobDir(row.id)) > MAX_PRINT_JOB_BYTES) throw printError('Generated job exceeds the 2 GiB storage limit', 507);
     let outputBytes = 0;
+    if (!Array.isArray(generated.artifacts) || generated.artifacts.length > 37) throw printError('Generator returned too many artifacts', 500);
+    const artifactIds = new Set();
+    const packets = generated.artifacts.filter(artifact => /^double-faced-\d{3}$/.test(artifact.id));
     const artifacts = generated.artifacts.map(artifact => {
       const path = realpathSync(artifact.path);
       const root = realpathSync(jobDir(row.id)) + sep;
-      if (!path.startsWith(root) || !['fronts', 'double-faced'].includes(artifact.id) || !['ordinary', 'dfc'].includes(artifact.kind)) throw printError('Generator returned an invalid artifact', 500);
+      if (!path.startsWith(root) || !/^(fronts|double-faced(?:-\d{3})?)$/.test(artifact.id)
+        || artifactIds.has(artifact.id) || !['ordinary', 'dfc'].includes(artifact.kind)) throw printError('Generator returned an invalid artifact', 500);
+      artifactIds.add(artifact.id);
+      if (packets.includes(artifact)) {
+        const index = packets.indexOf(artifact) + 1;
+        if (artifact.id !== `double-faced-${String(index).padStart(3, '0')}` || artifact.kind !== 'dfc'
+          || artifact.sheetCount !== 1 || artifact.pageCount !== 2 || artifact.packetIndex !== index
+          || artifact.packetCount !== packets.length || !Number.isSafeInteger(artifact.cardCount)
+          || artifact.cardCount < 1 || artifact.cardCount > 7
+          || artifact.label !== `CLC ${row.id.slice(0, 8)} DFC ${index}/${packets.length}`) {
+          throw printError('Generator returned an invalid double-sided packet', 500);
+        }
+      } else if (packets.length && artifact.kind === 'dfc') throw printError('Generator mixed packet and legacy double-sided groups', 500);
       const size = statSync(path).size; outputBytes += size;
       if (size > MAX_OUTPUT_BYTES || outputBytes > maxOutputBytes) throw printError('Generated PDFs exceed the artifact or job storage limit', 507);
       const { hash, isPdf } = hashPdf(path);
@@ -351,8 +369,19 @@ export function purgeUserPrintJobs(userId) {
   rmSync(join(dataDir, 'manasync-artwork', String(userId)), { recursive: true, force: true });
 }
 
-export function claimPrintJob() {
+export function assertStationArtifactCapacity(row, maxArtifacts) {
+  if (!Number.isSafeInteger(maxArtifacts) || maxArtifacts < 1 || maxArtifacts > 37) {
+    throw printError('maxArtifacts must be an integer between 1 and 37', 400);
+  }
+  const artifacts = parse(row.manifest_json)?.artifacts;
+  if (!Array.isArray(artifacts)) throw printError('Print job manifest has no artifacts', 409);
+  if (artifacts.length > maxArtifacts) {
+    throw printError(`Upgrade the Mac print companion to continue this job: it has ${artifacts.length} PDF artifacts, but this companion supports ${maxArtifacts}.`, 409);
+  }
+}
+export function claimPrintJob({ maxArtifacts = 37 } = {}) {
   let row = all(`SELECT * FROM print_jobs WHERE station_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY queued_at, created_at, id LIMIT 1`, [STATION_ID, ...ACTIVE_STATES])[0];
+  if (row) assertStationArtifactCapacity(row, maxArtifacts);
   if (row && row.state === 'claimed' && parse(row.steps_json).every(step => step.state === 'pending') && !printCapabilities(row.user_id).canQueue) {
     run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, station_id = NULL, claim_nonce = NULL, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked before submission', now(), row.id]);
     row = null;
@@ -369,6 +398,9 @@ export function claimPrintJob() {
       run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked; PDF remains available to its owner', now(), row.id]);
       continue;
     }
+    // Check compatibility before hashing PDFs or creating a durable claim. Older
+    // companions can upgrade without trapping this FIFO job in claimed state.
+    assertStationArtifactCapacity(row, maxArtifacts);
     for (const artifact of parse(row.manifest_json).artifacts) verifiedPrintArtifact(row, artifact.id);
     run("UPDATE print_jobs SET state = 'claimed', station_id = ?, claim_nonce = ?, lease_expires_at = ?, updated_at = ? WHERE id = ? AND state = 'queued'",
       [STATION_ID, crypto.randomBytes(24).toString('hex'), leaseExpiry(), now(), row.id]);

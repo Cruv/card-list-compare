@@ -25,9 +25,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.47.2';
+const APP_VERSION = '2.48.0';
 const WHATS_NEW = [
-  'Keep paper reload confirmations tied to the exact double-sided batch waiting for its back pass',
+  'Print double-sided cards in numbered one-sheet packets with matching labels and reload prompts',
+  'Get a Mac alert or an optional Discord ping when the exact sheet needs flipping',
 ];
 
 function getResetToken() {

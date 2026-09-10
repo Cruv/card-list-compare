@@ -474,21 +474,27 @@ function ProxyPrinting() {
       </p>
       <p>
         Silhouette Card Maker generates Letter v6 PDFs at 600 PPI with three registration
-        marks, a 1 mm crop and seven cards per sheet. Ordinary fronts and double-faced cards
-        have separate downloads. Each batch keeps its source versions, artwork and generation
-        details. PDFs are retained for seven days; active print batches are protected.
+        marks, a 1 mm crop and seven cards per sheet. Each deck keeps ordinary fronts in one
+        download, followed by separate double-faced packets of up to seven copies. Each packet
+        has two pages: page 1 fronts and page 2 matching backs. Its printed front margin carries
+        a short CLC job ID and packet number, matching the packet shown in Print Station.
+        Each batch keeps its source versions, artwork and generation details. PDFs are retained
+        for seven days; active print batches are protected.
       </p>
       <p>
         Authorized household accounts can generate and send a batch to the Mac, or queue a
         ready PDF later. The Mac companion picks up queued PDFs, keeps submission history and
-        prints Letter sheets in landscape at actual size and waits for manual DFC flip/reload.
+        prints Letter sheets in landscape at actual size. It completes ordinary fronts first,
+        then each double-faced packet as separate one-sided front and back passes.
         Install the self-contained Mac companion using the repository’s
         companion/mac instructions. It includes its runtime, starts at login and initially
         keeps printing paused. Then open <strong>Print Station</strong> from the navigation
         or a deck’s Printing tab. It shows the Mac’s connection, printer health, current batch,
         recipe proof status and recent activity. Pausing stops new station work; pages already
-        sent to Epson keep printing. To resume double-faced cards, match the batch shown and
-        confirm that you have physically flipped and reloaded those sheets. Offline or stale
+        sent to Epson keep printing. Once a packet’s front finishes, match its printed job and
+        packet label, flip and reload only that printed sheet, then confirm the exact packet
+        shown. Keep unused paper and older output separate. The back must finish before the
+        next packet starts; other CLC batches wait. Offline or stale
         status disables controls. Administrators can check for a companion update and install
         the displayed version or roll back to the retained version while the station is idle.
         Version changes preserve print history and leave the station paused until you unpause it.
@@ -498,6 +504,21 @@ function ProxyPrinting() {
         ManaSync inventory. Record usable physical copies separately in the <strong>Full Deck</strong>
         {' '}tab&rsquo;s confirmed-print list.
         Drying, lamination and cutting remain outside CLC. Collection management belongs to ManaSync.
+      </p>
+      <p>
+        The Mac requests a flip notification with a Glass sound by default. Optional Discord
+        alerts and a specific user mention can be configured privately on the Mac. Notifications
+        are reminders: opening or dismissing one never resumes printing. A waiting packet stays
+        visible even while paused, and reload confirmation does not unpause the station.
+        Mac notification permissions or Focus can suppress an alert; delivery failures are
+        logged and leave the same reload wait in place.
+      </p>
+      <p>
+        Earlier PDFs stay unchanged and may contain several double-faced sheets without the
+        new job label. Preview those PDFs and check all pages, the exact waiting job/packet,
+        and its sheet count before reloading the matching stack. Software checks have verified
+        the new packet layout; physical v6 cutting and double-sided flip/alignment proof remain
+        pending for the household setup.
       </p>
 
       <div className="guide-tip">

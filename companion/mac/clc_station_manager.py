@@ -279,6 +279,8 @@ def verify_bundle(directory, expected_version=None, expected_arch=None):
     for name in ["python/bin/python3", "clc_print_station.py", "clc_station_manager.py", "clc_station_control.py", "get-jobs.test"]:
         if not (root / name).is_file():
             raise ManagerError("Package lacks its self-contained runtime or station code")
+    if tuple(map(int, value.split("."))) >= (2, 48, 0) and not (root / "clc_station_alerts.py").is_file():
+        raise ManagerError("Package lacks its flip notification helper")
     return data
 
 

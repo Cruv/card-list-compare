@@ -1,7 +1,7 @@
 /** Household station controls. No executable paths, printer options or arbitrary commands. */
 import crypto from 'node:crypto';
 import { all, get, runTransaction } from '../db.js';
-import { printCapabilities, claimPrintJob, formatPrintJob } from './printQueue.js';
+import { printCapabilities, claimPrintJob, formatPrintJob, assertStationArtifactCapacity } from './printQueue.js';
 import { printError, sha256 } from './printQueuePlan.js';
 
 const STATION = 'household';
@@ -116,6 +116,25 @@ function publicCommand(row) {
     deliveredAt: row.delivered_at, acknowledgedAt: row.acknowledged_at, message: row.message };
 }
 
+function activePacket(row, active) {
+  if (!row?.manifest_json || sha256(row.manifest_json) !== row.manifest_sha256) return null;
+  if (active.state === 'awaiting_refeed' && !active.artifactId) return null;
+  const next = JSON.parse(row.steps_json || '[]').find(step => step.state !== 'completed');
+  if (!next || (active.artifactId && active.artifactId !== next.artifactId)
+    || (active.phase && active.phase !== next.phase)) return null;
+  const artifacts = JSON.parse(row.manifest_json).artifacts || [];
+  const packets = artifacts.filter(artifact => artifact.kind === 'dfc');
+  const artifact = packets.find(item => item.id === next.artifactId);
+  if (!artifact) return null;
+  const packetIndex = artifact.packetIndex ?? packets.indexOf(artifact) + 1;
+  const packetCount = artifact.packetCount ?? packets.length;
+  if (![packetIndex, packetCount, artifact.sheetCount, artifact.cardCount].every(value => Number.isSafeInteger(value) && value > 0 && value <= 250)
+    || packetIndex > packetCount) return null;
+  return { artifactId: artifact.id,
+    label: typeof artifact.label === 'string' && artifact.label.length <= 240 ? artifact.label : null,
+    packetIndex, packetCount, sheetCount: artifact.sheetCount, cardCount: artifact.cardCount };
+}
+
 export function printStationStatus(userId) {
   const access = requireControl(userId);
   expireCommands();
@@ -123,9 +142,10 @@ export function printStationStatus(userId) {
   const active = latest?.activeJob ? { ...latest.activeJob } : null;
   if (active) {
     if (active.state === 'awaiting_refeed') active.artifactId = firstBack(active.id, latest);
-    const row = get('SELECT plan_json FROM print_jobs WHERE id = ? AND station_id = ?', [active.id, STATION]);
+    const row = get('SELECT plan_json, manifest_json, manifest_sha256, steps_json FROM print_jobs WHERE id = ? AND station_id = ?', [active.id, STATION]);
     const deckName = row && JSON.parse(row.plan_json).deckName;
     if (typeof deckName === 'string') active.deckName = deckName.slice(0, 200);
+    active.packet = activePacket(row, active);
   }
   return { station: {
     stationId: STATION, online: live, lastSeenAt: lastSeen === null ? null : new Date(lastSeen).toISOString(),
@@ -293,13 +313,14 @@ export function stationManagementHeartbeat(body) {
 }
 
 /** Pause blocks only fresh claims; existing durable claims remain recoverable. */
-export function claimForManagedStation() {
+export function claimForManagedStation(maxArtifacts = 8) {
   expireCommands();
   const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
   const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
   if (paused || pendingPause || latest?.recipeVerified === false) {
     const active = activeServerJob();
+    if (active) assertStationArtifactCapacity(active, maxArtifacts);
     return active ? formatPrintJob(active, true) : null;
   }
-  return claimPrintJob();
+  return claimPrintJob({ maxArtifacts });
 }

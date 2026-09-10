@@ -83,7 +83,49 @@ function station(path, method = 'GET', body) { return request(`/api/print-statio
 function report(job, state, extras = {}) { return queue.reportPrintJob(job.id, { claimToken: job.claimToken, eventId: crypto.randomUUID(), state, ...extras }); }
 function ordinary(job) { return { artifactId: 'fronts', phase: 'fronts', ...job }; }
 
+async function packetPdfs({ cards, outputDir, batchLabel }) {
+  mkdirSync(outputDir, { recursive: true });
+  const fronts = cards.filter(card => !card.backPath), dfcs = cards.filter(card => card.backPath);
+  const groups = fronts.length ? [{ id: 'fronts', kind: 'ordinary', cardCount: fronts.length, sheetCount: Math.ceil(fronts.length / 7), pageCount: Math.ceil(fronts.length / 7) }] : [];
+  const packetCount = Math.ceil(dfcs.length / 7);
+  for (let index = 1; index <= packetCount; index++) groups.push({
+    id: `double-faced-${String(index).padStart(3, '0')}`, kind: 'dfc', pageCount: 2, sheetCount: 1,
+    cardCount: Math.min(7, dfcs.length - (index - 1) * 7), packetIndex: index, packetCount,
+    label: `${batchLabel} DFC ${index}/${packetCount}`,
+  });
+  return { revision: 'fixture', runtimeVersion: 'fixture', recipe: { id: 'household-letter-v6' }, slots: [], images: [],
+    artifacts: groups.map(group => {
+      const bytes = Buffer.from(`%PDF-1.4\n${group.id}\n%%EOF\n`), path = join(outputDir, `${group.id}.pdf`);
+      writeFileSync(path, bytes);
+      return { ...group, path, size: bytes.length, sha256: hash(bytes), slotMap: [] };
+    }) };
+}
+
  describe('immutable PDF jobs and owner access', () => {
+  it('publishes exact packet labels and local front/back page ranges to owner and station', async () => {
+    db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt (M10) [146]\n8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+    services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
+    const job = await ready({ queueOnReady: true });
+    expect(job.artifacts.map(item => item.id)).toEqual(['fronts', 'double-faced-001', 'double-faced-002']);
+    expect(job.artifacts[1]).toMatchObject({ label: `CLC ${job.id.slice(0, 8)} DFC 1/2`, packetIndex: 1, packetCount: 2, cardCount: 7, frontPages: [1], backPages: [2] });
+    expect(job.artifacts[2]).toMatchObject({ sheetCount: 1, cardCount: 1, pageCount: 2 });
+    const claimed = queue.claimPrintJob();
+    expect(claimed.artifacts[1].label).toBe(job.artifacts[1].label);
+    expect((await station(`/jobs/${job.id}/artifacts/double-faced-002`)).status).toBe(200);
+    expect(claimed.steps.map(step => [step.artifactId, step.phase])).toEqual([
+      ['fronts', 'fronts'], ['double-faced-001', 'fronts'], ['double-faced-001', 'backs'], ['double-faced-002', 'fronts'], ['double-faced-002', 'backs'],
+    ]);
+  });
+  it.each([{ packetIndex: 2 }, { packetCount: 99 }, { label: 'Wrong printed sheet' }, { sheetCount: 2 }, { cardCount: 8 }])('refuses malformed generated packet metadata %j before queueing', async changes => {
+    db.run("UPDATE deck_snapshots SET deck_text = '8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+    services.generatePrintPdfs.mockImplementationOnce(async input => {
+      const result = await packetPdfs(input); Object.assign(result.artifacts[0], changes); return result;
+    });
+    const { job } = create({ queueOnReady: true }); await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'failed', error: expect.stringContaining('invalid double-sided packet') });
+    expect(queue.claimPrintJob()).toBeNull();
+    expect(existsSync(join(dir, 'jobs', job.id))).toBe(false);
+  });
   it('automatically retains an unqueued prepared PDF as an unconfirmed ManaSync plan',async () => {
     const bridge = await import('../lib/manasyncBridge.js'); bridge.initBridgeSchema();
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
@@ -185,6 +227,67 @@ function ordinary(job) { return { artifactId: 'fronts', phase: 'fronts', ...job 
 });
 
 describe('station submission, manual refeed, and ambiguity', () => {
+  async function readyLargePacketJob() {
+    db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt (M10) [146]\n50 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+    services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
+    const job = await ready({ queueOnReady: true });
+    expect(job.artifacts).toHaveLength(9);
+    return job;
+  }
+  it('keeps a nine-artifact FIFO job unclaimed for an old client, then claims it for an upgraded client', async () => {
+    const job = await readyLargePacketJob();
+    const rowBefore = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    const manifest = JSON.parse(rowBefore.manifest_json);
+    const path = join(dir, 'jobs', job.id, manifest.artifacts[0].fileName);
+    const bytes = readFileSync(path);
+    // A compatibility error must be returned before expensive PDF verification.
+    writeFileSync(path, '%PDF-tampered');
+    const oldClient = await station('/claim', 'POST', {});
+    expect(oldClient.status).toBe(409);
+    expect(await oldClient.json()).toMatchObject({ error: expect.stringContaining('Upgrade the Mac print companion') });
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(rowBefore);
+    expect(rowBefore).toMatchObject({ state: 'queued', station_id: null, claim_nonce: null });
+    expect(db.get('SELECT COUNT(*) AS count FROM print_job_events').count).toBe(0);
+    writeFileSync(path, bytes);
+    const upgraded = await station('/claim', 'POST', { maxArtifacts: 37 });
+    expect(upgraded.status).toBe(200);
+    const claimed = (await upgraded.json()).job;
+    expect(claimed).toMatchObject({ id: job.id, state: 'claimed' });
+    expect(claimed.artifacts).toHaveLength(9);
+    expect(claimed.steps.every(step => step.state === 'pending')).toBe(true);
+    expect(db.get('SELECT claim_nonce FROM print_jobs WHERE id = ?', [job.id]).claim_nonce).toBeTruthy();
+  });
+  it.each([null, 0, 38, 8.5, '37', true, [], {}])('rejects an invalid artifact capability %j without claiming work', async maxArtifacts => {
+    const job = await ready({ queueOnReady: true });
+    const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    const response = await station('/claim', 'POST', { maxArtifacts });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('integer between 1 and 37') });
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(before);
+  });
+  it('preserves an active physical claim when an older or paused client cannot handle its artifacts', async () => {
+    const job = await readyLargePacketJob();
+    const claimed = queue.claimPrintJob(); // Internal callers retain current capacity.
+    report(claimed, 'submitting', ordinary());
+    report(claimed, 'submitted', ordinary({ spoolerId: 'EPSON-42' }));
+    const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    for (const paused of [0, 1]) {
+      db.run("UPDATE print_station_controls SET paused = ? WHERE station_id = 'household'", [paused]);
+      const oldClient = await station('/claim', 'POST', {});
+      expect(oldClient.status).toBe(409);
+      expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(before);
+      const upgraded = await station('/claim', 'POST', { maxArtifacts: 37 });
+      expect(upgraded.status).toBe(200);
+      expect((await upgraded.json()).job).toMatchObject({ id: job.id, state: 'submitted', claimToken: claimed.claimToken });
+    }
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(before);
+  });
+  it('uses the legacy capacity when an old claim request has no JSON body', async () => {
+    await readyLargePacketJob();
+    const oldClient = await station('/claim', 'POST');
+    expect(oldClient.status).toBe(409);
+    expect(await oldClient.json()).toMatchObject({ error: expect.stringContaining('supports 8') });
+  });
   it('requires the scoped station credential and revalidates authorization before claiming', async () => {
     expect((await request('/api/print-station/claim', { method: 'POST', body: {}, token: 'user-1' })).status).toBe(401);
     const job = await ready({ queueOnReady: true });

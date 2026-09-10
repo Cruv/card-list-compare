@@ -1,6 +1,6 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.44.2 includes print planning, PDF generation, artifact downloads, the household
+Status: CLC v2.48.0 includes print planning, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
 
@@ -12,8 +12,10 @@ explicit baseline and target. The paper-deck marker is the default baseline when
 by default. Review the copy list, then **Generate PDFs** or, for an authorized household
 account, **Generate and send to Mac**. Ready PDFs can also be queued later.
 
-Ordinary cards produce `fronts.pdf`. Double-faced cards produce `double-faced.pdf` with
-alternating front/back pages. Each artifact reports its sheets, pages and copies. A job
+Each deck job produces `fronts.pdf` for ordinary cards, followed by one-sheet double-faced
+packets: `double-faced-001.pdf`, `double-faced-002.pdf`, and so on. A packet holds at most
+seven copies and exactly two pages: page 1 fronts, page 2 matching backs. It reports its
+packet number/count, printed label, sheets, pages and copies. A job
 fails if required artwork or a face is missing; it never publishes a partial deck PDF.
 Errors and previous batches remain visible after reloading. Downloads include the exact
 batch manifest. **Remove PDFs** releases storage while retaining the batch record.
@@ -71,7 +73,10 @@ are preserved in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
   skipped zero-based slot **4**: seven cards per eight-position sheet.
 - Ordinary cards use `--only_fronts`. DFCs use a separate invocation without that flag,
   paired filenames and no generic back. The current upstream fit mode is explicitly
-  `stretch`, matching the earlier omitted default. Global CLC sheet labels identify chunks.
+  `stretch`, matching the earlier omitted default. Ordinary sheets carry the job and sheet
+  number; DFC sheets carry `CLC <first-eight-job-ID-characters> DFC <packet>/<total>`.
+  Upstream draws this label in its existing right margin on the front, followed by its
+  sheet/template text. Card positions, registration marks and crop are unchanged.
 
 The historical Windows command was:
 
@@ -106,13 +111,61 @@ preserving the active, previous, in-use and retained job versions. The productio
 uses Debian for ARM64/AMD64 binary-wheel compatibility. The inspected upstream reference
 was `4d4aa73a95e93b09676c863a1861765863398c63`; it is not a permanent source pin.
 
-A single worker invokes upstream once per seven-card sheet and merges the compressed PDFs.
+A single worker invokes upstream once per seven-card sheet, merging ordinary sheets into
+one PDF and retaining each DFC sheet as its own two-page packet. Decks are never combined
+to fill a packet; a partly filled final sheet is intentional.
 Limits are 250 physical copies, 20 MiB per source image, 1 GiB per PDF and 2 GiB per retained
 job, including staged sources. Saved MPC images are downloaded sequentially to disk with
 a 1.5 GiB source limit; Scryfall acquisition retains its 256 MiB unique-image limit.
 Output limits are checked before merging too. At least 2 GiB of container memory is
 recommended; a 100-card synthetic stress test produced 15 pages / 881.5 MiB under that limit,
 with roughly 911 MiB merger peak RSS. Real artwork size and host workloads vary.
+
+An offline synthetic check on 2026-09-10 generated one ordinary card and eight DFCs with
+the real cached upstream runtime: one ordinary page, then packets of seven and one copies
+with two pages each. All five pages were rendered and visually reviewed. Pixel checks
+confirmed every copy/slot, blank unused positions, back-row swapping and 180-degree back
+rotation at the unchanged 792 × 612 point / 6600 × 5100 pixel geometry. Labels were readable
+outside the cards and three registration marks. This was software PDF validation; no paper
+was printed, and it does not complete the physical cutting or duplex proof.
+
+## Double-faced packets and flip alerts
+
+The companion finishes the deck's ordinary fronts first. For each DFC packet it submits
+page 1 as one one-sided front pass, waits for confirmed spooler completion, then holds on
+that exact job and packet ID. The Mac requests a flip alert and CLC shows the waiting
+packet's printed label, copy count and sheet count. Match `CLC <job-short-ID> DFC x/y` on
+the printed front to the waiting packet; set earlier output aside and remove unused blank
+paper from the rear feeder before loading the matching printed sheet.
+
+Flip and reload only that packet's printed sheet according to the physically proven feeder
+procedure, then use **Confirm paper reload** in **Print Station**. Confirmation applies
+only to the shown job/packet. Page 2 then runs as a separate one-sided back pass; it must
+finish before the next packet starts. Return blank paper to the feeder after the backs
+finish so the next front pass can print. Automatic duplex is disabled. The household CLC
+queue stays held throughout the wait. Pausing does not hide an existing flip wait, and
+confirmation does not override a pause. Opening or dismissing a notification never resumes
+printing. Other applications can still print, so keep the Epson queue dedicated while a
+packet is waiting for its back.
+
+Local Mac notifications and their **Glass** sound default on. The private Mac configuration
+accepts JSON booleans `refeed_notifications` and `refeed_sound` (both default `true`), plus
+optional `refeed_discord_webhook_url` and `refeed_discord_user_id` strings (both default
+empty). A configured webhook sends the same packet details and can mention only the
+configured user ID. These are Mac-local settings in the user-owned mode-0600 configuration,
+not server environment variables or dashboard settings; webhook credentials are never sent
+to CLC or written to logs. No Discord destination was configured or message sent for this
+change. See the [Mac alert setup](../companion/mac/README.md#flip-alerts).
+
+Notification permission, Focus or sound settings can suppress a Mac alert. Each configured
+channel is attempted once per waiting packet; ambiguous or failed delivery is logged
+without automatically retrying. Alert failure is nonfatal and cannot authorize backs:
+the durable wait remains visible in CLC, even while paused.
+
+Existing PDFs and manifests are immutable. A legacy `double-faced.pdf` may contain several
+front/back page pairs and lack the job label above. Inspect its PDF preview and all pages,
+match the exact waiting job/packet ID and physical sheet count, and reload the complete
+matching stack in its tested order. A new job is required to obtain the new packet layout.
 
 ## Queue, access and retention
 
@@ -146,6 +199,9 @@ job status, `/queue`, `/cancel`, `/manifest` and `/artifacts/:artifactId`. Stati
 under `/api/print-station` are `/status`, `/claim`, and job status, reports and artifacts.
 All are authenticated; PDF bytes are streamed without nginx disk buffering. See
 [OPERATIONS.md](OPERATIONS.md) and [SECURITY.md](../SECURITY.md) for deployment details.
+The station claim accepts a bounded `maxArtifacts` capability (1–37, default eight for
+older clients). An oversized waiting job remains queued and reports an upgrade requirement
+before a fresh claim; existing physical submissions must still be reconciled.
 
 ## Mac color and manual duplex acceptance
 

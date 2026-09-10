@@ -12,6 +12,11 @@ and physical-copy delta plans, frozen artwork/face manifests, the actual cached 
 runtime, downloadable PDFs and an authenticated station protocol. The
 [native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
 configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
+New jobs keep each deck's ordinary fronts first, then numbered DFC packets of up to seven
+copies on one front/back sheet. Printed job/packet labels match explicit reload waits;
+Mac notifications with Glass sound default on, and optional Discord alerts are configured
+privately on the Mac. The queue holds until the exact waiting packet is reloaded and its
+back pass completes. Dismissing an alert never prints; waits remain visible while paused.
 CLC's Print Station page now reports live station health and controls pause/refeed through
 durable commands; managed version controls are restricted to administrators and idle stations.
 The self-contained Mac installer now bundles its runtime, starts paused at login, and
@@ -19,11 +24,15 @@ supports checked version updates and rollback without replacing configuration or
 
 The household Mac now has Epson driver 13.45, a saved Uinkit fronts preset, an accepted
 Adobe color test after nozzle cleaning, and an accepted companion sheet after the landscape
-fix. Remaining work is to test v6 cutter geometry and manual DFC
+fix. An offline real-generator check of one ordinary card plus eight DFCs verified two
+separate DFC packets, labels, all five rendered pages and unchanged face/slot geometry.
+It printed no paper. Remaining work is to test v6 cutter geometry and manual DFC
 page order/flip/alignment. The owner's 600 PPI,
 1 mm crop, skipped slot 4 and Epson Vivid recipe are preserved in
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The Mac must be awake for unattended
-ordinary fronts; DFCs remain separate manual-refeed batches. Drying, lamination and cutting
+ordinary fronts; DFCs require manual reload between the one-sided passes of every packet.
+Legacy PDFs remain immutable and may contain several DFC sheets without the new job label;
+inspect their preview and all pages before reloading. Drying, lamination and cutting
 tracking remain excluded. Printing does not advance the assembled paper-deck marker.
 
 ## Optional companion integration — ManaSync

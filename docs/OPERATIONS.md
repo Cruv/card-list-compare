@@ -161,8 +161,10 @@ exports or backups, not this stack's live generation/cache/database directory. D
 suppress cleanup errors or move production staging across filesystems without preserving
 its atomic publication guarantees.
 
-The adapter invokes upstream once per seven-card sheet at 600 PPI and merges completed
-sheets. Double-faced cards remain a separate artifact. Allow at least 2 GiB of container
+The adapter invokes upstream once per seven-card sheet at 600 PPI and merges ordinary
+fronts into `fronts.pdf`. DFC sheets stay in numbered two-page packets
+(`double-faced-001.pdf`, etc.), each holding at most seven copies. Jobs keep decks separate;
+the maximum mixed job has 37 artifacts. Allow at least 2 GiB of container
 memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
 driver is used. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the print API and Mac
 companion work. Drying, lamination and cutting remain outside CLC.
@@ -186,10 +188,31 @@ paused. It can report setup health before proof flags are enabled. For source de
 the optional LaunchAgent writer remains available separately.
 The repository's automated tests use fake submissions and never configure a printer.
 
+For each deck job the station completes ordinary fronts, then each DFC packet's page 1
+front pass, explicit flip/reload wait, and page 2 back pass before starting the next packet.
+The printed front label `CLC <job-short-ID> DFC x/y` matches the packet shown in CLC and
+its flip alert. All passes are one-sided; unused paper and older output must stay separate
+from the sheet being reloaded. The household queue remains held until the packet is
+resolved. Waiting packets surface even while paused, and dismissing an alert never submits
+backs. An earlier immutable PDF may instead contain multiple sheets and no job label:
+inspect its preview/all pages and match job, packet and sheet count before reloading.
+
+Mac flip notifications and Glass sound default on. Configure `refeed_notifications` and
+`refeed_sound` as JSON booleans in the private mode-0600 Mac config. Optional
+`refeed_discord_webhook_url` and `refeed_discord_user_id` default to empty; the webhook
+may mention only that configured user. Keep its credential local, out of environment
+variables, server settings and logs. No webhook was configured or sent by this change.
+Mac notification permission/Focus can suppress delivery. Alert failures are logged and
+nonfatal; they leave the same explicit reload wait in place, with no silent printing or
+automatic alert retry. See [Mac flip alerts](../companion/mac/README.md#flip-alerts).
+
 The **Print Station** page centralizes health, version, event history, pause/unpause and
 batch-specific DFC reload controls. It requires the same household authorization as
 physical queue requests; only administrators may request version checks/changes. Install
 matching server and companion versions for the heartbeat/control protocol. A companion
+advertises its artifact capacity when claiming (37 for v2.48.0; eight for older clients).
+A larger queued job requires the newer companion and remains unclaimed until it connects;
+the server does not skip the waiting job or create a physical recovery record. A companion
 that cannot contact this protocol stops new submissions while retaining its ledger for
 reconciliation. Starting an unverified companion is supported for setup/telemetry and does
 not enable physical printing. A source checkout reports managed updates as unavailable.
@@ -231,6 +254,9 @@ recipe. Server queue acceptance does not mean the printer is ready. A Mac that i
 leaves jobs queued. A pass that may have reached the spooler holds the station until its
 outcome is reconciled; do not delete database rows to bypass this hold. Inspect the Mac
 queue and physical sheets, then resolve the pass or explicitly clear/abandon the batch.
+The one-ordinary/eight-DFC offline rendering check verified packet labels, five PDF pages
+and unchanged v6 slot geometry without physical output. Household v6 cutting and DFC
+flip/alignment proof remain pending; do not enable those proof flags from software QA alone.
 
 Print state and event receipts use `runTransaction()` to persist together. Back up the
 whole data directory before deployment/schema upgrades. Artifact expiry keeps private

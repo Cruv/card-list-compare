@@ -212,7 +212,13 @@ export class PrintGeneratorRuntime {
     const keep = new Set([...retainVersions, this.previousVersion, this.active && path.basename(this.active.directory),
       ...[...this.inUse].filter(([, count]) => count > 0).map(([version]) => version)]);
     const removed = [];
-    for (const entry of await fs.readdir(path.join(this.root, 'versions'), { withFileTypes: true })) {
+    let versions;
+    try { versions = await fs.readdir(path.join(this.root, 'versions'), { withFileTypes: true }); }
+    catch (error) {
+      if (error.code === 'ENOENT') return { removed: [], removedWheels: [] };
+      throw error;
+    }
+    for (const entry of versions) {
       if (entry.isDirectory() && /^[a-f0-9]{40}-[a-f0-9]{12}-[a-f0-9-]+$/.test(entry.name) && !keep.has(entry.name)) {
         await fs.rm(path.join(this.root, 'versions', entry.name), { recursive: true, force: true });
         removed.push(entry.name);

@@ -23,7 +23,7 @@ PDF = b"%PDF-1.7\nfixture\n%%EOF\n"
 def config(directory):
     return {"queue": "EPSON", "server_url": "https://clc.test", "token": "test-token-" * 4,
             "state_dir": str(directory / "state"), "approved_recipe_ids": ["household-letter-v6"],
-            "recipe_verified": True, "duplex_verified": True, "driver_options": {"MediaType": "Glossy"},
+            "recipe_verified": True, "duplex_verified": True, "refeed_notifications": False, "driver_options": {"MediaType": "Glossy"},
             "ordinary_output_order": "reverse", "dfc_front_output_order": "reverse", "dfc_back_output_order": "normal",
             "max_pdf_bytes": 1024**3, "max_job_bytes": 2 * 1024**3, "poll_seconds": 5, "retention_days": 7}
 
@@ -37,6 +37,20 @@ def job(kind="ordinary", job_id="job1"):
             "manifestSha256": "a" * 64, "state": "claimed", "artifacts": [artifact],
             "steps": [{"artifactId": kind, "phase": phase, "state": "pending"}
                       for phase in (["fronts", "backs"] if kind == "dfc" else ["fronts"])]}
+
+
+def packet_job(packet_count=2):
+    value = job()
+    value["deckName"] = "Sauron"
+    value["artifacts"][0].update(pageCount=1, frontPages=[1], sheetCount=1, cardCount=1)
+    for index in range(1, packet_count + 1):
+        artifact = copy.deepcopy(job("dfc")["artifacts"][0])
+        identifier = "double-faced-" + str(index).zfill(3)
+        artifact.update(id=identifier, pageCount=2, sheetCount=1, cardCount=1, frontPages=[1], backPages=[2],
+                        packetIndex=index, packetCount=packet_count, label=f"CLC job1 DFC {index}/{packet_count}")
+        value["artifacts"].append(artifact)
+        value["steps"].extend({"artifactId": identifier, "phase": phase, "state": "pending"} for phase in ["fronts", "backs"])
+    return value
 
 
 class FakeClient:
@@ -96,7 +110,8 @@ class FakeClient:
             if event.get("spoolerId"):
                 entry["spoolerId"] = event["spoolerId"]
             if entry["state"] == "completed":
-                self.job["state"] = "awaiting_refeed" if entry["phase"] == "fronts" and entry["artifactId"] == "dfc" else "claimed"
+                dfc = next(item for item in self.job["artifacts"] if item["id"] == entry["artifactId"])["kind"] == "dfc"
+                self.job["state"] = "awaiting_refeed" if entry["phase"] == "fronts" and dfc else "claimed"
                 if all(item["state"] == "completed" for item in self.job["steps"]):
                     self.job["state"] = "completed"
             elif state == "refeed":
@@ -297,6 +312,68 @@ class StationTests(unittest.TestCase):
         self.assertEqual([call[1] for call in self.cups.submissions], ["fronts", "backs"])
         self.assertTrue(any(event["state"] == "refeed" for event in self.client.events))
 
+    def test_numbered_packets_print_one_sheet_then_wait_for_that_sheet_across_restart(self):
+        self.client.job = packet_job()
+        runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
+        self.config["refeed_notifications"] = True
+        self.station.alerts = station.RefeedAlerts(self.station.ledger, self.config, runner=runner)
+        expected = [("ordinary", "fronts"), ("double-faced-001", "fronts"), ("double-faced-001", "backs"),
+                    ("double-faced-002", "fronts"), ("double-faced-002", "backs")]
+        for artifact_id, phase in expected:
+            self.assertTrue(self.station.poll_once().startswith("submitted EPSON-"))
+            self.assertEqual(self.cups.submissions[-1][:2], (artifact_id, phase))
+            if phase == "fronts" and artifact_id.startswith("double-faced"):
+                prior = runner.call_count
+                self.station.poll_once()  # CUPS still processing: no flip request yet.
+                self.assertEqual(runner.call_count, prior)
+            self.cups.history[-1]["state"] = 9
+            self.station.poll_once()
+            if phase == "fronts" and artifact_id.startswith("double-faced"):
+                self.assertEqual(self.station.poll_once(), "awaiting_refeed")
+                self.assertEqual(self.station.ledger.current()["state"], "awaiting_refeed")
+                submitted = len(self.cups.submissions)
+                self.station.ledger.db.close()
+                self.station = station.Station(self.config, self.client, self.cups)
+                self.station.alerts = station.RefeedAlerts(self.station.ledger, self.config, runner=runner)
+                self.assertEqual(self.station.poll_once(), "awaiting_refeed")
+                self.assertEqual(len(self.cups.submissions), submitted)
+                self.assertEqual(runner.call_count, int(artifact_id[-3:]))
+                self.assertEqual(self.client.claims, 1)
+                self.station.resume("job1")
+        self.assertEqual(self.station.poll_once(), "completed")
+        self.assertEqual([entry[:2] for entry in self.cups.submissions], expected)
+        self.assertEqual(runner.call_count, 2)
+
+    def test_durable_front_attention_survives_pause_and_management_disconnect(self):
+        self.client.job = job("dfc")
+        runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
+        self.config["refeed_notifications"] = True
+        self.station.alerts = station.RefeedAlerts(self.station.ledger, self.config, runner=runner)
+        self.station.poll_once()
+        self.cups.history[0]["state"] = 9
+        self.station.poll_once()
+        self.station.ledger.write("INSERT OR REPLACE INTO settings(key,value) VALUES('paused','1')")
+        with mock.patch.object(self.client, "get_job", side_effect=station.StationError("offline")):
+            with self.assertRaises(station.StationError):
+                self.station.poll_once(allow_submit=False)
+        self.assertEqual(self.station.ledger.current()["state"], "awaiting_refeed")
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(self.station.poll_once(allow_submit=False), "awaiting_refeed")
+        self.station.resume("job1")
+        self.assertEqual(self.station.poll_once(), "paused")
+        self.assertEqual(len(self.cups.submissions), 1)
+
+    def test_maximum_packet_job_and_corrupt_packet_identity(self):
+        value = packet_job(36)
+        self.assertEqual(len(station.checked_job(value, self.config)["artifacts"]), 37)
+        for changes in [{"packetIndex": 2}, {"packetCount": 35}, {"sheetCount": 2}, {"cardCount": 8}, {"label": "bad\nlabel"}]:
+            bad = copy.deepcopy(value)
+            bad["artifacts"][1].update(changes)
+            with self.assertRaisesRegex(station.StationError, "packet"):
+                station.checked_job(bad, self.config)
+        with self.assertRaisesRegex(station.StationError, "37"):
+            station.checked_job(packet_job(37), self.config)
+
     def test_canceled_cups_job_requires_paper_clearance_not_automatic_next_job(self):
         self.station.poll_once()
         self.cups.history[0]["state"] = 7
@@ -398,6 +475,15 @@ class BoundaryTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_claim_advertises_packet_capacity_before_server_assigns_work(self):
+        opener = mock.Mock()
+        opener.open.return_value = Response(b'{"job": null}')
+        self.assertIsNone(station.Client(self.config, opener).claim())
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.full_url, self.config["server_url"] + "/api/print-station/claim")
+        self.assertEqual(request.get_method(), "POST")
+        self.assertEqual(json.loads(request.data), {"maxArtifacts": 37})
 
     def test_checksums_stream_and_promote_download_atomically(self):
         opener = mock.Mock()
@@ -517,7 +603,7 @@ class BoundaryTests(unittest.TestCase):
 
     def test_proof_flags_require_real_booleans_not_truthy_strings(self):
         path = self.directory / "config.json"
-        for field in ("allow_http", "recipe_verified", "duplex_verified"):
+        for field in ("allow_http", "recipe_verified", "duplex_verified", "refeed_notifications", "refeed_sound"):
             path.write_text(json.dumps({**self.config, field: "false"}))
             path.chmod(0o600)
             with self.assertRaisesRegex(station.StationError, "must be the JSON boolean"):

@@ -10,8 +10,9 @@ print preset. Physical printing is disabled until `recipe_verified` is explicitl
 
 CLC generates the PDFs with Silhouette Card Maker. The companion keeps the server's card
 copies, 600 PPI, 1 mm crop, Letter v6 layout, skipped slot and registration geometry intact.
-It submits one copy in landscape at actual size, with automatic duplex disabled. Ordinary fronts and
-DFC front/back passes are separate submissions. The local queue, media/color driver
+It submits one copy in landscape at actual size, with automatic duplex disabled. Each deck's
+ordinary fronts run first. DFCs follow in numbered packets of at most seven copies, each
+with one front page and one back page submitted separately. The local queue, media/color driver
 options and page order are configured here; server data cannot supply executable paths,
 printer destinations or CUPS options.
 
@@ -204,13 +205,92 @@ python3 companion/mac/clc_print_station.py resume JOB_ID
 
 `pause` stops new claims/submissions; existing CUPS jobs continue and are monitored. `resume`
 is only accepted when the current DFC front pass has completed and the station is awaiting
-manual refeed. It records the operator's explicit confirmation that this batch has been
-flipped and reloaded. The worker reports that confirmation to CLC before submitting the
-back pages. No other CLC batch can interleave during this wait. Independent applications
+manual refeed. Match the exact waiting job and packet before using it. It records the
+operator's explicit confirmation that the indicated paper has been flipped and reloaded.
+The worker reports that confirmation to CLC before submitting the back page. Confirmation
+does not override a pause. No other CLC batch can interleave during this wait. Independent applications
 can still submit to the printer, so keep the queue dedicated during a DFC refeed.
 
 This adds no drying, lamination, collection or cutting tracking, and never changes a deck's
 paper-snapshot marker.
+
+### DFC packet sequence
+
+New jobs keep ordinary cards in `fronts.pdf`; each DFC sheet is a separate two-page PDF:
+`double-faced-001.pdf`, `double-faced-002.pdf`, and so on. Page 1 contains at most seven
+fronts, and page 2 contains their matching backs. An underfilled final sheet is intentional.
+The front's existing margin carries `CLC <first-eight-job-ID-characters> DFC x/y`, followed
+by upstream's sheet/template text. That label also appears in the waiting packet and alert.
+The layout, three marks, crop and front/back transforms are unchanged.
+
+The companion completes ordinary fronts, then handles each packet in this order:
+
+1. Print page 1 as a one-sided pass and confirm its spooler completion.
+2. Hold the exact job/packet and show the flip alert. Match its printed label and keep
+   unused paper, other decks and previously printed packets separate.
+3. Remove unused blank paper from the rear feeder. Flip/reload only that packet's printed sheet using the physically verified procedure,
+   then **Confirm paper reload** in CLC Print Station (or use the local `resume` control).
+4. Print page 2 as another one-sided pass. Its completion permits the next packet.
+   Return blank paper to the rear feeder after the back pass finishes. If the feeder is
+   empty, Epson waits for paper for the next front pass; CLC also identifies that front pass.
+
+The household CLC queue stays held while waiting. The wait and alert can surface while
+paused; neither notification dismissal nor a reload confirmation unpauses the station.
+
+Old PDFs and manifests stay immutable. A legacy `double-faced.pdf` can contain several
+alternating front/back pairs and no job-specific printed label. Preview it and inspect all
+pages; match the waiting job/packet ID and physical sheet count before reloading the
+complete corresponding stack in its tested order. New packet labels cannot be assumed
+to exist on older output.
+
+### Flip alerts
+
+The Mac requests a notification with the **Glass** sound when a DFC front pass has completed
+and its back is waiting for reload. Notifications are reminders only: opening or dismissing
+one never authorizes printing. CLC Print Station remains the persistent place to inspect
+and confirm the exact waiting packet, including while paused.
+
+These options belong in the current Mac user's private mode-0600 `config.json`:
+
+```json
+{
+  "refeed_notifications": true,
+  "refeed_sound": true,
+  "refeed_discord_webhook_url": "",
+  "refeed_discord_user_id": ""
+}
+```
+
+Merge those fields into the existing configuration; do not replace its server, token,
+driver or state settings. The two flags require JSON booleans and default to `true` when
+omitted. Set `refeed_sound` to `false` for a silent Mac notification or
+`refeed_notifications` to `false` to disable Mac notifications.
+
+Discord is optional and disabled while its webhook URL is empty. A configured canonical
+`https://discord.com/api/webhooks/id/token` URL receives the waiting packet details and CLC
+link. A nonempty `refeed_discord_user_id` must be a Discord user ID; the message can mention
+only that configured user, with role/everyone mentions disabled. Omitting the user ID sends
+the message without a mention. Use a normal text-channel webhook; forum/thread query
+options are not supported. Keep the webhook credential only in the private local
+configuration, not an environment variable, CLC server setting, repository or log. It is
+not included in station telemetry. No Discord webhook was configured or message sent during
+this implementation.
+
+Allow notification delivery for the Mac notification sender in System Settings. Notification
+permissions, Focus and sound settings can suppress display or sound even when the request
+succeeds. Each enabled channel is attempted once per job/packet wait, with durable records
+to avoid repeated messages after a restart. Failed or ambiguous delivery is logged without
+exposing the webhook, is nonfatal, and is not automatically retried. The explicit reload
+hold remains in place; alert failure never silently prints the backs.
+
+The real cached generator was checked offline with one ordinary card and eight synthetic
+DFCs on 2026-09-10. All five pages of the ordinary PDF and two DFC packets were rendered,
+and labels, paired slots, empty positions and unchanged v6 dimensions were verified.
+No paper was printed. Physical v6 cutting and manual duplex proof are still required.
+
+Upgrade the companion before large packet jobs. The claim request advertises its supported
+artifact count (37 in v2.48.0); older clients default to eight. A larger waiting job stays
+queued with an upgrade error before a new durable claim or print attempt is made.
 
 ## Restart, reconciliation and failures
 

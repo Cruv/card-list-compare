@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintQueue, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations } from '../lib/api';
+import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations } from '../lib/api';
 import PrintPlanOwnership from './PrintPlanOwnership';
 import PrintQueue from './PrintQueue';
 import './PrintPanel.css';
@@ -11,6 +11,24 @@ const STATES = {
   uncertain: 'Submission needs review on the Mac', failed: 'Failed', canceled: 'Canceled', expired: 'PDFs expired',
 };
 const CANCELABLE = new Set(['preparing', 'ready', 'queued', 'claimed']);
+
+function artifactName(artifact) {
+  if (artifact.kind === 'ordinary') return 'ordinary fronts';
+  return artifact.packetIndex && artifact.packetCount
+    ? `double-faced packet ${artifact.packetIndex} of ${artifact.packetCount}` : 'legacy double-faced stack';
+}
+
+function WaitingPrintPacket({ job }) {
+  if (job.state !== 'awaiting_refeed') return null;
+  const next = job.steps?.find(step => step.state !== 'completed');
+  const artifact = job.artifacts?.find(item => item.id === next?.artifactId);
+  return <section className="print-panel-confirmation" aria-label="Waiting for paper reload">
+    <strong>{artifact ? `Flip and reload ${artifactName(artifact)}` : 'Paper reload is waiting'}</strong>
+    {artifact?.label && <p>Match the printed margin label: <strong>{artifact.label}</strong></p>}
+    <p>{artifact?.sheetCount ? `${artifact.sheetCount} ${artifact.sheetCount === 1 ? 'sheet' : 'sheets'}. ` : ''}Set aside the other completed output and remove unused blank paper from the rear feeder. Reload only the paper for this packet, following the verified flip direction and page order. Return blank paper after its backs finish. {artifact && !artifact.label && 'Match this older stack against its downloaded double-faced PDF. '}
+      Confirm this exact packet in <a href="#print-station">Print Station</a>. The remaining queue waits for its backs.</p>
+  </section>;
+}
 
 function ProxyConfirmationStatus({ items }) {
   if (!items.length) return <p className="print-panel-meta">This prepared batch is waiting to appear in ManaSync&rsquo;s Pending prints.</p>;
@@ -50,6 +68,7 @@ export default function PrintPanel({ deck, snapshots }) {
   const [confirmationItems, setConfirmationItems] = useState([]);
   const [capabilities, setCapabilities] = useState({});
   const [generator, setGenerator] = useState(null);
+  const [station, setStation] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState('');
@@ -74,6 +93,13 @@ export default function PrintPanel({ deck, snapshots }) {
         setCapabilities(data.capabilities);
         setGenerator(data.generator);
         setConnectionError('');
+        if (!data.capabilities.canQueue) setStation(null);
+        else if (pollCount % 4 === 1) {
+          // Setup information is optional; a restricted/offline station must not
+          // prevent a user from reviewing or downloading their PDFs.
+          getPrintStationStatus().then(result => { if (active) setStation(result.station); })
+            .catch(() => { if (active) setStation(null); });
+        }
       } catch (err) {
         if (active) setConnectionError(err.message);
       } finally {
@@ -154,7 +180,8 @@ export default function PrintPanel({ deck, snapshots }) {
   async function download(artifact, job) {
     setError('');
     try {
-      await downloadPrintArtifact(artifact.downloadUrl, `${deck.deck_name}-${job.id.slice(0, 8)}-${artifact.id}.pdf`);
+      const name = artifact.packetIndex && artifact.packetCount ? `double-faced-packet-${artifact.packetIndex}-of-${artifact.packetCount}` : artifact.id;
+      await downloadPrintArtifact(artifact.downloadUrl, `${deck.deck_name}-${job.id.slice(0, 8)}-${name}.pdf`);
     } catch (err) { setError(err.message); }
   }
 
@@ -183,7 +210,7 @@ export default function PrintPanel({ deck, snapshots }) {
     <div className="print-panel">
       <form className="print-panel-card" onSubmit={preview}>
         <h3>Prepare cards for your next game</h3>
-        <p>Print a whole snapshot or just the copies needed since another version. Double-faced cards get a separate PDF for manual flip and reload.</p>
+        <p>Print a whole snapshot or just the copies needed since another version. Ordinary fronts stay together. New double-faced packets each use one separate sheet, with a pause to match, flip and reload that sheet before its back prints.</p>
         <div className="print-panel-fields">
           <label>What to print
             <select value={mode} disabled={busy} onChange={e => change(setMode, e.target.value)}>
@@ -219,6 +246,7 @@ export default function PrintPanel({ deck, snapshots }) {
       {error && <div className="print-panel-error" role="alert">{error}</div>}
       {connectionError && <p role="status">Print status could not refresh: {connectionError}</p>}
       {notice && <p role="status">{notice}</p>}
+      {station?.online && station.duplexVerified === false && Date.now() - Date.parse(station.lastSeenAt) < 20_000 && <p className="print-panel-confirmation" role="status">The Mac’s double-faced loading direction and alignment have not been verified. Finish that local proof before sending a mixed batch; ordinary fronts can otherwise print while its double-faced cards wait. <a href="#print-station">Check Print Station</a>.</p>}
 
       {plan && <section className="print-panel-card" aria-label="Print list review">
         <h3>{plan.totalCopies} {plan.totalCopies === 1 ? 'card' : 'cards'} to prepare</h3>
@@ -251,11 +279,11 @@ export default function PrintPanel({ deck, snapshots }) {
           <p className="print-panel-meta">{job.source ? `Snapshot #${job.source.id} → ` : ''}Snapshot #{job.target?.id} · {job.artSource === 'saved-mpc' ? 'Saved MPC artwork' : 'Scryfall printings'}{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets generated` : ''}</p>
           {job.error && <div className="print-panel-error" role="alert">{job.error}</div>}
           {job.proxyStagingError && <p className="print-panel-error" role="alert">Pending proxy review: {job.proxyStagingError}</p>}
-          {job.state === 'awaiting_refeed' && <p>Flip and reload this batch at the rear feeder, then confirm the matching batch in <a href="#print-station">Print Station</a>. Other CLC batches wait until this batch is finished.</p>}
+          <WaitingPrintPacket job={job} />
           {job.state === 'uncertain' && <p>The Mac needs to reconcile this batch with Epson’s queue. Check the companion before creating another batch.</p>}
           {job.state === 'completed' && <p className="print-panel-meta">The spooler reports completion. Check the sheets before laminating; update your paper-deck marker after assembly.</p>}
           <div className="print-panel-actions">
-            {(job.artifacts || []).filter(a => a.downloadUrl).map(artifact => <button className="btn btn-secondary btn-sm" type="button" key={artifact.id} onClick={() => download(artifact, job)}>Download {artifact.id === 'fronts' ? 'fronts' : 'double-faced'} PDF{artifact.pageCount ? ` · ${artifact.pageCount} ${artifact.pageCount === 1 ? 'page' : 'pages'}` : ''}</button>)}
+            {(job.artifacts || []).filter(a => a.downloadUrl).map(artifact => <button className="btn btn-secondary btn-sm" type="button" key={artifact.id} title={artifact.label || undefined} onClick={() => download(artifact, job)}>Download {artifactName(artifact)} PDF{artifact.sheetCount ? ` · ${artifact.sheetCount} ${artifact.sheetCount === 1 ? 'sheet' : 'sheets'}` : ''}{artifact.kind === 'dfc' ? ' · fronts + backs' : ''}</button>)}
             {job.state === 'ready' && capabilities.canQueue && <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => jobAction(queuePrintJob, job)}>Send to Mac</button>}
             {CANCELABLE.has(job.state) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(cancelPrintJob, job)}>Cancel batch</button>}
             {job.manifestSha256 && <button className="btn btn-secondary btn-sm" type="button" onClick={() => downloadManifest(job)}>Download batch details</button>}

@@ -20,7 +20,13 @@ const route = callback => (req, res) => {
 };
 router.get('/status', (_req, res) => res.json({ stationId: 'household', recipeId: 'household-letter-v6', protocolVersion: 1 }));
 router.post('/heartbeat', route((req, res) => res.json(stationManagementHeartbeat(req.body))));
-router.post('/claim', route((_req, res) => res.json({ job: claimForManagedStation() })));
+router.post('/claim', route((req, res) => {
+  const maxArtifacts = req.body?.maxArtifacts === undefined ? 8 : req.body.maxArtifacts;
+  if (!Number.isSafeInteger(maxArtifacts) || maxArtifacts < 1 || maxArtifacts > 37) {
+    return res.status(400).json({ error: 'maxArtifacts must be an integer between 1 and 37' });
+  }
+  res.json({ job: claimForManagedStation(maxArtifacts) });
+}));
 router.get('/jobs/:jobId', route((req, res) => res.json({ job: formatPrintJob(stationPrintJob(req.params.jobId), true) })));
 router.post('/jobs/:jobId/report', route((req, res) => res.json(reportPrintJob(req.params.jobId, req.body || {}))));
 router.get('/jobs/:jobId/artifacts/:artifactId', route((req, res) => {

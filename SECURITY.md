@@ -109,6 +109,20 @@ submission intent before spooling. Replayed requests do not authorize repeated s
 ambiguous physical outcomes require reconciliation. Manual DFC backs need explicit refeed
 for the exact pending back pass, after that artifact's fronts have completed. Stale or
 wrong-artifact confirmations cannot release a later batch.
+New DFC packets preserve an immutable front/back pair for one physical sheet. The printed
+job/packet label, download metadata and reload prompt identify that same artifact; backs
+still require completed fronts and an explicit operator reload acknowledgement. Existing
+multi-sheet PDFs are retained with their original pairing and require matching the old PDF.
+
+Flip alerts never authorize printing. The Mac stores an attempt for each job/artifact/channel
+before requesting a local notification or sending an optional Discord webhook. Retries and
+restarts cannot produce repeated pings; delivery failures leave the job waiting. Notification
+text uses fixed AppleScript with arguments, and alert errors cannot change printer state.
+Discord credentials stay in the private local config, outside station telemetry and logs.
+Only canonical HTTPS Discord webhook URLs are accepted, redirects are refused, and
+allowed mentions contain only the explicitly configured Discord user ID. Enabling the
+webhook shares the deck name, job/packet identity and CLC station link with its channel;
+no PDF, card artwork, station credential or automatic resume action is sent.
 
 The [Mac companion](companion/mac/README.md) requires a private user-owned token/config
 and state directory. Downloads stay on the configured server origin and reject redirects.

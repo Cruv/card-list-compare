@@ -23,9 +23,11 @@ import urllib.parse
 import urllib.request
 import uuid
 
+from clc_station_alerts import RefeedAlerts, validate_alert_config
+
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.47.2"
+COMPANION_VERSION = "2.48.0"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -67,9 +69,13 @@ def private_directory(path):
 def load_config(path):
     with private_file(path).open() as stream:
         config = json.load(stream)
-    for flag in ("allow_http", "recipe_verified", "duplex_verified"):
+    for flag in ("allow_http", "recipe_verified", "duplex_verified", "refeed_notifications", "refeed_sound"):
         if type(config.get(flag, False)) is not bool:
             raise StationError(flag + " must be the JSON boolean true or false")
+    try:
+        validate_alert_config(config)
+    except ValueError as error:
+        raise StationError(str(error)) from error
     checked_id(config.get("queue"), "CUPS queue")
     url = urllib.parse.urlsplit(config.get("server_url", ""))
     if (url.scheme not in {"https", "http"} or not url.hostname or url.username or url.password
@@ -167,7 +173,7 @@ class Client:
         return result
 
     def claim(self):
-        return self.json("/api/print-station/claim", {}).get("job")
+        return self.json("/api/print-station/claim", {"maxArtifacts": 37}).get("job")
 
     def management_heartbeat(self, status):
         return self.json("/api/print-station/heartbeat", status)
@@ -310,8 +316,9 @@ def checked_job(job, config):
     if not SHA256.fullmatch(job.get("manifestSha256", "")):
         raise StationError("Job has no immutable manifest SHA-256")
     artifacts = job.get("artifacts", [])
-    if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 8:
-        raise StationError("Expected one to eight finished PDF artifacts")
+    if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 37:
+        raise StationError("Expected one to 37 finished PDF artifacts")
+    packets = [item for item in artifacts if "packetIndex" in item or "packetCount" in item]
     ids, size = set(), 0
     for artifact in artifacts:
         checked_id(artifact.get("id"), "artifact ID")
@@ -335,6 +342,16 @@ def checked_job(job, config):
                 raise StationError("Ordinary artifact must contain only all front pages")
         elif count % 2 or fronts != list(range(1, count + 1, 2)) or backs != list(range(2, count + 1, 2)):
             raise StationError("DFC artifact must identify alternating front/back page pairs")
+        if artifact in packets:
+            index = packets.index(artifact) + 1
+            if (artifact["kind"] != "dfc" or count != 2 or artifact.get("sheetCount") != 1
+                    or type(artifact.get("packetIndex")) is not int or artifact["packetIndex"] != index
+                    or type(artifact.get("packetCount")) is not int or artifact["packetCount"] != len(packets)
+                    or artifact["id"] != "double-faced-" + str(index).zfill(3)
+                    or type(artifact.get("cardCount")) is not int or not 1 <= artifact["cardCount"] <= 7
+                    or not isinstance(artifact.get("label"), str)
+                    or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _/-]{0,63}", artifact["label"])):
+                raise StationError("Invalid double-sided packet identity or page count")
     if size > config["max_job_bytes"]:
         raise StationError("Job PDF size exceeds the local storage limit")
     return job
@@ -439,12 +456,36 @@ class Cups:
 
 
 class Station:
-    def __init__(self, config, client=None, cups=None, ledger=None):
+    def __init__(self, config, client=None, cups=None, ledger=None, alerts=None):
         self.config = config
         self.client = client or Client(config)
         self.cups = cups or Cups(config)
         self.ledger = ledger or Ledger(config["state_dir"])
         self.management = None
+        self.alerts = alerts if alerts is not None else RefeedAlerts(self.ledger, config)
+
+    def waiting_for_refeed(self, job, pending):
+        """Surface durable physical attention even while paused or disconnected."""
+        if pending["phase"] != "backs" or pending["state"] != "pending" or pending["resume_requested"]:
+            return False
+        if job.get("state") in TERMINAL or job.get("state") == "expired":
+            return False
+        remote = next((step for step in job.get("steps", []) if step["artifactId"] == pending["artifact_id"]
+                       and step["phase"] == "backs"), {})
+        if remote.get("refeedConfirmed") or remote.get("state") == "completed":
+            return False
+        front = next((entry for entry in self.ledger.passes(job["id"]) if entry["artifact_id"] == pending["artifact_id"]
+                      and entry["phase"] == "fronts"), None)
+        if front is None or front["state"] != "completed":
+            raise StationError("A back pass cannot wait for refeed before its fronts complete")
+        artifact = next(item for item in job["artifacts"] if item["id"] == pending["artifact_id"])
+        label = artifact.get("label") or artifact["id"]
+        detail = "Flip and reload only " + label + "; confirm this packet in CLC Print Station"
+        self.ledger.set_job(job["id"], "awaiting_refeed", detail)
+        notice = self.alerts.notify(job, artifact)
+        if self.management and notice.get("message") and notice.get("level"):
+            self.management.event(notice["level"], notice["message"])
+        return True
 
     def adopt(self, job):
         checked_job(job, self.config)
@@ -566,6 +607,7 @@ class Station:
         if pending is None:
             self.ledger.set_job(job["id"], "completed", "All passes confirmed completed by CUPS")
             return "completed"
+        self.waiting_for_refeed(job, pending)
         fresh = self.client.get_job(job["id"])
         if (not isinstance(fresh, dict) or fresh.get("id") != job["id"]
                 or fresh.get("manifestSha256") != job["manifestSha256"] or fresh.get("claimToken") != job["claimToken"]):
@@ -599,6 +641,8 @@ class Station:
             return "reconciled"
         if pending["state"] == "failed":
             return "paper clearance required"
+        if self.waiting_for_refeed(job, pending):
+            return "awaiting_refeed"
         if self.ledger.paused():
             return "paused"
         if not allow_submit:
@@ -611,9 +655,6 @@ class Station:
         if pending["phase"] == "backs":
             remote = next((step for step in job.get("steps", []) if step["artifactId"] == pending["artifact_id"]
                            and step["phase"] == "backs"), {})
-            if not pending["resume_requested"] and not remote.get("refeedConfirmed"):
-                self.ledger.set_job(job["id"], "awaiting_refeed", "Flip and reload this DFC batch, then run resume " + job["id"])
-                return "awaiting_refeed"
             if not remote.get("refeedConfirmed"):
                 self.report(job, pending, "refeed", detail="Operator explicitly confirmed flip/reload on this Mac")
             self.ledger.set_job(job["id"], "active")

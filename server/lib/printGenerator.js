@@ -28,10 +28,17 @@ export function planPrintSheets(cards) {
     if (!path.isAbsolute(card.frontPath || '') || (card.backPath != null && !path.isAbsolute(card.backPath))) throw new Error(`Copy ${card.id} requires absolute staged image paths`);
     ids.add(card.id);
   }
+  const ordinary = cards.filter(card => !card.backPath);
+  const doubleFaced = cards.filter(card => card.backPath);
+  const packetCount = Math.ceil(doubleFaced.length / PRINT_RECIPE.cardsPerSheet);
   return [
-    { id: 'fronts', kind: 'ordinary', cards: cards.filter(card => !card.backPath) },
-    { id: 'double-faced', kind: 'dfc', cards: cards.filter(card => card.backPath) },
-  ].filter(group => group.cards.length).map(group => ({
+    ...(ordinary.length ? [{ id: 'fronts', kind: 'ordinary', cards: ordinary }] : []),
+    ...Array.from({ length: packetCount }, (_, index) => ({
+      id: `double-faced-${String(index + 1).padStart(3, '0')}`, kind: 'dfc',
+      cards: doubleFaced.slice(index * PRINT_RECIPE.cardsPerSheet, (index + 1) * PRINT_RECIPE.cardsPerSheet),
+      packetIndex: index + 1, packetCount,
+    })),
+  ].map(group => ({
     ...group,
     chunks: Array.from({ length: Math.ceil(group.cards.length / 7) }, (_, i) => group.cards.slice(i * 7, i * 7 + 7)),
     slotMap: group.cards.map((card, i) => ({
@@ -49,9 +56,12 @@ export function createPrintGenerator(options = {}) {
   return {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
-    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES }) {
+    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES, batchLabel = 'CLC' }) {
       const plan = planPrintSheets(cards);
       if (!path.isAbsolute(outputDir || '')) throw new Error('PDF output directory must be absolute');
+      if (typeof batchLabel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$/.test(batchLabel)) {
+        throw new Error('Batch label must contain 1–24 printable letters, numbers, spaces, hyphens or underscores');
+      }
       if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes <= 0 || maxOutputBytes > MAX_OUTPUT_BYTES) {
         throw new Error('PDF output budget must be a positive integer no larger than 2 GiB');
       }
@@ -77,6 +87,8 @@ export function createPrintGenerator(options = {}) {
           signal, timeout: 120_000, env: { MPLCONFIGDIR: path.join(working, 'matplotlib') },
         });
         for (const group of plan) {
+          const label = group.kind === 'dfc'
+            ? `${batchLabel} DFC ${group.packetIndex}/${group.packetCount}` : `${batchLabel} fronts`;
           const parts = [];
           let partBytes = 0;
           for (const [index, chunk] of group.chunks.entries()) {
@@ -85,7 +97,7 @@ export function createPrintGenerator(options = {}) {
             await fs.mkdir(chunkDirectory);
             const input = path.join(chunkDirectory, 'input.json');
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
-              label: `CLC ${group.kind === 'dfc' ? 'DFC' : 'fronts'} ${index + 1}/${group.chunks.length}`,
+              label: group.kind === 'dfc' ? label : `${label} ${index + 1}/${group.chunks.length}`,
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
@@ -112,7 +124,8 @@ export function createPrintGenerator(options = {}) {
           for await (const buffer of createReadStream(stagedOutput)) hash.update(buffer);
           const sha256 = hash.digest('hex');
           artifacts.push({ id: group.id, kind: group.kind, path: path.join(outputDir, `${group.id}.pdf`),
-            sha256, size, pageCount, cardCount: group.cards.length, sheetCount: group.chunks.length, slotMap: group.slotMap });
+            sha256, size, pageCount, cardCount: group.cards.length, sheetCount: group.chunks.length, slotMap: group.slotMap,
+            label, ...(group.kind === 'dfc' ? { packetIndex: group.packetIndex, packetCount: group.packetCount } : {}) });
           slots.push(...group.slotMap.map(slot => ({ ...slot, artifactId: group.id })));
         }
         if (signal?.aborted) throw signal.reason || new Error('PDF generation canceled');

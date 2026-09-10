@@ -192,6 +192,36 @@ describe('durable control commands and receipts', () => {
 });
 
 describe('physical state separation and DFC batch binding', () => {
+  it('derives the current packet identity and counts only from the immutable server manifest', async () => {
+    const jobId = seedJob();
+    const artifact = { id: 'dfc-first', kind: 'dfc', packetIndex: 1, packetCount: 2,
+      label: 'CLC Household proof • batch ABCD • DFC 1/2', sheetCount: 1, cardCount: 7 };
+    const manifest = JSON.stringify({ artifacts: [artifact, { ...artifact, id: 'dfc-second', packetIndex: 2 }] });
+    db.run('UPDATE print_jobs SET manifest_json=?, manifest_sha256=? WHERE id=?', [manifest, digest(manifest), jobId]);
+    const activeJob = { id: jobId, state: 'awaiting_refeed', artifactId: 'dfc-first', phase: 'backs',
+      packet: { label: 'Wrong sheets from telemetry', sheetCount: 99 }, label: 'Wrong label' };
+    await beat(heartbeat({ activeJob }));
+    expect((await (await status()).json()).station.activeJob.packet).toEqual({
+      artifactId: artifact.id, label: artifact.label, packetIndex: 1, packetCount: 2, sheetCount: 1, cardCount: 7,
+    });
+    expect(JSON.stringify(await (await status()).json())).not.toContain('Wrong');
+    await beat(heartbeat({ activeJob: { ...activeJob, artifactId: 'dfc-second' } }));
+    expect((await (await status()).json()).station.activeJob.packet).toBeNull();
+    await beat(heartbeat({ activeJob }));
+    db.run('UPDATE print_jobs SET manifest_sha256=? WHERE id=?', ['0'.repeat(64), jobId]);
+    expect((await (await status()).json()).station.activeJob.packet).toBeNull();
+  });
+
+  it('preserves a legacy double-faced stack’s sheet count without inventing a printed label', async () => {
+    const jobId = seedJob();
+    const manifest = JSON.stringify({ artifacts: [{ id: 'dfc-first', kind: 'dfc', sheetCount: 3, cardCount: 18 }] });
+    db.run('UPDATE print_jobs SET manifest_json=?, manifest_sha256=? WHERE id=?', [manifest, digest(manifest), jobId]);
+    await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_refeed', artifactId: 'dfc-first', phase: 'backs' } }));
+    expect((await (await status()).json()).station.activeJob.packet).toEqual({
+      artifactId: 'dfc-first', label: null, packetIndex: 1, packetCount: 1, sheetCount: 3, cardCount: 18,
+    });
+  });
+
   it('blocks new claims immediately for pending pause and unverified recipes, but preserves active recovery', async () => {
     const queued = seedJob('queued', [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
     await beat(); const pause = await accepted(command('pause'));
