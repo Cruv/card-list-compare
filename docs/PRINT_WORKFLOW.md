@@ -1,8 +1,8 @@
 # Household PDF and printing workflow
 
 Status: CLC v2.44.1 includes print planning, PDF generation, artifact downloads, the household
-station API and a native Mac companion. Physical color, manual duplex and cutter calibration
-still require the household proof below.
+station API and a native Mac companion. The owner accepted the Mac Adobe color test;
+companion rendering, manual duplex and cutter calibration still require the proof below.
 
 ## Using the Printing tab
 
@@ -174,7 +174,8 @@ Before enabling unattended printing:
 1. The household Mac now has Epson driver 13.45, queue `EPSON_ET_8550_Series`, and the
    **CLC Uinkit 54lb - Fronts** preset. On another Mac, install/configure its queue first.
    See the [recorded Mac setup](HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09).
-2. Print the same reference PDF from Adobe on Mac and compare with the Windows result.
+2. The owner accepted the Mac Adobe reference on 2026-09-09 after clearing nozzle clogs.
+   Repeat this comparison if the reference driver, media or color settings change.
 3. Compare the companion's rendering with that Mac Adobe proof, keeping PDF bytes, paper,
    source, quality, scaling and color settings fixed. Record the approved local recipe.
 4. Verify v6 cut geometry, registration/Studio settings and the 1 mm crop on actual stock.

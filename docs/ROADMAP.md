@@ -13,8 +13,9 @@ runtime, downloadable PDFs and an authenticated station protocol. The
 [native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
 configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
 
-The household Mac now has Epson driver 13.45 and a saved Uinkit fronts preset. Remaining
-work is to validate color against Adobe, then test v6 cutter geometry and manual DFC
+The household Mac now has Epson driver 13.45, a saved Uinkit fronts preset and an accepted
+Adobe color test after nozzle cleaning. Remaining work is to compare the companion's
+rendering with that accepted sheet, then test v6 cutter geometry and manual DFC
 page order/flip/alignment. The owner's 600 PPI,
 1 mm crop, skipped slot 4 and Epson Vivid recipe are preserved in
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The Mac must be awake for unattended

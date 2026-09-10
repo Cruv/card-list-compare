@@ -3,8 +3,8 @@
 Status: the Windows process below is the accepted reference. CLC now implements PDF
 generation and the native Mac companion. The Mac driver and a matching GUI preset were
 configured on 2026-09-09. The first Mac page printed, but the owner rejected its colors;
-the owner subsequently found clogged yellow/magenta nozzles and now reports recovery
-after cleaning. Repeat color/shadow, cutter and duplex proof remains outstanding. See
+the owner subsequently cleared the yellow/magenta clogs and **accepted the Adobe Mac color
+test**. Companion rendering, v6 cutter and duplex proof remain outstanding. See
 [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Preserve this reference across upgrades.
 
 **Updated decision:** the owner has approved adopting **v6** for the new integration.
@@ -209,8 +209,8 @@ The owner then checked the nozzles and reported **yellow partially clogged and m
 completely clogged**. This confirms an ink-delivery fault; the first sheet cannot establish
 whether the Mac color recipe matches the Windows reference. The owner subsequently
 reported completing nozzle cleaning and confirmed that **magenta and yellow now print
-fine**. This records owner-confirmed nozzle recovery; no repeat card color/shadow proof
-has been accepted. Keep the existing driver/color settings for the next comparison.
+fine**. The subsequent Adobe color test was accepted, as recorded below. Keep the existing
+driver/color settings for the companion comparison.
 The owner also reports crushed blacks/shadow detail on Gothmog and agreed to reassess
 after cleaning. Preserve this as a separate quality check; restoring magenta/yellow does
 not by itself establish acceptable shadow detail. The owner authorized installing Adobe
@@ -276,7 +276,11 @@ the subsequent Adobe Print click created **local job 6 at 22:48:07**. Only one n
 job was submitted. Its receipt identifies Acrobat Reader and one rendered impression,
 one copy, one-sided, RGB, rear feed, glossy media 92, Best quality 307, Vivid 3, vendor color
 matching and zero color adjustments. The printer connected and began processing the job.
-Spooler completion and the owner's color/shadow assessment remain pending. In particular,
-compare Terror of the Peaks' reds and Gothmog's purple border and
-dark artwork with the accepted Windows output. This v4 sample still does not validate v6
-cut geometry or the companion's rendering path.
+Local job 6 completed at **22:53:22**, with **one impression and one sheet**. The owner then
+reported **"color test passed"** and requested the next phase. This establishes the accepted
+Mac Adobe color reference after nozzle recovery; no additional brightness/contrast change
+was needed or requested. The earlier Gothmog concern stays in the history rather than
+being treated as a confirmed driver fault. Compare the companion's output with this
+accepted sheet, including its reds, purples and shadow detail. This v4 sample still does
+not validate v6 cut geometry or the companion's rendering path. Both companion proof flags
+remain false pending their separate physical checks.
