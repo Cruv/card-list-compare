@@ -240,3 +240,17 @@ verified equivalent in this driver's advertised controls. Do not substitute the 
 duplex/B&W density controls. Physical comparisons with Adobe and a separate DFC flip/order/
 alignment proof remain required. No card PDF was submitted during the initial preset
 configuration; the single-page test recorded above followed that setup.
+
+## Adobe Reader on the Mac — 2026-09-09
+
+Installed free **Adobe Acrobat Reader 26.002.21901** from Adobe's official Mac download,
+after the owner completed local administrator authorization. Installer and installed app
+signatures identify Adobe Inc.; notarization and deep code-signature verification passed.
+The app includes native arm64 and x86_64 executables, and its package receipts match the
+installed version. Reader launched successfully; no subscription or trial was started.
+
+The current Reader print dialog's printer-managed-color option still needs verification.
+Use the unchanged Sauron PDF for any subsequent comparison, with Actual Size/100%, the
+recorded Epson media/color preset and Print As Image off to match the Windows reference.
+No additional card page was submitted during installation. Nozzle recovery and acceptable
+color/shadow detail must be confirmed before approving the print recipe.
