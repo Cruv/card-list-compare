@@ -352,3 +352,37 @@ The accepted native recipe fingerprint is
 orders). Keep these settings unchanged for the v6 proof. The production worker remains
 unconfigured and both proof flags remain false until v6 geometry and, separately, manual
 duplex are verified.
+
+### v6 cutting proof prepared — 2026-09-10
+
+Generated `CLC-v6-cutting-proof.pdf` with the unchanged CLC adapter and actual cached
+Silhouette Card Maker revision `4d4aa73a95e93b09676c863a1861765863398c63`. It contains one
+792 × 612 point page, one 6600 × 5100 DeviceRGB image, seven fronts, three registration
+marks and skipped slot 4, using the configured 600 PPI, quality 100 and 1 mm crop.
+SHA-256: `7681547230ce72172b70f397f76e10d374fec9ecf48fb574a2fd4ec2c6d6d0bb`;
+size: 18,216,200 bytes. Strict validation and a rendered visual review passed.
+
+The seven names match the historical sample, but these are original name-resolved Scryfall
+printings, not tiles extracted from that already cropped PDF: Demolition Field (FDN 687),
+Terror of the Peaks (OTJ 149), Academy Ruins (2XM 309), Buster Sword (FIN 255), Conqueror's
+Flail (2X2 302), Gleaming Overseer (MIC 151), and Gothmog, Morgul Lieutenant (LTR 87).
+Source bytes, exact Scryfall IDs, URLs, hashes, copy/slot assignments, generator details
+and matching Studio template hash are retained in the local proof manifest. Scryfall marks
+the Gothmog source low-resolution; the 600 PPI output does not add missing source detail.
+This sheet tests the v6 recipe and cutting geometry rather than matching every historical
+art variant.
+
+The proof PDF, matching Studio file, upstream license, manifest and cutting instructions
+are in the household's `CLC Print Calibration/v6` folder on Storage. Its SMB mount caused
+a first-attempt scratch cleanup failure after PDF validation; a fresh invocation succeeded
+with container-local scratch and the final files were copied to the share. See
+[the storage guidance](OPERATIONS.md#silhouette-runtime). The native print pass reads a
+hash-verified private local copy, matching the companion's normal local-spool workflow.
+
+Submitted one front-only sheet as **local job 9**, titled `CLC-PROOF-v6-cutting-20260910`,
+using the accepted landscape recipe and a new durable calibration receipt. The cut proof
+still needs physical measurement (63 × 88 mm), usual drying/lamination, and registration/
+cut checks across both rows using `letter-standard-v6.studio3`. Use the existing proven
+laminated-stock cut settings and the matching physical mat setup; no blade/force/pass
+values were invented or changed. The Alpha's three-mark workflow uses the upstream's
+Cameo 5 Studio selection. No cutter has been operated; manual duplex remains a later test.

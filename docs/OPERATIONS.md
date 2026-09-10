@@ -151,6 +151,16 @@ Do not copy a Windows or Mac venv into the Linux cache. Runtime compatibility is
 an offline rebuild succeeds only if compatible wheels are already stored. Back up the whole
 data mount, including source and wheels, for offline recovery.
 
+On macOS/OrbStack, keep the live data bind mount on the Docker host's local filesystem.
+An SMB-backed scratch directory under the household's `/Volumes/Storage` share produced
+open-file `.smbdelete*` tombstones held by OrbStack: upstream generated and validated its
+PDF, but the adapter's final directory cleanup failed with `Directory not empty`. This
+does not establish a problem with native local storage. The calibration succeeded using
+container-local scratch and copying finalized artifacts to SMB. Use SMB for finalized
+exports or backups, not this stack's live generation/cache/database directory. Do not
+suppress cleanup errors or move production staging across filesystems without preserving
+its atomic publication guarantees.
+
 The adapter invokes upstream once per seven-card sheet at 600 PPI and merges completed
 sheets. Double-faced cards remain a separate artifact. Allow at least 2 GiB of container
 memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
