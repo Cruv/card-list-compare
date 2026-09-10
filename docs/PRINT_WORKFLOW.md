@@ -1,8 +1,8 @@
 # Household PDF and printing workflow
 
 Status: CLC v2.44.2 includes print planning, PDF generation, artifact downloads, the household
-station API and a native Mac companion. The owner accepted the Mac Adobe color test;
-companion rendering, manual duplex and cutter calibration still require the proof below.
+station API and a native Mac companion. The owner accepted the Mac Adobe color test and
+corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
 
 ## Using the Printing tab
 
@@ -179,10 +179,10 @@ Before enabling unattended printing:
    See the [recorded Mac setup](HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09).
 2. The owner accepted the Mac Adobe reference on 2026-09-09 after clearing nozzle clogs.
    Repeat this comparison if the reference driver, media or color settings change.
-3. Compare the companion's rendering with that Mac Adobe proof, keeping PDF bytes, paper,
-   source, quality, scaling and color settings fixed. Record the approved local recipe.
-   The first companion sheet exposed portrait clipping; 2.44.2 adds explicit landscape,
-   and its corrected physical proof remains pending.
+3. The owner accepted the corrected companion sheet on 2026-09-10 after 2.44.2 added
+   explicit landscape. Preserve its recorded recipe and repeat the comparison if the
+   renderer, source, quality, scaling or color settings change. This accepts visual
+   color/orientation, not measured v6 cutting geometry.
 4. Verify v6 cut geometry, registration/Studio settings and the 1 mm crop on actual stock.
 5. Separately prove DFC front/back page order, flip direction, rotation and alignment.
    The supplied two-sided preset was visible but its settings were not opened.

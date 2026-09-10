@@ -16,8 +16,9 @@ printer destinations or CUPS options.
 See the [household print recipe](../../docs/HOUSEHOLD_PRINT_RECIPE.md) for the working Windows
 reference: Uinkit 200 gsm double-sided glossy Letter, ET-8550 rear paper feeder, Ultra
 Premium Photo Paper Glossy, Best quality and printer-managed EPSON Vivid. The generated
-DeviceRGB output is not an ICC-converted proof. The Mac automated rendering path still
-needs comparison with the accepted Adobe output using the same PDF, paper and driver.
+DeviceRGB output is not an ICC-converted proof. The owner accepted the household Mac's
+corrected companion sheet against Adobe on 2026-09-10. Keep its recorded settings fixed;
+v6 cut geometry and manual duplex still need physical proof before enabling their flags.
 
 ## Configure without printing
 

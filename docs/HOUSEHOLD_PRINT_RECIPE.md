@@ -1,10 +1,11 @@
-# Household print reference — updated 2026-09-09
+# Household print reference — updated 2026-09-10
 
 Status: the Windows process below is the accepted reference. CLC now implements PDF
 generation and the native Mac companion. The Mac driver and a matching GUI preset were
 configured on 2026-09-09. The first Mac page printed, but the owner rejected its colors;
 the owner subsequently cleared the yellow/magenta clogs and **accepted the Adobe Mac color
-test**. Companion rendering, v6 cutter and duplex proof remain outstanding. See
+test and corrected companion sheet**. The v6 cutter and manual duplex proofs remain
+outstanding. See
 [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Preserve this reference across upgrades.
 
 **Updated decision:** the owner has approved adopting **v6** for the new integration.
@@ -339,5 +340,15 @@ After the corrected preflight, submitted one fresh page-1/front-only comparison 
 **local job 8 at 23:26:16**, titled `CLC-PROOF-sauron-landscape-20260909`, from the same
 original Sauron PDF. It uses a new durable calibration identity and leaves job 7's receipt
 intact; the failed physical proof was not retried under its old identity. The queue accepted
-the job and connected to the printer. Physical confirmation of orientation, size and color
-is pending; the production worker remains unconfigured and both proof flags remain false.
+the job and connected to the printer. It completed at **23:32:04 on 2026-09-09** with one
+impression and one sheet. On 2026-09-10, after being asked to compare orientation and color
+with the Adobe reference, the owner reported **"The sheet looks good"**. The corrected
+companion sheet is accepted as the visual color/orientation proof. Precise physical card
+measurements and v6 cutting alignment remain separate checks; this reference is still v4.
+
+The accepted native recipe fingerprint is
+`7a917073e9373eb27f7827f06a2fa323bec64c9b01f1ac4d19b1c8c7155b6ee8`
+(the recorded Epson options plus v2.44.2's fixed landscape/actual-size settings and pass
+orders). Keep these settings unchanged for the v6 proof. The production worker remains
+unconfigured and both proof flags remain false until v6 geometry and, separately, manual
+duplex are verified.
