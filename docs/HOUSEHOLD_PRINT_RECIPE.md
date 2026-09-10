@@ -209,6 +209,10 @@ The owner then checked the nozzles and reported **yellow partially clogged and m
 completely clogged**. This confirms an ink-delivery fault; the first sheet cannot establish
 whether the Mac color recipe matches the Windows reference. Cleaning/recovery has not yet
 been confirmed. Keep the existing driver/color settings unchanged while resolving this.
+The owner also reports crushed blacks/shadow detail on Gothmog and agreed to reassess
+after cleaning. Preserve this as a separate quality check; restoring magenta/yellow does
+not by itself establish acceptable shadow detail. The owner authorized installing Adobe
+Acrobat Reader on the Mac for a subsequent comparison with the Windows/Adobe reference.
 
 Follow the printer's cleaning prompts and repeat **Maintenance → Print Head Nozzle Check**
 using plain paper in lower **Cassette 2**. Once every color pattern is complete, repeat the
