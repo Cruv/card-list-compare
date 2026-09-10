@@ -60,7 +60,7 @@ For the household's installed **ET-8550 driver 13.45**, the
 advertised options saved by the native **CLC Uinkit 54lb - Fronts** preset. Copy its object
 into `driver_options` and use the installed queue name `EPSON_ET_8550_Series`. This is an
 unproved automation starting point, not a ready-to-run configuration: set the server/token
-locally and retain both proof flags as false. The
+locally and retain both proof flags as false until their respective physical checks pass. The
 [recorded Mac setup](../../docs/HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09)
 explains the observed color/profile flags and Windows controls without verified equivalents.
 
@@ -216,6 +216,29 @@ pass states. A PDF download-only job is never claimed. Lease heartbeats retain t
 submission/manual-refeed/uncertain states are never automatically requeued for printing.
 The companion refuses external download origins and all HTTP redirects, keeping its token
 on the configured CLC origin. [CUPS command options](https://www.cups.org/doc/options.html)
+
+### CLC station controls
+
+Open **Print Station** in CLC to see this Mac's heartbeat, printer check, version, proof
+flags, active batch and recent events. Authorized household print users can pause/unpause
+and confirm the exact waiting DFC batch has been flipped and reloaded. Administrators have
+version controls when a managed installation is available; a source checkout reports those
+as unsupported. The existing CLI controls remain available.
+
+`run` now reports setup health even with `recipe_verified: false`. It does not claim jobs
+or submit pages until the local recipe is verified and the station is unpaused. A failed
+management heartbeat blocks fresh claims/submissions; submitted jobs retain their original
+reconciliation path. The Mac has no inbound control listener and does not enable printer
+sharing. Proof flags, queue and Epson options cannot be changed remotely.
+
+Controls arrive through `POST /api/print-station/heartbeat` alongside status, recent bounded
+events and durable receipts. Pause/refeed changes and their receipts commit together in the
+local ledger. Replays never reapply a control, and changed payloads under the same ID are
+rejected. Refeed includes the current job and back-pass artifact. Controls expire after
+five minutes; a delivered control's late receipt still records what actually happened.
+The local ledger retains control tombstones and the latest 200 diagnostic events. Version
+changes require no active local batch, preserve the ledger/configuration and leave printing
+paused until an operator unpauses. Never remove receipts to force an update or reprint.
 
 ```bash
 python3 -m unittest discover -s companion/mac -p 'test_*.py'

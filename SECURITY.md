@@ -114,6 +114,16 @@ and preserves local submission receipts across restarts. Keep the state director
 job history for recovery. Its example leaves physical-proof flags disabled; tests and the
 local dry-run command never submit to a real printer.
 
+Station management is a separate user-authenticated surface: administrators or explicitly
+authorized household users can read live status/events and request pause, unpause or a
+specific manual DFC refeed. Update checks, version changes and rollback require administrator
+status. The browser never receives the station token. The Mac polls outbound for a fixed
+allowlist of controls; commands cannot contain executable paths, printer options, arbitrary
+URLs or scripts. Local proof flags remain local. Refeed commands bind the job and artifact,
+and commands expire and carry durable idempotency receipts. Software version changes cannot
+proceed while the local ledger contains an active, uncertain or awaiting-refeed batch.
+Telemetry is bounded and credential-redacted; only authorized household operators see it.
+
 Print history retains private snapshot/art details after artifact expiry. Account deletion
 purges its jobs/files, but active physical submissions must first be reconciled. Legacy
 database backups retain their historical content. Paper/color/cutter correctness still

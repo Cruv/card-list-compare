@@ -15,6 +15,8 @@ import adminRoutes from './routes/admin.js';
 import mpcRoutes from './routes/mpcautofill.js';
 import printRoutes from './routes/print.js';
 import printStationRoutes from './routes/print-station.js';
+import printStationManagementRoutes from './routes/print-station-management.js';
+import { resetPrintStationManagement } from './lib/printStationManagement.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 import { initDownloadQueue } from './lib/downloadQueue.js';
 import { initializePrintGenerator } from './lib/printGenerator.js';
@@ -81,10 +83,12 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/mpc', mpcRoutes);
 // Station credentials are deliberately separate from user sessions.
 app.use('/api/print-station', printStationRoutes);
+app.use('/api/print-station-management', printStationManagementRoutes);
 app.use('/api/decks', printRoutes);
 
 async function start() {
   await initDb();
+  resetPrintStationManagement();
   initDownloadQueue();
   initPrintQueue();
   // Preparing/updating Python must not delay the web app or break offline startup.

@@ -156,6 +156,32 @@ Every pass explicitly requests landscape Letter at actual size; a landscape PDF 
 not ensure the Mac command-line filter rotates it onto the loaded sheet. Fixed page settings
 are included in the durable recipe fingerprint so they cannot change during an active batch.
 
+### Station management in CLC
+
+The **Print Station** page (`#print-station`) shows the companion's most recent heartbeat,
+printer checks, active batch, proof flags, version, recent events and control receipts.
+Only administrators and authorized household print users can view/control it. Version
+changes are administrator-only and available only for a managed installation.
+
+The Mac makes outbound authenticated heartbeat requests; no incoming Mac web service or
+printer sharing is required. Heartbeats are live observations, not evidence that a page
+printed. A station becomes offline after 20 seconds without a heartbeat, and server restart
+starts offline until the next observation. Printer checks are cached for up to 60 seconds;
+every actual pass still checks the configured queue before submission.
+
+**Pause** stops new claims and submissions while existing spooler work continues.
+**Confirm paper reload** is tied to the current job and back-pass artifact. It cannot
+release a different batch or change print settings. Expiring commands carry durable IDs;
+the Mac records a receipt atomically with local pause/refeed changes, so reconnects do not
+repeat those actions. New physical submissions wait when the management connection is
+unavailable. Existing passes continue through the original reconciliation logic.
+
+The companion can run while its recipe is unverified to report setup health; it will not
+claim new jobs or print until local proof requirements pass. The dashboard displays those
+requirements but cannot override them. Software updates and rollback require an idle local
+ledger and preserve pause, configuration, PDFs and submission receipts. Uncertain outcomes
+and manual DFC waits count as active batches, not idle time.
+
 The Mac must be awake and use the actual Epson driver with explicitly tested local options.
 The supplied Windows Adobe settings enable **Let printer determine colors**; Epson uses **EPSON
 Vivid**, Ultra Premium Photo Paper Glossy, Best quality, rear feed and Actual Size. No

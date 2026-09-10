@@ -12,6 +12,8 @@ and physical-copy delta plans, frozen artwork/face manifests, the actual cached 
 runtime, downloadable PDFs and an authenticated station protocol. The
 [native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
 configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
+CLC's Print Station page now reports live station health and controls pause/refeed through
+durable commands; managed version controls are restricted to administrators and idle stations.
 
 The household Mac now has Epson driver 13.45, a saved Uinkit fronts preset, an accepted
 Adobe color test after nozzle cleaning, and an accepted companion sheet after the landscape

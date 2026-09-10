@@ -186,6 +186,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Complete batches** — separate ordinary fronts and alternating DFC front/back PDFs; every required face must validate before publication.
 - **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation.
 - **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; DFC backs require manual reload and resume.
+- **Print Station** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, and confirm a specific DFC paper reload. Administrators also see managed version controls when the station supports them.
 
 Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. ManaSync inventory checks, drying, lamination and cutting tracking are outside this release.
 
@@ -195,6 +196,10 @@ SQLite receipts. It explicitly prints landscape Letter at actual size. Its dry r
 nothing; normal operation requires a configured Epson
 queue and accepted color/geometry proof. DFC backs remain blocked until manual reload and
 resume. The optional LaunchAgent starts it at login; sleeping Macs leave jobs queued.
+Open **Print Station** in CLC for daily operation. A disconnected or stale station is shown
+offline and its controls are disabled. Source checkouts report their version but do not
+support managed package updates. Neither the dashboard nor remote controls can enable
+physical-proof flags or change Epson driver options.
 
 ### Printing Metadata
 

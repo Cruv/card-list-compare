@@ -184,6 +184,21 @@ across upgrades and do not run multiple independent stations against one househo
 The optional LaunchAgent is written on request and installed by the operator after proof.
 The repository's automated tests use fake submissions and never configure a printer.
 
+The **Print Station** page centralizes health, version, event history, pause/unpause and
+batch-specific DFC reload controls. It requires the same household authorization as
+physical queue requests; only administrators may request version checks/changes. Install
+matching server and companion versions for the heartbeat/control protocol. A companion
+that cannot contact this protocol stops new submissions while retaining its ledger for
+reconciliation. Starting an unverified companion is supported for setup/telemetry and does
+not enable physical printing. A source checkout reports managed updates as unavailable.
+
+Live health is kept in server memory to avoid rewriting the entire sql.js database every
+five seconds. Server restart correctly resets the station to offline. Control intents and
+receipts are durable database rows; the Mac also retains local idempotency records. Commands
+expire after five minutes if not applied. A late receipt can still settle a command that
+was delivered in time; expiry is not proof that its action did not occur. Do not recreate
+an uncertain request without inspecting its receipt and the current station state.
+
 Jobs live under `data/print-jobs/`. The default quota is 10 GiB
 (`PRINT_STORAGE_MAX_MB=10240`). Preparation requires 5 GiB of working headroom for the
 retained job and temporary generation files. A retained job is capped at 2 GiB including

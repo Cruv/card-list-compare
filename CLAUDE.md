@@ -37,7 +37,7 @@ src/lib/fetcher.js       URL imports (Archidekt/Moxfield/Deckcheck/…) → deck
 src/lib/scryfall.js      Client Scryfall batch (images, types; exact printings)
 src/lib/cardIdentity.js  Card name/set/collector/foil keys + DFC name normalization
 src/lib/api.js           Client HTTP layer for all /api calls
-src/lib/useHashRoute.js  Routing: #admin #settings #guide #library #library/{id} #share/{id} #deck/{id}
+src/lib/useHashRoute.js  Routing: #admin #settings #guide #print-station #library #library/{id} #share/{id} #deck/{id}
 src/lib/{powerLevel,recommendations,edhrec,analytics}.js  Deck analysis heuristics
 server/db.js             sql.js init + migrations + run/get/all helpers + persist()
 server/lib/deckToText.js       Server mirror of archidektToText()
@@ -45,7 +45,7 @@ server/lib/enrichDeckText.js   Adds printing metadata (carry-forward + Scryfall)
 server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
 server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
-companion/mac/           Native Python print station, local Epson options, durable recovery
+companion/mac/           Native Python station/control poller, local Epson options, durable recovery
 server/routes/           auth, owners, decks, snapshots, share, shared-decks, admin, mpcautofill
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```

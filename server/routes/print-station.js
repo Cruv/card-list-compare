@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireStationToken, claimPrintJob, stationPrintJob, reportPrintJob, formatPrintJob, verifiedPrintArtifact } from '../lib/printQueue.js';
+import { requireStationToken, stationPrintJob, reportPrintJob, formatPrintJob, verifiedPrintArtifact } from '../lib/printQueue.js';
+import { claimForManagedStation, stationManagementHeartbeat } from '../lib/printStationManagement.js';
 import { sendPdf } from './print.js';
 
 const router = Router();
@@ -18,7 +19,8 @@ const route = callback => (req, res) => {
   }
 };
 router.get('/status', (_req, res) => res.json({ stationId: 'household', recipeId: 'household-letter-v6', protocolVersion: 1 }));
-router.post('/claim', route((_req, res) => res.json({ job: claimPrintJob() })));
+router.post('/heartbeat', route((req, res) => res.json(stationManagementHeartbeat(req.body))));
+router.post('/claim', route((_req, res) => res.json({ job: claimForManagedStation() })));
 router.get('/jobs/:jobId', route((req, res) => res.json({ job: formatPrintJob(stationPrintJob(req.params.jobId), true) })));
 router.post('/jobs/:jobId/report', route((req, res) => res.json(reportPrintJob(req.params.jobId, req.body || {}))));
 router.get('/jobs/:jobId/artifacts/:artifactId', route((req, res) => {

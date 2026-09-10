@@ -25,6 +25,7 @@ import uuid
 
 
 HERE = Path(__file__).resolve().parent
+COMPANION_VERSION = "2.45.0"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -168,6 +169,9 @@ class Client:
     def claim(self):
         return self.json("/api/print-station/claim", {}).get("job")
 
+    def management_heartbeat(self, status):
+        return self.json("/api/print-station/heartbeat", status)
+
     def get_job(self, job_id):
         return self.json("/api/print-station/jobs/" + checked_id(job_id, "job ID")).get("job")
 
@@ -198,7 +202,7 @@ class Client:
                             raise StationError("PDF exceeds its declared size or the local size limit")
                         output.write(block)
                         sha.update(block)
-                        if time.monotonic() - last_beat > 30:
+                        if time.monotonic() - last_beat > 10:
                             heartbeat()
                             last_beat = time.monotonic()
                     output.flush()
@@ -440,6 +444,7 @@ class Station:
         self.client = client or Client(config)
         self.cups = cups or Cups(config)
         self.ledger = ledger or Ledger(config["state_dir"])
+        self.management = None
 
     def adopt(self, job):
         checked_job(job, self.config)
@@ -537,11 +542,15 @@ class Station:
             self.ledger.set_pass(entry, "submitted", spooler_id=match["id"])
             self.ledger.set_job(job["id"], "active", "Waiting for spooler completion: " + match["id"])
 
-    def poll_once(self):
+    def poll_once(self, allow_submit=True):
         current = self.ledger.current()
         if not current:
             if self.ledger.paused():
                 return "paused"
+            if not allow_submit:
+                return "waiting for station management connection"
+            if not self.config.get("recipe_verified"):
+                return "waiting for local printer and cutting proof"
             job = self.client.claim()
             if job is None:
                 return "idle"
@@ -592,6 +601,8 @@ class Station:
             return "paper clearance required"
         if self.ledger.paused():
             return "paused"
+        if not allow_submit:
+            return "waiting for station management connection"
         artifact = next(item for item in job["artifacts"] if item["id"] == pending["artifact_id"])
         if not self.config.get("recipe_verified"):
             raise StationError("The local printer/color recipe has not been physically verified")
@@ -611,8 +622,18 @@ class Station:
         path = directory / (artifact["id"] + ".pdf")
         if not path.exists() and shutil.disk_usage(directory).free < artifact["size"] + 64 * 1024 * 1024:
             raise StationError("Not enough free disk space for the verified PDF")
-        self.client.download(artifact, path, lambda: self.heartbeat(job))
+        def download_heartbeat():
+            self.heartbeat(job)
+            if self.management:
+                self.management.sync(check_printer=False)
+        self.client.download(artifact, path, download_heartbeat)
         self.heartbeat(job)
+        # A large PDF may take several minutes to download. Refresh operator
+        # controls immediately before any submission intent is committed.
+        if self.management:
+            self.management.sync(check_printer=False)
+        if self.ledger.paused():
+            return "paused"
         # This transaction commits before the network submission authorization,
         # and both are durable before the local spooler is contacted.
         self.ledger.set_pass(pending, "intent")
@@ -700,10 +721,12 @@ def dry_run(config, job):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--version", action="version", version=COMPANION_VERSION)
     parser.add_argument("--config", default="~/.config/clc-print-station/config.json")
     commands = parser.add_subparsers(dest="action", required=True)
+    commands.add_parser("self-check", help="Check runtime imports and in-memory SQLite; never load config or contact CLC/CUPS")
     commands.add_parser("doctor", help="Read queue/options and reconciliation support; never print")
-    run = commands.add_parser("run", help="Poll authorized print jobs (verified recipes only)")
+    run = commands.add_parser("run", help="Report station health and poll jobs; only verified, unpaused recipes can print")
     run.add_argument("--once", action="store_true")
     commands.add_parser("status", help="Show local durable job states")
     commands.add_parser("pause", help="Stop accepting/submitting new passes; do not cancel CUPS jobs")
@@ -721,6 +744,26 @@ def main(argv=None):
     token.add_argument("--file", required=True)
     args = parser.parse_args(argv)
     os.umask(0o077)
+    if args.action == "self-check":
+        import ssl
+        from clc_station_control import StationControl
+        managed = False
+        try:
+            import clc_station_manager
+            managed = callable(clc_station_manager.managed_status)
+        except ImportError:
+            pass
+        ssl.create_default_context()
+        with sqlite3.connect(":memory:") as connection:
+            connection.execute("CREATE TABLE runtime_check(id INTEGER PRIMARY KEY)")
+            connection.execute("INSERT INTO runtime_check VALUES(1)")
+            if connection.execute("SELECT id FROM runtime_check").fetchone()[0] != 1:
+                raise StationError("SQLite runtime check failed")
+        if not callable(StationControl):
+            raise StationError("Station controls are unavailable")
+        print(json.dumps({"version": COMPANION_VERSION, "protocolVersion": 1,
+                          "managedRuntime": managed, "networkRequests": 0, "printerSubmissions": 0}))
+        return
     if args.action == "set-token":
         import getpass
         secret = getpass.getpass("CLC station token: ").strip()
@@ -772,19 +815,33 @@ def main(argv=None):
     elif args.action == "run":
         if sys.platform != "darwin":
             raise StationError("Physical station runs require macOS; use dry-run or tests on other platforms")
-        if not config.get("recipe_verified"):
-            raise StationError("Set recipe_verified only after validating the local printer/color proof")
         with station.ledger.worker_lock():
-            station.cups.doctor()
+            from clc_station_control import StationControl
+            station.management = StationControl(station, COMPANION_VERSION)
             last_status = None
             while True:
+                connected = False
                 try:
-                    status_text = station.poll_once()
+                    station.management.sync()
+                    connected = True
+                except (StationError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    station.management.event("error", "Station connection: " + str(error))
+                if station.management.restart_needed:
+                    # Receipts remain durable if the final acknowledgement is
+                    # lost. launchd's stable managed launcher selects the version.
+                    try:
+                        station.management.exchange(station.management.snapshot(), process=False)
+                    except (StationError, OSError, ValueError, subprocess.TimeoutExpired):
+                        pass
+                    return 75
+                try:
+                    status_text = station.poll_once(allow_submit=connected)
                     station.cleanup()
                 except (StationError, OSError, ValueError, subprocess.TimeoutExpired) as error:
                     status_text = "Waiting: " + str(error)
                 if status_text != last_status:
-                    print(status_text, flush=True)
+                    station.management.event("error" if status_text.startswith("Waiting:") else "info", status_text)
+                    print(station.management.safe_message(status_text), flush=True)
                     last_status = status_text
                 if args.once:
                     break
@@ -792,8 +849,11 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    # The control module imports shared types; keep one identity when this file
+    # is invoked as a script rather than imported by the fake-printer tests.
+    sys.modules.setdefault("clc_print_station", sys.modules[__name__])
     try:
-        main()
+        sys.exit(main() or 0)
     except (StationError, OSError, ValueError) as error:
         print("CLC print station: " + str(error), file=sys.stderr)
         sys.exit(1)

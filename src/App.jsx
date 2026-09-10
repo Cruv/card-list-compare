@@ -13,6 +13,7 @@ const DeckLibrary = lazy(() => import('./components/DeckLibrary'));
 const DeckPage = lazy(() => import('./components/DeckPage'));
 const SharedDeckView = lazy(() => import('./components/SharedDeckView'));
 const GuidePage = lazy(() => import('./components/GuidePage'));
+const PrintStationPage = lazy(() => import('./components/PrintStationPage'));
 import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
@@ -24,9 +25,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.44.2';
+const APP_VERSION = '2.45.0';
 const WHATS_NEW = [
-  'Mac printing now explicitly uses landscape so card sheets are not clipped by portrait defaults',
+  'Manage your household print station from CLC with live health, pause controls and recent activity',
+  'Confirm each double-faced batch is flipped and reloaded before its backs print',
 ];
 
 function getResetToken() {
@@ -45,6 +47,7 @@ const AUTH_ROUTES = {
   library: 'The deck library',
   libraryDeck: 'This deck',
   admin: 'The admin panel',
+  printStation: 'The print station',
 };
 
 export default function App() {
@@ -278,6 +281,17 @@ export default function App() {
       <ErrorBoundary>
         <Suspense fallback={<div className="app-loading">Loading...</div>}>
           <UserSettings />
+        </Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  // Household print station (authenticated)
+  if (route === 'printStation' && user) {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <PrintStationPage key={user.id} />
         </Suspense>
       </ErrorBoundary>
     );
