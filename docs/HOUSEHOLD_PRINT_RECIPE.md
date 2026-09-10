@@ -3,7 +3,8 @@
 Status: the Windows process below is the accepted reference. CLC now implements PDF
 generation and the native Mac companion. The Mac driver and a matching GUI preset were
 configured on 2026-09-09. The first Mac page printed, but the owner rejected its colors;
-color/cutter/duplex proof remains outstanding. See
+the owner subsequently found clogged yellow/magenta nozzles. Color/cutter/duplex proof
+remains outstanding. See
 [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Preserve this reference across upgrades.
 
 **Updated decision:** the owner has approved adopting **v6** for the new integration.
@@ -204,14 +205,18 @@ appear yellow/green on the photographed print, while blues remain prominent. The
 ticket confirms RGB, Best quality, glossy media, rear feeder, vendor color matching,
 EPSON Vivid and zero color adjustments. Job completion does not approve this recipe.
 
-Weak/missing magenta is a diagnostic possibility, not an established cause. Next run the
-printer's own **Maintenance → Print Head Nozzle Check** using plain paper in lower
-**Cassette 2**, inspecting every pattern, especially magenta. This separates ink delivery
-from the Mac/PDF path before changing profiles or repeating a full card sheet.
+The owner then checked the nozzles and reported **yellow partially clogged and magenta
+completely clogged**. This confirms an ink-delivery fault; the first sheet cannot establish
+whether the Mac color recipe matches the Windows reference. Cleaning/recovery has not yet
+been confirmed. Keep the existing driver/color settings unchanged while resolving this.
+
+Follow the printer's cleaning prompts and repeat **Maintenance → Print Head Nozzle Check**
+using plain paper in lower **Cassette 2**. Once every color pattern is complete, repeat the
+same single front page with the same Preview preset to isolate the effect of restoring ink
+delivery. If the colors still differ, compare the renderer/color path next.
 [Epson ET-8550 nozzle-check instructions](https://files.support.epson.com/docid/cpd5/cpd59879/source/printers/source/ink_functions/tasks/et8500_8550_l8160_l8180/checking_nozzles_lcd_et8500_l8180.html)
-If the pattern is complete, compare the renderer/color path next. No nozzle check,
-cleaning or additional print has been performed as part of this diagnosis. Both companion
-proof flags remain unapproved.
+The assistant has not started cleaning or submitted an additional card print. Both
+companion proof flags remain unapproved.
 
 The GUI explicitly saved `EPIJ_CCor=3` for Vivid (the PPD default 12 has the same label),
 media 92, Best quality 307, rear source 0, custom mode 3, and `Resolution=720x720dpi`.
@@ -229,5 +234,5 @@ Do not assume CLI rendering inherits the native preset or reproduces its color p
 Windows text emphasis, thin-line emphasis, edge smoothing and general density have no
 verified equivalent in this driver's advertised controls. Do not substitute the unrelated
 duplex/B&W density controls. Physical comparisons with Adobe and a separate DFC flip/order/
-alignment proof remain required. No card PDF was submitted during this setup; Epson's
-completed Supplies Levels query was the only observed spooler entry.
+alignment proof remain required. No card PDF was submitted during the initial preset
+configuration; the single-page test recorded above followed that setup.
