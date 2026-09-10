@@ -145,6 +145,9 @@ The [Mac companion setup guide](../companion/mac/README.md) covers private confi
 station credentials, read-only driver checks, a local dry run, foreground operation and an
 optional start-at-login agent. It uses Python 3.9+ with no extra Python packages. The example
 leaves both physical-proof flags off and requires the actual installed queue/options.
+The managed package bundles Python, installs its own copy outside the checkout, and starts
+paused at login. Its versioned installer/update/rollback workflow is described in that guide;
+software updates preserve the local print ledger and cannot interrupt an unresolved batch.
 
 The companion streams and verifies PDFs, maintains a durable local SQLite submission ledger,
 and reconciles exact CUPS titles/job IDs before reporting outcomes. `status`, `pause`,

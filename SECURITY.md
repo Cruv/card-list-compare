@@ -124,6 +124,16 @@ and commands expire and carry durable idempotency receipts. Software version cha
 proceed while the local ledger contains an active, uncertain or awaiting-refeed batch.
 Telemetry is bounded and credential-redacted; only authorized household operators see it.
 
+The managed installer bundles a pinned standalone Python runtime and preserves its upstream
+license/source metadata. Version updates use only stable GitHub assets from the fixed
+`Cruv/card-list-compare` publisher, with no station credential attached to those downloads.
+They validate GitHub asset SHA-256 values, a matching release manifest, bounded archive
+contents and contained links, per-file checksums and a no-print startup self-check. The
+publisher remains trusted to distribute executable updates; checksum validation is not
+Developer-ID signing or notarization. Packages do not remove macOS quarantine. CLC users
+cannot provide an update URL or replace the printer recipe. Version rollback preserves
+current credentials and submission records rather than restoring an old state backup.
+
 Print history retains private snapshot/art details after artifact expiry. Account deletion
 purges its jobs/files, but active physical submissions must first be reconciled. Legacy
 database backups retain their historical content. Paper/color/cutter correctness still

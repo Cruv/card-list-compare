@@ -45,7 +45,7 @@ server/lib/enrichDeckText.js   Adds printing metadata (carry-forward + Scryfall)
 server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
 server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
-companion/mac/           Native Python station/control poller, local Epson options, durable recovery
+companion/mac/           Native station/controls, versioned installer/updater, local Epson options/receipts
 server/routes/           auth, owners, decks, snapshots, share, shared-decks, admin, mpcautofill
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```

@@ -25,10 +25,10 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.45.0';
+const APP_VERSION = '2.46.0';
 const WHATS_NEW = [
-  'Manage your household print station from CLC with live health, pause controls and recent activity',
-  'Confirm each double-faced batch is flipped and reloaded before its backs print',
+  'Install the Mac print companion once with its own Python runtime and automatic startup',
+  'Manage versioned companion updates and rollback from Print Station while preserving your print history',
 ];
 
 function getResetToken() {

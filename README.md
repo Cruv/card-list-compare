@@ -192,11 +192,15 @@ Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for re
 
 Install the [Mac companion](companion/mac/README.md) on the printer host separately from
 Docker. It uses Python 3.9+ and native CUPS commands, with a scoped token file and local
-SQLite receipts. It explicitly prints landscape Letter at actual size. Its dry run prints
+SQLite receipts. The managed installer bundles Python and starts the service at login;
+it does not depend on a Git checkout or system Python. It explicitly prints landscape
+Letter at actual size. Its dry run prints
 nothing; normal operation requires a configured Epson
 queue and accepted color/geometry proof. DFC backs remain blocked until manual reload and
-resume. The optional LaunchAgent starts it at login; sleeping Macs leave jobs queued.
-Open **Print Station** in CLC for daily operation. A disconnected or stale station is shown
+resume. The login service runs while this Mac user is logged in; sleeping Macs leave jobs queued.
+Open **Print Station** in CLC for daily operation, including administrator-controlled
+updates and rollback from verified packages. Version changes require an idle ledger and
+leave printing paused. A disconnected or stale station is shown
 offline and its controls are disabled. Source checkouts report their version but do not
 support managed package updates. Neither the dashboard nor remote controls can enable
 physical-proof flags or change Epson driver options.

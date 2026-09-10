@@ -181,7 +181,9 @@ Install [companion/mac](../companion/mac/README.md) on the Mac outside Docker. U
 `doctor` and local `dry-run` commands before configuring physical-proof flags. Its private
 state directory contains the submission ledger and downloaded PDFs; preserve that state
 across upgrades and do not run multiple independent stations against one household token.
-The optional LaunchAgent is written on request and installed by the operator after proof.
+The self-contained Mac installer includes Python and installs a user LaunchAgent, initially
+paused. It can report setup health before proof flags are enabled. For source development,
+the optional LaunchAgent writer remains available separately.
 The repository's automated tests use fake submissions and never configure a printer.
 
 The **Print Station** page centralizes health, version, event history, pause/unpause and
@@ -198,6 +200,22 @@ receipts are durable database rows; the Mac also retains local idempotency recor
 expire after five minutes if not applied. A late receipt can still settle a command that
 was delivered in time; expiry is not proof that its action did not occur. Do not recreate
 an uncertain request without inspecting its receipt and the current station state.
+
+Managed code/runtime versions live under the local state directory's `app/versions`, with
+`current` and `previous` selections. The installer preserves an existing config/token/ledger
+and refuses to migrate an active station. Restarting launchd selects a complete installed
+version through a stable launcher; moving the original checkout or extracted installer
+does not affect it. Keep these paths on local Mac storage. Back up the entire state and
+private configuration together. Do not restore just an old ledger over newer print receipts.
+
+Companion updates come from stable published GitHub release assets in the fixed CLC repo.
+The updater checks archive/manifest digests, path containment and startup self-check before
+activation. It retains the prior version and does not switch on download/validation failure.
+Updates and rollback wait for no active local job; ambiguous submissions and DFC waits block
+them. They preserve the current ledger/config and leave the station paused. Log files rotate
+at launch when over 5 MiB, keeping three backups. A package's first installation has no
+rollback version. See the companion README for installer migration and the explicit
+build/draft-publication workflow; pushing a feature branch does not publish an update.
 
 Jobs live under `data/print-jobs/`. The default quota is 10 GiB
 (`PRINT_STORAGE_MAX_MB=10240`). Preparation requires 5 GiB of working headroom for the

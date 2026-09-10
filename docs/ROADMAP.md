@@ -14,6 +14,8 @@ runtime, downloadable PDFs and an authenticated station protocol. The
 configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
 CLC's Print Station page now reports live station health and controls pause/refeed through
 durable commands; managed version controls are restricted to administrators and idle stations.
+The self-contained Mac installer now bundles its runtime, starts paused at login, and
+supports checked version updates and rollback without replacing configuration or print history.
 
 The household Mac now has Epson driver 13.45, a saved Uinkit fronts preset, an accepted
 Adobe color test after nozzle cleaning, and an accepted companion sheet after the landscape

@@ -3,6 +3,8 @@
 This companion polls CLC for explicitly queued print jobs and submits their verified PDFs
 to one locally configured Epson CUPS queue. It runs outside Docker, uses Python 3.9+ and
 macOS's native `lp`, `lpstat`, `lpoptions` and `ipptool`, and needs no Python packages.
+The managed installer bundles its own Python runtime; it does not require a Git checkout
+or a separately installed Python. Source-based operation remains available for development.
 Installing or running this code does not install an Epson driver or reproduce an Adobe
 print preset. Physical printing is disabled until `recipe_verified` is explicitly enabled.
 
@@ -19,6 +21,82 @@ Premium Photo Paper Glossy, Best quality and printer-managed EPSON Vivid. The ge
 DeviceRGB output is not an ICC-converted proof. The owner accepted the household Mac's
 corrected companion sheet against Adobe on 2026-09-10. Keep its recorded settings fixed;
 v6 cut geometry and manual duplex still need physical proof before enabling their flags.
+
+## Install once, manage from CLC
+
+Extract the `clc-print-station-macos-arm64.tar.gz` package on an Apple Silicon Mac, or the
+`x86_64` package on an Intel Mac. Open **Install CLC Print Station.command** inside the
+extracted `CLC-Print-Station` folder. The installer uses the included runtime, asks for the
+CLC origin, installed Epson queue and hidden station token when no configuration exists,
+and installs a user LaunchAgent. No administrator password is needed for this user service.
+The Epson driver is a separate prerequisite. This package is not Developer-ID signed or
+notarized; it does not remove macOS quarantine or bypass approval for downloaded software.
+
+Printing starts **paused**. An existing private configuration is preserved, including its
+driver options and proof flags. A new configuration leaves both proof flags off and requires
+the actual local Epson recipe described below. The service can report setup health without
+being able to print. Set the server's matching `PRINT_STATION_TOKEN` and household user grants
+in the container configuration, then open **Print Station** in CLC for daily operation.
+
+The default installation is:
+
+| Location | Purpose |
+| --- | --- |
+| `~/.config/clc-print-station/config.json` and `station-token` | Private connection and print settings |
+| `~/Library/Application Support/CLC Print Station/station.sqlite3` | Durable print and control receipts |
+| `~/Library/Application Support/CLC Print Station/app/versions/` | Complete versioned code and Python runtimes |
+| `app/current`, `app/previous` | Atomic current selection and retained rollback version |
+| `~/Library/LaunchAgents/local.clc.print-station.plist` | Start at login and restart the stable launcher after failure |
+
+The Mac must be awake and this user logged in. The downloaded installer folder may be moved
+or removed after installation; the installed service uses its own copy. Keep configuration,
+state and installed versions on the Mac's local disk, not an SMB share. Logs live beside the
+ledger; at service startup, logs over 5 MiB rotate with three retained backups. The CLC page
+shows bounded structured activity rather than exposing arbitrary local log files.
+
+Administrators can **Check for updates**, install the displayed newer version, or roll back
+to the retained version. Updates use published stable packages from the fixed
+[`Cruv/card-list-compare` GitHub repository](https://github.com/Cruv/card-list-compare/releases).
+App releases without companion assets are skipped. Network failure preserves the current
+installation. The manager verifies GitHub asset digests, the release manifest, archive size,
+contained paths/links and every bundled file, then runs a no-print runtime self-check before
+selecting a version. This trusts the repository publisher over HTTPS; it is not an Apple
+code-signing guarantee. CLC cannot choose a different publisher or send executable code.
+
+An update requires an idle ledger and leaves the station paused. Active prints, uncertain
+outcomes and DFC refeed waits block version changes. An explicitly abandoned/reconciled
+terminal batch retains its receipt history without blocking future updates. Code/runtime
+rollback preserves configuration, the token, PDFs and the ledger. The first installation
+has no previous version to roll back to. No version change prints a test sheet automatically.
+
+For migration from a running checkout, pause it and unload its existing LaunchAgent first.
+Move that old plist to a backup path before installing; a conflicting existing LaunchAgent
+is rejected. Do not erase the print ledger to make installation succeed. To use a nondefault
+existing configuration, invoke the extracted installer with `--config /absolute/config.json`.
+`--no-launch` installs paused and writes the plist without loading the service.
+
+## Build and publish packages
+
+On a Mac, from the repository root, build a package for its native architecture:
+
+```bash
+python3 companion/mac/build_bundle.py --output /tmp/clc-station-package
+```
+
+The builder requires matching app/companion versions, downloads a pinned SHA-256-verified
+Python standalone runtime into a local cache, includes its license notices and source
+metadata, and refuses to overwrite an existing package output. It does not publish or print.
+The pinned runtime is CPython 3.13.15 from the
+[python-build-standalone 20260901 release](https://github.com/astral-sh/python-build-standalone/releases/tag/20260901).
+Build archives and runtime caches stay outside Git.
+
+The manually dispatched **Build Mac Print Station Packages** workflow tests/builds each
+native architecture and assembles `clc-print-station-manifest.json`. Its default only
+uploads CI artifacts. The optional draft upload requires an already-existing matching
+`vX.Y.Z` draft release and does not create a tag or publish that draft. After explicit
+release approval, publish the matching draft with both archives and the combined manifest;
+only then can installed companions discover that release. Ordinary branch pushes do not
+publish companion packages or silently update household Macs.
 
 ## Configure without printing
 
@@ -180,7 +258,7 @@ in 256 KiB blocks. Completed/failed local PDF directories expire after seven day
 uncertain and awaiting-refeed files are retained. Job/pass/event tombstones remain in the
 ledger to prevent duplicate submission. Do not delete the ledger to retry a print.
 
-## Optional start at login
+## Optional start at login for a source checkout
 
 Use an absolute Python executable and keep this checkout/path stable. The following command
 only writes a user LaunchAgent plist; it does not load launchd or contact the printer:
