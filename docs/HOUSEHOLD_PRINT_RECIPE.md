@@ -284,3 +284,29 @@ being treated as a confirmed driver fault. Compare the companion's output with t
 accepted sheet, including its reds, purples and shadow detail. This v4 sample still does
 not validate v6 cut geometry or the companion's rendering path. Both companion proof flags
 remain false pending their separate physical checks.
+
+### Companion rendering comparison — 2026-09-09
+
+After accepting the Adobe color test, the owner requested the next phase. Prepared a
+single-page calibration using the companion's unchanged `Cups.args()` / `Cups.submit()`
+path, the same original Sauron PDF/hash, `frontPages: [1]`, one copy and the 66 validated
+driver options above. The queue was idle before submission. A separate private calibration
+ledger recorded the fixed title, PDF hash, exact arguments and submission intent before
+the one allowed submission; retries only reconcile its title/job ID. Neither the server
+worker nor station credentials were needed, and both proof flags stayed false.
+
+Submitted **local job 7** at **23:00:51**, titled
+`CLC-PROOF-sauron-companion-20260909`. It connected and began printing. The receipt confirms
+page range 1–1, one copy, one-sided Letter, no scaling, rear feeder, glossy media, Best,
+RGB/720 dpi, Vivid, vendor color matching, profile 2 and zero color corrections, matching
+the core Epson settings in the accepted Adobe job. Spooler completion and the owner's
+comparison with the Adobe sheet remain pending. Matching options alone do not approve
+the companion's rendering. Its 32 automated tests also passed before this submission.
+
+The matching upstream `cutting_templates/letter-standard-v6.studio3` was prepared locally
+with its license for the next geometry proof (SHA-256
+`01acc200500ac4280d072e47890aef24b56af5ff37a40127fad50deebc6087c7`). Upstream documents selecting
+**Cameo 5** in Studio to use three registration marks on the Cameo 5 Alpha. This template
+belongs with newly generated v6 PDFs, not the historical Sauron v4 color sheet. Original
+card images are needed to validate the 1 mm crop; extracting already cropped Sauron tiles
+and cropping them again would not prove the configured recipe. No cutter was operated.
