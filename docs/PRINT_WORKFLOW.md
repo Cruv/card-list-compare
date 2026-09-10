@@ -167,7 +167,9 @@ Keep manual Adobe printing available until the unattended path matches an accept
 
 Before enabling unattended printing:
 
-1. Install/configure the Mac Epson queue. It had no printer destinations during the review.
+1. The household Mac now has Epson driver 13.45, queue `EPSON_ET_8550_Series`, and the
+   **CLC Uinkit 54lb - Fronts** preset. On another Mac, install/configure its queue first.
+   See the [recorded Mac setup](HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09).
 2. Print the same reference PDF from Adobe on Mac and compare with the Windows result.
 3. Compare the companion's rendering with that Mac Adobe proof, keeping PDF bytes, paper,
    source, quality, scaling and color settings fixed. Record the approved local recipe.

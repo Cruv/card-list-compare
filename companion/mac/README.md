@@ -54,6 +54,15 @@ invented universal Epson option names. `doctor` rejects unadvertised configured 
 checks queue availability and tests read-only job reconciliation. It reports the chosen
 recipe fingerprint and proof flags. A successful report is not a color or alignment proof.
 
+For the household's installed **ET-8550 driver 13.45**, the
+[driver-options example](epson-et8550-13.45-driver-options.example.json) captures the
+advertised options saved by the native **CLC Uinkit 54lb - Fronts** preset. Copy its object
+into `driver_options` and use the installed queue name `EPSON_ET_8550_Series`. This is an
+unproved automation starting point, not a ready-to-run configuration: set the server/token
+locally and retain both proof flags as false. The
+[recorded Mac setup](../../docs/HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09)
+explains the observed color/profile flags and Windows controls without verified equivalents.
+
 The companion fixes `media=Letter`, `sides=one-sided`, `number-up=1`, `print-scaling=none`,
 `fit-to-page=false` and one copy per pass. Do not add these reserved options to
 `driver_options`. The default ordinary output order is `reverse`, matching the supplied

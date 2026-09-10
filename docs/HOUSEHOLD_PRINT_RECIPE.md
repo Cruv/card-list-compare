@@ -1,13 +1,14 @@
-# Household print reference — 2026-09-08
+# Household print reference — updated 2026-09-09
 
-Status: captured from the owner's working Windows process, not an implemented CLC print
-feature or a validated macOS preset. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the
-integration plan. Preserve this reference when testing new generator or printer versions.
+Status: the Windows process below is the accepted reference. CLC now implements PDF
+generation and the native Mac companion. The Mac driver and a matching GUI preset were
+configured on 2026-09-09; physical color/cutter/duplex proof remains outstanding. See
+[PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Preserve this reference across upgrades.
 
 **Updated decision:** the owner has approved adopting **v6** for the new integration.
 Use the matching v6 Studio cutting template and verify a first sheet; reproducing v4 is
 no longer a requirement. The container generates PDFs, and a native Mac companion is the
-planned Epson submission path. The Windows settings below remain the color reference.
+implemented Epson submission path. The Windows settings below remain the color reference.
 
 ## Equipment and workflow
 
@@ -150,6 +151,53 @@ measurements as historical context. Adopting v6 does not automatically select fo
 registration: the initial v6 recipe retains `--registration 3` from the tested workflow.
 Future generator updates must still validate geometry against the approved v6 recipe.
 
-Local Mac readiness check on 2026-09-08: CUPS reports no installed printer destinations
-and no default destination. The Epson queue/driver still needs configuring on this Mac
-before printer-bridge proof; no printer settings were changed during the review.
+## Mac installation and saved preset — 2026-09-09
+
+Installed Epson's signed/notarized ET-8550 driver **13.45** on macOS **26.5.2**, after the
+owner accepted its license and completed local administrator authorization. The PDF/raster
+filters and printer-dialog plugin include native arm64 and x86_64 code. Added the directly
+advertised printer using Epson's installed software; the local queue is
+`EPSON_ET_8550_Series`, with driver/PPD version 13.45, idle and accepting jobs. Printer sharing
+is off. The earlier 2026-09-08 check with no queues is now historical.
+
+The native preset **CLC Uinkit 54lb - Fronts** is saved for this printer. It was configured
+through Preview's print dialog using the supplied Sauron PDF, then the dialog was canceled
+without printing. This does not establish that Preview matches Adobe's rendering.
+
+| Setting | Saved native selection |
+| --- | --- |
+| Size / orientation / scaling | US Letter, landscape, 100%, one page per sheet, no scale-to-fit |
+| Paper | Rear Paper Feeder; Ultra Premium Photo Paper Glossy |
+| Quality / color | Best Quality; Color; EPSON Color Controls; Manual Settings → EPSON Vivid |
+| Corrections | Brightness, contrast, saturation, cyan, magenta, yellow all zero; red-eye/mirror off |
+| Sheet handling | Reverse order, collate, all pages; automatic duplex off |
+| Driver options | Bidirectional printing on; quiet mode off |
+
+The saved preset and advertised CUPS options provide an exact starting point for the
+[13.45 driver-options example](../companion/mac/epson-et8550-13.45-driver-options.example.json).
+Copy this object's contents into the companion's `driver_options` only when using that
+installed driver and queue. It contains advertised options, not credentials, machine-specific
+print-ticket data or an installed companion configuration. Run `doctor` after copying it;
+keep both proof flags false until the actual output is accepted.
+The companion's read-only doctor check validated all 66 captured options against this
+installed queue, confirmed it accepts requests, and read its job history successfully.
+The 32 companion tests also passed. No station credentials or background worker were installed.
+
+The GUI explicitly saved `EPIJ_CCor=3` for Vivid (the PPD default 12 has the same label),
+media 92, Best quality 307, rear source 0, custom mode 3, and `Resolution=720x720dpi`.
+That driver raster resolution does not change the generator's 600 PPI recipe. Media 92
+is named Ultra Premium Photo Paper Glossy in Epson's US resources and Epson Ultra Glossy
+in its alternate regional PPD.
+
+The same GUI preset saved `EPIJProfileSpec=2`, `EPIJ_OSColMat=1`, `EPIJ_OSCMProf=1`, and
+`EPIJ_HdofClSp=0`, alongside native `AP_ColorMatchingMode=AP_VendorColorMatching` and
+`APCustomColorMatchingProfile=sRGB` metadata. These are observed Epson/Apple settings, not
+evidence that a custom Windows ICC was exported or that ColorSync was chosen in the UI.
+The two AP fields are not advertised CUPS options and are excluded from the example.
+Do not assume CLI rendering inherits the native preset or reproduces its color processing.
+
+Windows text emphasis, thin-line emphasis, edge smoothing and general density have no
+verified equivalent in this driver's advertised controls. Do not substitute the unrelated
+duplex/B&W density controls. Physical comparisons with Adobe and a separate DFC flip/order/
+alignment proof remain required. No card PDF was submitted during this setup; Epson's
+completed Supplies Levels query was the only observed spooler entry.
