@@ -7,19 +7,20 @@ accounts, database, and secrets. An explicit user-granted connection maps each a
 
 The ManaSync repository was supplied on 2026-09-11:
 [dennysparking/manasync](https://github.com/dennysparking/manasync). The paired source
-baseline is ManaSync `main` at `ef22e79` and
+work uses ManaSync `codex/clc-bridge-verification`, based on `main` at `ef22e79`, and
 [Cruv/card-list-compare](https://github.com/Cruv/card-list-compare), branch
-`codex/project-audit-print-workflow`, at `7d75fef` (CLC v2.48.0). CLC PR #5 is integrated
+`codex/project-audit-print-workflow`, at `b520c5c` (CLC v2.48.1). CLC PR #5 is integrated
 into that branch; it is not a direction to use the older `feature/manasync-bridge` checkout
 or an exported source archive. Integration work, merging CLC to `main`, and deployment are
 separate steps. Current verification results are recorded in [MANASYNC_REVIEW.md](MANASYNC_REVIEW.md).
-The current CLC v2.48.1 working release adds deck-creation/proposal size compatibility and the paired
-etched-finish safeguards beyond that v2.48.0 source baseline.
+CLC v2.48.1 adds deck-creation/proposal size compatibility alongside ManaSync's etched-finish
+safeguards. The tested ManaSync code and verification harness are committed together at
+`9658bbd`; the complete paired record identifies both repositories' tested revisions.
 
 For a new working directory, clone the two repositories as siblings:
 
 ```sh
-git clone --branch main https://github.com/dennysparking/manasync.git
+git clone --branch codex/clc-bridge-verification https://github.com/dennysparking/manasync.git
 git clone --branch codex/project-audit-print-workflow https://github.com/Cruv/card-list-compare.git
 cd manasync
 export CLC_SOURCE_PATH="$(cd ../card-list-compare && pwd)"
@@ -31,6 +32,8 @@ npm --prefix "$CLC_SOURCE_PATH/server" ci
 Use existing clones if already present; set `CLC_SOURCE_PATH` to their actual absolute CLC
 path and record both selected revisions before verification. The 2026-09-11 local clones
 are `/Users/cruv/GitProjects/manasync` and `/Users/cruv/GitProjects/card-list-compare`.
+ManaSync's verification branch contains the source resolver and compatibility fixes beyond
+its `main` baseline; cloning that unchanged baseline alone does not reproduce this setup.
 `CLC_SOURCE_PATH` selects local build/test code, not the deployed app's API address. An
 explicit relative path resolves from the command's working directory; without a value,
 the harness retains `companions/clc` inside ManaSync as its legacy fallback. Always set it

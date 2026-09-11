@@ -93,20 +93,21 @@ multiple saved operations. At this 2026-09-10 checkpoint the paired ManaSync har
 outstanding because its repository was not yet available locally; these CLC fixtures did
 not establish cross-app compatibility.
 
-## Paired repository available — 2026-09-11
+## Paired API and browser acceptance — 2026-09-11
 
 The supplied ManaSync repository is now cloned at `/Users/cruv/GitProjects/manasync` from
 `https://github.com/dennysparking/manasync.git`, with `main` baseline `ef22e79`. The selected
 CLC checkout is `/Users/cruv/GitProjects/card-list-compare`, branch
-`codex/project-audit-print-workflow`, baseline `7d75fef`. Local harness maintenance takes
-place on ManaSync's `codex/clc-bridge-verification` branch. Set `CLC_SOURCE_PATH` explicitly
+`codex/project-audit-print-workflow`. Tested CLC application code is **`b520c5c` (v2.48.1)**,
+following the initial `7d75fef` baseline. Tested ManaSync code and its verification harness
+are committed at **`9658bbd`** on `codex/clc-bridge-verification`, including the etched-finish
+fix from `c98f776`, based on `ef22e79`. Set `CLC_SOURCE_PATH` explicitly
 so imports, child processes and browser checks use this same integrated CLC checkout.
 
-The paired **HTTP harness passed on 2026-09-11**, using real CLC/ManaSync servers with
-disposable PostgreSQL 16 and CLC SQLite data. This run used working trees based on the pins
-above, including the explicit source resolver, bounded proposal-body compatibility,
-etched-finish guards and corrected source fixtures. It was not a test of the unchanged
-baseline commits alone.
+The complete paired **HTTP and browser harness passed with exit 0 on 2026-09-11**, using
+real CLC/ManaSync servers with disposable PostgreSQL 16 and CLC SQLite data. The harness
+selects the explicit CLC source, uses corrected source fixtures and follows ManaSync's
+current Settings UI. It was not a test of the unchanged starting baseline commits alone.
 
 The run verified scoped account access; latest/paper separation; proposal submission,
 review and replay; exact manual-deck creation and Cloud deck round trips; ownership and
@@ -131,7 +132,15 @@ proposal with paper state unchanged. The served UI was v2.48.1, security headers
 present, and the runtime used UID 1000. `PRINT_ENABLED=false` kept generation and physical
 jobs disabled; the temporary container was removed.
 
-Final paired browser verification remains pending. Earlier dated
-ManaSync verification is historical evidence, not a browser result for this pair. No `main`
-merge, live deployment, physical printing or cutting occurred in this harness. Physical v6
-cutting and DFC alignment acceptance remain separate.
+The browser run exercised CLC settings, proposal receipts, protected source review,
+ownership, Mana Pool shopping and print-queue UI at **1440, 393 and 320 px**. The real
+ManaSync UI verified exact custom front/back art, partial confirmation and dismissal,
+the default offline text view, and offline cached face flipping after opting into artwork
+through **More → Settings → Appearance settings**. No fatal browser or unexpected API
+errors were recorded. Local evidence is in `browser.log` under the disposable
+`clc-manasync-paired-ol2e9b9r` run directory; screenshots are under ManaSync's
+`test-results/clc-bridge-ui/`.
+
+Earlier dated ManaSync verification remains historical. This acceptance did not merge
+either branch to `main`, deploy an app, submit a physical printer job or operate the cutter.
+Physical v6 cutting/DFC alignment and installed-iPhone acceptance remain separate.
