@@ -179,40 +179,63 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The observed live container/UI is **v2.41.2**. The v2.48.1 print/station work is on
-`codex/project-audit-print-workflow`, not `main`; pulling the registry's `latest` tag
-alone does not deploy this branch. Update the stack's saved service definition as well
-as the running container when deploying it. Preserve the existing JWT secret, accounts,
-database and bind mount. Back up the live data and verify migrations against a copy;
-never start another backend against the live database.
+The household server is now **v2.48.1**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `cd268eb`. The local image is
+`clc-household:2.48.1-cd268eb`; its saved service configuration lives at
+`/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
+existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
+UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
+build selected, and Watchtower is disabled for this container. Do not prune the image.
+The registry's `latest` tag does not contain this feature branch yet.
+
+Only CLC was stopped and recreated. A complete, private pre-upgrade backup was taken at
+`/Users/cruv/docker/Backups/cardlistcompare/20260911T225536Z-before-2.48.1` while the old
+container was stopped. Backup hashes, private prior-container settings and rollback
+configuration are retained outside the live bind mount. Never run another backend
+against the live database; an image rollback also requires reviewing/restoring its
+matching data, after preserving any newer user changes.
 
 An isolated, network-disabled migration of a read-only database copy passed using the
 tested v2.48.1 image. Core row counts were preserved, SQLite integrity remained `ok`,
 and a second migration pass was idempotent. One pre-existing snapshot referencing a
 missing deck remained unchanged; this check did not delete or repair household data.
 The test never started schedulers, and its copied database was removed afterward.
+After the actual deployment, integrity and core counts still matched the backup:
+3 users, 2 tracked owners, 13 decks, 69 snapshots and 1 shared comparison. The existing
+browser sign-in remained valid. Local and public health/station checks returned HTTP 200.
 
 The native **v2.48.1 arm64 companion is installed** under
 `~/Library/Application Support/CLC Print Station/app`, with private configuration in
 `~/.config/clc-print-station`. Its server origin and `EPSON_ET_8550_Series` queue are
-configured. A separate private `print-station.env` was prepared in the household data
-directory with the matching station credential; it is **not yet loaded by the stack**.
-Keep its contents out of source control and logs, and retain the existing JWT settings
-when adding these print settings to the saved stack configuration. No additional
-household user grants have been added.
+configured. The deployed service loads the matching station credential and
+`PRINT_ENABLED=true` from the private `cardlistcompare-deployment/runtime.env` file.
+The unused installation-only `print-station.env` was removed after verifying its copy
+in the pre-upgrade backup. No additional household user grants have been added.
 
-Installation retained the previous manual-proof records, created a paused production
-ledger and wrote `~/Library/LaunchAgents/local.clc.print-station.plist` using
-`--no-launch`. At the owner's request, the LaunchAgent was subsequently loaded and the
-**v2.48.1 companion is running**, with KeepAlive and login startup enabled. Printing
-remains paused and both physical-proof flags remain false; the service can stay running
-during testing. It retries the current server, whose missing station endpoint returns
-HTTP 404 until the print-enabled version is deployed. Its read-only
-printer check passed all 66 configured driver options and reproduced the accepted
+The Portainer agent is local, but Docker CLI deployment does not update the controller's
+saved `mtg` stack. Before its next Portainer redeploy, merge the replacement CLC service
+from `cardlistcompare-deployment/portainer-service.private.yaml` into that saved stack,
+preserving its other services and network. This private fragment contains credentials
+and an explicit environment, since the controller cannot read a Mac-local `env_file`.
+Keep it and the runtime/rollback environment files out of Git, chat and logs. The local
+deployment README has the service-only Compose command and recovery instructions;
+do not use `down` or `--remove-orphans` with this partial stack definition.
+
+Installation retained the previous manual-proof records and created a paused production
+ledger. `~/Library/LaunchAgents/local.clc.print-station.plist` is loaded, and the
+**v2.48.1 companion is running**, with KeepAlive and login startup enabled. The owner
+unpaused it through CLC for interface testing; that command was applied and acknowledged.
+Leave the station enabled as requested. Both physical-proof flags remain false: this is
+a separate local submission gate, so Enabled does not yet permit physical printing.
+CLC's Print Station dashboard reports **Online**, version **2.48.1**, station work
+**Enabled**, and printer health **Ready**. Earlier HTTP 404 events remain
+in its activity history from before the server upgrade; current heartbeats succeed.
+Its read-only printer check passed all 66 configured driver options and reproduced the accepted
 recipe fingerprint recorded in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
-No sheet was submitted during installation or startup. After upgrading/configuring the
-server, verify the running companion's paused heartbeat in CLC's Print Station page. Complete
-the v6 cutting and manual duplex proofs before enabling their respective flags.
+No sheet was submitted during installation or deployment, and no print job was created.
+The real Silhouette runtime initialized successfully in the data bind mount at upstream
+revision `4d4aa73a95e93b09676c863a1861765863398c63`, including its startup PDF checks.
+Complete the v6 cutting and manual duplex proofs before enabling their respective flags.
 
 #### Queue operation
 
