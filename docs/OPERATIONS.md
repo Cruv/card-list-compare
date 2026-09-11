@@ -179,9 +179,9 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The household server is now **v2.48.2**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `9aeffde`. The local image is
-`clc-household:2.48.2-9aeffde`; its saved service configuration lives at
+The household server is now **v2.49.0**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `4cebbdd`. The local image is
+`clc-household:2.49.0-4cebbdd`; its saved service configuration lives at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
 existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
 UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
@@ -200,6 +200,10 @@ The subsequent test-printing update has a complete stopped-container backup at
 Preserve Linux venv symlinks as links when copying the generator cache on macOS; following
 them would incorrectly resolve Linux interpreter paths against the Mac. The local
 deployment folder also retains `rollback-2.48.1-compose.yaml` and the update checkpoint.
+The v2.49.0 upgrade has another complete stopped-container backup at
+`/Users/cruv/docker/Backups/cardlistcompare/20260911T233120Z-before-2.49.0/data-complete`,
+with the preceding deployment files, private Mac configuration and stopped native ledger.
+`cardlistcompare-deployment/update-2.49.0.json` records the current image and checks.
 
 An isolated, network-disabled migration of a read-only database copy passed using the
 tested v2.48.1 image. Core row counts were preserved, SQLite integrity remained `ok`,
@@ -210,7 +214,7 @@ After the actual deployment, integrity and core counts still matched the backup:
 3 users, 2 tracked owners, 13 decks, 69 snapshots and 1 shared comparison. The existing
 browser sign-in remained valid. Local and public health/station checks returned HTTP 200.
 
-The native **v2.48.2 arm64 companion is installed** under
+The native **v2.49.0 arm64 companion is installed** under
 `~/Library/Application Support/CLC Print Station/app`, with private configuration in
 `~/.config/clc-print-station`. Its server origin and `EPSON_ET_8550_Series` queue are
 configured. The deployed service loads the matching station credential and
@@ -229,13 +233,13 @@ do not use `down` or `--remove-orphans` with this partial stack definition.
 
 Installation retained the previous manual-proof records and created a paused production
 ledger. `~/Library/LaunchAgents/local.clc.print-station.plist` is loaded, and the
-**v2.48.2 companion is running**, with KeepAlive and login startup enabled. The owner
+**v2.49.0 companion is running**, with KeepAlive and login startup enabled. The owner
 unpaused it through CLC for interface testing; that command was applied and acknowledged.
 Leave the station enabled as requested. Both physical-proof flags remain false, and the
 separate `allow_unverified_printing: true` local setting now permits interface test jobs
 without marking those proofs passed. The update restored Enabled before restarting the
-worker and retained companion v2.48.1 as the rollback version.
-CLC's Print Station dashboard reports **Online**, version **2.48.2**, station work
+worker and retained companion v2.48.2 as the rollback version.
+CLC's Print Station dashboard reports **Online**, version **2.49.0**, station work
 **Enabled**, and printer health **Ready**. Earlier HTTP 404 events remain
 in its activity history from before the server upgrade; current heartbeats succeed.
 Its read-only printer check passed all 66 configured driver options and reproduced the accepted
@@ -246,8 +250,21 @@ Printing tab; the exact-packet flip/reload confirmation still applies to every D
 The real Silhouette runtime initialized successfully in the data bind mount at upstream
 revision `4d4aa73a95e93b09676c863a1861765863398c63`, including its startup PDF checks.
 Complete the v6 cutting and manual duplex proofs before enabling their respective flags,
-then turn off the local test-printing opt-in. The 2.48.2 change passed 844 app/server tests,
-111 native companion tests, lint, production builds and clean dependency audits.
+then turn off the local test-printing opt-in. The v2.49.0 change passed 884 app/server tests,
+119 native companion tests, 46 isolated browser checks, lint (no errors), production builds
+and clean dependency audits. Live UI checks showed the Discord connection form, a real
+Sauron snapshot #64→#68 artwork review, and the whole #68 snapshot: 100 copies, 98 ordinary
+and two double-sided copies, 14 ordinary sheets and one separate DFC packet. Generation
+remained available; no PDF job or printer submission was created. ManaSync is not connected
+for this account, so its live ownership correctly remains **Unknown**. Use Print Station's
+**Discord flip alerts** section to supply a webhook; no destination is configured yet.
+
+The arm64 download is at `~/Downloads/CLC Print Station 2.49.0`. Its archive SHA-256 is
+`2284b655758133927bb41e274bbb4fdb4826abd69c7cb7fa000769d9636ed8f7`; all 1,664 manifest
+entries verified. Use the package's installer or run its bundled Python with `-B -E -s`:
+allowing Python to write bytecode into a versioned bundle changes its manifest contents
+and correctly fails installation verification. The deployment retained all 66 driver
+options, configuration, station credentials and Enabled/test-printing state unchanged.
 
 #### Queue operation
 

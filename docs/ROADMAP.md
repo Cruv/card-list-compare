@@ -14,14 +14,17 @@ runtime, downloadable PDFs and an authenticated station protocol. The
 configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
 New jobs keep each deck's ordinary fronts first, then numbered DFC packets of up to seven
 copies on one front/back sheet. Printed job/packet labels match explicit reload waits;
-Mac notifications with Glass sound default on, and optional Discord alerts are configured
-privately on the Mac. The queue holds until the exact waiting packet is reloaded and its
+Mac notifications with Glass sound default on, and administrators connect optional Discord alerts
+through Print Station; the Mac sends them. The queue holds until the exact waiting packet is reloaded and its
 back pass completes. Dismissing an alert never prints; waits remain visible while paused.
 CLC's Print Station page now reports live station health and controls pause/refeed through
 durable commands; managed version controls are restricted to administrators and idle stations.
+Print review now shows selected front/back art, resolved printings and separate DFC packet
+counts before generation. Missing faces block creation, and uncertain creation requests
+retain the same identity across reloads.
 The self-contained Mac installer now bundles its runtime, starts paused at login, and
 supports checked version updates and rollback without replacing configuration or print history.
-The v2.48.2 companion and server are deployed on the household Mac and passed their
+The v2.49.0 companion and server are deployed on the household Mac and passed their
 connection and printer checks. The dashboard reports Online, Enabled and printer Ready.
 Leave the station enabled for interface testing as requested. The local test-printing
 opt-in permits queued test jobs while both physical-proof flags remain false; DFC reload
