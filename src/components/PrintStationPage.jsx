@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { getPrintStationStatus, sendPrintStationCommand } from '../lib/api';
+import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand } from '../lib/api';
 import './PrintStationPage.css';
 
 const COMMAND_NAMES = {
   pause: 'Pause station', unpause: 'Unpause station', resume: 'Resume reloaded batch',
+  configure_discord: 'Save Discord settings', test_discord: 'Send Discord test',
   check_update: 'Check for updates', update: 'Update companion', rollback: 'Roll back companion',
 };
+const isDiscordCommand = type => ['configure_discord', 'test_discord'].includes(type);
 const JOB_STATES = {
   active: 'Preparing on the Mac',
   claimed: 'Preparing on the Mac', submitting: 'Submitting to Epson',
@@ -69,6 +71,9 @@ export default function PrintStationPage() {
   const [resumeJobId, setResumeJobId] = useState(null);
   const [resumeArtifactId, setResumeArtifactId] = useState(null);
   const [paperReloaded, setPaperReloaded] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [discordUserId, setDiscordUserId] = useState('');
+  const [editingDiscord, setEditingDiscord] = useState(false);
   const pendingRef = useRef(pendingRequest);
   const mountedRef = useRef(false);
   const commandControllerRef = useRef(null);
@@ -107,6 +112,13 @@ export default function PrintStationPage() {
         setConnectionError('');
         setRestricted(false);
         reconcilePending(next.commands || []);
+        // A navigation-safe recovery record contains no webhook. Look up old
+        // operations directly even after they fall out of the latest 20 entries.
+        const waiting = pendingRef.current;
+        if (waiting && isDiscordCommand(waiting.type)) {
+          const found = await findPrintStationCommand(waiting.idempotencyKey, controller.signal);
+          if (mountedRef.current && current === generation && !document.hidden && found.command) reconcilePending([found.command]);
+        }
       } catch (err) {
         if (!mountedRef.current || current !== generation || err.name === 'AbortError' || document.hidden) return;
         setConnectionError(err.message);
@@ -167,6 +179,10 @@ export default function PrintStationPage() {
   const canUpdate = canCheckUpdate && !activeJob;
   const nextVersion = update?.availableVersion;
   const currentVersion = update?.currentVersion || station?.version;
+  const discord = station?.discord;
+  const canManageDiscord = canControl && data?.permissions.canUpdate && discord?.supported;
+  const discordPending = commands.some(item => isDiscordCommand(item.type) && item.status === 'pending');
+  const canRetryDiscord = online && data?.permissions.canUpdate && discord?.supported && !busy && !commandWaiting;
   const connectionLabel = loading && !data ? 'Connecting' : !fresh ? 'Status unavailable' : station.online ? 'Online' : 'Offline';
 
   async function submit(command) {
@@ -207,6 +223,58 @@ export default function PrintStationPage() {
     }
   }
 
+  async function submitDiscord(request) {
+    if (commandControllerRef.current) return;
+    setBusy(true); setActionError(''); setNotice('');
+    const controller = new AbortController();
+    commandControllerRef.current = controller;
+    // Only these nonsecret fields may survive navigation or an uncertain reply.
+    const recovery = { idempotencyKey: request.idempotencyKey, type: request.type,
+      ...(request.type === 'configure_discord' ? { enabled: request.enabled, userId: request.userId } : { revision: request.revision }) };
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(recovery));
+      pendingRef.current = recovery; setPendingRequest(recovery);
+      setWebhookUrl('');
+      const response = request.type === 'configure_discord'
+        ? await configurePrintStationDiscord(request, controller.signal)
+        : await testPrintStationDiscord(request, controller.signal);
+      if (!mountedRef.current) return;
+      if (!response.command?.id || response.command.type !== request.type || response.command.idempotencyKey !== request.idempotencyKey) {
+        throw new Error('The Discord request acknowledgement was incomplete. Its original request ID has been kept.');
+      }
+      sessionStorage.removeItem(storageKey);
+      pendingRef.current = null; setPendingRequest(null); setEditingDiscord(false);
+      setNotice(request.type === 'test_discord' ? 'Test requested. Wait for the Mac’s confirmation below before trying again.'
+        : request.enabled ? 'Discord settings saved for the Mac. Connection is confirmed after the Mac applies them.' : 'Disconnect requested. Waiting for the Mac to apply it.');
+      setData(old => old ? { ...old, commands: [response.command, ...(old.commands || []).filter(item => item.id !== response.command.id)].slice(0, 20) } : old);
+      refreshRef.current();
+    } catch (error) {
+      if (!mountedRef.current) return;
+      // Authentication, conflicts and network errors do not prove an earlier
+      // attempt was absent. Retain its identity without retaining its secret.
+      if (error.status === 400) {
+        pendingRef.current = null; setPendingRequest(null);
+        try { sessionStorage.removeItem(storageKey); } catch { /* Validation rejected this request. */ }
+      }
+      setActionError(error.message); refreshRef.current();
+    } finally {
+      commandControllerRef.current = null;
+      if (mountedRef.current) setBusy(false);
+    }
+  }
+
+  function saveDiscord(enabled) {
+    if (!canManageDiscord) return;
+    submitDiscord({ idempotencyKey: requestId(), type: 'configure_discord', enabled,
+      webhookUrl: enabled ? webhookUrl.trim() : '', userId: enabled ? discordUserId.trim() : '' });
+  }
+
+  function retryDiscord() {
+    const request = pendingRef.current;
+    if (!request || !isDiscordCommand(request.type) || !canRetryDiscord) return;
+    submitDiscord({ ...request, ...(request.type === 'configure_discord' ? { webhookUrl: request.enabled ? webhookUrl.trim() : '' } : {}) });
+  }
+
   function command(type, extra = {}) {
     if (!canControl || pendingRef.current) return;
     if (type === 'resume' && (!canResume || !paperReloaded || !matchingResume)) return;
@@ -227,7 +295,7 @@ export default function PrintStationPage() {
         {connectionError && <div className="station-message station-message--error" role="alert"><strong>Station status could not refresh.</strong> {connectionError} Controls are disabled until status is current.</div>}
         {actionError && <div className="station-message station-message--error" role="alert">{actionError}</div>}
         {notice && <p className="station-message" role="status">{notice}</p>}
-        {pendingRequest && !busy && <section className="station-message station-message--warning" aria-label="Request recovery"><strong>Checking the result of {COMMAND_NAMES[pendingRequest.type]?.toLowerCase()}.</strong><p>If the request is missing from recent activity, retry this same request. It keeps its original ID to prevent a duplicate action.</p><button className="btn btn-secondary" type="button" disabled={!online || !data?.permissions.canControl} onClick={() => submit(pendingRequest)}>Retry same request</button></section>}
+        {pendingRequest && !busy && <section className="station-message station-message--warning" aria-label="Request recovery"><strong>Checking the result of {COMMAND_NAMES[pendingRequest.type]?.toLowerCase()}.</strong><p>If the request is missing from recent activity, retry this same request. It keeps its original ID to prevent a duplicate action.</p>{pendingRequest.type === 'configure_discord' && pendingRequest.enabled && <label className="station-discord-field">Re-enter the same webhook URL to retry. It was not saved in this browser.<input type="password" autoComplete="off" spellCheck={false} value={webhookUrl} onChange={event => setWebhookUrl(event.target.value)} maxLength={340} /></label>}<button className="btn btn-secondary" type="button" disabled={isDiscordCommand(pendingRequest.type) ? !canRetryDiscord || (pendingRequest.type === 'configure_discord' && pendingRequest.enabled && !webhookUrl.trim()) : !online || !data?.permissions.canControl} onClick={() => isDiscordCommand(pendingRequest.type) ? retryDiscord() : submit(pendingRequest)}>Retry same request</button></section>}
 
         {station?.testPrintingEnabled === true && <section className="station-message station-message--warning" aria-label="Test printing enabled">
           <h2>Test printing enabled</h2>
@@ -284,6 +352,24 @@ export default function PrintStationPage() {
             {station?.recipeFingerprint && <details><summary>Recipe fingerprint</summary><p className="station-fingerprint">{station.recipeFingerprint}</p></details>}
           </section>
         </div>
+
+        <section className="station-card station-discord" aria-label="Discord notifications">
+          <div className="station-card-heading"><div><h2>Discord flip alerts</h2><p className="station-small">Get a ping with the deck, exact packet and printed sheet that needs flipping.</p></div><Badge tone={online && discord?.configured && !discordPending ? 'good' : 'neutral'}>{discordPending ? 'Waiting for the Mac' : !fresh ? 'Status unavailable' : discord?.supported ? discord.configured ? online ? 'Connected' : 'Last reported connected' : 'Not connected' : 'Companion update required'}</Badge></div>
+          <p>Discord alerts appear when a double-faced front pass finishes. You still flip and reload only that packet, then confirm in CLC before its backs print.</p>
+          {discord?.configured && <p className="station-small">{discord.managed ? 'Settings are managed here.' : 'The Mac is using its local Discord configuration.'} {discord.userId ? `Mentioning Discord user ${discord.userId}.` : 'Messages do not ping a specific user.'}{!online && ' This is the last reported configuration; the Mac is not currently confirmed online.'}</p>}
+          {discord?.lastTest && <p className={`station-message${discord.lastTest.status === 'confirmed' ? '' : ' station-message--warning'}`} role="status">{discord.lastTest.status === 'confirmed' ? 'Discord confirmed the test message.' : 'The test was not confirmed. Check Discord before requesting another test; it will not retry automatically.'} <span className="station-small">{timestamp(discord.lastTest.at)}</span></p>}
+          {!discord?.supported && <p className="station-small">Install a companion version that supports managed Discord settings, then refresh this page.</p>}
+          {data?.permissions.canUpdate ? <>
+            {(editingDiscord || !discord?.configured) && !pendingRequest && <form className="station-discord-form" onSubmit={event => { event.preventDefault(); saveDiscord(true); }}>
+              <label className="station-discord-field">Discord webhook URL<input type="password" value={webhookUrl} onChange={event => setWebhookUrl(event.target.value)} autoComplete="off" spellCheck={false} placeholder="https://discord.com/api/webhooks/…" maxLength={340} required disabled={!canManageDiscord} /></label>
+              <label className="station-discord-field">Discord user ID <span className="station-small">Optional: the one person to ping</span><input type="text" inputMode="numeric" value={discordUserId} onChange={event => setDiscordUserId(event.target.value)} autoComplete="off" pattern="[1-9][0-9]{0,19}" maxLength={20} placeholder="Numeric user ID" disabled={!canManageDiscord} /></label>
+              <div className="station-actions"><button className="btn btn-primary" type="submit" disabled={!canManageDiscord || !webhookUrl.trim()}>{discord?.configured ? 'Save Discord connection' : 'Connect Discord'}</button>{editingDiscord && <button className="btn btn-secondary" type="button" onClick={() => { setEditingDiscord(false); setWebhookUrl(''); }}>Cancel</button>}</div>
+              <p className="station-small">The webhook is a secret. It is sent to your Mac through CLC and is never shown again here. Saving does not send a message.</p>
+            </form>}
+            <div className="station-actions">{discord?.configured && !editingDiscord && <button className="btn btn-secondary" type="button" disabled={!canManageDiscord} onClick={() => { setDiscordUserId(discord.userId || ''); setWebhookUrl(''); setEditingDiscord(true); }}>Change connection</button>}<button className="btn btn-secondary" type="button" disabled={!canManageDiscord || !discord?.configured || !discord?.revision} onClick={() => submitDiscord({ idempotencyKey: requestId(), type: 'test_discord', revision: discord.revision })}>Send test message</button><button className="btn btn-secondary" type="button" disabled={!canManageDiscord || !discord?.configured} onClick={() => saveDiscord(false)}>Disconnect Discord</button></div>
+          </> : <p className="station-small">An administrator can connect Discord, send a test, or disconnect this household station.</p>}
+          <details><summary>Where to get the webhook and user ID</summary><p className="station-small">In your Discord server’s settings, open Integrations → Webhooks, create a webhook for the channel, and copy its URL. To ping yourself, enable Developer Mode in Discord’s Advanced settings, then copy your user ID. Leave the ID empty for a channel message without a personal ping.</p></details>
+        </section>
 
         <section className="station-card" aria-label="Companion updates">
           <div className="station-card-heading"><div><h2>Companion updates</h2><p className="station-small">Updates install on the Mac when it has no active batch.</p></div><Badge tone={update?.status === 'failed' ? 'warning' : 'neutral'}>{UPDATE_STATES[update?.status] || 'Not reported'}</Badge></div>

@@ -136,12 +136,56 @@ def discord_payload(job, artifact, config):
     return {"content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
 
 
+DISCORD_SETTING = "managed_discord_notifications"
+DISCORD_TEST_SETTING = "managed_discord_last_test"
+
+
+def effective_alert_config(ledger, config):
+    """An explicit managed disconnect must override a legacy config-file URL."""
+    row = ledger.db.execute("SELECT value FROM settings WHERE key=?", (DISCORD_SETTING,)).fetchone()
+    if not row:
+        return dict(config), None
+    value = json.loads(row["value"])
+    if not isinstance(value, dict) or type(value.get("enabled")) is not bool:
+        raise ValueError("Saved Discord settings are invalid")
+    merged = {**config, "refeed_discord_webhook_url": value.get("webhookUrl", "") if value["enabled"] else "",
+              "refeed_discord_user_id": value.get("userId", "") if value["enabled"] else ""}
+    validate_alert_config(merged)
+    if value["enabled"] and not merged["refeed_discord_webhook_url"]:
+        raise ValueError("Saved Discord settings are incomplete")
+    return merged, value
+
+
+def discord_status(ledger, config):
+    try:
+        effective, managed = effective_alert_config(ledger, config)
+        row = ledger.db.execute("SELECT value FROM settings WHERE key=?", (DISCORD_TEST_SETTING,)).fetchone()
+        last_test = json.loads(row["value"]) if row else None
+        return {"supported": True, "configured": bool(effective.get("refeed_discord_webhook_url")),
+                "managed": managed is not None, "revision": managed["revision"] if managed else "local",
+                "userId": effective.get("refeed_discord_user_id", ""), "lastTest": last_test}
+    except Exception:
+        return {"supported": True, "configured": False, "managed": True, "revision": None,
+                "userId": "", "lastTest": None}
+
+
+def discord_test_payload(config):
+    validate_alert_config(config)
+    mention = config.get("refeed_discord_user_id", "")
+    content = (f"<@{mention}> " if mention else "") + "CLC Print Station: Discord test confirmed. Future flip alerts identify the deck, exact packet and printed sheet to reload. This test does not print or resume anything."
+    return {"content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
+
+
 class RefeedAlerts:
     def __init__(self, ledger, config, runner=subprocess.run, discord_transport=post_discord):
         self.ledger, self.config, self.runner = ledger, config, runner
         self.discord_transport = discord_transport
         self.storage_failed = set()
         self.storage_failure_reported = set()
+        try:
+            self.ledger.write("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        except Exception:
+            self.storage_failed.add("discord")
         for channel, table in CHANNEL_TABLES.items():
             try:
                 # Keep the original Mac table intact across upgrades/rollbacks.
@@ -163,10 +207,13 @@ class RefeedAlerts:
         try:
             if channel == "mac" and self.config.get("refeed_notifications", True) is False:
                 return result("disabled")
-            if channel == "discord" and not self.config.get("refeed_discord_webhook_url"):
-                return result("disabled")
             if channel in self.storage_failed:
                 return self.storage_failure(channel)
+            effective = self.config
+            if channel == "discord":
+                effective, _managed = effective_alert_config(self.ledger, self.config)
+                if not effective.get("refeed_discord_webhook_url"):
+                    return result("disabled")
             title, subtitle, body = alert_text(job, artifact)
             identity = (job["id"], artifact["id"], "backs")
             table = CHANNEL_TABLES[channel]
@@ -183,8 +230,8 @@ class RefeedAlerts:
             name = "Mac" if channel == "mac" else "Discord"
             try:
                 if channel == "discord":
-                    payload = discord_payload(job, artifact, self.config)
-                    self.discord_transport(self.config["refeed_discord_webhook_url"], payload, timeout=5)
+                    payload = discord_payload(job, artifact, effective)
+                    self.discord_transport(effective["refeed_discord_webhook_url"], payload, timeout=5)
                 else:
                     completed = self.runner(
                         ["/usr/bin/osascript", "-", title, subtitle, body,

@@ -489,9 +489,9 @@ export async function downloadJobFile(deckId, jobId, deckName) {
 
 // Household PDFs and the native Mac print queue.
 export const previewPrintPlan = (deckId, options) =>
-  apiFetch(`/decks/${deckId}/print-plan`, { method: 'POST', body: JSON.stringify(options), timeout: 60_000 });
+  apiFetch(`/decks/${deckId}/print-plan`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
 export const createPrintJob = (deckId, options) =>
-  apiFetch(`/decks/${deckId}/print-jobs`, { method: 'POST', body: JSON.stringify(options) });
+  apiFetch(`/decks/${deckId}/print-jobs`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
 export const getPrintJobs = (deckId) => apiFetch(`/decks/${deckId}/print-jobs`);
 export const queuePrintJob = (deckId, jobId) =>
   apiFetch(`/decks/${deckId}/print-jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
@@ -560,3 +560,11 @@ export const getPrintStationStatus = (signal) =>
   apiFetch('/print-station-management/status', { signal, timeout: 10_000 });
 export const sendPrintStationCommand = (command, signal) =>
   apiFetch('/print-station-management/commands', { method: 'POST', body: JSON.stringify(command), signal });
+
+// Discord settings must never pass through UI persistence containing the webhook.
+export const configurePrintStationDiscord = (settings, signal) =>
+  apiFetch('/print-station-management/discord', { method: 'POST', body: JSON.stringify(settings), signal });
+export const testPrintStationDiscord = (request, signal) =>
+  apiFetch('/print-station-management/discord/test', { method: 'POST', body: JSON.stringify(request), signal });
+export const findPrintStationCommand = (key, signal) =>
+  apiFetch(`/print-station-management/commands/${encodeURIComponent(key)}`, { signal, timeout: 10_000 });

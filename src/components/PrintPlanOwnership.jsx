@@ -14,7 +14,7 @@ export default function PrintPlanOwnership({ plan }) {
     let active = true;
     resolvePrintPlanOwnership(plan)
       .then(result => { if (active) setResolved(result); })
-      .catch(() => { if (active) setError('Exact printing details could not be resolved. Unverified exact ownership remains unknown.'); })
+      .catch(() => { if (active) setError('Card identities could not be resolved. Unmatched ownership remains unknown.'); })
       .finally(() => { if (active) setResolving(false); });
     return () => { active = false; };
   }, [plan, attempt]);
@@ -28,11 +28,11 @@ export default function PrintPlanOwnership({ plan }) {
   return <section aria-label="Ownership for this print list">
     <p>This checks only the copies in this reviewed {plan.source
       ? `change list from snapshot #${plan.source.id} to #${plan.target.id}`
-      : `snapshot #${plan.target.id} print list`}. Selecting cards to buy leaves your print quantities unchanged.</p>
-    {resolving && <p role="status">Resolving exact printings for the reviewed list…</p>}
+      : `snapshot #${plan.target.id} print list`}. One original in any printing covers all proxy copies, across every deck. Selecting cards to buy leaves your print quantities unchanged.</p>
+    {resolving && <p role="status">Resolving card identities for the reviewed list…</p>}
     {error && <p role="status">{error}</p>}
-    {!resolving && resolved?.unresolved.length > 0 && <p role="status">{resolved.unresolved.length} exact {resolved.unresolved.length === 1 ? 'printing could' : 'printings could'} not be resolved. Exact ownership stays unknown. Retry the details after a temporary outage, or check the set and collector numbers if the problem continues.</p>}
-    {(error || resolved?.unresolved.length > 0) && <button className="btn btn-secondary btn-sm" type="button" onClick={retry} disabled={resolving}>{resolving ? 'Retrying printing details…' : 'Retry printing details'}</button>}
+    {!resolving && resolved?.unresolved.length > 0 && <p role="status">{resolved.unresolved.length} {resolved.unresolved.length === 1 ? 'card identity could' : 'card identities could'} not be resolved. A matching original still counts; unmatched ownership stays unknown. Review the print list again after correcting card details or a temporary outage.</p>}
+    {error && <button className="btn btn-secondary btn-sm" type="button" onClick={retry} disabled={resolving}>{resolving ? 'Retrying card identities…' : 'Retry card identities'}</button>}
     <ManaSyncOwnership cards={cards} showConfirmations={false} initiallyOpen />
   </section>;
 }

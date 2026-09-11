@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getManaSyncAvailability, queuePrintItem, queuePrintBatch } from '../lib/api';
-import { deckBridgeCards, withShortages, shoppingText, manaPoolLink } from '../lib/manasync';
+import { deckBridgeCards, withOriginalOwnership, shoppingText, manaPoolLink } from '../lib/manasync';
 import { createOperationId } from '../lib/operationId';
 import CopyButton from './CopyButton';
 import PrintQueue from './PrintQueue';
@@ -8,7 +8,6 @@ import './ManaSync.css';
 
 export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,cards:selectionCards,showConfirmations=true,initiallyOpen=false}) {
   const refreshSequence = useRef(0);
-  const [by,setBy] = useState('oracle');
   const [data,setData] = useState(null);
   const [loading,setLoading] = useState(false);
   const [error,setError] = useState('');
@@ -19,13 +18,13 @@ export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,ca
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current;
     setLoading(true);setError('');
-    try {const result = await getManaSyncAvailability(by);if (sequence === refreshSequence.current) setData({...result,by});}
+    try {const result = await getManaSyncAvailability('oracle');if (sequence === refreshSequence.current) setData(result);}
     catch(e) {if (sequence === refreshSequence.current) {setData(previous => ({...previous,known:false}));setError(e.message);}}
     finally {if (sequence === refreshSequence.current) setLoading(false);}
-  },[by]);
+  },[]);
   useEffect(() => {void refresh();},[refresh]);
-  const rows = useMemo(() => withShortages(cards,data?.availability || [],by,data?.known && data.by === by && !loading),[cards,data,by,loading]);
-  const shopping = shoppingText(rows.filter(row => selected[row.key] !== false),by === 'printing');
+  const rows = useMemo(() => withOriginalOwnership(cards,data?.availability || [],data?.known && !loading),[cards,data,loading]);
+  const shopping = shoppingText(rows.filter(row => selected[row.shoppingKey] !== false));
   const shoppingUrl = shopping && manaPoolLink(shopping);
   async function queue(entry) {
     setQueueing(entry.key);setError('');
@@ -56,24 +55,24 @@ export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,ca
     {error && <p role="alert">{error}</p>}
     <details open={initiallyOpen || undefined}>
       <summary>ManaSync ownership and Mana Pool shopping</summary>
-      <div className="mana-sync-actions"><label>Match <select value={by} onChange={e => {setBy(e.target.value);setData(null);}}><option value="oracle">Interchangeable printings</option><option value="printing">Exact printing and finish</option></select></label>
-        <button className="btn btn-secondary btn-sm" onClick={refresh} disabled={loading} type="button">{loading ? 'Refreshing…' : 'Refresh ownership'}</button></div>
+      <div className="mana-sync-actions"><button className="btn btn-secondary btn-sm" onClick={refresh} disabled={loading} type="button">{loading ? 'Refreshing…' : 'Refresh ownership'}</button></div>
       <p>{data?.known ? 'Ownership from ManaSync' : 'Ownership unknown. Connect or reconnect ManaSync in Settings.'} · Last successful ownership refresh: {data?.connection?.lastOwnership ? new Date(data.connection.lastOwnership).toLocaleString() : 'Never'}</p>
       {data?.error && <p role="status">{data.error}</p>}
-      <p>Originals include incoming cards and cards allocated to other decks. Reusable proxies are shown separately. Select real-card shortages to prepare a Mana Pool list.</p>
-      <div className="mana-sync-table-wrap"><table><thead><tr><th>Shop</th><th>Card</th><th>Need</th><th>Free originals</th><th>In decks</th><th>Incoming</th><th>Proxies</th><th>Shortage</th>{showConfirmations && <th>Printing</th>}</tr></thead><tbody>
+      <p>One original in any printing covers unlimited proxy copies across all your decks, including originals already in another deck. Incoming originals also count so you do not buy them again. Proxies do not count as originals.</p>
+      <p>Select a card only to add one original to your Mana Pool shopping list. This does not place an order or change any print quantities. Different printings of the same card share one shopping selection.</p>
+      <div className="mana-sync-table-wrap"><table><thead><tr><th>Buy one original</th><th>Card</th><th>Owned or incoming</th>{showConfirmations && <th>Printing</th>}</tr></thead><tbody>
         {rows.map(row => <tr key={row.key}>
-          <td><input type="checkbox" aria-label={`Shop for ${row.card.name}`} checked={selected[row.key] !== false && row.shortage > 0} disabled={!row.shortage} onChange={e => setSelected(previous => ({...previous,[row.key]:e.target.checked}))} /></td>
-          <td>{row.card.name}{by === 'printing' && <small> {row.card.setCode.toUpperCase()} {row.card.collectorNumber} · {row.card.finish}</small>}
-            {!!row.ownership?.locations?.length && <details><summary>Locations</summary>{row.ownership.locations.map((location,i) => <div key={`${location.containerId}:${i}`}>{location.quantity} {location.isProxy ? 'proxies' : 'originals'} · {location.name} ({location.kind})</div>)}</details>}</td>
-          <td>{row.quantity}</td><td>{row.ownership?.available ?? '?'}</td><td>{row.ownership?.allocated ?? '?'}</td><td>{row.ownership?.incoming ?? '?'}</td><td>{row.ownership?.proxies ?? '?'}</td><td>{row.shortage ?? '?'}</td>
+          <td><input type="checkbox" aria-label={`Include one ${row.card.name} original in the Mana Pool list`} checked={selected[row.shoppingKey] !== false && row.ownership?.hasOriginal === false} disabled={row.ownership?.hasOriginal !== false} onChange={e => setSelected(previous => ({...previous,[row.shoppingKey]:e.target.checked}))} /></td>
+          <td>{row.card.name}<small> {row.quantity} {row.quantity === 1 ? 'copy' : 'copies'} in this list{row.card.setCode ? ` · ${row.card.setCode.toUpperCase()} ${row.card.collectorNumber}` : ''}</small>
+            {!!row.ownership?.locations?.length && <details><summary>Original locations</summary>{row.ownership.locations.map((location,i) => <div key={`${location.containerId}:${i}`}>{location.name} ({location.kind})</div>)}</details>}</td>
+          <td>{!row.ownership ? 'Unknown' : row.ownership.hasOriginal ? row.ownership.incomingOnly ? 'Yes — incoming original' : 'Yes' : 'No original found'}</td>
           {showConfirmations && <td><button className="btn btn-secondary btn-sm" type="button" disabled={!!queueing} onClick={() => queue(row)}>{queueing === row.key ? 'Queueing…' : `Queue ${row.quantity}`}</button></td>}
         </tr>)}
       </tbody></table></div>
-      <div className="mana-sync-actions">{shopping && <CopyButton getText={() => shopping} label="Copy selected shortages" />}
+      <div className="mana-sync-actions">{shopping && <CopyButton getText={() => shopping} label="Copy original-card shopping list" />}
         {shoppingUrl && shoppingUrl.length < 7500 && <a className="btn btn-primary btn-sm" href={shoppingUrl} target="_blank" rel="noreferrer">Review in Mana Pool</a>}</div>
       {shoppingUrl?.length >= 7500 && <p>This list is too long for a reliable link. Copy it and paste it into <a href="https://manapool.com/add-deck" target="_blank" rel="noreferrer">Mana Pool Add Deck</a>.</p>}
-      {shopping && by === 'printing' && <p>The list preserves set and collector number. Review foil and language options in Mana Pool.</p>}
+      {shopping && <p>The list requests one original per card, in any printing. Choose your preferred printing, finish and language in Mana Pool.</p>}
       {shopping && <textarea className="mana-sync-list" aria-label="Selected original-card shopping list" readOnly rows={Math.min(8,shopping.split('\n').length+1)} value={shopping} />}
     </details>
     {showConfirmations && <PrintQueue deckId={deckId} refreshKey={queueRevision} onReported={refresh} />}

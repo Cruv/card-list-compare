@@ -143,10 +143,20 @@ rewritten; their multi-sheet layout and missing job labels require preview/all-p
 After a front pass completes, hold the household queue and alert the operator. Only an
 explicit confirmation for the exact waiting job/packet permits its one-sided back pass;
 the next packet waits until that pass completes. The wait remains visible while paused.
-Default Mac notifications with Glass sound and optional locally configured Discord delivery
-are reminders, never print authorization. Dismissal and delivery failure cannot resume a
-job. Webhook credentials stay in the private Mac config, and only its configured user ID
-can be mentioned. No webhook was configured or sent during implementation.
+Default Mac notifications with Glass sound and optional Discord delivery are reminders,
+never print authorization. Dismissal and delivery failure cannot resume a job. Administrators
+configure Discord from Print Station using fixed configure/test commands; delivery stays
+on the Mac. Pending server secrets are encrypted, browser recovery stores only a UUID,
+and the private Mac ledger atomically stores settings and command receipts. Disconnect
+overrides older local config. Only the configured user ID can be mentioned. Tests bind to
+the acknowledged settings revision and record intent before sending, without automatic
+replay after an ambiguous response. No webhook was configured or sent during implementation.
+
+**Artwork review (2026-09-11).** Resolve selected printings and physical faces before PDF
+creation. Show actual thumbnails, source, exact printing, missing faces and separate DFC
+packet counts in both full-snapshot and difference plans. Hash the resolved selections,
+reject stale reviews, then generate from the pinned selections. Split/adventure images
+remain single-sided; meld requires a dedicated layout and is explicitly unsupported.
 
 The real cached generator passed offline rendering/pixel checks for one ordinary card and
 eight DFCs split into seven-copy and one-copy packets. No paper was printed; the household
@@ -193,9 +203,13 @@ never a fabricated upstream ID. Refresh routes and background jobs exclude them.
 before sending an acquire command, with a UUID and immutable credential/payload, permits safe
 retries after lost responses. A replacement token is a new actor, so old operations require
 receipt/holding reconciliation rather than automatic re-submission. The virtual Proxy binder
-is not a second physical destination. Original shopping shortages include incoming originals
-once and do not count proxies as originals. The Printing review queries ManaSync for its
-selected card list and offers a Mana Pool buy-list link without changing print quantities.
+is not a second physical destination. The owner's 2026-09-11 ownership policy is a boolean
+check: one original in any printing covers unlimited proxy copies across all decks. CLC
+does not consume ownership across rows, compare requested print counts with inventory,
+require exact-printing ownership, or reserve originals for proxy eligibility. Incoming
+originals prevent duplicate buying and are identified as incoming; proxies do not establish
+original ownership. Unknown ownership remains unknown. Shopping offers one original per
+missing logical card and never changes physical print quantities or confirmation counts.
 
 Prepared native batches automatically publish their exact card/artwork plans to ManaSync's
 Pending prints, outside inventory. The owner can confirm usable quantities or dismiss the

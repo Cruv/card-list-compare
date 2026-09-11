@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getPrintStationStatus, sendPrintStationCommand } from './api';
+import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand, previewPrintPlan, createPrintJob } from './api';
 
 function response(status, data) {
   return { ok: status >= 200 && status < 300, status, json: async () => data };
@@ -23,6 +23,47 @@ describe('print station HTTP requests', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('uses secret-safe Discord endpoints and read-only recovery without writing browser storage', async () => {
+    const persist = vi.fn();
+    vi.stubGlobal('sessionStorage', { setItem: persist });
+    const settings = { idempotencyKey: 'a2889ddd-4d34-4660-974b-3d89f87eff01', type: 'configure_discord', enabled: true,
+      webhookUrl: 'https://discord.com/api/webhooks/123/fixture-secret', userId: '456' };
+    fetch.mockResolvedValue(response(200, { command: { id: settings.idempotencyKey } }));
+    await configurePrintStationDiscord(settings);
+    await testPrintStationDiscord({ idempotencyKey: 'second-key', revision: settings.idempotencyKey });
+    await findPrintStationCommand(settings.idempotencyKey);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/print-station-management/discord', '/api/print-station-management/discord/test',
+      '/api/print-station-management/commands/' + settings.idempotencyKey,
+    ]);
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(settings);
+    expect(fetch.mock.calls[1][1].body).not.toContain('fixture-secret');
+    expect(fetch.mock.calls[2][1].body).toBeUndefined();
+    for (const [, options] of fetch.mock.calls) expect(options.headers.Authorization).toBe('Bearer household-user-token');
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it('keeps Discord cancellation active through body parsing', async () => {
+    const readingBody = vi.fn();
+    fetch.mockImplementation(async (url, options) => ({ ok: true, status: 200,
+      json: () => { readingBody(); return abortableFetch(url, options); } }));
+    const controller = new AbortController();
+    const rejected = expect(configurePrintStationDiscord({ idempotencyKey: 'fixture' }, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.waitFor(() => expect(readingBody).toHaveBeenCalled());
+    controller.abort(); await rejected;
+  });
+
+  it('allows bounded card resolution time for preview and durable job creation', async () => {
+    vi.useFakeTimers(); fetch.mockImplementation(abortableFetch);
+    let failures = 0;
+    const preview = previewPrintPlan(1, {}).catch(error => { failures++; throw error; });
+    const creation = createPrintJob(1, {}).catch(error => { failures++; throw error; });
+    const rejectedPreview = expect(preview).rejects.toThrow('Request timed out');
+    const rejectedCreation = expect(creation).rejects.toThrow('Request timed out');
+    await vi.advanceTimersByTimeAsync(89_999); expect(failures).toBe(0);
+    await vi.advanceTimersByTimeAsync(1); await rejectedPreview; await rejectedCreation;
   });
 
   it('uses the signed-in user bearer token for station status', async () => {

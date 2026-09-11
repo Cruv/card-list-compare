@@ -76,3 +76,11 @@
   .station-header > button { max-width: none; }
   .station-proofs .station-badge { margin-left: 20px; }
 }
+
+.station-discord-form { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-top: 20px; }
+.station-discord-field { display: grid; gap: 7px; min-width: 0; color: var(--text-primary); font-size: var(--fs-sm); }
+.station-discord-field input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.station-discord-field input:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
+.station-discord-form .station-actions, .station-discord-form > p { grid-column: 1 / -1; margin-top: 0; }
+.station-message > .station-discord-field { margin-bottom: 16px; }
+@media (max-width: 680px) { .station-discord-form { grid-template-columns: 1fr; } }

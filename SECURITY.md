@@ -143,7 +143,15 @@ Flip alerts never authorize printing. The Mac stores an attempt for each job/art
 before requesting a local notification or sending an optional Discord webhook. Retries and
 restarts cannot produce repeated pings; delivery failures leave the job waiting. Notification
 text uses fixed AppleScript with arguments, and alert errors cannot change printer state.
-Discord credentials stay in the private local config, outside station telemetry and logs.
+Discord setup requires a CLC administrator. Its webhook travels only through the protected
+configure command: pending server payloads use AES-256-GCM with command-bound authenticated
+data and a separate user-owned mode-0600 key beside the database. Ciphertext is removed
+on settlement or expiry; backups still need protection. The Mac atomically stores managed
+settings and a receipt in its private ledger. Explicit disconnect overrides legacy local
+config. Public status/history never include the URL, and browser recovery persists only
+the request UUID. Tests bind to the acknowledged configuration revision, durably record
+intent before networking, and do not automatically retry uncertain sends. Credentials
+stay outside station telemetry and logs.
 Only canonical HTTPS Discord webhook URLs are accepted, redirects are refused, and
 allowed mentions contain only the explicitly configured Discord user ID. Enabling the
 webhook shares the deck name, job/packet identity and CLC station link with its channel;

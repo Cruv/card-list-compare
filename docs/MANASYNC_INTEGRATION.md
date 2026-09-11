@@ -1,7 +1,7 @@
 # ManaSync: inventory and purchasing integration context
 
 **Current implementation:** the optional CLC bridge now provides scoped deck reads/creation,
-reviewed proposals, ownership/shortage queries, and explicit physical-print reporting. See
+reviewed proposals, original-ownership queries, and explicit physical-print reporting. See
 [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md) and [MANASYNC_PROPOSALS.md](MANASYNC_PROPOSALS.md)
 for the implemented API and setup. The discussion below remains historical design context;
 its proposed endpoints and companion stack do not define the shipped contract.
@@ -11,6 +11,14 @@ is now available at `/Users/cruv/GitProjects/manasync`. It uses its own current 
 database, not the FastAPI/SQLite stack proposed below. Pair its selected revision with CLC
 using the explicit `CLC_SOURCE_PATH` setup in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md).
 The dated conversation below is preserved rather than rewritten as implementation status.
+
+**Owner policy update, 2026-09-11:** CLC checks whether the user owns at least one original
+of any printing. That original covers unlimited proxies across all decks. CLC will not
+add quantity-shortfall, allocation or exact-printing ownership requirements. Incoming
+originals remain labeled as incoming and prevent duplicate buying. Shopping suggests one
+original per missing card. Physical print quantities and ManaSync inventory reporting
+still record actual produced copies. This supersedes the earlier inventory-reduction and
+reservation ideas below for CLC; they remain historical context rather than CLC backlog.
 
 Captured 2026-09-08 from the owner's supplied Discord proposal and ten conversation
 screenshots (Photos 1–10). This note preserves the product discussion for future work;

@@ -16,3 +16,4 @@ data
 **/__pycache__
 **/*.pyc
 **/.manasync-bridge-key
+**/.print-station-notifications-key

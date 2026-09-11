@@ -279,9 +279,20 @@ inspect its preview/all pages and match job, packet and sheet count before reloa
 
 Mac flip notifications and Glass sound default on. Configure `refeed_notifications` and
 `refeed_sound` as JSON booleans in the private mode-0600 Mac config. Optional
-`refeed_discord_webhook_url` and `refeed_discord_user_id` default to empty; the webhook
-may mention only that configured user. Keep its credential local, out of environment
-variables, server settings and logs. No webhook was configured or sent by this change.
+`refeed_discord_webhook_url` and `refeed_discord_user_id` remain legacy local defaults.
+For daily setup, an administrator opens **Print Station → Discord flip alerts**,
+saves a webhook and optional user ID, waits for the Mac acknowledgement, then sends a test.
+Disconnect writes a managed disabled setting that overrides any legacy destination.
+Only the configured user may be mentioned. No webhook was configured or sent by this change.
+
+Back up `.print-station-notifications-key` beside the server database along with the
+private Mac ledger. The key is user-owned mode 0600 and encrypts pending webhook commands;
+without it a pending connection must be entered again. Completed/expired commands remove
+the ciphertext, but ordinary database backups may retain encrypted older commands. The
+browser retains only a request UUID for recovery, never the webhook. Status and command
+history do not expose the URL. The companion makes the actual Discord request; a successful
+test confirms Discord accepted it, not that the recipient saw a notification. Ambiguous
+tests are not replayed automatically; send another only as a deliberate new test.
 Mac notification permission/Focus can suppress delivery. Alert failures are logged and
 nonfatal; they leave the same explicit reload wait in place, with no silent printing or
 automatic alert retry. See [Mac flip alerts](../companion/mac/README.md#flip-alerts).

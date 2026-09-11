@@ -3,12 +3,15 @@ import crypto from 'node:crypto';
 import { all, get, runTransaction } from '../db.js';
 import { printCapabilities, claimPrintJob, formatPrintJob, assertStationArtifactCapacity } from './printQueue.js';
 import { printError, sha256 } from './printQueuePlan.js';
+import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } from './printStationNotifications.js';
 
 const STATION = 'household';
 export const STATION_ONLINE_MS = 20_000;
 export const STATION_COMMAND_TTL_MS = 5 * 60_000;
 const COMMANDS = new Set(['pause', 'unpause', 'resume', 'check_update', 'update', 'rollback']);
-const ADMIN_COMMANDS = new Set(['check_update', 'update', 'rollback']);
+const UPDATE_COMMANDS = new Set(['check_update', 'update', 'rollback']);
+const DISCORD_COMMANDS = new Set(['configure_discord', 'test_discord']);
+const ADMIN_COMMANDS = new Set([...UPDATE_COMMANDS, ...DISCORD_COMMANDS]);
 const UPDATE_STATES = new Set(['unsupported', 'idle', 'checking', 'available', 'updating', 'rollback', 'failed']);
 const ACTIVE_STATES = ['claimed', 'submitting', 'submitted', 'awaiting_refeed', 'uncertain'];
 const LOCAL_STATES = new Set([...ACTIVE_STATES, 'active', 'intent', 'completed', 'failed', 'canceled']);
@@ -60,7 +63,8 @@ function message(value, nullable = false) {
     const point = character.codePointAt(0);
     return point < 32 || point === 127 ? ' ' : character;
   }).join('');
-  return result.replace(/Bearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+  return result.replace(/https:\/\/discord(?:app)?\.com\/api\/webhooks\/[^\s]+/gi, '[Discord webhook]')
+    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
     .replace(/\b(?:token|password|secret|authorization|api[_-]?key)\s*[:=]\s*["']?[^\s,;"']+/gi, '[credential redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]')
     .replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]')
@@ -74,7 +78,7 @@ function permissions(userId) {
 }
 function requireControl(userId, type) {
   const access = permissions(userId);
-  if (!access.canControl || (ADMIN_COMMANDS.has(type) && !access.canUpdate)) throw printError('Station management is restricted to authorized household users; updates require an administrator', 403);
+  if (!access.canControl || (ADMIN_COMMANDS.has(type) && !access.canUpdate)) throw printError('Station management is restricted to authorized household users; updates and Discord settings require an administrator', 403);
   return access;
 }
 function activeServerJob() {
@@ -104,6 +108,7 @@ function expireCommands() {
   if (!expired.length) return;
   commit([
     statement("UPDATE print_station_commands SET status = 'expired', message = ? WHERE station_id = ? AND status = 'pending' AND expires_at <= ?", ['Command expired before acknowledgement', STATION, timestamp()]),
+    ...expired.map(row => discardSecret(row.id)).filter(Boolean),
     eventStatement('warning', 'A station command expired before acknowledgement'),
   ]);
 }
@@ -112,8 +117,25 @@ function publicCommand(row) {
   return { id: row.id, idempotencyKey: row.request_key, type: payload.type,
     jobId: payload.jobId || null, artifactId: payload.artifactId || null,
     ...(payload.type === 'resume' ? { paperReloaded: true } : {}), targetVersion: payload.targetVersion || null,
+    ...(DISCORD_COMMANDS.has(payload.type) ? { revision: payload.revision, ...(payload.type === 'configure_discord' ? { enabled: payload.enabled } : {}) } : {}),
     requesterId: row.requester_id, status: row.status, createdAt: row.created_at, expiresAt: row.expires_at,
     deliveredAt: row.delivered_at, acknowledgedAt: row.acknowledged_at, message: row.message };
+}
+
+function discardSecret(commandId) {
+  const row = get('SELECT payload_json FROM print_station_commands WHERE id = ?', [commandId]);
+  const payload = row && JSON.parse(row.payload_json);
+  if (!payload?.secretCipher) return null;
+  delete payload.secretCipher;
+  return statement('UPDATE print_station_commands SET payload_json = ? WHERE id = ?', [JSON.stringify(payload), commandId]);
+}
+function stationCommand(row) {
+  const command = publicCommand(row), payload = JSON.parse(row.payload_json);
+  if (payload.type === 'configure_discord') {
+    command.discord = discordSettings({ enabled: payload.enabled, userId: payload.userId,
+      webhookUrl: payload.enabled ? openDiscordUrl(payload.secretCipher, row.id) : '' });
+  }
+  return command;
 }
 
 function activePacket(row, active) {
@@ -154,7 +176,7 @@ export function printStationStatus(userId) {
     testPrintingEnabled: latest?.testPrintingEnabled || false,
     recipeFingerprint: latest?.recipeFingerprint || null, activeJob: active,
     health: live ? latest.health : { ok: false, message: lastSeen === null ? 'Station has not connected since server startup' : 'Station is offline' },
-    update: latest?.update || null,
+    update: latest?.update || null, discord: latest?.discord || discordTelemetry(null),
   }, permissions: access,
   commands: all('SELECT * FROM print_station_commands WHERE station_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 20', [STATION]).map(publicCommand),
   events: all('SELECT id, at, level, message FROM print_station_events ORDER BY received_at DESC, rowid DESC LIMIT 50') };
@@ -177,8 +199,8 @@ function commandInput(body) {
   return { key: body.idempotencyKey.toLowerCase(), payload };
 }
 
-export function createStationCommand(userId, body) {
-  const { key, payload } = commandInput(body);
+export function createStationCommand(userId, body, notification = false) {
+  const { key, payload } = notification ? notificationInput(body) : commandInput(body);
   requireControl(userId, payload.type);
   const hash = sha256(JSON.stringify(payload));
   const existing = get('SELECT * FROM print_station_commands WHERE requester_id = ? AND request_key = ?', [userId, key]);
@@ -195,19 +217,50 @@ export function createStationCommand(userId, body) {
   if (payload.type === 'resume') {
     if (payload.artifactId !== firstBack(payload.jobId, latest) || latest.paused) throw printError('This station is not waiting for that paper refeed, or is paused', 409);
   }
-  if (ADMIN_COMMANDS.has(payload.type) && !latest.update?.supported) throw printError('Managed updates are not supported by this station installation', 409);
+  if (UPDATE_COMMANDS.has(payload.type) && !latest.update?.supported) throw printError('Managed updates are not supported by this station installation', 409);
   if (['update', 'rollback'].includes(payload.type)) {
     if (latest.activeJob || activeServerJob() || ['updating', 'rollback', 'checking'].includes(latest.update.status)) throw printError('Wait until the station has finished its active job or update', 409);
     const expected = latest.update[payload.type === 'update' ? 'availableVersion' : 'previousVersion'];
     if (!expected || payload.targetVersion !== expected) throw printError('The requested update version is no longer available; refresh station status', 409);
   }
+  if (DISCORD_COMMANDS.has(payload.type)) {
+    if (!latest.discord?.supported) throw printError('Update the Mac companion to configure Discord notifications here', 409);
+    if (payload.type === 'test_discord' && (!latest.discord.configured || payload.revision !== latest.discord.revision)) throw printError('Discord settings changed; refresh before requesting a test', 409);
+    if (payload.type === 'test_discord' && get("SELECT id FROM print_station_commands WHERE station_id = ? AND json_extract(payload_json, '$.type') = 'test_discord' AND created_at > ?", [STATION, new Date(Date.now() - 30_000).toISOString()])) throw printError('Wait 30 seconds before requesting another Discord test', 429);
+  }
   const commandId = crypto.randomUUID(), createdAt = timestamp();
+  if (payload.type === 'configure_discord') {
+    payload.revision = commandId;
+    if (payload.enabled) payload.secretCipher = sealDiscordUrl(payload.webhookUrl, commandId);
+    delete payload.webhookUrl;
+  }
   commit([
     statement('INSERT INTO print_station_commands(id, station_id, requester_id, request_key, request_hash, payload_json, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [commandId, STATION, userId, key, hash, JSON.stringify(payload), createdAt, new Date(Date.now() + STATION_COMMAND_TTL_MS).toISOString()]),
     eventStatement('info', `Station command requested: ${payload.type}`),
   ]);
   return { command: publicCommand(get('SELECT * FROM print_station_commands WHERE id = ?', [commandId])) };
+}
+
+function notificationInput(body) {
+  object(body, 'Discord settings');
+  if (typeof body.idempotencyKey !== 'string' || !UUID.test(body.idempotencyKey)) throw printError('idempotencyKey must be a UUID');
+  if (!DISCORD_COMMANDS.has(body.type)) throw printError('Unsupported Discord command');
+  const allowed = new Set(['idempotencyKey', 'type', ...(body.type === 'configure_discord' ? ['enabled', 'webhookUrl', 'userId'] : ['revision'])]);
+  if (Object.keys(body).some(key => !allowed.has(key))) throw printError('Unexpected Discord settings field');
+  const payload = { type: body.type, ...(body.type === 'configure_discord' ? discordSettings(body) : { revision: body.revision === 'local' ? 'local' : id(body.revision, 'Discord settings revision') }) };
+  return { key: body.idempotencyKey.toLowerCase(), payload };
+}
+export function createDiscordCommand(userId, body) {
+  requireControl(userId, 'configure_discord');
+  return createStationCommand(userId, body, true);
+}
+export function findStationCommand(userId, key) {
+  requireControl(userId);
+  if (typeof key !== 'string' || !UUID.test(key)) throw printError('Invalid request key');
+  expireCommands();
+  const row = get('SELECT * FROM print_station_commands WHERE requester_id = ? AND request_key = ?', [userId, key.toLowerCase()]);
+  return { command: row ? publicCommand(row) : null };
 }
 
 function heartbeatInput(body) {
@@ -242,7 +295,7 @@ function heartbeatInput(body) {
     recipeVerified: bool(body.recipeVerified, 'recipeVerified'), duplexVerified: bool(body.duplexVerified, 'duplexVerified'),
     testPrintingEnabled: body.testPrintingEnabled === undefined ? false : bool(body.testPrintingEnabled, 'testPrintingEnabled'),
     recipeFingerprint: body.recipeFingerprint.toLowerCase(), activeJob,
-    health: { ok: bool(health.ok, 'health.ok'), message: message(health.message) }, update },
+    health: { ok: bool(health.ok, 'health.ok'), message: message(health.message) }, update, discord: discordTelemetry(body.discord) },
   events: events.map(event => {
     object(event, 'event'); const eventId = id(event.id, 'event ID');
     if (eventIds.has(eventId)) throw printError('Duplicate heartbeat event ID'); eventIds.add(eventId);
@@ -261,7 +314,9 @@ function invalidDelivery(row, snapshot) {
   const payload = JSON.parse(row.payload_json), access = permissions(row.requester_id);
   if (!access.canControl || (ADMIN_COMMANDS.has(payload.type) && !access.canUpdate)) return 'Requester is no longer authorized';
   if (payload.type === 'resume' && (snapshot.paused || firstBack(payload.jobId, snapshot) !== payload.artifactId)) return 'Paper refeed no longer matches the current batch';
-  if (ADMIN_COMMANDS.has(payload.type) && !snapshot.update?.supported) return 'Station no longer supports managed updates';
+  if (UPDATE_COMMANDS.has(payload.type) && !snapshot.update?.supported) return 'Station no longer supports managed updates';
+  if (DISCORD_COMMANDS.has(payload.type) && !snapshot.discord?.supported) return 'This companion does not support Discord settings';
+  if (payload.type === 'test_discord' && (!snapshot.discord.configured || snapshot.discord.revision !== payload.revision)) return 'Discord settings changed before the test';
   if (['update', 'rollback'].includes(payload.type)) {
     if (snapshot.activeJob || activeServerJob()) return 'Station acquired a physical job before the update';
     if (snapshot.update[payload.type === 'update' ? 'availableVersion' : 'previousVersion'] !== payload.targetVersion) return 'The requested version is no longer available';
@@ -283,6 +338,7 @@ export function stationManagementHeartbeat(body) {
       // started. Updates may finish after their five-minute delivery deadline.
       changes.push(statement('UPDATE print_station_commands SET status = ?, acknowledged_at = ?, message = ?, receipt_hash = ? WHERE id = ?',
         [receipt.status, timestamp(), receipt.message, hash, row.id]),
+      ...(discardSecret(row.id) ? [discardSecret(row.id)] : []),
       eventStatement(receipt.status === 'applied' ? 'info' : 'warning', `Station command ${JSON.parse(row.payload_json).type}: ${receipt.status}`));
     }
     acknowledgedCommandIds.push(row.id);
@@ -302,13 +358,18 @@ export function stationManagementHeartbeat(body) {
     const invalid = invalidDelivery(row, latest);
     if (invalid) {
       deliveryChanges.push(statement("UPDATE print_station_commands SET status = 'rejected', acknowledged_at = ?, message = ? WHERE id = ?", [timestamp(), invalid, row.id]));
+      const removal = discardSecret(row.id); if (removal) deliveryChanges.push(removal);
       continue;
     }
     if (!row.delivered_at) {
       row.delivered_at = timestamp();
       deliveryChanges.push(statement('UPDATE print_station_commands SET delivered_at = ? WHERE id = ?', [row.delivered_at, row.id]));
     }
-    commands.push(publicCommand(row));
+    try { commands.push(stationCommand(row)); }
+    catch {
+      deliveryChanges.push(statement("UPDATE print_station_commands SET status = 'rejected', acknowledged_at = ?, message = ? WHERE id = ?", [timestamp(), 'Discord settings could not be decrypted; reconnect from Print Station', row.id]));
+      const removal = discardSecret(row.id); if (removal) deliveryChanges.push(removal);
+    }
   }
   commit(deliveryChanges);
   return { commands, acknowledgedCommandIds, serverTime: timestamp() };

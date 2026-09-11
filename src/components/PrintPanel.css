@@ -21,3 +21,19 @@
 @media (max-width: 560px) { .print-panel-fields { grid-template-columns: 1fr; } .print-panel-card { padding: var(--space-md); } }
 .print-panel-confirmation { margin-top: .8rem; padding: .8rem; border: 1px solid var(--border-color); border-radius: 8px; }
 .print-panel-confirmation p { margin: .35rem 0 0; overflow-wrap: anywhere; }
+.print-review { margin: var(--space-md) 0; }
+.print-review-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-sm); margin-bottom: var(--space-md); }
+.print-review-counts > div { padding: var(--space-sm); background: var(--bg-primary); border-radius: 6px; }
+.print-review-counts dt { color: var(--text-secondary); font-size: var(--fs-sm); }
+.print-review-counts dd { font-size: var(--fs-lg); font-weight: 700; margin-top: 6px; }
+.print-review-cards { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: var(--space-md); padding: 0; margin: var(--space-md) 0; }
+.print-review-card { min-width: 0; align-self: start; border: 1px solid var(--border-color); border-radius: 8px; padding: var(--space-md); }
+.print-review-card h4 { font-size: var(--fs-base); overflow-wrap: anywhere; }
+.print-review-dfc { color: var(--accent-blue); border: 1px solid var(--accent-blue); }
+.print-review-faces { display: flex; align-items: flex-start; justify-content: center; gap: var(--space-sm); margin-top: var(--space-sm); }
+.print-review-face { min-width: 0; flex: 1 1 0; max-width: 220px; margin: 0; }
+.print-review-face img { display: block; width: 100%; height: auto; aspect-ratio: 5 / 7; object-fit: contain; border-radius: 8px; background: var(--bg-primary); }
+.print-review-face figcaption { font-size: var(--fs-sm); overflow-wrap: anywhere; margin-top: 7px; line-height: 1.5; }
+.print-review-face figcaption span { display: block; color: var(--text-secondary); }
+.print-review-image-missing { display: grid; align-content: center; min-height: 160px; padding: 8px; background: var(--bg-primary); border-radius: 8px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+@media (max-width: 600px) { .print-review-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

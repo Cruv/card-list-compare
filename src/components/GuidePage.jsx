@@ -367,14 +367,16 @@ function ProxyPrinting() {
         Use your own domain, port, LAN address, or reverse-proxy path; no server allowlist is
         needed. Bare domains use HTTPS. Review the connected account shown on screen. In a tracked deck&rsquo;s
         <strong> Full Deck</strong> tab, open <strong>ManaSync ownership and Mana Pool shopping</strong>.
-        Free originals, originals in decks, incoming originals, and reusable proxies appear separately.
-        Failed refreshes and unresolved exact printing IDs display unknown quantities.
+        Ownership is a yes/no check for an original in any printing. One original covers
+        any number of proxy copies across all decks, including when that original is already
+        in another deck. Incoming purchases are identified separately and prevent duplicate
+        buying. Failed refreshes and unresolved card identities show unknown ownership.
       </p>
       <p>
-        Select interchangeable or exact printings, choose real-card shortages, then use
-        <strong> Review in Mana Pool</strong> or copy the list. Originals already owned or incoming
-        reduce the list; proxy stock does not. Review quantities and printing options in Mana Pool
-        before purchasing.
+        Select cards with no original owned or incoming for the shopping list, then use
+        <strong> Review in Mana Pool</strong> or copy the list. CLC suggests one original per
+        missing card, regardless of print quantity or selected artwork. Proxy stock does not
+        count as original ownership. Shopping selections never change your print quantities.
       </p>
       <p>
         Use <strong>Queue full deck for printing</strong> or an individual card&rsquo;s Queue button.
@@ -390,7 +392,7 @@ function ProxyPrinting() {
         In <strong>Printing</strong>, click <strong>Review print list</strong> to check the exact
         selected snapshot, change list, and sideboard choices against ManaSync. The open ownership
         table offers <strong>Review in Mana Pool</strong> for missing originals, plus a copyable
-        shopping list. Incoming originals reduce the shortage; reusable proxies remain separate.
+        shopping list of one original per missing card. Incoming originals prevent duplicate buying.
         Deselect cards you do not want to buy. Checking ownership or opening the link leaves
         your print quantities unchanged, and you can still print a card you already own.
       </p>
@@ -473,7 +475,14 @@ function ProxyPrinting() {
       <p>
         Choose Scryfall printings or saved MPC artwork. Use <strong>Save art for home PDFs</strong>
         {' '}in the MPC overlay to save all displayed matches and backs, including defaults.
-        Missing art or a required face stops the batch with an explanation.
+        <strong> Review print list</strong> shows each selected front and back, its printing,
+        artwork source and copy count before you generate anything. Double-sided cards are
+        labeled and counted separately, with the number of ordinary sheets and double-sided
+        packets. Missing art or a required face blocks generation with an explanation. Meld
+        cards need a special paired layout and are not supported yet. A changed artwork
+        selection requires a fresh review. If batch creation times out, use <strong>Retry same
+        batch request</strong>; CLC keeps that request across reloads to prevent a duplicate
+        batch. Its settings stay locked until the result is known.
       </p>
       <p>
         Silhouette Card Maker generates Letter v6 PDFs at 600 PPI with three registration
@@ -518,8 +527,11 @@ function ProxyPrinting() {
       </p>
       <p>
         The Mac requests a flip notification with a Glass sound by default. Optional Discord
-        alerts and a specific user mention can be configured privately on the Mac. Notifications
-        are reminders: opening or dismissing one never resumes printing. A waiting packet stays
+        alerts can be connected by an administrator under <strong>Print Station &rarr; Discord
+        flip alerts</strong>. Enter a channel webhook and, optionally, your Discord user ID,
+        then save. Wait for the Mac to confirm the connection before sending a test notification.
+        Disconnect removes the managed destination, including any older local fallback.
+        The webhook is hidden after saving. Notifications are reminders: opening or dismissing one never resumes printing. A waiting packet stays
         visible even while paused, and reload confirmation does not unpause the station.
         Mac notification permissions or Focus can suppress an alert; delivery failures are
         logged and leave the same reload wait in place.

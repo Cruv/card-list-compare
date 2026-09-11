@@ -22,15 +22,15 @@ const route = callback => async (req, res) => {
     res.status(error.status || 500).json({ error: error.message });
   }
 };
-router.post('/:deckId/print-plan', route((req, res) => {
-  const plan = buildPrintPlan(req.user.userId, deckId(req), req.body || {});
+router.post('/:deckId/print-plan', route(async (req, res) => {
+  const plan = await buildPrintPlan(req.user.userId, deckId(req), req.body || {});
   res.json({ plan: publicPrintPlan(plan), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
 }));
 router.get('/:deckId/print-jobs', route((req, res) => {
   res.json({ jobs: listPrintJobs(req.user.userId, deckId(req)), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
 }));
-router.post('/:deckId/print-jobs', route((req, res) => {
-  const result = createPrintJob(req.user.userId, deckId(req), req.body || {});
+router.post('/:deckId/print-jobs', route(async (req, res) => {
+  const result = await createPrintJob(req.user.userId, deckId(req), req.body || {});
   res.status(result.isExisting ? 200 : 202).json(result);
 }));
 router.get('/:deckId/print-jobs/:jobId', route((req, res) => {

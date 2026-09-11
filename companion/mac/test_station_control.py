@@ -198,6 +198,119 @@ class ControlTests(unittest.TestCase):
         self.assertNotIn(self.config["token"], json.dumps(payload))
         self.assertNotIn("secret-value", json.dumps(payload))
 
+    def configure_discord(self, key="discord-control-1", enabled=True, user_id="123456789"):
+        return control("configure_discord", key, revision=key,
+                       discord={"enabled": enabled, "webhookUrl": "https://discord.com/api/webhooks/123456789/fixture-secret" if enabled else "",
+                                "userId": user_id if enabled else ""})
+
+    def test_discord_configuration_is_atomic_private_and_never_prints_or_sends(self):
+        transport = mock.Mock()
+        self.station.alerts.discord_transport = transport
+        original_pause = self.station.ledger.paused()
+        request = self.configure_discord()
+        self.control.apply(request)
+        self.assertEqual(self.receipt(request["id"])["state"], "applied")
+        snapshot = self.control.snapshot()
+        self.assertEqual(snapshot["discord"], {"supported": True, "configured": True, "managed": True,
+                         "revision": request["id"], "userId": "123456789", "lastTest": None})
+        self.assertNotIn("fixture-secret", json.dumps(snapshot))
+        self.assertNotIn("fixture-secret", self.receipt(request["id"])["payload"])
+        self.assertEqual(self.station.ledger.paused(), original_pause)
+        self.assertEqual(self.cups.submissions, [])
+        transport.assert_not_called()
+        restarted = StationControl(self.station, "2.49.0", self.manager)
+        self.assertTrue(restarted.snapshot()["discord"]["configured"])
+
+    def test_discord_disconnect_overrides_legacy_config_and_old_command_replay(self):
+        self.config.update(refeed_discord_webhook_url="https://discord.com/api/webhooks/123/legacy-secret", refeed_notifications=False)
+        first = self.configure_discord()
+        self.control.apply(first)
+        self.control.apply(self.configure_discord("discord-control-2", False))
+        self.control.apply(first)
+        restarted = StationControl(self.station, "2.49.0", self.manager)
+        self.assertFalse(restarted.snapshot()["discord"]["configured"])
+        transport = mock.Mock()
+        self.station.alerts.discord_transport = transport
+        value = job("dfc")
+        self.assertEqual(self.station.alerts.notify(value, value["artifacts"][0])["channels"]["discord"]["status"], "disabled")
+        transport.assert_not_called()
+
+    def test_discord_test_reserves_intent_and_deduplicates_after_lost_ack(self):
+        self.control.apply(self.configure_discord())
+        def send(url, payload, timeout):
+            self.assertEqual(timeout, 5)
+            self.assertEqual(self.receipt("discord-test-1")["state"], "processing")
+            self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": ["123456789"], "roles": []})
+            self.assertIn("fixture-secret", url)
+        transport = mock.Mock(side_effect=send)
+        self.station.alerts.discord_transport = transport
+        request = control("test_discord", "discord-test-1", revision="discord-control-1")
+        self.control.apply(request)
+        self.control.apply(request)
+        restarted = StationControl(self.station, "2.49.0", self.manager)
+        restarted.apply(request)
+        transport.assert_called_once()
+        self.assertEqual(restarted.snapshot()["discord"]["lastTest"]["status"], "confirmed")
+        self.assertEqual(self.cups.submissions, [])
+
+    def test_ambiguous_discord_test_does_not_retry_or_leak_error_url(self):
+        self.control.apply(self.configure_discord())
+        transport = mock.Mock(side_effect=TimeoutError("https://discord.com/api/webhooks/123456789/fixture-secret"))
+        self.station.alerts.discord_transport = transport
+        request = control("test_discord", "discord-test-1", revision="discord-control-1")
+        self.control.apply(request)
+        StationControl(self.station, "2.49.0", self.manager).apply(request)
+        transport.assert_called_once()
+        self.assertEqual(self.receipt(request["id"])["state"], "rejected")
+        snapshot = self.control.snapshot()
+        self.assertEqual(snapshot["discord"]["lastTest"]["status"], "unconfirmed")
+        self.assertNotIn("fixture-secret", json.dumps(snapshot))
+
+    def test_interrupted_discord_test_recovers_without_sending(self):
+        self.control.apply(self.configure_discord())
+        payload = json.dumps({"type": "test_discord", "revision": "discord-control-1", "settingsHash": "fixture"})
+        self.station.ledger.write("INSERT INTO control_receipts(id,payload,state,message) VALUES(?,?,'processing','Applying')", ("interrupted-test", payload))
+        transport = mock.Mock()
+        self.station.alerts.discord_transport = transport
+        restarted = StationControl(self.station, "2.49.0", self.manager)
+        self.assertEqual(self.receipt("interrupted-test")["state"], "rejected")
+        self.assertEqual(restarted.snapshot()["discord"]["lastTest"]["status"], "unconfirmed")
+        transport.assert_not_called()
+
+    def test_discord_stale_revision_and_invalid_destinations_are_rejected(self):
+        self.control.apply(self.configure_discord())
+        transport = mock.Mock()
+        self.station.alerts.discord_transport = transport
+        self.control.apply(control("test_discord", "stale-test", revision="different-revision"))
+        self.assertEqual(self.receipt("stale-test")["state"], "rejected")
+        for index, url in enumerate(["http://discord.com/api/webhooks/123/token", "https://discord.com.evil.test/api/webhooks/123/token",
+                                     "https://discord.com/api/webhooks/123/token?wait=true", "https://discord.com/api/webhooks/123/token#foo"]):
+            request = self.configure_discord("invalid-discord-" + str(index))
+            request["discord"]["webhookUrl"] = url
+            self.control.apply(request)
+            self.assertEqual(self.receipt(request["id"])["state"], "rejected")
+        self.assertEqual(self.control.snapshot()["discord"]["revision"], "discord-control-1")
+        transport.assert_not_called()
+
+    def test_discord_reused_id_cannot_change_secret_or_mention(self):
+        request = self.configure_discord()
+        self.control.apply(request)
+        changed = copy.deepcopy(request)
+        changed["discord"]["webhookUrl"] += "-different"
+        with self.assertRaisesRegex(native.StationError, "changed"):
+            self.control.apply(changed)
+
+    def test_managed_discord_settings_drive_future_flip_alert_and_preserve_dedupe(self):
+        self.config["refeed_notifications"] = False
+        self.control.apply(self.configure_discord())
+        transport = mock.Mock()
+        self.station.alerts.discord_transport = transport
+        value = job("dfc")
+        self.assertEqual(self.station.alerts.notify(value, value["artifacts"][0])["channels"]["discord"]["status"], "attempted")
+        self.control.apply(self.configure_discord("discord-control-2"))
+        self.assertEqual(self.station.alerts.notify(value, value["artifacts"][0])["channels"]["discord"]["status"], "duplicate")
+        transport.assert_called_once()
+
     def test_packaged_startup_check_never_reads_config_or_contacts_printer(self):
         output = io.StringIO()
         with mock.patch.object(native, "load_config") as config_read, mock.patch.object(native.Cups, "submit") as submit, mock.patch("sys.stdout", output):

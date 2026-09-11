@@ -1,6 +1,6 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.48.2 includes print planning, PDF generation, artifact downloads, the household
+Status: CLC v2.49.0 includes print planning, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
 
@@ -9,7 +9,11 @@ corrected companion sheet; manual duplex and v6 cutter calibration still require
 Open a tracked deck's **Printing** tab. Choose a whole snapshot or changes between an
 explicit baseline and target. The paper-deck marker is the default baseline when present;
 “latest” is resolved to a specific snapshot during review. Sideboards are optional and off
-by default. Review the copy list, then **Generate PDFs** or, for an authorized household
+by default. **Review print list** resolves the selected printing and displays its actual
+front/back thumbnails, source, copy count and double-sided status. The summary separates
+ordinary sheets from one-sheet double-faced packets. Missing faces, unresolved printings
+and unsupported meld layouts block generation before a job is created. Then choose
+**Generate PDFs** or, for an authorized household
 account, **Generate and send to Mac**. Ready PDFs can also be queued later.
 
 Each deck job produces `fronts.pdf` for ordinary cards, followed by one-sheet double-faced
@@ -40,9 +44,15 @@ search result or Scryfall artwork. Scryfall determines the required face pairing
 MPC provides the pixels. Name-only snapshot entries use Scryfall's resolved printing;
 record exact set/collector metadata when a particular printing matters.
 
-The preview includes a plan hash. Creating a job pins source and target IDs, complete deck
-texts and saved selections; a changed preview is rejected. An idempotency key identifies a
-request retry. A deliberate reprint creates a new request. Later snapshot pruning or art
+The preview includes a plan hash covering resolved printing IDs, face URLs and saved MPC
+identifiers. Creating a job revalidates those selections and pins source/target IDs,
+complete deck texts and the reviewed faces; a changed preview is rejected. Generation uses
+the pinned selections without performing another artwork lookup. A thumbnail transport
+failure can be retried separately; source download failures still stop PDF publication. An idempotency key identifies a
+request retry. The browser saves the creation request per account and deck before
+sending it. If the result is uncertain, options stay locked across reloads and **Retry
+same batch request** retrieves or finishes that request. A deliberate reprint after
+resolution creates a new request. Later snapshot pruning or art
 edits cannot rewrite a job. The manifest records input image identities/hashes, dimensions
 and profile presence, copy/slot placement, recipe, generator revision/runtime, PDF hashes,
 page counts and timestamps. Station steps separately record submission and spooler outcomes.
@@ -50,7 +60,11 @@ page counts and timestamps. Station steps separately record submission and spool
 CLC does not infer available physical inventory from a snapshot difference. Real cards,
 purchases, proxy counts and deck allocations belong to
 [ManaSync](MANASYNC_BRIDGE.md). Its optional bridge checks ownership for the reviewed print list, provides a Mana Pool
-link for missing originals, and also offers ownership in Full Deck. The print list remains
+link for missing originals, and also offers ownership in Full Deck. One original of any
+printing covers unlimited proxy copies across decks. Incoming originals prevent duplicate
+buying, proxies do not establish original ownership, and unknown lookup results remain
+unknown. Shopping requests one original per missing logical card, deduplicated across
+printings. The print list remains
 the user's selection; inventory never silently removes copies or prevents a deliberate
 reprint. Once the immutable PDFs are prepared, CLC automatically sends their planned copies
 and exact front/back artwork to **ManaSync → Proxy binder → Pending prints**. These plans are
@@ -150,12 +164,19 @@ packet is waiting for its back.
 
 Local Mac notifications and their **Glass** sound default on. The private Mac configuration
 accepts JSON booleans `refeed_notifications` and `refeed_sound` (both default `true`), plus
-optional `refeed_discord_webhook_url` and `refeed_discord_user_id` strings (both default
-empty). A configured webhook sends the same packet details and can mention only the
-configured user ID. These are Mac-local settings in the user-owned mode-0600 configuration,
-not server environment variables or dashboard settings; webhook credentials are never sent
-to CLC or written to logs. No Discord destination was configured or message sent for this
-change. See the [Mac alert setup](../companion/mac/README.md#flip-alerts).
+legacy `refeed_discord_webhook_url` and `refeed_discord_user_id` strings (both default
+empty). Administrators can now connect Discord in **Print Station → Discord flip
+alerts**, enter a canonical channel webhook and optional user ID, and save. The
+panel shows pending delivery until the Mac acknowledges the settings. **Send test** uses
+the acknowledged revision; **Disconnect** disables delivery even if legacy local config
+contains a webhook. Both require a companion advertising Discord support.
+
+The browser sends credentials once over the authenticated connection and keeps only the
+request UUID for uncertain-request recovery. The server encrypts the pending webhook with
+a private key beside the database and removes the ciphertext after settlement or expiry.
+The Mac stores the active destination privately in its ledger; status and receipts never
+return its URL. Only the configured user may be mentioned. No real destination or test
+message is created by installing this feature. See the [Mac alert setup](../companion/mac/README.md#flip-alerts).
 
 Notification permission, Focus or sound settings can suppress a Mac alert. Each configured
 channel is attempted once per waiting packet; ambiguous or failed delivery is logged

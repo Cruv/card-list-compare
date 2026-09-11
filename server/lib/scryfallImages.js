@@ -10,7 +10,12 @@ const BATCH_SIZE = 75;
 const REQUEST_DELAY_MS = 100;
 const MAX_ATTEMPTS = 3;
 
-const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const delay = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) { reject(signal.reason); return; }
+  const abort = () => { clearTimeout(timer); reject(signal.reason); };
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, ms);
+  signal?.addEventListener('abort', abort, { once: true });
+});
 const frontFace = name => name.split(' // ')[0];
 const normalizeName = name => String(name || '').normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019`\u2032]/g, "'")
@@ -37,14 +42,14 @@ export class ImageCompletenessError extends Error {
 }
 
 /** Retry transient responses/network errors, with rate limiting on every try. */
-async function request(url, options, readResponse) {
+async function request(url, options, readResponse, signal) {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    await delay(REQUEST_DELAY_MS * (attempt + 1));
+    await delay(REQUEST_DELAY_MS * (attempt + 1), signal);
     try {
       const response = await fetch(url, {
         ...options,
         headers: { 'User-Agent': 'CardListCompare/1.0', ...options?.headers },
-        signal: AbortSignal.timeout(15000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
       });
       if (!response.ok) {
         const error = new Error(`HTTP ${response.status}`);
@@ -54,12 +59,13 @@ async function request(url, options, readResponse) {
         const seconds = Number(retryAfter);
         const retryMs = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retryAfter) - Date.now();
         if (error.retryable && attempt < MAX_ATTEMPTS - 1 && retryMs > 0) {
-          await delay(Math.min(retryMs, 30000));
+          await delay(Math.min(retryMs, 30000), signal);
         }
         throw error;
       }
       return await readResponse(response);
     } catch (error) {
+      if (signal?.aborted) throw signal.reason;
       if (error.retryable === false || attempt === MAX_ATTEMPTS - 1) throw error;
     }
   }
@@ -81,14 +87,14 @@ function matches(identifier, card, requestedName) {
  * Throws ImageCompletenessError for missing cards, metadata failures, or faces.
  * Name and set-only requests resolve to actual set/collector keys for caching.
  */
-export async function fetchCardImageUrls(cards) {
+export async function fetchCardImageUrls(cards, { allowIncomplete = false, signal } = {}) {
   if (!cards?.length) return [];
   validateCopies(cards);
   const entriesByKey = new Map();
   for (const card of cards) {
     const setCode = (card.setCode || '').toLowerCase();
     const collectorNumber = String(card.collectorNumber || '');
-    if (collectorNumber && !setCode) {
+    if (collectorNumber && !setCode && !allowIncomplete) {
       throw new ImageCompletenessError([failure(card, 'card', 'Collector number requires a set code; add the set to preserve the requested printing')]);
     }
     const key = JSON.stringify([normalizeName(card.displayName), setCode, collectorNumber.toLowerCase()]);
@@ -101,6 +107,7 @@ export async function fetchCardImageUrls(cards) {
   const entries = [...entriesByKey.values()];
   const queries = [];
   for (const entry of entries) {
+    if (entry.collectorNumber && !entry.setCode) continue;
     if (entry.setCode && entry.collectorNumber) {
       // Scryfall's collection lookup can require canonical collector casing
       // (PLST DDO-20), even though deck identity is case-insensitive.
@@ -126,7 +133,7 @@ export async function fetchCardImageUrls(cards) {
         const data = await response.json();
         if (!Array.isArray(data.data)) throw new Error('Invalid Scryfall collection response');
         return data;
-      });
+      }, signal);
       for (const card of result.data) {
         // A single response can satisfy multiple requests (e.g. generic + exact).
         for (const { entry, identifier } of batch) {
@@ -135,29 +142,43 @@ export async function fetchCardImageUrls(cards) {
           entry.collectorNumber = String(card.collector_number || entry.collectorNumber);
           entry.scryfallId = card.id;
           entry.oracleId = card.oracle_id || null;
+          entry.layout = card.layout || null;
           entry.faceNames = card.card_faces?.map(face => face.name) || [card.name];
-          entry.isDFC = !card.image_uris && card.card_faces?.length >= 2;
+          entry.isDFC = !card.image_uris && (card.card_faces?.length || 0) >= 2;
           entry.imageUrls = entry.isDFC
             ? { front: imageUrl(card.card_faces[0]?.image_uris), back: imageUrl(card.card_faces[1]?.image_uris) }
             : { front: imageUrl(card.image_uris) };
+          const thumbnail = uris => uris?.normal || uris?.small || imageUrl(uris);
+          entry.thumbnailUrls = entry.isDFC
+            ? { front: thumbnail(card.card_faces[0]?.image_uris), back: thumbnail(card.card_faces[1]?.image_uris) }
+            : { front: thumbnail(card.image_uris) };
         }
       }
     } catch (error) {
       for (const { entry } of batch) lookupErrors.set(entry, `Scryfall lookup failed (${error.message})`);
+      if (signal?.aborted) {
+        for (const entry of entries) if (!entry.imageUrls) lookupErrors.set(entry, `Scryfall lookup failed (${error.message})`);
+        break;
+      }
     }
   }
 
   const failures = [];
   for (const entry of entries) {
+    const entryFailures = [];
     if (!entry.imageUrls) {
-      failures.push(failure(entry, 'card', lookupErrors.get(entry) || 'Card/printing not found on Scryfall'));
+      entryFailures.push(failure(entry, 'card', entry.collectorNumber && !entry.setCode
+        ? 'Collector number requires a set code; add the set to preserve the requested printing'
+        : lookupErrors.get(entry) || 'Card/printing not found on Scryfall'));
     } else {
       for (const face of entry.isDFC ? ['front', 'back'] : ['front']) {
-        if (!entry.imageUrls[face]) failures.push(failure(entry, face, 'No image URL available'));
+        if (!entry.imageUrls[face]) entryFailures.push(failure(entry, face, 'No image URL available'));
       }
     }
+    failures.push(...entryFailures);
+    if (allowIncomplete) entry.lookupFailures = entryFailures;
   }
-  if (failures.length) throw new ImageCompletenessError(failures);
+  if (failures.length && !allowIncomplete) throw new ImageCompletenessError(failures);
   return entries;
 }
 

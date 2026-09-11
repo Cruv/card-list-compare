@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 import { parse } from '../../src/lib/parser.js';
-import { normalizeCardName } from '../../src/lib/cardIdentity.js';
+import { normalizeCardName, normalizedName } from '../../src/lib/cardIdentity.js';
 import { get } from '../db.js';
+import { fetchCardImageUrls } from './scryfallImages.js';
 
 export const MAX_PRINT_COPIES = 250;
+export const PRINT_METADATA_TIMEOUT_MS = 60_000;
 export const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 export function printError(message, status = 400) { return Object.assign(new Error(message), { status }); }
 const identity = card => `${normalizeCardName(card.displayName)}|${(card.setCode || '').toLowerCase()}|${String(card.collectorNumber || '').toLowerCase()}`;
@@ -60,7 +62,7 @@ function flag(value, fallback, name) {
   return value;
 }
 
-export function buildPrintPlan(userId, deckId, options = {}) {
+function readPrintInputs(userId, deckId, options = {}) {
   const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [deckId, userId]);
   if (!deck) throw printError('Deck not found', 404);
   const mode = options.mode || 'full';
@@ -90,20 +92,84 @@ export function buildPrintPlan(userId, deckId, options = {}) {
     if (!Array.isArray(overrides) || overrides.length > 612) throw printError('Saved artwork is invalid');
     overrides = overrides.map(row => {
       if (!Array.isArray(row) || typeof row[0] !== 'string' || !row[1] || typeof row[1] !== 'object') throw printError('Saved artwork contains an invalid entry');
-      return [row[0], { identifier: row[1].identifier || null, extension: row[1].extension || null, sourceName: row[1].sourceName || null }];
+      return [row[0], {
+        identifier: typeof row[1].identifier === 'string' ? row[1].identifier : null,
+        extension: typeof row[1].extension === 'string' ? row[1].extension : null,
+        sourceName: typeof row[1].sourceName === 'string' ? row[1].sourceName : null,
+      }];
     }).sort((a, b) => a[0].localeCompare(b[0]));
   }
-  const selectedNames = new Set(overrides.filter(row => /^[a-zA-Z0-9_-]{10,120}$/.test(row[1].identifier || '')).map(row => normalizeCardName(row[0])));
-  const missingArtwork = artSource === 'saved-mpc'
-    ? cards.filter(card => !selectedNames.has(normalizeCardName(card.displayName))).map(card => ({ displayName: card.displayName, face: 'front', quantity: card.quantity }))
-    : [];
   const version = snapshot => snapshot && ({ id: snapshot.id, createdAt: snapshot.created_at, text: snapshot.deck_text, textHash: sha256(snapshot.deck_text) });
   const plan = {
-    version: 1, deckId, deckName: deck.deck_name, requesterId: userId,
+    version: 2, deckId, deckName: deck.deck_name, requesterId: userId,
     mode, includeSideboard, replacePrintings, finishChangesRequireReprint: false,
     artSource, source: version(source), target: version(target), cards,
     totalCopies: cards.reduce((sum, card) => sum + card.quantity, 0),
-    savedArtwork: overrides, missingArtwork,
+    savedArtwork: overrides,
+  };
+  return plan;
+}
+
+/** Use the same name matching for review and generation, including full DFC aliases. */
+export function savedPrintArt(savedArtwork, card, face) {
+  const exact = new Map(savedArtwork.map(([name, art]) => [normalizedName(name), art]));
+  const fronts = new Map(savedArtwork.map(([name, art]) => [normalizeCardName(name), art]));
+  const name = card.faceNames?.[face === 'front' ? 0 : 1];
+  const requestedIsFront = normalizeCardName(card.displayName) === normalizeCardName(name || card.displayName);
+  return face === 'front'
+    ? ((requestedIsFront && exact.get(normalizedName(card.displayName))) || fronts.get(normalizeCardName(name || card.displayName)))
+    : exact.get(normalizedName(name));
+}
+
+/** Resolve exact printing/face identities before review; no image bytes are downloaded here. */
+export async function buildPrintPlan(userId, deckId, options = {}) {
+  const inputs = readPrintInputs(userId, deckId, options);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('Artwork metadata review exceeded 60 seconds. Review the print list again.')), PRINT_METADATA_TIMEOUT_MS);
+  timer.unref?.();
+  let resolved;
+  try { resolved = await fetchCardImageUrls(inputs.cards, { allowIncomplete: true, signal: controller.signal }); }
+  finally { clearTimeout(timer); }
+  const resolvedCards = resolved.map(card => {
+    const identityKnown = !!card.scryfallId;
+    const unsupported = card.layout === 'meld'
+      ? 'Meld cards need a special paired back layout and cannot be generated yet'
+      : card.isDFC && card.faceNames?.length !== 2 ? 'This multi-sided layout is not supported for printing' : null;
+    // MPC provides its own pixels, but still requires a resolved physical layout.
+    const lookupFailures = (card.lookupFailures || []).filter(item => inputs.artSource === 'scryfall' || item.face === 'card');
+    const errors = lookupFailures.map(item => item.reason);
+    if (!identityKnown && !errors.length) errors.push('Card/printing could not be resolved');
+    if (unsupported) errors.push(unsupported);
+    const faces = (card.isDFC ? ['front', 'back'] : ['front']).map(face => {
+      const name = card.faceNames?.[face === 'front' ? 0 : 1] || (face === 'front' ? card.displayName : 'Unknown back face');
+      const art = inputs.artSource === 'saved-mpc' ? savedPrintArt(inputs.savedArtwork, card, face) : null;
+      const identifier = inputs.artSource === 'saved-mpc' ? art?.identifier || null : card.scryfallId || null;
+      const selected = inputs.artSource === 'saved-mpc' ? /^[a-zA-Z0-9_-]{10,120}$/.test(identifier || '') : !!card.imageUrls?.[face];
+      const error = !identityKnown ? errors[0] : unsupported || (!selected
+        ? inputs.artSource === 'saved-mpc' ? `No saved ${face} artwork selection for ${name}` : `No ${face} image URL available`
+        : lookupFailures.find(item => item.face === face)?.reason || null);
+      if (error && !errors.includes(error)) errors.push(error);
+      return { face, name, source: inputs.artSource, identifier,
+        thumbnailUrl: selected ? inputs.artSource === 'saved-mpc' ? `/api/mpc/thumbnail/${identifier}` : card.thumbnailUrls?.[face] || card.imageUrls?.[face] : null,
+        sourceName: art?.sourceName || null, extension: art?.extension || null,
+        status: error ? selected ? 'error' : 'missing' : 'ready', error };
+    });
+    return { ...card, layout: card.layout || null, isDFC: identityKnown && !unsupported ? !!card.isDFC : null,
+      faceNames: card.faceNames || [], scryfallId: card.scryfallId || null, faces, errors };
+  });
+  // Resolution may take seconds. Do not accept artwork/snapshot edits made while it ran.
+  if (JSON.stringify(readPrintInputs(userId, deckId, options)) !== JSON.stringify(inputs)) {
+    throw printError('Snapshots or artwork changed during preview. Review a fresh plan.', 409);
+  }
+  const missingArtwork = resolvedCards.flatMap(card => card.faces.filter(face => face.status !== 'ready').map(face => ({
+    displayName: card.displayName, setCode: card.setCode, collectorNumber: card.collectorNumber,
+    quantity: card.quantity, face: face.face, name: face.name, reason: face.error,
+  })));
+  const identitiesComplete = resolvedCards.every(card => card.scryfallId && typeof card.isDFC === 'boolean');
+  const plan = { ...inputs, resolvedCards, missingArtwork,
+    readyToGenerate: inputs.totalCopies > 0 && resolvedCards.every(card => !card.errors.length),
+    ordinaryCopies: identitiesComplete ? resolvedCards.filter(card => !card.isDFC).reduce((sum, card) => sum + card.quantity, 0) : null,
+    doubleFacedCopies: identitiesComplete ? resolvedCards.filter(card => card.isDFC).reduce((sum, card) => sum + card.quantity, 0) : null,
   };
   return { ...plan, planHash: sha256(JSON.stringify(plan)) };
 }

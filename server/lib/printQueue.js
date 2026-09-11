@@ -141,20 +141,27 @@ export function listPrintJobs(userId, deckId) {
   return all('SELECT * FROM print_jobs WHERE user_id = ? AND tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 50', [userId, deckId]).map(row => formatPrintJob(row));
 }
 
-export function createPrintJob(userId, deckId, request) {
+export async function createPrintJob(userId, deckId, request) {
   const requestKey = safeId(request.idempotencyKey, 'idempotencyKey');
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
   const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady }));
-  const existing = get('SELECT * FROM print_jobs WHERE user_id = ? AND request_key = ?', [userId, requestKey]);
-  if (existing) {
+  const replay = () => {
+    const existing = get('SELECT * FROM print_jobs WHERE user_id = ? AND request_key = ?', [userId, requestKey]);
+    if (!existing) return null;
     if (existing.request_hash !== requestHash) throw printError('This request key already belongs to a different print request', 409);
     return { job: formatPrintJob(existing), isExisting: true };
-  }
-  const plan = buildPrintPlan(userId, deckId, request);
+  };
+  const existing = replay();
+  if (existing) return existing;
+  const plan = await buildPrintPlan(userId, deckId, request);
+  // Two concurrent requests can resolve metadata together. Recheck the durable
+  // receipt after that await before inserting or consuming pending-job capacity.
+  const concurrent = replay();
+  if (concurrent) return concurrent;
   if (plan.planHash !== request.expectedPlanHash) throw printError('Snapshots or artwork changed after preview. Review a fresh plan.', 409);
   if (!plan.totalCopies) throw printError('This comparison has no copies to print');
-  if (plan.missingArtwork.length) throw printError(`Save front artwork for: ${plan.missingArtwork.map(card => card.displayName).join(', ')}`);
+  if (!plan.readyToGenerate) throw printError(`Review the missing or unsupported artwork before generating: ${plan.resolvedCards.filter(card => card.errors.length).map(card => `${card.displayName}: ${card.errors.join('; ')}`).join(', ')}`);
   if (request.queueOnReady) assertCanQueue(userId);
   const pending = get("SELECT COUNT(*) AS count FROM print_jobs WHERE user_id = ? AND state IN ('preparing', 'queued')", [userId]);
   if (pending.count >= 2) throw printError('You already have two pending print jobs', 429);

@@ -33,54 +33,58 @@ export function printPlanBridgeCards(plan, cardMap) {
   return (plan?.cards || []).map((entry, index) => ({
     key: `print-plan:${index}:${cardIdentityKey(entry)}`,
     quantity: entry.quantity,
-    card: resolvedIdentity({
+    card: { ...resolvedIdentity({
       name: entry.displayName, setCode: entry.setCode || '',
       collectorNumber: entry.collectorNumber || '',
       finish: entry.isFoil ? 'foil' : 'nonfoil', language: 'en',
-    }, cardMap),
+    }, cardMap), ...(plan.resolvedCards?.[index] ? {
+      oracleId: plan.resolvedCards[index].oracleId || null,
+      scryfallId: plan.resolvedCards[index].scryfallId || null,
+    } : {}) },
   }));
 }
 
-function normalizePrintingKey(value) {
-  const parts = value.split('|');
-  if (parts.length >= 5) parts[parts.length-4] = parts[parts.length-4].toLowerCase();
-  return parts.join('|');
+function matchedRows(card, rows) {
+  return rows.filter(row => (card.oracleId && row.key === card.oracleId)
+    || normalizeCardName(row.name) === normalizeCardName(card.name));
 }
-function matchedRows(card,rows,by) {
-  const printing = `${card.scryfallId || `${card.name.toLowerCase()}|${card.setCode}|${card.collectorNumber}`}|${card.finish}|${card.language}`;
-  const fallbackPrinting = `${card.name.toLowerCase()}|${card.setCode?.toLowerCase()}|${card.collectorNumber}|${card.finish}|${card.language}`;
-  return rows.filter(row => by === 'printing' ? row.key === printing || normalizePrintingKey(row.key) === fallbackPrinting :
-    (card.oracleId && row.key === card.oracleId) || normalizeCardName(row.name) === normalizeCardName(card.name));
-}
-export function ownershipFor(card,rows,by,known) {
-  if (!known || (by === 'printing' && !card.scryfallId)) return null;
-  const matches = matchedRows(card,rows,by);
-  const result = {realOwned:0,incoming:0,received:0,available:0,allocated:0,proxies:0,locations:[]};
+/** One original in any printing covers unlimited proxy copies, across decks. */
+export function ownershipFor(card, rows, known) {
+  if (!known) return null;
+  const matches = matchedRows(card, rows);
+  // A name match can prove ownership during a lookup outage; an unresolved
+  // identity with no match cannot prove that the user owns no original.
+  if (!matches.length && !card.oracleId) return null;
+  const result = { hasOriginal: false, incomingOnly: false, locations: [] };
+  let originals = 0, received = 0, incoming = 0;
   for (const row of matches) {
-    for (const field of ['realOwned','incoming','received','available','allocated','proxies']) result[field] += Number(row[field]) || 0;
-    result.locations.push(...(row.locations || []));
+    originals += Math.max(0, Number(row.realOwned) || 0); // Already includes incoming.
+    received += Math.max(0, Number(row.received) || 0);
+    incoming += Math.max(0, Number(row.incoming) || 0);
+    result.locations.push(...(row.locations || []).filter(location => !location.isProxy));
   }
+  result.hasOriginal = originals > 0;
+  result.incomingOnly = originals > 0 && received === 0 && incoming > 0;
   return result;
 }
-export function withShortages(cards, rows, by, known) {
-  // Consume actual returned ownership rows once, even when one deck entry has an
-  // oracle ID and another entry for the same card only has its name resolved.
-  const consumed = new Map();
+export function withOriginalOwnership(cards, rows, known) {
+  const oracleByName = new Map(cards.filter(entry => entry.card.oracleId)
+    .map(entry => [normalizeCardName(entry.card.name), entry.card.oracleId]));
   return cards.map(entry => {
-    const ownership = ownershipFor(entry.card,rows,by,known);
-    let shortage = ownership ? entry.quantity : null;
-    if (ownership) for (const row of matchedRows(entry.card,rows,by)) {
-      const used = consumed.get(row.key) || 0;
-      const count = Math.min(shortage,Math.max(0,(Number(row.realOwned) || 0)-used));
-      consumed.set(row.key,used+count);
-      shortage -= count;
-    }
-    return {...entry,ownership,shortage};
+    const name = normalizeCardName(entry.card.name);
+    const oracle = entry.card.oracleId || oracleByName.get(name);
+    const ownership = ownershipFor({ ...entry.card, oracleId: oracle }, rows, known);
+    return { ...entry, ownership, shoppingKey: oracle ? `oracle:${oracle}` : `name:${name}` };
   });
 }
 
-export function shoppingText(cards, exact) {
-  return cards.filter(entry => entry.shortage > 0).map(entry => `${entry.shortage} ${entry.card.name}${exact && entry.card.setCode && entry.card.collectorNumber ? ` (${entry.card.setCode}) ${entry.card.collectorNumber}` : ''}`).join('\n');
+export function shoppingText(cards) {
+  const seen = new Set();
+  return cards.filter(entry => {
+    if (entry.ownership?.hasOriginal !== false || seen.has(entry.shoppingKey)) return false;
+    seen.add(entry.shoppingKey);
+    return true;
+  }).map(entry => `1 ${entry.card.name}`).join('\n');
 }
 export function manaPoolLink(text) {
   const bytes = new TextEncoder().encode(text);

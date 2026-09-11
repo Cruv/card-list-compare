@@ -3,8 +3,7 @@ import { join } from 'node:path';
 import { fetchCardImageUrls, downloadCardImagesWithCache, ImageCompletenessError } from './scryfallImages.js';
 import { imageFormat, MAX_IMAGE_BYTES } from './imageValidation.js';
 import { MAX_PRINT_SOURCE_BYTES } from './printQueueLimits.js';
-import { normalizeCardName, normalizedName } from '../../src/lib/cardIdentity.js';
-import { sha256, printError } from './printQueuePlan.js';
+import { sha256, printError, savedPrintArt } from './printQueuePlan.js';
 
 // Same fixed full-resolution proxy as the existing MPC client. This print path
 // additionally bounds encoded/decoded bytes and rejects incomplete image data.
@@ -53,7 +52,16 @@ async function mpcImage(identifier) {
 
 /** Fetch all art, then freeze one hash-addressed source image and per-copy pairing. */
 export async function preparePrintImages(plan, jobDir, onProgress) {
-  const resolved = await fetchCardImageUrls(plan.cards);
+  const resolved = plan.version >= 2 ? plan.resolvedCards : await fetchCardImageUrls(plan.cards);
+  if (plan.version >= 2 && (!plan.readyToGenerate || !Array.isArray(resolved)
+    || resolved.some(card => !card.scryfallId || card.errors?.length || card.faces?.some(face => face.status !== 'ready')))) {
+    throw printError('Reviewed artwork is incomplete. Review a fresh print plan.');
+  }
+  // A queued preparation from an older app version may not have a resolved
+  // review yet. It must not turn a meld card into an ordinary front-only copy.
+  if (resolved.some(card => card.layout === 'meld' || (card.isDFC && card.faceNames?.length !== 2))) {
+    throw printError('This multi-sided layout is not supported for printing. Review a fresh print plan.');
+  }
   const copies = [];
   const sourceDir = join(jobDir, 'images');
   mkdirSync(sourceDir, { recursive: true });
@@ -97,17 +105,13 @@ export async function preparePrintImages(plan, jobDir, onProgress) {
       }
     }
   } else {
-    const overrides = new Map(plan.savedArtwork.map(([name, art]) => [normalizedName(name), art]));
-    const frontOverrides = new Map(plan.savedArtwork.map(([name, art]) => [normalizeCardName(name), art]));
     const artCache = new Map();
     const failures = [];
     for (const card of resolved) {
       const faces = {};
       for (const face of card.isDFC ? ['front', 'back'] : ['front']) {
         const name = card.faceNames?.[face === 'front' ? 0 : 1];
-        const art = face === 'front'
-          ? (overrides.get(normalizedName(card.displayName)) || frontOverrides.get(normalizeCardName(name || card.displayName)))
-          : overrides.get(normalizedName(name));
+        const art = plan.version >= 2 ? card.faces.find(item => item.face === face) : savedPrintArt(plan.savedArtwork, card, face);
         try {
           if (!art?.identifier) throw new Error(`No saved ${face} artwork selection${name ? ` for ${name}` : ''}`);
           // Cache paths/hashes, never image buffers: a whole deck of unique MPC

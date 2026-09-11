@@ -25,9 +25,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.48.2';
+const APP_VERSION = '2.49.0';
 const WHATS_NEW = [
-  'Print test sheets from CLC while keeping unfinished calibration checks visible',
+  'Preview selected artwork and both sides before generating print PDFs',
+  'One original of any printing covers all your proxy copies',
+  'Connect Discord flip alerts from Print Station',
 ];
 
 function getResetToken() {

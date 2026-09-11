@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { createStationCommand, printStationStatus } from '../lib/printStationManagement.js';
+import { createStationCommand, printStationStatus, createDiscordCommand, findStationCommand } from '../lib/printStationManagement.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -11,4 +11,7 @@ const route = callback => (req, res) => {
 };
 router.get('/status', route((req, res) => res.json(printStationStatus(req.user.userId))));
 router.post('/commands', route((req, res) => res.json(createStationCommand(req.user.userId, req.body))));
+router.get('/commands/:key', route((req, res) => res.json(findStationCommand(req.user.userId, req.params.key))));
+router.post('/discord', route((req, res) => res.json(createDiscordCommand(req.user.userId, req.body))));
+router.post('/discord/test', route((req, res) => res.json(createDiscordCommand(req.user.userId, { ...req.body, type: 'test_discord' }))));
 export default router;

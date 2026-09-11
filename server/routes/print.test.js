@@ -6,7 +6,8 @@ import crypto from 'node:crypto';
 import { once } from 'node:events';
 import express from 'express';
 
-const services = vi.hoisted(() => ({ preparePrintImages: vi.fn(), generatePrintPdfs: vi.fn(), getPrintGeneratorStatus: vi.fn(() => ({ available: true, revision: 'fixture' })), prunePrintGenerator: vi.fn(async () => {}) }));
+const services = vi.hoisted(() => ({ fetchCardImageUrls: vi.fn(), preparePrintImages: vi.fn(), generatePrintPdfs: vi.fn(), getPrintGeneratorStatus: vi.fn(() => ({ available: true, revision: 'fixture' })), prunePrintGenerator: vi.fn(async () => {}) }));
+vi.mock('../lib/scryfallImages.js', () => ({ fetchCardImageUrls: services.fetchCardImageUrls }));
 vi.mock('../lib/printQueueImages.js', () => ({ preparePrintImages: services.preparePrintImages }));
 vi.mock('../lib/printGenerator.js', () => ({ generatePrintPdfs: services.generatePrintPdfs, getPrintGeneratorStatus: services.getPrintGeneratorStatus, prunePrintGenerator: services.prunePrintGenerator }));
 vi.mock('../middleware/auth.js', () => ({ requireAuth: (req, res, next) => {
@@ -20,6 +21,11 @@ const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 
 beforeEach(async () => {
   vi.clearAllMocks(); vi.resetModules();
+  services.fetchCardImageUrls.mockImplementation(async cards => cards.map(card => ({ ...card,
+    scryfallId: `fixture-${card.displayName}`, oracleId: `oracle-${card.displayName}`, layout: card.displayName.includes('Malakir') ? 'modal_dfc' : 'normal',
+    isDFC: card.displayName.includes('Malakir'), faceNames: card.displayName.includes('Malakir') ? ['Malakir Rebirth', 'Malakir Mire'] : [card.displayName],
+    imageUrls: { front: 'https://cards.scryfall.io/front.png', ...(card.displayName.includes('Malakir') ? { back: 'https://cards.scryfall.io/back.png' } : {}) }, lookupFailures: [],
+  })));
   services.getPrintGeneratorStatus.mockReturnValue({ available: true, revision: 'fixture' });
   dir = mkdtempSync(join(tmpdir(), 'clc-print-routes-'));
   vi.stubEnv('DB_PATH', join(dir, 'db.sqlite'));
@@ -74,11 +80,11 @@ function request(path, { method = 'GET', body, token = 'user-1' } = {}) {
   return fetch(url + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
 function preview(options = {}, user = 1, deck = user) { return planModule.buildPrintPlan(user, deck, options); }
-function create(options = {}, user = 1, deck = user) {
-  const plan = preview(options, user, deck);
+async function create(options = {}, user = 1, deck = user) {
+  const plan = await preview(options, user, deck);
   return queue.createPrintJob(user, deck, { ...options, idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash });
 }
-async function ready(options = {}) { const { job } = create(options); await queue.processNextPrintJob(); const result = queue.getOwnedPrintJob(1, 1, job.id); if (result.state === 'failed') throw new Error(result.error); return result; }
+async function ready(options = {}) { const { job } = await create(options); await queue.processNextPrintJob(); const result = queue.getOwnedPrintJob(1, 1, job.id); if (result.state === 'failed') throw new Error(result.error); return result; }
 function station(path, method = 'GET', body) { return request(`/api/print-station${path}`, { method, body, token: stationToken }); }
 function report(job, state, extras = {}) { return queue.reportPrintJob(job.id, { claimToken: job.claimToken, eventId: crypto.randomUUID(), state, ...extras }); }
 function ordinary(job) { return { artifactId: 'fronts', phase: 'fronts', ...job }; }
@@ -121,7 +127,7 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
     services.generatePrintPdfs.mockImplementationOnce(async input => {
       const result = await packetPdfs(input); Object.assign(result.artifacts[0], changes); return result;
     });
-    const { job } = create({ queueOnReady: true }); await queue.processNextPrintJob();
+    const { job } = await create({ queueOnReady: true }); await queue.processNextPrintJob();
     expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'failed', error: expect.stringContaining('invalid double-sided packet') });
     expect(queue.claimPrintJob()).toBeNull();
     expect(existsSync(join(dir, 'jobs', job.id))).toBe(false);
@@ -161,7 +167,7 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
     expect((await station(`/jobs/${job.id}/artifacts/fronts`)).status).toBe(404); // not claimed
   });
   it('freezes preview text/art, rejects stale plans, and deduplicates request retries', async () => {
-    const plan = preview(), key = crypto.randomUUID();
+    const plan = await preview(), key = crypto.randomUUID();
     const body = { idempotencyKey: key, expectedPlanHash: plan.planHash };
     const created = await (await request('/api/decks/1/print-jobs', { method: 'POST', body })).json();
     expect(created.job.state).toBe('preparing');
@@ -179,22 +185,57 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
     expect(db.get('SELECT COUNT(*) AS count FROM print_jobs').count).toBe(1);
   });
   it('requires a new request key for a different queue intent and prevents unauthorized physical printing', async () => {
-    const plan = preview({}, 2), key = crypto.randomUUID();
-    expect(() => queue.createPrintJob(2, 2, { expectedPlanHash: plan.planHash, idempotencyKey: key, queueOnReady: true })).toThrow('restricted');
-    const created = queue.createPrintJob(2, 2, { expectedPlanHash: plan.planHash, idempotencyKey: key });
+    const plan = await preview({}, 2), key = crypto.randomUUID();
+    await expect(queue.createPrintJob(2, 2, { expectedPlanHash: plan.planHash, idempotencyKey: key, queueOnReady: true })).rejects.toThrow('restricted');
+    const created = await queue.createPrintJob(2, 2, { expectedPlanHash: plan.planHash, idempotencyKey: key });
     expect(created.job.state).toBe('preparing');
-    expect(() => queue.createPrintJob(2, 2, { expectedPlanHash: plan.planHash, idempotencyKey: key, queueOnReady: true })).toThrow('different print request');
+    await expect(queue.createPrintJob(2, 2, { expectedPlanHash: plan.planHash, idempotencyKey: key, queueOnReady: true })).rejects.toThrow('different print request');
   });
-  it('rejects saved-art changes after preview', () => {
+  it('rejects saved-art changes after preview', async () => {
     db.run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = 1', [JSON.stringify([['Lightning Bolt', { identifier: 'first-art-0123456789' }]])]);
-    const plan = preview({ artSource: 'saved-mpc' });
+    const plan = await preview({ artSource: 'saved-mpc' });
     db.run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = 1', [JSON.stringify([['Lightning Bolt', { identifier: 'second-art-0123456789' }]])]);
-    expect(() => queue.createPrintJob(1, 1, { artSource: 'saved-mpc', idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash })).toThrow('changed after preview');
+    await expect(queue.createPrintJob(1, 1, { artSource: 'saved-mpc', idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash })).rejects.toThrow('changed after preview');
+  });
+  it('returns missing DFC back art in preview and refuses job creation before any download', async () => {
+    db.run("UPDATE deck_snapshots SET deck_text = '2 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+    db.run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = 1', [JSON.stringify([['Malakir Rebirth', { identifier: 'selected-front-01234' }]])]);
+    const response = await request('/api/decks/1/print-plan', { method: 'POST', body: { artSource: 'saved-mpc' } });
+    expect(response.status).toBe(200);
+    const { plan } = await response.json();
+    expect(plan).toMatchObject({ readyToGenerate: false, doubleFacedCopies: 2, missingArtwork: [expect.objectContaining({ face: 'back', name: 'Malakir Mire' })] });
+    expect(plan.resolvedCards[0].faces[0].thumbnailUrl).toBe('/api/mpc/thumbnail/selected-front-01234');
+    const created = await request('/api/decks/1/print-jobs', { method: 'POST', body: { artSource: 'saved-mpc', expectedPlanHash: plan.planHash, idempotencyKey: crypto.randomUUID() } });
+    expect(created.status).toBe(400);
+    expect((await created.json()).error).toContain('Malakir Mire');
+    expect(db.get('SELECT COUNT(*) AS count FROM print_jobs').count).toBe(0);
+    expect(services.preparePrintImages).not.toHaveBeenCalled();
+  });
+  it('refuses a changed resolved Scryfall printing even when the snapshot text is identical', async () => {
+    const plan = await preview();
+    const resolve = services.fetchCardImageUrls.getMockImplementation();
+    services.fetchCardImageUrls.mockImplementation(async cards => (await resolve(cards)).map(card => ({ ...card, scryfallId: 'different-printing' })));
+    await expect(queue.createPrintJob(1, 1, { expectedPlanHash: plan.planHash, idempotencyKey: crypto.randomUUID() })).rejects.toThrow('changed after preview');
+    expect(db.get('SELECT COUNT(*) AS count FROM print_jobs').count).toBe(0);
+  });
+  it('deduplicates concurrent creates after asynchronous artwork resolution', async () => {
+    const plan = await preview();
+    const resolve = services.fetchCardImageUrls.getMockImplementation();
+    const pending = [];
+    services.fetchCardImageUrls.mockImplementation(cards => new Promise(release => pending.push(async () => release(await resolve(cards)))));
+    const input = { expectedPlanHash: plan.planHash, idempotencyKey: crypto.randomUUID() };
+    const first = queue.createPrintJob(1, 1, input), second = queue.createPrintJob(1, 1, input);
+    expect(pending).toHaveLength(2);
+    await Promise.all(pending.map(release => release()));
+    const results = await Promise.all([first, second]);
+    expect(results[0].job.id).toBe(results[1].job.id);
+    expect(results.map(result => result.isExisting).sort()).toEqual([false, true]);
+    expect(db.get('SELECT COUNT(*) AS count FROM print_jobs').count).toBe(1);
   });
   it('does not publish or queue a preparation canceled while images are downloading', async () => {
     let release;
     services.preparePrintImages.mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
-    const { job } = create({ queueOnReady: true });
+    const { job } = await create({ queueOnReady: true });
     const worker = queue.processNextPrintJob();
     queue.cancelPrintJob(1, 1, job.id);
     release([]); await worker;
@@ -204,7 +245,7 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
   });
   it('waits for generator initialization before downloading any images', async () => {
     services.getPrintGeneratorStatus.mockReturnValue({ available: false, updating: true });
-    const { job } = create(); await queue.processNextPrintJob();
+    const { job } = await create(); await queue.processNextPrintJob();
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('preparing');
     expect(services.preparePrintImages).not.toHaveBeenCalled();
     services.getPrintGeneratorStatus.mockReturnValue({ available: true, updating: false });
@@ -448,10 +489,10 @@ describe('print storage, deletion, and durable transactions', () => {
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
     expect(services.prunePrintGenerator).toHaveBeenLastCalledWith({ retainVersions: ['immutable-runtime-version'] });
   });
-  it('enforces total storage quota before a worker or network request begins', () => {
+  it('enforces total storage quota before a worker or image download begins', async () => {
     mkdirSync(join(dir, 'jobs'), { recursive: true });
     const large = join(dir, 'jobs', 'sparse-test'); writeFileSync(large, ''); truncateSync(large, 9 * 1024 * 1024 * 1024);
-    expect(() => create()).toThrow('5 GiB working allowance');
+    await expect(create()).rejects.toThrow('5 GiB working allowance');
     expect(services.preparePrintImages).not.toHaveBeenCalled();
   });
   it('waits to prune generator runtimes during an update, then retains live manifest versions', async () => {

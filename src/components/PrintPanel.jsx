@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations } from '../lib/api';
 import PrintPlanOwnership from './PrintPlanOwnership';
+import PrintPlanArtwork from './PrintPlanArtwork';
 import PrintQueue from './PrintQueue';
+import { loadPrintCreationIntent, printReviewReady, rejectedPrintCreation } from '../lib/printReview';
+import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
 const STATES = {
@@ -57,6 +60,9 @@ function requestId() {
 }
 
 export default function PrintPanel({ deck, snapshots }) {
+  const { user } = useAuth();
+  const requestStorageKey = `clc-print-job-request:${user.id}:${deck.id}`;
+  const [storedRequest] = useState(() => loadPrintCreationIntent(localStorage, requestStorageKey));
   const [mode, setMode] = useState(deck.paper_snapshot_id ? 'changes' : 'full');
   const [target, setTarget] = useState('latest');
   const [baseline, setBaseline] = useState(String(deck.paper_snapshot_id || snapshots[1]?.id || ''));
@@ -73,12 +79,14 @@ export default function PrintPanel({ deck, snapshots }) {
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [notice, setNotice] = useState('');
-  const [pendingAction, setPendingAction] = useState(null);
+  const [pendingRequest, setPendingRequest] = useState(storedRequest);
   const [recordingJobId, setRecordingJobId] = useState(null);
   const [recordError, setRecordError] = useState(null);
   const stagedJobsRef = useRef(new Set());
-  const requestRef = useRef(null);
+  const requestRef = useRef(storedRequest);
   const revisionRef = useRef(0);
+  const creationPending = !!pendingRequest;
+  const pendingAction = pendingRequest?.queueOnReady ?? null;
 
   useEffect(() => {
     let active = true;
@@ -111,17 +119,19 @@ export default function PrintPanel({ deck, snapshots }) {
   }, [deck.id]);
 
   function change(setter, value) {
+    if (requestRef.current) return;
     revisionRef.current += 1;
     setter(value);
     setPlan(null);
     setError('');
     setNotice('');
     requestRef.current = null;
-    setPendingAction(null);
+    setPendingRequest(null);
   }
 
   async function preview(event) {
     event.preventDefault();
+    if (requestRef.current) return;
     setBusy(true);
     setError('');
     setNotice('');
@@ -138,32 +148,54 @@ export default function PrintPanel({ deck, snapshots }) {
       setCapabilities(data.capabilities);
       setGenerator(data.generator);
       requestRef.current = null;
-      setPendingAction(null);
+      setPendingRequest(null);
     } catch (err) {
       if (revision === revisionRef.current) setError(err.message);
     } finally { setBusy(false); }
   }
 
   async function generate(queueOnReady) {
+    if (!requestRef.current && !printReviewReady(plan)) return;
     setBusy(true);
     setError('');
     try {
       // Keep the same key after an ambiguous network response; a retry is the same job.
       if (!requestRef.current) {
-        requestRef.current = {
+        const persisted = loadPrintCreationIntent(localStorage, requestStorageKey);
+        if (persisted) {
+          requestRef.current = persisted;
+          setPendingRequest(persisted);
+        }
+      }
+      if (!requestRef.current) {
+        const request = {
           mode, targetSnapshotId: plan.target.id, baselineSnapshotId: plan.source?.id,
           artSource, includeSideboard, replacePrintings, expectedPlanHash: plan.planHash,
           queueOnReady, idempotencyKey: requestId(),
         };
-        setPendingAction(queueOnReady);
+        // Save before POST: a reload or lost response must recover this exact
+        // request instead of creating a second potentially queued batch.
+        try { localStorage.setItem(requestStorageKey, JSON.stringify(request)); }
+        catch { throw new Error('The browser could not save this batch request. No request was sent. Free browser storage and retry.'); }
+        requestRef.current = request;
+        setPendingRequest(request);
       }
-      const data = await createPrintJob(deck.id, requestRef.current);
+      const submitted = requestRef.current;
+      const data = await createPrintJob(deck.id, submitted);
       setJobs(old => [data.job, ...old.filter(job => job.id !== data.job.id)]);
       setPlan(null);
+      try { localStorage.removeItem(requestStorageKey); } catch { /* A retained key safely replays the known batch after reload. */ }
       requestRef.current = null;
-      setPendingAction(null);
-      setNotice(queueOnReady ? 'Batch created. The Mac will pick it up when its PDFs are ready.' : 'Batch created. Your PDFs will appear below.');
-    } catch (err) { setError(err.message); }
+      setPendingRequest(null);
+      setNotice(submitted.queueOnReady ? 'Batch created. The Mac will pick it up when its PDFs are ready.' : 'Batch created. Your PDFs will appear below.');
+    } catch (err) {
+      if (rejectedPrintCreation(err)) {
+        try { localStorage.removeItem(requestStorageKey); } catch { /* A retry remains the same rejected request. */ }
+        requestRef.current = null;
+        setPendingRequest(null);
+      }
+      setError(err.message);
+    }
     finally { setBusy(false); }
   }
 
@@ -213,51 +245,57 @@ export default function PrintPanel({ deck, snapshots }) {
         <p>Print a whole snapshot or just the copies needed since another version. Ordinary fronts stay together. New double-faced packets each use one separate sheet, with a pause to match, flip and reload that sheet before its back prints.</p>
         <div className="print-panel-fields">
           <label>What to print
-            <select value={mode} disabled={busy} onChange={e => change(setMode, e.target.value)}>
+            <select value={mode} disabled={busy || creationPending} onChange={e => change(setMode, e.target.value)}>
               <option value="full">Whole snapshot</option><option value="changes">Changes between snapshots</option>
             </select>
           </label>
           <label>Target version
-            <select value={target} disabled={busy} onChange={e => change(setTarget, e.target.value)}>
+            <select value={target} disabled={busy || creationPending} onChange={e => change(setTarget, e.target.value)}>
               <option value="latest">Latest snapshot</option>
               {snapshots.map(s => <option key={s.id} value={s.id}>{snapshotLabel(s)}</option>)}
             </select>
           </label>
           {mode === 'changes' && <label>Compare from
-            <select value={baseline} disabled={busy} onChange={e => change(setBaseline, e.target.value)} required>
+            <select value={baseline} disabled={busy || creationPending} onChange={e => change(setBaseline, e.target.value)} required>
               <option value="">Choose an earlier version</option>
               {snapshots.map(s => <option key={s.id} value={s.id}>{snapshotLabel(s)}{s.id === deck.paper_snapshot_id ? ' · Paper deck' : ''}</option>)}
             </select>
           </label>}
           <label>Artwork
-            <select value={artSource} disabled={busy} onChange={e => change(setArtSource, e.target.value)}>
+            <select value={artSource} disabled={busy || creationPending} onChange={e => change(setArtSource, e.target.value)}>
               <option value="scryfall">Scryfall — snapshot printings</option>
               <option value="saved-mpc">Saved MPC artwork</option>
             </select>
           </label>
         </div>
-        <label className="print-panel-check"><input type="checkbox" checked={includeSideboard} disabled={busy} onChange={e => change(setIncludeSideboard, e.target.checked)} />Include sideboard</label>
-        {mode === 'changes' && <label className="print-panel-check"><input type="checkbox" checked={replacePrintings} disabled={busy} onChange={e => change(setReplacePrintings, e.target.checked)} />Replace copies when the set or printing changes</label>}
-        <p className="print-panel-meta">Review the print list to check ManaSync ownership and shop for missing originals in Mana Pool. When the PDFs are ready, the batch and its artwork appear in ManaSync&rsquo;s Proxy binder under Pending prints. After printing, confirm usable copies in either app or dismiss failed copies. Foil-only changes do not need a new proxy.</p>
+        <label className="print-panel-check"><input type="checkbox" checked={includeSideboard} disabled={busy || creationPending} onChange={e => change(setIncludeSideboard, e.target.checked)} />Include sideboard</label>
+        {mode === 'changes' && <label className="print-panel-check"><input type="checkbox" checked={replacePrintings} disabled={busy || creationPending} onChange={e => change(setReplacePrintings, e.target.checked)} />Replace copies when the set or printing changes</label>}
+        <p className="print-panel-meta">Review the selected front and back artwork, then check whether you own an original in ManaSync. One original in any printing covers unlimited proxies; the shopping list offers one original only for cards you do not own or have incoming. Buying selections never change print quantities. When the PDFs are ready, the batch and its artwork appear in ManaSync&rsquo;s Proxy binder under Pending prints. After printing, confirm usable copies in either app or dismiss failed copies. Foil-only changes do not need a new proxy.</p>
         {artSource === 'saved-mpc' && <p className="print-panel-meta">Save your selections in Proxy Printing first. Every required face must have saved art; missing choices stop the batch.</p>}
-        <button className="btn btn-primary" type="submit" disabled={busy || !snapshots.length || (mode === 'changes' && !baseline)}>{busy ? 'Working…' : 'Review print list'}</button>
+        <button className="btn btn-primary" type="submit" disabled={busy || creationPending || !snapshots.length || (mode === 'changes' && !baseline)}>{busy ? 'Working…' : 'Review print list'}</button>
       </form>
 
       {error && <div className="print-panel-error" role="alert">{error}</div>}
       {connectionError && <p role="status">Print status could not refresh: {connectionError}</p>}
       {notice && <p role="status">{notice}</p>}
-      {station?.online && station.duplexVerified === false && Date.now() - Date.parse(station.lastSeenAt) < 20_000 && <p className="print-panel-confirmation" role="status">The Mac’s double-faced loading direction and alignment have not been verified. Finish that local proof before sending a mixed batch; ordinary fronts can otherwise print while its double-faced cards wait. <a href="#print-station">Check Print Station</a>.</p>}
+      {creationPending && <section className="print-panel-confirmation" aria-label="Recover print batch request">
+        <strong>{busy ? 'Creating your batch…' : 'The batch creation result is not confirmed.'}</strong>
+        <p>{pendingRequest?.mode === 'changes' ? 'Changes ending at' : 'Whole'} snapshot #{pendingRequest?.targetSnapshotId} · {pendingAction ? 'Generate and send to Mac' : 'Generate PDFs only'}. Settings stay locked until this request is resolved, including after a page reload.</p>
+        <p>Retrying uses the same saved request and cannot create a second copy of that batch.</p>
+        <button className="btn btn-primary" type="button" disabled={busy} onClick={() => generate(pendingAction)}>Retry same batch request</button>
+      </section>}
+      {station?.online && station.duplexVerified === false && Date.now() - Date.parse(station.lastSeenAt) < 20_000 && <p className="print-panel-confirmation" role="status">{station.testPrintingEnabled ? 'Test printing is enabled on the Mac. Its double-sided loading direction and alignment remain unverified; use a small test batch and inspect each sheet. Manual flip and reload confirmation is still required.' : 'The Mac’s double-sided loading direction and alignment have not been verified. Finish that local proof before sending a mixed batch; ordinary fronts can otherwise print while its double-sided cards wait.'} <a href="#print-station">Check Print Station</a>.</p>}
 
       {plan && <section className="print-panel-card" aria-label="Print list review">
         <h3>{plan.totalCopies} {plan.totalCopies === 1 ? 'card' : 'cards'} to prepare</h3>
         <p>{plan.source ? `Snapshot #${plan.source.id} → ` : ''}Snapshot #{plan.target.id}{plan.includeSideboard ? ' · Mainboard and sideboard' : ' · Mainboard'}</p>
-        <p className="print-panel-meta">Letter · v6 · 600 PPI · 1 mm crop · 7 cards per sheet. Sheet counts appear after artwork and both faces have been verified.</p>
-        <ul className="print-panel-cards">{plan.cards.map((card, index) => <li key={index}>{card.quantity}× {card.displayName}{card.setCode ? ` (${card.setCode}) ${card.collectorNumber || ''}` : ''}</li>)}</ul>
+        <p className="print-panel-meta">Letter · v6 · 600 PPI · 1 mm crop · 7 cards per sheet.</p>
+        {plan.totalCopies > 0 && <PrintPlanArtwork key={plan.planHash} plan={plan} />}
         {plan.totalCopies > 0 && <PrintPlanOwnership key={plan.planHash} plan={plan} />}
         {plan.missingArtwork?.length > 0 && <div className="print-panel-error" role="alert">Save artwork for these cards before generating:{'\n'}{plan.missingArtwork.map(card => `${card.quantity}× ${card.displayName} (${card.face})`).join('\n')}</div>}
         {plan.totalCopies === 0 ? <p>There are no new copies to print for these options.</p> : <div className="print-panel-actions">
-          <button className="btn btn-primary" disabled={busy || !generator?.available || !!plan.missingArtwork?.length || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>
-          {capabilities.canQueue && <button className="btn btn-secondary" disabled={busy || !generator?.available || !!plan.missingArtwork?.length || pendingAction === false} onClick={() => generate(true)} type="button">Generate and send to Mac</button>}
+          <button className="btn btn-primary" disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>
+          {capabilities.canQueue && <button className="btn btn-secondary" disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate and send to Mac</button>}
         </div>}
       </section>}
 

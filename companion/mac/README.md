@@ -284,15 +284,29 @@ driver or state settings. The two flags require JSON booleans and default to `tr
 omitted. Set `refeed_sound` to `false` for a silent Mac notification or
 `refeed_notifications` to `false` to disable Mac notifications.
 
-Discord is optional and disabled while its webhook URL is empty. A configured canonical
+Administrators can connect Discord from **CLC → Print Station → Discord flip alerts**.
+Save a channel webhook and optional user ID, wait for the Mac to acknowledge the settings,
+then use **Send test**. **Disconnect** stores an explicit disabled override so an older
+webhook in `config.json` cannot reactivate it. The Mac ledger stores managed settings
+privately; keep it in the existing protected state directory and include it in backups.
+The server only delivers fixed configuration/test commands; the Mac sends the notification.
+An ambiguous test is not automatically replayed. A new button click is a deliberate new test.
+Older companions show setup as unavailable until updated. Rolling back below 2.49.0
+also ignores managed overrides: an older webhook still present in `config.json` would
+become active again. Remove that legacy value before a rollback when delivery must stay
+disconnected. The current household config has no legacy Discord destination.
+
+Without managed settings, Discord uses the legacy config below and is disabled while its
+webhook URL is empty. A configured canonical
 `https://discord.com/api/webhooks/id/token` URL receives the waiting packet details and CLC
 link. A nonempty `refeed_discord_user_id` must be a Discord user ID; the message can mention
 only that configured user, with role/everyone mentions disabled. Omitting the user ID sends
 the message without a mention. Use a normal text-channel webhook; forum/thread query
-options are not supported. Keep the webhook credential only in the private local
-configuration, not an environment variable, CLC server setting, repository or log. It is
-not included in station telemetry. No Discord webhook was configured or message sent during
-this implementation.
+options are not supported. Keep the webhook out of environment variables, repositories and
+logs. CLC encrypts a pending setup command and never returns its URL in public status or
+receipts; the browser retains only a recovery request UUID. Active managed credentials
+stay in the private Mac ledger and are not included in station telemetry. No Discord
+webhook was configured or message sent during this implementation.
 
 Allow notification delivery for the Mac notification sender in System Settings. Notification
 permissions, Focus and sound settings can suppress display or sound even when the request

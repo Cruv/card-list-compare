@@ -20,6 +20,7 @@ server/data/manasync-artwork/
 data/.jwt-dev-secret
 data/.print-claim-secret
 **/.manasync-bridge-key
+**/.print-station-notifications-key
 data/*.db*
 data/image-cache/
 data/downloads/

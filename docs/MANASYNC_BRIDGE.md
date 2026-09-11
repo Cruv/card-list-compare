@@ -99,23 +99,26 @@ ownership and a **Review in Mana Pool** link for missing originals. Whole-snapsh
 and sideboard choices use the reviewed print quantities. Printing remains available whether
 you own the cards or choose to shop. The same check is available in Full Deck under
 **ManaSync ownership and Mana Pool shopping**.
-Choose interchangeable printings or exact printing and finish. CLC shows free originals,
-originals allocated to decks, incoming originals, reusable proxies, and physical locations.
-It also displays the time of the last successful ownership refresh. A failed connection or
-unresolved exact ID is shown as unknown; shopping never treats unknown as zero.
+One original in any printing covers unlimited proxy copies across all decks. CLC checks
+logical-card ownership and identifies incoming originals; it does not compare print
+quantities with inventory or consume copies already allocated to another deck. There is
+no exact-printing ownership selector. A failed connection or unresolved logical card is
+shown as unknown; shopping never treats unknown as zero.
 
-Select the shortage rows and click **Review in Mana Pool**, or copy the displayed text.
+Select missing cards for the shopping list and click **Review in Mana Pool**, or copy the text.
 The link uses Mana Pool's `/add-deck?deck=` UTF-8/base64 prefill. Long lists use the copy/paste
-fallback. Printing preference is retained in the text when known. Review Mana Pool's parsed
-list and foil/language options before buying; CLC does not submit an order. `realOwned` already includes
-incoming originals, so incoming is not subtracted a second time. Proxies do not reduce the
-original-card shopping shortage. Multiple entries for one card share one ownership budget.
+fallback. The list requests one original per missing logical card, deduplicated across
+printings; chosen proxy artwork does not create a requirement to buy that printing.
+Review Mana Pool's parsed list and printing options before buying; CLC does not submit an
+order. `realOwned` already includes incoming originals, so incoming is not added again.
+Incoming originals prevent duplicate purchases, and proxies do not establish original
+ownership. Shopping selections never change print or physical-confirmation quantities.
 
 ## Physical printing
 
 Prepared native PDF batches automatically appear in **ManaSync → Proxy binder → Pending
 prints**, with planned quantities and the exact artwork. These records are outside inventory:
-they do not reduce shopping shortages, satisfy deck allocations, or count as reusable proxies.
+they do not establish original ownership, satisfy deck allocations, or count as reusable proxies.
 CLC retains the images and publishes the plan when its connected ManaSync account is reachable.
 
 After printing, confirm usable copies and a physical destination in ManaSync, or open the

@@ -44,8 +44,8 @@ tracking remain excluded. Printing does not advance the assembled paper-deck mar
 
 ## Optional companion integration — ManaSync
 
-The bridge now implements explicit user-scoped connections, ownership and original-card
-shortages, durable confirmed-print reporting, structured deck snapshots, optional manual
+The bridge now implements explicit user-scoped connections, one-original ownership checks
+and shopping, durable confirmed-print reporting, structured deck snapshots, optional manual
 deck creation, and reviewed deck proposals. Archidekt source changes are reviewed separately
 when local edits exist. Setup and contracts are in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md)
 and [MANASYNC_PROPOSALS.md](MANASYNC_PROPOSALS.md).
@@ -66,9 +66,11 @@ remains historical context.
   `codex/project-audit-print-workflow`. See [source setup](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification)
   and [dated results](MANASYNC_REVIEW.md) for exact application/harness revisions and final
   checks. Repeat acceptance when either contract changes; deployment remains separate.
-- Ownership currently informs review and shopping; it does not automatically remove copies
-  from PDFs. Inventory-aware print reduction needs ManaSync to distinguish usable unallocated
-  proxies and define reservations, so a copy committed to another deck is not counted twice.
+- Ownership is a yes/no check: one original of any printing covers unlimited proxies across
+  all decks. Incoming originals prevent duplicate shopping and remain labeled as incoming.
+  CLC suggests one original only for cards with none owned or incoming; it does not reduce
+  print quantities, require exact-printing ownership, or plan quantity/reservation checks.
+  ManaSync retains its inventory quantities and physical-copy reporting responsibilities.
 
 ## Open — reviewed 2026-09-08
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync, chmodSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -313,5 +313,134 @@ describe('physical state separation and DFC batch binding', () => {
     const before = db.get('SELECT state, steps_json FROM print_jobs WHERE id = ?', [jobId]);
     await beat({ ...snapshot, receipts: [{ commandId: created.id, status: 'applied', message: 'Reload confirmed locally' }] });
     expect(db.get('SELECT state, steps_json FROM print_jobs WHERE id = ?', [jobId])).toEqual(before);
+  });
+});
+
+const discordState = (extra = {}) => ({ supported: true, configured: false, managed: false, revision: 'local', userId: '', lastTest: null, ...extra });
+const webhook = 'https://discord.com/api/webhooks/123456789/fixture-discord-secret';
+const configure = (extra = {}) => ({ idempotencyKey: crypto.randomUUID(), type: 'configure_discord', enabled: true, webhookUrl: webhook, userId: '987654321', ...extra });
+const discordSend = (body, user = 1, path = '/discord') => request('/api/print-station-management' + path, { method: 'POST', body, token: tokens[user] });
+const configureStation = async () => { await beat(heartbeat({ discord: discordState() })); const input = configure(); const response = await discordSend(input); expect(response.status).toBe(200); return { input, command: (await response.json()).command }; };
+
+describe('managed Discord notifications', () => {
+  it('requires an administrator and native capability without changing pause or printing', async () => {
+    await beat();
+    expect((await discordSend(configure(), 2)).status).toBe(403);
+    expect((await discordSend(configure(), 3)).status).toBe(403);
+    expect((await discordSend(configure())).status).toBe(409);
+    expect(db.all('SELECT * FROM print_station_commands')).toHaveLength(0);
+    expect((await send(configure())).status).toBe(400);
+    expect(db.get("SELECT paused FROM print_station_controls WHERE station_id='household'").paused).toBe(0);
+  });
+
+  it('rejects noncanonical destinations and unsafe mentions before storing anything', async () => {
+    await beat(heartbeat({ discord: discordState() }));
+    for (const url of ['https://discord.com.evil.test/api/webhooks/123/token', 'http://discord.com/api/webhooks/123/token',
+      'https://discord.com:443/api/webhooks/123/token', 'https://user@discord.com/api/webhooks/123/token',
+      'https://discord.com/api/webhooks/123/token?wait=true', 'https://discord.com/api/webhooks/123/token#',
+      'https://discord.com/api/webhooks/123/token/', 'https://discord.com/api/webhooks/18446744073709551616/token']) {
+      const response = await discordSend(configure({ webhookUrl: url }));
+      expect(response.status, url).toBe(400); expect(await response.text()).not.toContain(url);
+    }
+    for (const userId of ['@everyone', '<@123>', '0', '18446744073709551616', 123]) expect((await discordSend(configure({ userId }))).status).toBe(400);
+    expect((await discordSend(configure({ enabled: false }))).status).toBe(400);
+    expect(db.all('SELECT * FROM print_station_commands')).toHaveLength(0);
+  });
+
+  it('encrypts pending secrets, exposes them only to the authenticated native channel, and purges after acknowledgement', async () => {
+    const { command: queued, input } = await configureStation();
+    const before = db.get('SELECT * FROM print_station_commands WHERE id=?', [queued.id]);
+    expect(before.payload_json).not.toContain('fixture-discord-secret'); expect(before.payload_json).toContain('secretCipher');
+    expect(readFileSync(join(dir, '.print-station-notifications-key'))).toHaveLength(32);
+    const statusBody = await (await status()).json();
+    expect(JSON.stringify(statusBody)).not.toContain(webhook); expect(JSON.stringify(statusBody)).not.toContain('secretCipher');
+    const delivery = await (await beat(heartbeat({ discord: discordState() }))).json();
+    expect(delivery.commands[0].discord).toEqual({ enabled: true, webhookUrl: webhook, userId: '987654321' });
+    expect(delivery.commands[0].revision).toBe(queued.id);
+    await beat(heartbeat({ discord: discordState({ configured: true, managed: true, revision: queued.id, userId: '987654321' }),
+      receipts: [{ commandId: queued.id, status: 'applied', message: 'Discord notifications connected' }] }));
+    expect(db.get('SELECT payload_json FROM print_station_commands WHERE id=?', [queued.id]).payload_json).not.toContain('secretCipher');
+    const replay = await discordSend(input); expect(replay.status).toBe(200); expect((await replay.json()).command.id).toBe(queued.id);
+    expect((await discordSend({ ...input, webhookUrl: webhook + '-changed' })).status).toBe(409);
+    const lookup = await (await request('/api/print-station-management/commands/' + input.idempotencyKey)).json();
+    expect(lookup.command.status).toBe('applied'); expect(JSON.stringify(lookup)).not.toContain('fixture-discord-secret');
+    expect((await (await request('/api/print-station-management/commands/' + input.idempotencyKey, { token: tokens[2] })).json()).command).toBeNull();
+  });
+
+  it('binds ciphertext to one command and refuses unsafe encryption key permissions', async () => {
+    const { sealDiscordUrl, openDiscordUrl } = await import('../lib/printStationNotifications.js');
+    const commandId = crypto.randomUUID();
+    const ciphertext = sealDiscordUrl(webhook, commandId);
+    expect(openDiscordUrl(ciphertext, commandId)).toBe(webhook);
+    expect(() => openDiscordUrl(ciphertext, crypto.randomUUID())).toThrow('could not be decrypted');
+    const pieces = ciphertext.split('.');
+    const bytes = Buffer.from(pieces[2], 'base64'); bytes[0] ^= 1; pieces[2] = bytes.toString('base64');
+    expect(() => openDiscordUrl(pieces.join('.'), commandId)).toThrow('could not be decrypted');
+    const keyPath = join(dir, '.print-station-notifications-key');
+    expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+    chmodSync(keyPath, 0o644);
+    expect(() => sealDiscordUrl(webhook, commandId)).toThrow('private key');
+    rmSync(keyPath);
+    expect(() => openDiscordUrl(ciphertext, commandId)).toThrow('could not be decrypted');
+    expect(existsSync(keyPath)).toBe(false);
+  });
+
+  it('deletes encrypted secrets from expired or revoked commands before any delivery', async () => {
+    const { command: queued } = await configureStation();
+    vi.setSystemTime(instant + 6 * 60_000);
+    await status();
+    const expired = db.get('SELECT * FROM print_station_commands WHERE id=?', [queued.id]);
+    expect(expired.status).toBe('expired'); expect(expired.payload_json).not.toContain('secretCipher');
+    await beat(heartbeat({ discord: discordState() }));
+    const response = await discordSend(configure()), newer = (await response.json()).command;
+    db.run('UPDATE users SET is_admin=0 WHERE id=1');
+    const delivery = await (await beat(heartbeat({ discord: discordState() }))).json();
+    expect(delivery.commands).toEqual([]);
+    const rejected = db.get('SELECT * FROM print_station_commands WHERE id=?', [newer.id]);
+    expect(rejected.status).toBe('rejected'); expect(rejected.payload_json).not.toContain('secretCipher');
+  });
+
+  it('isolates key loss from station health and never sends unreadable configuration', async () => {
+    const { command: queued } = await configureStation();
+    rmSync(join(dir, '.print-station-notifications-key'));
+    const response = await beat(heartbeat({ discord: discordState() }));
+    expect(response.status).toBe(200); expect((await response.json()).commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id=?', [queued.id]).status).toBe('rejected');
+    expect((await (await status()).json()).station.online).toBe(true);
+  });
+
+  it('tests only the displayed applied revision and throttles distinct explicit tests', async () => {
+    await beat(heartbeat({ discord: discordState({ configured: true }) }));
+    const input = { idempotencyKey: crypto.randomUUID(), revision: 'local' };
+    expect((await discordSend({ ...input, revision: 'stale-revision' }, 1, '/discord/test')).status).toBe(409);
+    expect((await discordSend(input, 2, '/discord/test')).status).toBe(403);
+    const response = await discordSend(input, 1, '/discord/test'); expect(response.status).toBe(200);
+    const queued = (await response.json()).command;
+    const delivered = await (await beat(heartbeat({ discord: discordState({ configured: true }) }))).json();
+    expect(delivered.commands[0]).toMatchObject({ type: 'test_discord', revision: 'local' });
+    expect(JSON.stringify(delivered)).not.toContain('webhookUrl');
+    await beat(heartbeat({ discord: discordState({ configured: true, lastTest: { commandId: queued.id, revision: 'local', status: 'unconfirmed', at: new Date().toISOString() } }),
+      receipts: [{ commandId: queued.id, status: 'rejected', message: 'Test unconfirmed' }] }));
+    expect((await discordSend(input, 1, '/discord/test')).status).toBe(200);
+    expect((await discordSend({ ...input, idempotencyKey: crypto.randomUUID() }, 1, '/discord/test')).status).toBe(429);
+    vi.setSystemTime(instant + 31_000);
+    await beat(heartbeat({ discord: discordState({ configured: true }) }));
+    expect((await discordSend({ ...input, idempotencyKey: crypto.randomUUID() }, 1, '/discord/test')).status).toBe(200);
+  });
+
+  it('disconnect carries no secret and acknowledgement changes the reported state', async () => {
+    await beat(heartbeat({ discord: discordState({ configured: true }) }));
+    const response = await discordSend(configure({ enabled: false, webhookUrl: '', userId: '' }));
+    expect(response.status).toBe(200); const queued = (await response.json()).command;
+    const delivered = await (await beat(heartbeat({ discord: discordState({ configured: true }) }))).json();
+    expect(delivered.commands[0].discord).toEqual({ enabled: false, webhookUrl: '', userId: '' });
+    await beat(heartbeat({ discord: discordState({ managed: true, revision: queued.id }), receipts: [{ commandId: queued.id, status: 'applied', message: 'Discord disconnected' }] }));
+    expect((await (await status()).json()).station.discord).toMatchObject({ configured: false, managed: true, revision: queued.id });
+  });
+
+  it('redacts webhook URLs in untrusted native event text and filters unknown telemetry fields', async () => {
+    await beat(heartbeat({ discord: { ...discordState(), webhookUrl: webhook }, events: [{ id: crypto.randomUUID(), at: new Date().toISOString(), level: 'error', message: 'Failed ' + webhook }] }));
+    const result = await (await status()).json();
+    expect(JSON.stringify(result)).not.toContain('fixture-discord-secret'); expect(result.events[0].message).toContain('[Discord webhook]');
   });
 });

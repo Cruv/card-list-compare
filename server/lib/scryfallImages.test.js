@@ -109,12 +109,48 @@ describe('Scryfall lookup completeness', () => {
     expect(error.failures).toEqual([expect.objectContaining({ face: 'back', quantity: 2, reason: 'No image URL available' })]);
   });
 
+  it('returns complete and unresolved review rows in order without weakening strict downloads', async () => {
+    metadata([dataCard({ layout: 'normal' })]);
+    const requested = [card(), card({ collectorNumber: '999', quantity: 2 }), card({ displayName: 'Sol Ring', setCode: '', collectorNumber: '1' })];
+    const { value } = await settle(fetchCardImageUrls(requested, { allowIncomplete: true }));
+    expect(value.map(item => item.quantity)).toEqual([1, 2, 1]);
+    expect(value[0]).toMatchObject({ layout: 'normal', lookupFailures: [] });
+    expect(value[1].lookupFailures[0].reason).toContain('not found');
+    expect(value[2].lookupFailures[0].reason).toContain('Collector number requires a set');
+    expect(JSON.parse(fetch.mock.calls[0][1].body).identifiers).not.toContainEqual({ name: 'Sol Ring' });
+  });
+
+  it('preserves actual meld layout and both DFC thumbnail identities for review', async () => {
+    metadata([
+      dataCard({ name: 'Bruna, the Fading Light', layout: 'meld' }),
+      dataCard({ name: 'Malakir Rebirth // Malakir Mire', layout: 'modal_dfc', set: 'znr', collector_number: '111', image_uris: undefined,
+        card_faces: [{ name: 'Malakir Rebirth', image_uris: { png: 'front.png', normal: 'front.jpg' } },
+          { name: 'Malakir Mire', image_uris: { png: 'back.png', normal: 'back.jpg' } }] }),
+    ]);
+    const { value } = await settle(fetchCardImageUrls([
+      card({ displayName: 'Bruna, the Fading Light' }), card({ displayName: 'Malakir Rebirth', setCode: 'znr', collectorNumber: '111' }),
+    ], { allowIncomplete: true }));
+    expect(value[0].layout).toBe('meld');
+    expect(value[1]).toMatchObject({ isDFC: true, layout: 'modal_dfc', faceNames: ['Malakir Rebirth', 'Malakir Mire'],
+      thumbnailUrls: { front: 'front.jpg', back: 'back.jpg' }, imageUrls: { front: 'front.png', back: 'back.png' } });
+  });
+
   it('retries transient batch failures and lists every unresolved card if a batch stays unavailable', async () => {
     fetch.mockImplementation(async () => new Response('unavailable', { status: 503 }));
     const { error } = await settle(fetchCardImageUrls([card(), card({ collectorNumber: '147' })]));
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(error.failures).toHaveLength(2);
     expect(error.message).toContain('HTTP 503');
+  });
+
+  it('aborts Retry-After waits at the review deadline without retrying or starting later batches', async () => {
+    fetch.mockImplementation(async () => new Response('busy', { status: 429, headers: { 'Retry-After': '30' } }));
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new Error('Review metadata deadline expired')), 1000);
+    const { value } = await settle(fetchCardImageUrls(Array.from({ length: 76 }, (_, n) => card({ collectorNumber: String(n + 1) })), { allowIncomplete: true, signal: controller.signal }));
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(value).toHaveLength(76);
+    expect(value.every(card => card.lookupFailures[0].reason.includes('deadline expired'))).toBe(true);
   });
 
   it('resolves all cards across batches of at most 75 identifiers', async () => {

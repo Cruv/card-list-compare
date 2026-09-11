@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolvePrintPlanOwnership } from './printPlanOwnership';
 import { clearCardCache } from './scryfall';
-import { shoppingText, withShortages } from './manasync';
+import { shoppingText, withOriginalOwnership } from './manasync';
 
 beforeEach(() => clearCardCache());
 afterEach(() => vi.unstubAllGlobals());
@@ -15,7 +15,7 @@ describe('print review identity recovery', () => {
     const missing = await resolvePrintPlanOwnership(plan);
     expect(missing.unresolved).toHaveLength(1);
     expect(missing.cards[0].card.scryfallId).toBeNull();
-    expect(shoppingText(withShortages(missing.cards, [], 'printing', true), true)).toBe('');
+    expect(shoppingText(withOriginalOwnership(missing.cards, [], true))).toBe('');
 
     fetcher.mockImplementation(async () => new Response(JSON.stringify({ data: [{
       id: 'cmm-print', oracle_id: 'ring-oracle', name: 'Sol Ring', set: 'cmm', collector_number: '410',
@@ -23,14 +23,24 @@ describe('print review identity recovery', () => {
     const recovered = await resolvePrintPlanOwnership(plan);
     expect(recovered.unresolved).toEqual([]);
     expect(recovered.cards[0]).toMatchObject({ quantity: 3, card: { scryfallId: 'cmm-print', oracleId: 'ring-oracle' } });
-    expect(shoppingText(withShortages(recovered.cards, [], 'printing', true), true)).toBe('3 Sol Ring (CMM) 410');
+    expect(shoppingText(withOriginalOwnership(recovered.cards, [], true))).toBe('1 Sol Ring');
     expect(recovered.cards[0].key).toBe(missing.cards[0].key);
   });
 
-  it('does not label cards without selected printing metadata as failed exact requests', async () => {
+  it('keeps bare unresolved identities unknown when no owned original matches by name', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Temporary outage')));
     const result = await resolvePrintPlanOwnership({ cards: [{ displayName: 'Island', quantity: 1 }] });
-    expect(result.unresolved).toEqual([]);
+    expect(result.unresolved).toHaveLength(1);
     expect(result.cards[0].card.scryfallId).toBeNull();
+    expect(shoppingText(withOriginalOwnership(result.cards, [], true))).toBe('');
+  });
+
+  it('reuses frozen server identities without fetching different artwork or printing metadata', async () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    const result = await resolvePrintPlanOwnership({ ...plan,
+      resolvedCards: [{ scryfallId: 'frozen-print', oracleId: 'ring-oracle' }] });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.cards[0]).toMatchObject({ quantity: 3, card: { scryfallId: 'frozen-print', oracleId: 'ring-oracle' } });
+    expect(shoppingText(withOriginalOwnership(result.cards, [], true))).toBe('1 Sol Ring');
   });
 });

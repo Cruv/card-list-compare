@@ -46,6 +46,43 @@ function manyArtworkPlan(count) {
 }
 
 describe('immutable print image preparation', () => {
+  it('generates saved MPC faces from the reviewed selections without another identity lookup', async () => {
+    scryfall.fetchCardImageUrls.mockRejectedValue(new Error('Later metadata must not select different art'));
+    const frozen = plan({ version: 2, readyToGenerate: true, resolvedCards: [{ ...card, errors: [], faces: [
+      { face: 'front', identifier: 'reviewed-front-art', status: 'ready' },
+      { face: 'back', identifier: 'reviewed-back-art', status: 'ready' },
+    ] }], savedArtwork: [['Malakir Rebirth', { identifier: 'changed-front-art' }]] });
+    const { value, error } = await settle(preparePrintImages(frozen, dir));
+    expect(error).toBeUndefined();
+    expect(value).toHaveLength(2);
+    expect(value[0].front.identifier).toBe('reviewed-front-art');
+    expect(value[0].back.identifier).toBe('reviewed-back-art');
+    expect(scryfall.fetchCardImageUrls).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get('id'))).toEqual(['reviewed-front-art', 'reviewed-back-art']);
+  });
+  it('downloads the exact reviewed Scryfall printing without re-resolving a generic name', async () => {
+    const selected = { ...card, imageUrls: { front: 'reviewed-front.png', back: 'reviewed-back.png' }, errors: [],
+      faces: [{ face: 'front', status: 'ready' }, { face: 'back', status: 'ready' }] };
+    scryfall.downloadCardImagesWithCache.mockResolvedValue({ failures: [], images: [
+      '0001_Card_1_front.png', '0001_Card_2_back.png', '0002_Card_1_front.png', '0002_Card_2_back.png',
+    ].map(filename => ({ filename, buffer: PNG })) });
+    const { value } = await settle(preparePrintImages(plan({ version: 2, artSource: 'scryfall', readyToGenerate: true, resolvedCards: [selected] }), dir));
+    expect(value).toHaveLength(2);
+    expect(scryfall.downloadCardImagesWithCache.mock.calls[0][0]).toEqual([selected]);
+    expect(scryfall.fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+  it('refuses an incomplete reviewed plan before downloading any artwork', async () => {
+    const { error } = await settle(preparePrintImages(plan({ version: 2, readyToGenerate: false, resolvedCards: [{ ...card }] }), dir));
+    expect(error.message).toContain('Reviewed artwork is incomplete');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(scryfall.fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+  it('does not silently generate an ordinary meld front from a legacy pending plan', async () => {
+    scryfall.fetchCardImageUrls.mockResolvedValue([{ ...card, isDFC: false, layout: 'meld', faceNames: ['Bruna, the Fading Light'] }]);
+    const { error } = await settle(preparePrintImages(plan(), dir));
+    expect(error.message).toContain('multi-sided layout is not supported');
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it('freezes selected MPC IDs and pairs every physical DFC copy without searching or fallback', async () => {
     const { value } = await settle(preparePrintImages(plan(), dir));
     expect(value).toHaveLength(2);
@@ -56,6 +93,13 @@ describe('immutable print image preparation', () => {
     expect(readdirSync(join(dir, 'images'))).toHaveLength(1); // identical bytes stored once
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(scryfall.downloadCardImagesWithCache).not.toHaveBeenCalled();
+  });
+  it('pairs canonical front and back art for a legacy pending back-alias request', async () => {
+    scryfall.fetchCardImageUrls.mockResolvedValue([{ ...card, displayName: 'Malakir Mire' }]);
+    const { value, error } = await settle(preparePrintImages(plan(), dir));
+    expect(error).toBeUndefined();
+    expect(value[0].front.identifier).toBe('front-art-0123456789');
+    expect(value[0].back.identifier).toBe('back-art-0123456789');
   });
   it('fails missing saved DFC back art for all copies and does not substitute Scryfall', async () => {
     const { error } = await settle(preparePrintImages(plan({ savedArtwork: [['Malakir Rebirth', { identifier: 'front-art-0123456789' }]] }), dir));
