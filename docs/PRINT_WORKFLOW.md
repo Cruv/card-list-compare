@@ -1,6 +1,6 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.48.1 includes print planning, PDF generation, artifact downloads, the household
+Status: CLC v2.48.2 includes print planning, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
 
@@ -243,9 +243,15 @@ the Mac records a receipt atomically with local pause/refeed changes, so reconne
 repeat those actions. New physical submissions wait when the management connection is
 unavailable. Existing passes continue through the original reconciliation logic.
 
-The companion can run while its recipe is unverified to report setup health; it will not
-claim new jobs or print until local proof requirements pass. The dashboard displays those
-requirements but cannot override them. Software updates and rollback require an idle local
+The companion can run while its recipe is unverified to report setup health. By default,
+it will not claim new jobs or print until local proof requirements pass. For deliberate
+interface testing, the Mac's private configuration can set `allow_unverified_printing`
+to the JSON boolean `true`. The dashboard displays **Test printing enabled** and retains
+the actual proof results; ordinary and double-faced test jobs use the normal queue and
+manual paper-reload sequence. This local opt-in does not unpause the station, create jobs,
+or bypass printer/options checks, artifact verification or duplicate-submission protection.
+Remote commands cannot change this setting. Turn it off after recording completed proofs.
+Software updates and rollback require an idle local
 ledger and preserve pause, configuration, PDFs and submission receipts. Uncertain outcomes
 and manual DFC waits count as active batches, not idle time.
 

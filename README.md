@@ -211,6 +211,13 @@ offline and its controls are disabled. Source checkouts report their version but
 support managed package updates. Neither the dashboard nor remote controls can enable
 physical-proof flags or change Epson driver options.
 
+For physical testing through the normal interface, the Mac can explicitly enable
+`allow_unverified_printing` in its private configuration. Print Station then shows
+**Test printing enabled** while unfinished proof indicators remain unverified. Queued
+jobs may print with this setting; pauses, paper-reload confirmation, hash checks and
+duplicate-submission protection still apply. The default is off, and CLC cannot turn it on
+remotely. Disable it after the physical checks are complete and their results are recorded.
+
 For the household's permanent Mac stack and companion installation status, see the
 [dated deployment checkpoint](docs/OPERATIONS.md#household-installation-checkpoint--2026-09-11).
 

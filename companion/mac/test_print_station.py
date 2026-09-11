@@ -165,6 +165,89 @@ class StationTests(unittest.TestCase):
         self.station.ledger.db.close()
         self.temp.cleanup()
 
+    def test_unverified_station_does_not_claim_without_explicit_boolean_test_mode(self):
+        self.config.update(recipe_verified=False, duplex_verified=False)
+        for value in (None, False, "true", 1):
+            with self.subTest(value=value):
+                self.config.pop("allow_unverified_printing", None)
+                if value is not None:
+                    self.config["allow_unverified_printing"] = value
+                self.assertIn("proof", self.station.poll_once())
+                self.assertEqual(self.client.claims, 0)
+                self.assertEqual(self.cups.submissions, [])
+
+    def test_dfc_still_requires_duplex_proof_when_test_mode_is_off(self):
+        self.config.update(duplex_verified=False, allow_unverified_printing=False)
+        self.client.job = job("dfc")
+        with self.assertRaisesRegex(station.StationError, "DFC page order"):
+            self.station.poll_once()
+        self.assertEqual(self.cups.submissions, [])
+        self.assertFalse(any(event["state"] == "submitting" for event in self.client.events))
+
+    def test_explicit_test_mode_submits_fronts_without_marking_recipe_verified(self):
+        self.config.update(recipe_verified=False, duplex_verified=False)
+        fingerprint = station.recipe_fingerprint(self.config)
+        self.config["allow_unverified_printing"] = True
+        with mock.patch.object(self.cups, "doctor", wraps=self.cups.doctor) as doctor:
+            self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+            doctor.assert_called_once()
+        self.assertEqual(self.cups.submissions[0][:2], ("ordinary", "fronts"))
+        self.assertFalse(self.config["recipe_verified"])
+        self.assertFalse(self.config["duplex_verified"])
+        self.assertEqual(station.recipe_fingerprint(self.config), fingerprint)
+
+    def test_test_mode_still_respects_pause_management_connection_and_native_printer_checks(self):
+        self.config.update(recipe_verified=False, duplex_verified=False, allow_unverified_printing=True)
+        self.station.ledger.write("INSERT OR REPLACE INTO settings VALUES('paused','1')")
+        self.assertEqual(self.station.poll_once(), "paused")
+        self.assertEqual(self.client.claims, 0)
+        self.station.ledger.write("UPDATE settings SET value='0' WHERE key='paused'")
+        self.assertIn("connection", self.station.poll_once(allow_submit=False))
+        self.assertEqual(self.client.claims, 0)
+        with mock.patch.object(self.cups, "doctor", side_effect=station.StationError("Printer unavailable")):
+            with self.assertRaisesRegex(station.StationError, "Printer unavailable"):
+                self.station.poll_once()
+        self.assertEqual(self.cups.submissions, [])
+        self.assertFalse(any(event["state"] == "submitting" for event in self.client.events))
+
+    def test_test_mode_dfc_requires_matching_manual_refeed_after_restart_and_never_reprints(self):
+        self.config.update(recipe_verified=False, duplex_verified=False, allow_unverified_printing=True)
+        self.client.job = packet_job(1)
+        self.client.job["artifacts"] = self.client.job["artifacts"][1:]
+        self.client.job["steps"] = self.client.job["steps"][1:]
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.station.poll_once()  # A processing front page cannot enable the back pass.
+        self.assertEqual(len(self.cups.submissions), 1)
+        self.cups.history[0]["state"] = 9
+        self.station.poll_once()
+        self.assertEqual(self.station.poll_once(), "awaiting_refeed")
+        self.station.ledger.db.close()
+        self.station = station.Station(self.config, self.client, self.cups)
+        self.assertEqual(self.station.poll_once(), "awaiting_refeed")
+        self.assertEqual(len(self.cups.submissions), 1)
+        self.station.resume("job1")
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-2")
+        self.assertEqual([entry[:2] for entry in self.cups.submissions], [
+            ("double-faced-001", "fronts"), ("double-faced-001", "backs")])
+        self.assertTrue(self.client.job["steps"][1]["refeedConfirmed"])
+        self.cups.history[1]["state"] = 9
+        self.station.poll_once()
+        self.assertEqual(self.station.poll_once(), "completed")
+        self.station.poll_once()  # A replayed claim remains a completed tombstone.
+        self.assertEqual(len(self.cups.submissions), 2)
+        self.assertFalse(self.config["recipe_verified"])
+        self.assertFalse(self.config["duplex_verified"])
+
+    def test_test_mode_recovers_uncertain_submission_without_sending_another_copy(self):
+        self.config.update(recipe_verified=False, duplex_verified=False, allow_unverified_printing=True)
+        self.cups.after_accept_error = True
+        self.assertEqual(self.station.poll_once(), "uncertain")
+        self.station.ledger.db.close()
+        self.station = station.Station(self.config, self.client, self.cups)
+        self.assertEqual(self.station.poll_once(), "reconciled")
+        self.assertEqual(len(self.cups.submissions), 1)
+        self.assertEqual(self.station.ledger.passes("job1")[0]["state"], "submitted")
+
     def test_intent_and_server_boundary_are_durable_before_lp(self):
         def boundary():
             ledger = station.Ledger(self.config["state_dir"])
@@ -603,11 +686,32 @@ class BoundaryTests(unittest.TestCase):
 
     def test_proof_flags_require_real_booleans_not_truthy_strings(self):
         path = self.directory / "config.json"
-        for field in ("allow_http", "recipe_verified", "duplex_verified", "refeed_notifications", "refeed_sound"):
+        for field in ("allow_http", "recipe_verified", "duplex_verified", "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
             path.write_text(json.dumps({**self.config, field: "false"}))
             path.chmod(0o600)
             with self.assertRaisesRegex(station.StationError, "must be the JSON boolean"):
                 station.load_config(path)
+
+    def test_local_test_mode_defaults_false_and_requires_a_json_boolean(self):
+        token = self.directory / "token"
+        token.write_text("t" * 40)
+        token.chmod(0o600)
+        path = self.directory / "config.json"
+        base = {**self.config, "station_token_file": str(token), "recipe_verified": False, "duplex_verified": False}
+        path.write_text(json.dumps(base))
+        path.chmod(0o600)
+        self.assertIs(station.load_config(path)["allow_unverified_printing"], False)
+        for value in (False, True, "true", 1, None, []):
+            with self.subTest(value=value):
+                path.write_text(json.dumps({**base, "allow_unverified_printing": value}))
+                if type(value) is bool:
+                    loaded = station.load_config(path)
+                    self.assertIs(loaded["allow_unverified_printing"], value)
+                    self.assertIs(loaded["recipe_verified"], False)
+                    self.assertIs(loaded["duplex_verified"], False)
+                else:
+                    with self.assertRaisesRegex(station.StationError, "must be the JSON boolean"):
+                        station.load_config(path)
 
     @unittest.skipUnless(Path('/usr/bin/ipptool').is_file() and os.access('/usr/bin/ipptool', os.X_OK),
                          'Native CUPS ipptool is unavailable')

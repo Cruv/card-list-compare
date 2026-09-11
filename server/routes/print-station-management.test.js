@@ -100,6 +100,31 @@ describe('household station access and telemetry', () => {
     expect((await (await status()).json()).station.lastSeenAt).toBeNull();
   });
 
+  it('defaults test printing off for legacy stations and accepts only explicit boolean telemetry without changing proofs', async () => {
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+    await beat(heartbeat({ recipeVerified: false, duplexVerified: false }));
+    expect((await (await status()).json()).station).toMatchObject({
+      testPrintingEnabled: false, recipeVerified: false, duplexVerified: false,
+    });
+    expect((await beat(heartbeat({ testPrintingEnabled: true, recipeVerified: false, duplexVerified: false }))).status).toBe(200);
+    for (const invalid of [null, 'true', 'false', 1, 0, {}, []]) {
+      expect((await beat(heartbeat({ testPrintingEnabled: invalid }))).status).toBe(400);
+    }
+    expect((await (await status()).json()).station).toMatchObject({
+      testPrintingEnabled: true, recipeVerified: false, duplexVerified: false,
+    }); // A rejected heartbeat must not replace the last accepted proof flags.
+    expect((await send(command('test_printing', { enabled: true }))).status).toBe(400);
+    expect((await send(command('pause', { testPrintingEnabled: true }))).status).toBe(400);
+    expect(db.get('SELECT COUNT(*) AS n FROM print_station_commands').n).toBe(0);
+    await beat(heartbeat({ testPrintingEnabled: false }));
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+    await beat(heartbeat({ testPrintingEnabled: true }));
+    await beat(); // An older companion replacing the station must not inherit the opt-in.
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+    management.resetPrintStationManagement();
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+  });
+
   it('bounds heartbeat fields and redacts credentials from persisted summaries and browser output', async () => {
     const event = { id: crypto.randomUUID(), at: new Date().toISOString(), level: 'error', message: `Bearer ${credential} password=hello secret=${process.env.JWT_SECRET}` };
     await beat(heartbeat({ health: { ok: false, message: event.message }, events: [event] }));
@@ -235,6 +260,26 @@ describe('physical state separation and DFC batch binding', () => {
     expect((await (await claim()).json()).job.id).toBe(queued);
   });
 
+  it('permits unverified test claims only after native opt-in while preserving pause and existing-claim recovery', async () => {
+    const queued = seedJob('queued', [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
+    const proof = { recipeVerified: false, duplexVerified: false };
+    await beat(heartbeat(proof));
+    expect(await (await claim()).json()).toEqual({ job: null });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true, paused: true }));
+    expect(await (await claim()).json()).toEqual({ job: null });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true }));
+    const pause = await accepted(command('pause'));
+    expect(await (await claim()).json()).toEqual({ job: null });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true }));
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true,
+      receipts: [{ commandId: pause.id, status: 'rejected', message: 'Fixture rejection' }] }));
+    const active = (await (await claim()).json()).job;
+    expect(active).toMatchObject({ id: queued, state: 'claimed' });
+    expect((await (await status()).json()).station).toMatchObject({ ...proof, testPrintingEnabled: true });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: false }));
+    expect((await (await claim()).json()).job.id).toBe(queued);
+  });
+
   it('binds explicit paper reload to the current pending DFC artifact and rejects stale batches', async () => {
     const jobId = seedJob(); const active = { id: jobId, state: 'awaiting_refeed', artifactId: 'dfc-first', phase: 'backs' };
     await beat(heartbeat({ activeJob: active }));
@@ -259,8 +304,11 @@ describe('physical state separation and DFC batch binding', () => {
   });
 
   it('does not change physical print steps when the station acknowledges a refeed command', async () => {
-    const jobId = seedJob(), snapshot = heartbeat({ activeJob: { id: jobId, state: 'awaiting_refeed' } });
-    await beat(snapshot); const created = await accepted(command('resume', { jobId, artifactId: 'dfc-first', paperReloaded: true }));
+    const jobId = seedJob(), snapshot = heartbeat({ recipeVerified: false, duplexVerified: false, testPrintingEnabled: true,
+      activeJob: { id: jobId, state: 'awaiting_refeed' } });
+    await beat(snapshot);
+    expect((await send(command('resume', { jobId, artifactId: 'dfc-first' }))).status).toBe(400);
+    const created = await accepted(command('resume', { jobId, artifactId: 'dfc-first', paperReloaded: true }));
     await beat(snapshot);
     const before = db.get('SELECT state, steps_json FROM print_jobs WHERE id = ?', [jobId]);
     await beat({ ...snapshot, receipts: [{ commandId: created.id, status: 'applied', message: 'Reload confirmed locally' }] });

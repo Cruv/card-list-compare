@@ -104,6 +104,7 @@ class StationControl:
         return {"version": self.version, "paused": self.ledger.paused(), "queue": self.config["queue"],
                 "recipeVerified": bool(self.config.get("recipe_verified")),
                 "duplexVerified": bool(self.config.get("duplex_verified")),
+                "testPrintingEnabled": self.config.get("allow_unverified_printing") is True,
                 "recipeFingerprint": recipe_fingerprint(self.config), "activeJob": active,
                 "health": self.health, "update": self.update,
                 "events": [dict(row) for row in self.ledger.db.execute("SELECT * FROM station_log ORDER BY rowid DESC LIMIT 20")],

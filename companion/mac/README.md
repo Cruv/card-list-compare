@@ -6,7 +6,8 @@ macOS's native `lp`, `lpstat`, `lpoptions` and `ipptool`, and needs no Python pa
 The managed installer bundles its own Python runtime; it does not require a Git checkout
 or a separately installed Python. Source-based operation remains available for development.
 Installing or running this code does not install an Epson driver or reproduce an Adobe
-print preset. Physical printing is disabled until `recipe_verified` is explicitly enabled.
+print preset. Physical printing requires `recipe_verified` or the explicit local test mode
+described below.
 
 CLC generates the PDFs with Silhouette Card Maker. The companion keeps the server's card
 copies, 600 PPI, 1 mm crop, Letter v6 layout, skipped slot and registration geometry intact.
@@ -172,6 +173,23 @@ back alignment, front/back page order, flip direction and rear-feeder stack capa
 These flags require JSON booleans; quoted strings such as `"false"` are rejected.
 Ordinary cards can run with the duplex proof disabled; a claimed DFC batch will wait.
 
+### Printing physical test sheets through CLC
+
+To test the workflow before its physical proofs are complete, the owner can explicitly set
+`"allow_unverified_printing": true` in the private Mac configuration and restart the companion
+to load it. This local option defaults to false and requires a JSON boolean. It allows queued
+ordinary and DFC test jobs even when `recipe_verified` and `duplex_verified` remain false;
+it does not change those flags or record a successful physical proof. The station reports
+`testPrintingEnabled` separately so CLC can identify this mode.
+
+Test mode still requires an enabled station, an authorized CLC job, the locally approved
+recipe, valid PDFs, and working native printer settings. Every DFC packet still stops for
+the operator to flip and reload its matching printed sheet before explicitly confirming
+the back pass. Pause, cancellation, durable submission receipts and recovery checks keep
+their normal behavior. Changing this option does not change the recipe fingerprint or
+erase print history. After testing, disable it to restore proof requirements, or record
+each proof flag only after its physical result has been checked.
+
 ## Dry run and normal operation
 
 After creating the private configuration above, this command uses a local example manifest
@@ -183,7 +201,7 @@ and PDF paths are placeholders, not downloadable artifacts.
 python3 companion/mac/clc_print_station.py dry-run --manifest companion/mac/dry-run.example.json
 ```
 
-After the printer proof and configuration are complete, foreground operation is:
+After configuring verified printing or explicitly enabling local test mode, foreground operation is:
 
 ```bash
 python3 companion/mac/clc_print_station.py run

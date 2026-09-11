@@ -6,6 +6,7 @@
   "approved_recipe_ids": ["household-letter-v6"],
   "recipe_verified": false,
   "duplex_verified": false,
+  "allow_unverified_printing": false,
   "refeed_notifications": true,
   "refeed_sound": true,
   "refeed_discord_webhook_url": "",

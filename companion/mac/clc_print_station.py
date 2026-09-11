@@ -27,7 +27,7 @@ from clc_station_alerts import RefeedAlerts, validate_alert_config
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.48.1"
+COMPANION_VERSION = "2.48.2"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -69,9 +69,10 @@ def private_directory(path):
 def load_config(path):
     with private_file(path).open() as stream:
         config = json.load(stream)
-    for flag in ("allow_http", "recipe_verified", "duplex_verified", "refeed_notifications", "refeed_sound"):
+    for flag in ("allow_http", "recipe_verified", "duplex_verified", "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
         if type(config.get(flag, False)) is not bool:
             raise StationError(flag + " must be the JSON boolean true or false")
+    config.setdefault("allow_unverified_printing", False)
     try:
         validate_alert_config(config)
     except ValueError as error:
@@ -590,7 +591,7 @@ class Station:
                 return "paused"
             if not allow_submit:
                 return "waiting for station management connection"
-            if not self.config.get("recipe_verified"):
+            if not self.config.get("recipe_verified") and self.config.get("allow_unverified_printing") is not True:
                 return "waiting for local printer and cutting proof"
             job = self.client.claim()
             if job is None:
@@ -648,9 +649,10 @@ class Station:
         if not allow_submit:
             return "waiting for station management connection"
         artifact = next(item for item in job["artifacts"] if item["id"] == pending["artifact_id"])
-        if not self.config.get("recipe_verified"):
+        if not self.config.get("recipe_verified") and self.config.get("allow_unverified_printing") is not True:
             raise StationError("The local printer/color recipe has not been physically verified")
-        if artifact["kind"] == "dfc" and not self.config.get("duplex_verified"):
+        if (artifact["kind"] == "dfc" and not self.config.get("duplex_verified")
+                and self.config.get("allow_unverified_printing") is not True):
             raise StationError("The local DFC page order and refeed orientation have not been physically verified")
         if pending["phase"] == "backs":
             remote = next((step for step in job.get("steps", []) if step["artifactId"] == pending["artifact_id"]

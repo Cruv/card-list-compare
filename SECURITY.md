@@ -161,7 +161,11 @@ authorized household users can read live status/events and request pause, unpaus
 specific manual DFC refeed. Update checks, version changes and rollback require administrator
 status. The browser never receives the station token. The Mac polls outbound for a fixed
 allowlist of controls; commands cannot contain executable paths, printer options, arbitrary
-URLs or scripts. Local proof flags remain local. Refeed commands bind the job and artifact,
+URLs or scripts. Local proof flags remain local. The separate local
+`allow_unverified_printing` opt-in permits queued test jobs while retaining unverified
+proof results. It defaults off, is reported as `testPrintingEnabled`, and cannot be changed
+by server commands. This relaxes only the proof gate; authorization, pause, manual refeed,
+artifact integrity and duplicate-submission checks still apply. Refeed commands bind the job and artifact,
 and commands expire and carry durable idempotency receipts. Software version changes cannot
 proceed while the local ledger contains an active, uncertain or awaiting-refeed batch.
 Telemetry is bounded and credential-redacted; only authorized household operators see it.

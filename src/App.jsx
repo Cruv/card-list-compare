@@ -25,9 +25,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.48.1';
+const APP_VERSION = '2.48.2';
 const WHATS_NEW = [
-  'Send and review longer ManaSync deck drafts without losing their exact text',
+  'Print test sheets from CLC while keeping unfinished calibration checks visible',
 ];
 
 function getResetToken() {

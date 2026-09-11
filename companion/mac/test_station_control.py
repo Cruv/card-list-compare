@@ -107,6 +107,19 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.client.claims, 0)
         self.assertEqual(self.cups.submissions, [])
         self.assertFalse(self.client.statuses[-1]["recipeVerified"])
+        self.assertFalse(self.client.statuses[-1]["testPrintingEnabled"])
+
+    def test_test_mode_reports_separately_without_upgrading_physical_proof_flags(self):
+        self.config.update(recipe_verified=False, duplex_verified=False, allow_unverified_printing=True)
+        self.client.commands = [control("unpause")]
+        self.control.sync()
+        snapshot = self.client.statuses[-1]
+        self.assertIs(snapshot["testPrintingEnabled"], True)
+        self.assertIs(snapshot["recipeVerified"], False)
+        self.assertIs(snapshot["duplexVerified"], False)
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.config["allow_unverified_printing"] = False
+        self.assertIs(self.control.snapshot()["testPrintingEnabled"], False)
 
     def test_management_disconnection_blocks_new_claims_but_reconciles_submitted_job(self):
         self.assertIn("connection", self.station.poll_once(allow_submit=False))

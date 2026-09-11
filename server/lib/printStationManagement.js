@@ -151,6 +151,7 @@ export function printStationStatus(userId) {
     stationId: STATION, online: live, lastSeenAt: lastSeen === null ? null : new Date(lastSeen).toISOString(),
     version: latest?.version || null, paused: latest?.paused ?? !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused,
     queue: latest?.queue || null, recipeVerified: latest?.recipeVerified || false, duplexVerified: latest?.duplexVerified || false,
+    testPrintingEnabled: latest?.testPrintingEnabled || false,
     recipeFingerprint: latest?.recipeFingerprint || null, activeJob: active,
     health: live ? latest.health : { ok: false, message: lastSeen === null ? 'Station has not connected since server startup' : 'Station is offline' },
     update: latest?.update || null,
@@ -239,6 +240,7 @@ function heartbeatInput(body) {
   const eventIds = new Set(), receiptIds = new Set();
   return { snapshot: { version: version(body.version), paused: bool(body.paused, 'paused'), queue,
     recipeVerified: bool(body.recipeVerified, 'recipeVerified'), duplexVerified: bool(body.duplexVerified, 'duplexVerified'),
+    testPrintingEnabled: body.testPrintingEnabled === undefined ? false : bool(body.testPrintingEnabled, 'testPrintingEnabled'),
     recipeFingerprint: body.recipeFingerprint.toLowerCase(), activeJob,
     health: { ok: bool(health.ok, 'health.ok'), message: message(health.message) }, update },
   events: events.map(event => {
@@ -317,7 +319,7 @@ export function claimForManagedStation(maxArtifacts = 8) {
   expireCommands();
   const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
   const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
-  if (paused || pendingPause || latest?.recipeVerified === false) {
+  if (paused || pendingPause || (latest?.recipeVerified === false && latest?.testPrintingEnabled !== true)) {
     const active = activeServerJob();
     if (active) assertStationArtifactCapacity(active, maxArtifacts);
     return active ? formatPrintJob(active, true) : null;

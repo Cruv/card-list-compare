@@ -152,6 +152,16 @@ The real cached generator passed offline rendering/pixel checks for one ordinary
 eight DFCs split into seven-copy and one-copy packets. No paper was printed; the household
 v6 cutting and manual duplex proofs remain separate pending work.
 
+**Interface testing (2026-09-11).** Keep an enabled companion running while the owner
+tests through CLC. A private Mac-only `allow_unverified_printing: true` setting permits
+explicitly queued test jobs before physical calibration is complete. It defaults false;
+the station reports **Test printing enabled** without changing either proof result.
+This resolves the circular requirement to prove a sheet before the interface can print
+one. Pause, exact-packet reload, native printer checks, artifact integrity and durable
+submission receipts still apply. Remote controls cannot activate this local opt-in.
+The owner decides when the physical results are accepted; software never infers that
+from a successful spooler submission.
+
 **Management extension (2026-09-10).** Keep the validated native Epson submission path and
 make CLC the station management interface. The Mac polls outbound for health/control work;
 no shared CUPS listener or generic command endpoint is introduced. Household operators can

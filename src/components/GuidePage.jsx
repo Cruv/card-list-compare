@@ -509,6 +509,14 @@ function ProxyPrinting() {
         Drying, lamination and cutting remain outside CLC. Collection management belongs to ManaSync.
       </p>
       <p>
+        When Print Station shows <strong>Test printing enabled</strong>, the Mac has been
+        explicitly configured to accept queued test jobs before the physical checks are
+        finished. Queue those sheets using the normal Printing tab. The proof indicators
+        remain unverified, and every double-faced packet still waits for you to flip,
+        reload and confirm its matching sheet. Test printing does not unpause a paused
+        station or submit anything until you queue a job.
+      </p>
+      <p>
         The Mac requests a flip notification with a Glass sound by default. Optional Discord
         alerts and a specific user mention can be configured privately on the Mac. Notifications
         are reminders: opening or dismissing one never resumes printing. A waiting packet stays
