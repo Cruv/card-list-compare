@@ -27,4 +27,13 @@ describe('canonical provider deck identities', () => {
     expect(normalizeDeckSourceLink({ provider: 'archidekt', deckId: '001', url: 'https://archidekt.com/decks/1/title' }))
       .toEqual({ provider: 'archidekt', deckId: '1', url: 'https://archidekt.com/decks/1' });
   });
+
+  it('tracks the reported DeckCheck builder URL under the same identity as its viewing and sharing links', () => {
+    const expected = { provider: 'deckcheck', deckId: 'zynmTJxDKo28', url: 'https://deckcheck.co/deck/zynmTJxDKo28' };
+    for (const path of ['app/builder', 'app/deckview', 'deck/share', 'builder/embed', 'deck']) {
+      const url = `https://deckcheck.co/${path}/zynmTJxDKo28?tab=cards`;
+      expect(parseDeckSourceUrl(url)).toEqual(expected);
+      expect(normalizeDeckSourceLink({ provider: 'deckcheck', deckId: 'zynmTJxDKo28', url })).toEqual(expected);
+    }
+  });
 });

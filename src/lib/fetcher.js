@@ -4,7 +4,7 @@
  * Supported:
  *  - Archidekt:  https://archidekt.com/decks/{id}/...
  *  - Moxfield:   https://www.moxfield.com/decks/{publicId}
- *  - DeckCheck:  https://deckcheck.co/app/deckview/{hash}
+ *  - DeckCheck:  https://deckcheck.co/app/builder/{hash} (also deckview and deck links)
  *  - TappedOut:  https://tappedout.net/mtg-decks/{slug}/
  *  - Deckstats:  https://deckstats.net/decks/{owner_id}/{deck_id}
  *
@@ -12,6 +12,8 @@
  * where text is a plain-text deck list that our parser can handle,
  * OR throws an Error with a user-friendly message.
  */
+
+import { parseDeckCheckId } from './deckcheck.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -39,7 +41,11 @@ function fetchWithTimeout(url, options = {}) {
 
 const ARCHIDEKT_RE = /archidekt\.com\/decks\/(\d+)/i;
 const MOXFIELD_RE = /moxfield\.com\/decks\/([\w-]+)/i;
-const DECKCHECK_RE = /deckcheck\.co\/(app\/)?deckview\/([\w]+)/i;
+function deckcheckId(value) {
+  const url = typeof value === 'string' ? value.trim() : '';
+  // Preserve paste-without-scheme support without accepting lookalike domains.
+  return parseDeckCheckId(/^(?:www\.)?deckcheck\.co\//i.test(url) ? `https://${url}` : url);
+}
 const TAPPEDOUT_RE = /tappedout\.net\/mtg-decks\/([\w-]+)/i;
 const DECKSTATS_RE = /deckstats\.net\/decks\/(\d+)\/(\d+)/i;
 const MTGGOLDFISH_RE = /mtggoldfish\.com\/deck\/(\d+)/i;
@@ -48,7 +54,7 @@ const TCGPLAYER_RE = /(?:infinite\.)?tcgplayer\.com\/(?:magic\/deck|api\/v1\/dec
 export function detectSite(url) {
   if (ARCHIDEKT_RE.test(url)) return 'archidekt';
   if (MOXFIELD_RE.test(url)) return 'moxfield';
-  if (DECKCHECK_RE.test(url)) return 'deckcheck';
+  if (deckcheckId(url)) return 'deckcheck';
   if (TAPPEDOUT_RE.test(url)) return 'tappedout';
   if (DECKSTATS_RE.test(url)) return 'deckstats';
   if (MTGGOLDFISH_RE.test(url)) return 'mtggoldfish';
@@ -236,11 +242,10 @@ function moxfieldToText(data) {
 // ---------------------------------------------------------------------------
 
 async function fetchDeckcheck(url) {
-  const match = url.match(DECKCHECK_RE);
-  if (!match) throw new Error('Could not parse DeckCheck deck ID from URL.');
-  const hash = match[2];
+  const hash = deckcheckId(url);
+  if (!hash) throw new Error('Could not parse DeckCheck deck ID from URL.');
 
-  const apiUrl = `/api/deckcheck/dc3/deck-cards/${hash}`;
+  const apiUrl = `/api/deckcheck/dc3/deck-cards/${encodeURIComponent(hash)}`;
 
   const res = await fetchWithTimeout(apiUrl);
   if (!res.ok) {
@@ -495,7 +500,7 @@ export async function fetchDeckFromUrl(url) {
       '• TCGPlayer (infinite.tcgplayer.com/...)\n' +
       '• TappedOut (tappedout.net/mtg-decks/...)\n' +
       '• Deckstats (deckstats.net/decks/...)\n' +
-      '• DeckCheck (deckcheck.co/app/deckview/...)\n\n' +
+      '• DeckCheck (deckcheck.co/app/builder/... or deckview/...)\n\n' +
       'For other sites, export your deck list and paste it directly.'
   );
 }

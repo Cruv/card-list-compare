@@ -25,11 +25,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.49.0';
+const APP_VERSION = '2.49.1';
 const WHATS_NEW = [
-  'Preview selected artwork and both sides before generating print PDFs',
-  'One original of any printing covers all your proxy copies',
-  'Connect Discord flip alerts from Print Station',
+  'Import DeckCheck builder and shared deck links correctly',
 ];
 
 function getResetToken() {

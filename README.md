@@ -172,7 +172,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 
 - **Side-by-side diff** &mdash; paste, upload, or import two deck lists and instantly see cards added, removed, quantity changes, and printing swaps
 - **Multi-format parser** &mdash; Arena/MTGO exports, CSV, plain text, `SB:` prefix notation, with set codes `(M10)`, collector numbers `[227]`, and foil `*F*` markers
-- **URL import** &mdash; pull decks from Archidekt, Moxfield, DeckCheck, TappedOut, Deckstats, MTGGoldfish, and TCGPlayer links with metadata coverage feedback (subject to source availability and access restrictions)
+- **URL import** &mdash; pull decks from Archidekt, Moxfield, DeckCheck, TappedOut, Deckstats, MTGGoldfish, and TCGPlayer links with metadata coverage feedback (subject to source availability and access restrictions). DeckCheck supports public builder, deckview and deck links
 - **Card type grouping** &mdash; changelogs grouped by Creature, Instant, Sorcery, Artifact, Enchantment, Land, Planeswalker, Battle
 - **Search & filter** &mdash; real-time card name filtering across all sections
 - **Share links** &mdash; generate shareable URLs for any comparison

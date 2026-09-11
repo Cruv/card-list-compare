@@ -133,6 +133,7 @@ function ImportingDecks() {
         </li>
         <li>
           <strong>DeckCheck</strong> &mdash; card names and quantities (no printing metadata).
+          Public builder, deckview and deck links are accepted, including shared links.
         </li>
         <li>
           <strong>TappedOut</strong> &mdash; card names and quantities.

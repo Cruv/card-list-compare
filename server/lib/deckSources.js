@@ -1,6 +1,5 @@
 import { all, get, run } from '../db.js';
-
-const UUID_SUFFIX = /(?:^|-)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+import { parseDeckCheckId } from '../../src/lib/deckcheck.js';
 
 // This wire identity matches ManaSync's shared/deck-sources contract. Presentation
 // slugs, share query strings and www do not identify a different provider deck.
@@ -17,14 +16,9 @@ export function parseDeckSourceUrl(value) {
     } else if (host === 'moxfield.com' && parts[0] === 'decks' && /^[A-Za-z0-9_-]{1,200}$/.test(parts[1] || '')) {
       provider = 'moxfield'; deckId = parts[1];
     } else if (host === 'deckcheck.co') {
-      if (parts[0] === 'app') parts.shift();
-      if (!['deck', 'deckview', 'builder'].includes(parts.shift() || '')) return null;
-      if (parts[0] === 'share' || parts[0] === 'embed') parts.shift();
-      const raw = parts[0] || '';
-      if (!/^[A-Za-z0-9-]{1,200}$/.test(raw)) return null;
+      deckId = parseDeckCheckId(value);
+      if (!deckId) return null;
       provider = 'deckcheck';
-      const knownUuid = raw.match(UUID_SUFFIX);
-      deckId = knownUuid ? knownUuid[1].toLowerCase() : raw;
     } else return null;
     const origin = provider === 'deckcheck' ? 'deckcheck.co/deck' : `${provider}.com/decks`;
     return { provider, deckId, url: `https://${origin}/${deckId}` };

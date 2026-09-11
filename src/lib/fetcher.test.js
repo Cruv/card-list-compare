@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { _moxfieldToText, _archidektToText, _deckcheckToText, _tcgPlayerToText, detectSite } from './fetcher.js';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { _moxfieldToText, _archidektToText, _deckcheckToText, _tcgPlayerToText, detectSite, fetchDeckFromUrl } from './fetcher.js';
 
 // ── Moxfield metadata extraction ─────────────────────────────
 
@@ -338,5 +338,50 @@ describe('tcgPlayerToText()', () => {
     const { text, stats } = _tcgPlayerToText({ entries: [] });
     expect(text).toBe('');
     expect(stats.totalCards).toBe(0);
+  });
+});
+
+
+describe('DeckCheck URL imports', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each([
+    'https://deckcheck.co/app/builder/zynmTJxDKo28',
+    'https://deckcheck.co/app/deckview/zynmTJxDKo28',
+    'https://deckcheck.co/deck/zynmTJxDKo28?utm_source=share#cards',
+    'https://www.deckcheck.co/builder/share/zynmTJxDKo28/',
+    'deckcheck.co/app/builder/zynmTJxDKo28',
+  ])('imports the complete case-sensitive deck ID from %s', async url => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+      commanders: ['Sauron, the Dark Lord'], cards: { 'Nazgûl': 9, Swamp: 90 },
+    }) });
+    vi.stubGlobal('fetch', fetch);
+    const result = await fetchDeckFromUrl(url);
+    expect(fetch).toHaveBeenCalledWith('/api/deckcheck/dc3/deck-cards/zynmTJxDKo28', expect.any(Object));
+    expect(result).toMatchObject({ site: 'deckcheck', commanders: ['Sauron, the Dark Lord'], stats: { totalCards: 100 } });
+    expect(result.text).toBe('Commander\n1 Sauron, the Dark Lord\n\n9 Nazgûl\n90 Swamp');
+  });
+
+  it('retains the full hyphenated ID rather than silently importing its prefix', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ cards: { Island: 1 } }) });
+    vi.stubGlobal('fetch', fetch);
+    await fetchDeckFromUrl('https://deckcheck.co/app/deckview/abc-123');
+    expect(fetch).toHaveBeenCalledWith('/api/deckcheck/dc3/deck-cards/abc-123', expect.any(Object));
+  });
+
+  it.each([
+    'https://evil.test/deckcheck.co/app/builder/zynmTJxDKo28',
+    'https://deckcheck.co.evil.test/app/builder/zynmTJxDKo28',
+    'https://deckcheck.co/app/builder/%2Fother',
+    'https://deckcheck.co/app/builder/',
+  ])('rejects unsupported DeckCheck URL without fetching: %s', async url => {
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch);
+    await expect(fetchDeckFromUrl(url)).rejects.toThrow('Unsupported URL');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing/private deck without treating it as an empty list', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    await expect(fetchDeckFromUrl('https://deckcheck.co/app/builder/zynmTJxDKo28')).rejects.toThrow('DeckCheck deck not found');
   });
 });
