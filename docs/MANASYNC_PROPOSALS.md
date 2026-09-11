@@ -1,5 +1,10 @@
 # ManaSync deck access and review
 
+Use the actual [ManaSync repository](https://github.com/dennysparking/manasync) with CLC's
+integrated `codex/project-audit-print-workflow` checkout. Source selection and disposable
+paired checks are documented in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification).
+The older companion feature-branch/archive paths are historical, not a second API contract.
+
 In CLC, open **Account Settings → ManaSync access to CLC**. Create a token with
 deck reads and, if desired, **Allow deck proposals for review** and the separate
 **Allow immediate creation of new decks**. Existing tokens keep their permissions. Copy the token
@@ -87,9 +92,11 @@ The response is the normal deck bundle plus `operationId`, `linkedExisting`,
 and restarts; current source state is available through ordinary library reads.
 Ambiguous sources return `409 source_identity_conflict`; changed operation
 contents return `409 operation_conflict`; deleted results return
-`410 tracked_deck_deleted`. Optional `deckText` bootstrap is at most 500,000
-characters and only applies to a new deck with no acknowledged source baseline.
-Normal callers omit it and fetch the provider's real list.
+`410 tracked_deck_deleted`. Optional `deckText` bootstrap accepts a string of at most
+500,000 Unicode code points and only applies to a new deck with no acknowledged source
+baseline. Omission means no initial text; an empty string is allowed and `null` is invalid.
+Normal callers omit it and fetch the provider's real list. This POST uses the authenticated
+12 MiB transport allowance described below; legacy login tokens are not a creation grant.
 
 Provider edits remain on Archidekt, Moxfield or DeckCheck. CLC owns snapshots and
 paper history; ManaSync owns storage and organization. Verified changes may
@@ -123,8 +130,10 @@ Moxfield parsing, malformed/partial data, etched refusal, and bounded transport.
 }
 ```
 
-The name is nonblank and at most 200 characters. Text may be empty and is at
-most 500,000 characters. CLC preserves both exactly, including line endings.
+The name is nonblank and at most 200 characters. `deckText` is a required string, may be
+empty, and accepts at most 500,000 Unicode code points. CLC preserves both exactly,
+including line endings. This POST has the same authenticated 12 MiB transport allowance
+as proposals; it still requires an explicit `decks:create` token, not a legacy login token.
 The result is the read-contract bundle above with exactly one `decks` entry,
 plus `operationId`, `replayed`, and `linkedExisting`. Status is 201 for creation
 and 200 for replay or reuse of an existing source deck.
@@ -181,6 +190,37 @@ with the same user, deck, operation ID, and payload returns the same proposal.
 Changed payloads conflict. Replacing an integration token for the same account
 does not change submission identity.
 
+`baseText` and `proposedText` each accept at most **500,000 Unicode code points**,
+matching ManaSync's draft schema; this is not a UTF-8 byte or JavaScript UTF-16-unit
+limit. CLC preserves exact text and line endings when hashing and storing it. The review
+endpoint applies the same limit to `reviewedText` for a revision.
+
+Only these four POST routes accept a JSON body up to **12 MiB**:
+
+| Path | Required authorization before body parsing |
+| --- | --- |
+| `/api/integrations/v1/decks` | Explicit `decks:create` token |
+| `/api/integrations/v1/decks/track-source` | Explicit `decks:create` token |
+| `/api/decks/:deckId/proposals` | `decks:propose` access |
+| `/api/decks/:deckId/proposals/:proposalId/review` | CLC login session |
+
+The creation routes' `deckText` uses the same 500,000-code-point limit. The larger envelope
+also permits two maximum-size proposal texts even when JSON escapes expand their characters.
+The global API limiter runs first, followed by the authorization above before larger-body
+parsing. All other routes keep the ordinary Express `512kb` limit. Supplied nginx allows
+`12m` only at these four paths and retains its default 1 MiB limit elsewhere. Any additional
+reverse proxy must allow the same scoped envelope for large deck transfers; a transport
+limit failure is not evidence that an operation was accepted. Keep its saved identity and
+payload for recovery.
+
+ManaSync supports explicit etched `*E*` finishes that CLC's current text format cannot
+represent. ManaSync rejects publishing such a local deck or sending such a proposal with
+`422 unsupported_clc_finish` and affected line numbers before transmitting the deck text.
+The local deck/draft and its exports retain the original finish. Keep it in ManaSync or
+explicitly choose a supported finish before a new send; it is never silently renamed or
+converted to ordinary foil. Existing uncertain operations and receipts retain their
+identities during recovery.
+
 The response is a flat receipt: `proposalId`, `operationId`,
 `proposalRevision`, `status`, `baseSnapshotId`, `baseTextHash`, `baseText`,
 `proposedText`, `reviewedText`, `currentLatestSnapshotId`, `currentLatestTextHash`,
@@ -209,6 +249,8 @@ loading its saved version. An uncertain decision blocks new decisions until its 
 saved request is retried. Recovery stays available even if the server already accepted the
 proposal, and concurrent windows cannot overwrite each other’s pending request records.
 Clearing browser data also removes these local drafts and recovery records.
+The review editor counts Unicode code points. An oversized paste remains visible with an
+error and disabled commit rather than being silently truncated by a UTF-16-based input limit.
 
 Only a CLC login session can list and review proposals. The review endpoint is
 `POST /api/decks/:deckId/proposals/:proposalId/review`:

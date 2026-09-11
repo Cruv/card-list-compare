@@ -6,6 +6,11 @@ reviewed proposals, ownership/shortage queries, and explicit physical-print repo
 for the implemented API and setup. The discussion below remains historical design context;
 its proposed endpoints and companion stack do not define the shipped contract.
 
+**Repository supplied 2026-09-11:** [dennysparking/manasync](https://github.com/dennysparking/manasync)
+is now available at `/Users/cruv/GitProjects/manasync`. It uses its own current code and
+database, not the FastAPI/SQLite stack proposed below. Pair its selected revision with CLC
+using the explicit `CLC_SOURCE_PATH` setup in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md).
+The dated conversation below is preserved rather than rewritten as implementation status.
 
 Captured 2026-09-08 from the owner's supplied Discord proposal and ten conversation
 screenshots (Photos 1–10). This note preserves the product discussion for future work;
@@ -50,7 +55,8 @@ must be checked against actual samples and current documentation before implemen
 - **CLC and ManaSync cooperate.** CLC keeps deck comparison, artwork gathering and printing;
   the companion handles inventory and purchase history. The discussed division is for the
   owner to continue CLC while Denny starts ManaSync and shares its repository/backlog for
-  coordinated work. No companion repository URL or access has been supplied here.
+  coordinated work. No companion repository URL or access had been supplied when this
+  discussion was captured on 2026-09-08; the 2026-09-11 update above supersedes that limitation.
 - **Use ManaBox's scanner where useful.** Export an individual scan session as CSV with all
   its printing properties; import it through the PWA. A screenshot shows CSV described as
   exporting all properties, while text exports only card printing information.

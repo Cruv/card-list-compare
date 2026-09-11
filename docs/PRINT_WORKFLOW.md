@@ -1,6 +1,6 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.48.0 includes print planning, PDF generation, artifact downloads, the household
+Status: CLC v2.48.1 includes print planning, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
 

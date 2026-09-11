@@ -3,7 +3,30 @@ import {
   proposalReviewKey, proposalBasis, proposalBasisStale, newProposalDraft, mergeProposalDraft,
   readProposalDraft, saveProposalDraft, readPendingProposalReviews, savePendingProposalReview,
   settlePendingProposalReview, readRecoveredProposalTexts, isDefiniteProposalRejection, proposalReviewRequest,
+  proposalReplacementError,
 } from './proposalReview';
+import { validProposalText } from '../../server/lib/proposalLimits.js';
+
+describe('reviewed replacement text limits', () => {
+  it.each(['x', '界', '😀'])('matches the server Unicode limit for %s without counting surrogate pairs twice', character => {
+    const maximum = character.repeat(500_000);
+    expect(proposalReplacementError(maximum)).toBeNull();
+    expect(validProposalText(maximum)).toBe(true);
+    const oversized = maximum + character;
+    expect(proposalReplacementError(oversized)).toContain('500,000 characters or fewer');
+    expect(validProposalText(oversized)).toBe(false);
+  });
+
+  it('preserves an oversized draft for editing without truncating it or creating a review operation', () => {
+    const storage = memoryStorage();
+    const replacement = `//${'😀'.repeat(500_000)}`;
+    saveProposalDraft(storage, key, { ...newProposalDraft(proposal), replacement, dirty: true });
+    const saved = readProposalDraft(storage, key, proposal.proposalId);
+    expect(saved.replacement === replacement).toBe(true);
+    expect(proposalReplacementError(saved.replacement)).toContain('Your draft is preserved');
+    expect(readPendingProposalReviews(storage, key)).toEqual([]);
+  });
+});
 
 function memoryStorage() {
   const entries = new Map();

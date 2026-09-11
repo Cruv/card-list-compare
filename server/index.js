@@ -4,7 +4,8 @@ import helmet from 'helmet';
 import { initDb, persist, backupDb } from './db.js';
 import { getJwtSecret } from './lib/jwtSecret.js';
 import { apiLimiter } from './middleware/rateLimit.js';
-import { MAX_BODY_SIZE, requireJsonContentType, trimBody } from './middleware/validate.js';
+import { requireJsonContentType, trimBody } from './middleware/validate.js';
+import jsonBody from './middleware/jsonBody.js';
 import authRoutes from './routes/auth.js';
 import ownerRoutes from './routes/owners.js';
 import deckRoutes from './routes/decks.js';
@@ -65,14 +66,13 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-app.use(express.json({ limit: MAX_BODY_SIZE }));
+// Rate-limit before parsing, including the larger authenticated proposal bodies.
+app.use('/api', apiLimiter);
 
 // Input sanitization on /api routes
 app.use('/api', requireJsonContentType);
+app.use(jsonBody);
 app.use('/api', trimBody);
-
-// Global rate limit for all /api routes
-app.use('/api', apiLimiter);
 
 // Health check (no auth; rate-limited by the global /api limiter above)
 app.get('/api/health', (_req, res) => {

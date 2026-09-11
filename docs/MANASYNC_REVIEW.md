@@ -1,9 +1,12 @@
 # Review the ManaSync integration
 
-PR #5 brings ManaSync ownership, pending proxy artwork, deck creation/proposals, and
-protected provider refresh into `codex/project-audit-print-workflow`. Its original base was
-v2.44.1; the integrated branch also retains the v2.46 Mac station dashboard, managed
-installer/update/rollback, and the accepted Epson landscape/color recipe.
+PR #5 was merged into `codex/project-audit-print-workflow` at `8b31811`, bringing ManaSync
+ownership, pending proxy artwork, deck creation/proposals, and protected provider refresh.
+Its original base was v2.44.1; the integrated branch retains the Mac station dashboard,
+managed installer/update/rollback and accepted Epson landscape/color recipe. CLC `7d75fef`
+(v2.48.0) also includes labeled one-sheet DFC packets and explicit flip alerts.
+The current v2.48.1 follow-up aligns large deck-creation/proposal text and transport limits with ManaSync
+and accompanies its explicit rejection of unsupported etched publication.
 
 The paired ManaSync server needs the scoped inventory/deck integration APIs, persistent
 proxy artwork, and pending-proxy APIs described in [the bridge contract](MANASYNC_BRIDGE.md).
@@ -57,12 +60,16 @@ npm --prefix server audit
 docker build -t clc-review .
 ```
 
-The paired ManaSync checkout's `scripts/verify-clc-bridge.mjs` runs both real servers against
+The actual [ManaSync checkout](https://github.com/dennysparking/manasync)'s
+`scripts/verify-clc-bridge.mjs` runs both real servers against
 disposable databases. Set `CLC_BRIDGE_BROWSER=1` to include browser interaction, custom-art
 checks, partial confirmation/dismissal across apps, and desktop/phone layout captures.
 Its native print manifest uses synthetic images. The household Adobe color test and corrected
 native landscape sheet have passed; v6 cutter geometry and manual DFC refeed alignment
 still need physical proof. See [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+Use the explicit sibling-checkout/`CLC_SOURCE_PATH` commands in
+[MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification); the old
+nested companion path is not present in a fresh ManaSync clone.
 
 ## Integrated follow-up verification — 2026-09-10
 
@@ -82,6 +89,49 @@ Browser checks verified private artwork under production CSP, draft retention th
 refresh/switch, preservation during a concurrent-client change, explicit re-review, and
 committing the reviewed digital snapshot without changing the paper marker. Recovery
 regressions cover authentication failures, uncertain responses, malformed receipts, and
-multiple saved operations. The paired ManaSync server harness remains outstanding until
-its repository and matching API implementation are available; CLC fixtures are not proof
-of cross-app compatibility.
+multiple saved operations. At this 2026-09-10 checkpoint the paired ManaSync harness was
+outstanding because its repository was not yet available locally; these CLC fixtures did
+not establish cross-app compatibility.
+
+## Paired repository available — 2026-09-11
+
+The supplied ManaSync repository is now cloned at `/Users/cruv/GitProjects/manasync` from
+`https://github.com/dennysparking/manasync.git`, with `main` baseline `ef22e79`. The selected
+CLC checkout is `/Users/cruv/GitProjects/card-list-compare`, branch
+`codex/project-audit-print-workflow`, baseline `7d75fef`. Local harness maintenance takes
+place on ManaSync's `codex/clc-bridge-verification` branch. Set `CLC_SOURCE_PATH` explicitly
+so imports, child processes and browser checks use this same integrated CLC checkout.
+
+The paired **HTTP harness passed on 2026-09-11**, using real CLC/ManaSync servers with
+disposable PostgreSQL 16 and CLC SQLite data. This run used working trees based on the pins
+above, including the explicit source resolver, bounded proposal-body compatibility,
+etched-finish guards and corrected source fixtures. It was not a test of the unchanged
+baseline commits alone.
+
+The run verified scoped account access; latest/paper separation; proposal submission,
+review and replay; exact manual-deck creation and Cloud deck round trips; ownership and
+shopping; partial proxy confirmation, cancellation and deliberate reprints; lost receipts
+and replacement-token recovery; protected source refresh/review/merge; and shared pending
+plans with retained custom artwork and confirmation/dismissal from both applications.
+The positive source-sync fixture explicitly selects a supported normal finish while
+retaining the original captured fixture. A separate real HTTP 502 test verifies that etched
+upstream data is rejected without replacing the saved deck or changing holdings.
+
+ManaSync's final regression run passed **1,160 tests across 155 files, with one test skipped**;
+TypeScript checking, its production build and dependency audit also passed. CLC v2.48.1
+passed **842 app tests across 50 files and 103 native-companion tests**, full ESLint and
+its production build; both CLC npm dependency audits reported zero vulnerabilities.
+
+A disposable ARM64 production Docker/nginx run passed **31 checks, including 26 HTTP
+requests**. It accepted 500,000-code-point JSON-escaped creation text and a 12,000,145-byte
+two-field proposal, committed/replayed the reviewed replacement once, and rejected missing
+or insufficient authorization, one-code-point-over fields, an unrelated oversized JSON body,
+and bodies above 12 MiB. Durable state remained one deck, two snapshots and one revised
+proposal with paper state unchanged. The served UI was v2.48.1, security headers were
+present, and the runtime used UID 1000. `PRINT_ENABLED=false` kept generation and physical
+jobs disabled; the temporary container was removed.
+
+Final paired browser verification remains pending. Earlier dated
+ManaSync verification is historical evidence, not a browser result for this pair. No `main`
+merge, live deployment, physical printing or cutting occurred in this harness. Physical v6
+cutting and DFC alignment acceptance remain separate.

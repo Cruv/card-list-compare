@@ -6,6 +6,7 @@ import {
   readProposalDraft, saveProposalDraft, readPendingProposalReviews, savePendingProposalReview,
   settlePendingProposalReview, isDefiniteProposalRejection, proposalReviewRequest,
   readRecoveredProposalTexts,
+  proposalReplacementError,
 } from '../lib/proposalReview';
 import './ProposalReview.css';
 
@@ -132,11 +133,13 @@ function ScopedProposalReview({ userId, deckId, onChanged }) {
   const draft = selectedId ? drafts[selectedId] : null;
   const stale = proposalBasisStale(draft?.basis, selected);
   const blocked = busy || !storageSafe || pendingReviews.length > 0;
+  const replacementError = draft ? proposalReplacementError(draft.replacement) : null;
 
   async function decide(action, savedOperation) {
     if (busyRef.current || !storageSafe) return;
     if (!savedOperation && (!selected || !draft || !reviewable(selected) || !reviewed || stale || draft.unsaved || pendingReviews.length)) return;
     if (!savedOperation && action === 'revise' && !draft.replacement.trim()) return;
+    if (!savedOperation && action === 'revise' && replacementError) { setError(replacementError); return; }
     busyRef.current = true;
     setBusy(true);
     setError('');
@@ -220,7 +223,8 @@ function ScopedProposalReview({ userId, deckId, onChanged }) {
         <label>Current digital latest · snapshot {selected.currentLatestSnapshotId || 'none'}<textarea readOnly value={selected.currentLatestText ?? ''} /></label>
       </div>
       {(reviewable(selected) || draft.dirty) && <>
-        <label>Reviewed replacement text<textarea className="proposal-review-replacement" value={draft.replacement} maxLength={200000} readOnly={blocked || !reviewable(selected)} onChange={event => editDraft({ replacement: event.target.value })} /></label>
+        <label>Reviewed replacement text<textarea className="proposal-review-replacement" value={draft.replacement} aria-invalid={!!replacementError} aria-describedby={replacementError ? `proposal-text-limit-${selected.proposalId}` : undefined} readOnly={blocked || !reviewable(selected)} onChange={event => editDraft({ replacement: event.target.value })} /></label>
+        {replacementError && <p id={`proposal-text-limit-${selected.proposalId}`} role="alert" className="proposal-review-error">{replacementError}</p>}
         <p className="proposal-review-draft-status">{draft.unsaved ? 'This draft could not be saved. Keep this editor open and copy your text before leaving.' : draft.dirty ? 'Draft saved in this browser. Refreshing or viewing another proposal keeps your text.' : 'Edit this text to prepare a reviewed revision.'}</p>
       </>}
       {reviewable(selected) && <>
@@ -228,7 +232,7 @@ function ScopedProposalReview({ userId, deckId, onChanged }) {
         <label className="proposal-review-check"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} disabled={blocked || stale || draft.unsaved} /> I reviewed the saved base, proposal, and current digital latest.</label>
         <div className="proposal-review-actions">
           <button type="button" className="btn btn-primary btn-sm" onClick={() => decide('accept')} disabled={blocked || stale || draft.unsaved || !reviewed || selected.status !== 'pending_review'}>Accept proposed text</button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => decide('revise')} disabled={blocked || stale || draft.unsaved || !reviewed || !draft.replacement.trim()}>Commit reviewed revision</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => decide('revise')} disabled={blocked || stale || draft.unsaved || !reviewed || !draft.replacement.trim() || !!replacementError}>Commit reviewed revision</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => decide('reject')} disabled={blocked || stale || draft.unsaved || !reviewed}>Reject</button>
         </div>
       </>}

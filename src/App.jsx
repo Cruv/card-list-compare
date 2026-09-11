@@ -25,10 +25,9 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.48.0';
+const APP_VERSION = '2.48.1';
 const WHATS_NEW = [
-  'Print double-sided cards in numbered one-sheet packets with matching labels and reload prompts',
-  'Get a Mac alert or an optional Discord ping when the exact sheet needs flipping',
+  'Send and review longer ManaSync deck drafts without losing their exact text',
 ];
 
 function getResetToken() {

@@ -167,3 +167,14 @@ export async function proposalReviewRequest(userId, deckId, operation, isActive 
   }
   return receipt;
 }
+// JSON Schema length counts Unicode code points, unlike textarea maxlength.
+export function proposalReplacementError(value) {
+  if (typeof value !== 'string') return 'Enter reviewed replacement text.';
+  if (value.length <= 500_000) return null;
+  let count = 0;
+  const characters = value[Symbol.iterator]();
+  while (!characters.next().done) {
+    if (++count > 500_000) return 'Reviewed replacement text must be 500,000 characters or fewer. Your draft is preserved; shorten it before committing.';
+  }
+  return null;
+}

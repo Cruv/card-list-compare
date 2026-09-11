@@ -216,6 +216,23 @@ Provider failures have a per-deck status while retaining the last good snapshot.
 Explicit etched finishes remain unavailable until the text/identity contract
 can preserve them; they are never silently mapped to ordinary foil.
 
+**Cross-app text compatibility (2026-09-11).** Match ManaSync at 500,000 Unicode code points
+per creation `deckText` and proposal base/proposed/reviewed text field while preserving exact
+bytes for hashes and replay. Only the two integration creation/source-tracking POST paths
+and proposal/review POST paths accept a 12 MiB JSON envelope, allowing worst-case escaping
+of two full proposal texts. Rate limiting and the original explicit creation grant,
+proposal scope or review-session authentication precede the larger parser; ordinary Express
+routes retain `512kb`, with matching path-specific nginx exceptions. Raising every route's
+limit would unnecessarily expand unauthenticated parsing work. The review editor preserves
+an oversized paste for correction and blocks commit instead of truncating UTF-16 units.
+
+ManaSync retains its richer etched notation locally. Its outbound publication/submission
+guard returns `422 unsupported_clc_finish` before sending unsupported deck text to CLC,
+including newly delivered queued drafts. Local editing and export remain available.
+Silently stripping the marker would change finish; treating it as a name suffix would
+change card identity. An explicit user edit can select a supported finish, while uncertain
+operations keep their original payload and receipt identity for reconciliation.
+
 **Where.** `server/lib/manasyncBridge.js`, `server/routes/manasync.js`,
 `src/components/ManaSyncOwnership.jsx`, `src/components/PrintQueue.jsx`,
 `docs/MANASYNC_BRIDGE.md`. Structured deck reads and proposals are described in

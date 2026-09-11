@@ -210,7 +210,7 @@ The **Print Station** page centralizes health, version, event history, pause/unp
 batch-specific DFC reload controls. It requires the same household authorization as
 physical queue requests; only administrators may request version checks/changes. Install
 matching server and companion versions for the heartbeat/control protocol. A companion
-advertises its artifact capacity when claiming (37 for v2.48.0; eight for older clients).
+advertises its artifact capacity when claiming (37 from v2.48.0 onward; eight for older clients).
 A larger queued job requires the newer companion and remains unclaimed until it connects;
 the server does not skip the waiting job or create a physical recovery record. A companion
 that cannot contact this protocol stops new submissions while retaining its ledger for
@@ -265,6 +265,35 @@ its files after active physical submissions have been reconciled. Untracking or 
 a source snapshot does not rewrite a frozen print job.
 
 ## §9 — ManaSync connection recovery
+
+The actual companion source is [dennysparking/manasync](https://github.com/dennysparking/manasync),
+supplied on 2026-09-11. For local paired verification use separate clones and explicitly set
+`CLC_SOURCE_PATH` to the integrated `codex/project-audit-print-workflow` CLC checkout.
+It selects ManaSync's harness imports/processes and Compose build context; it does not
+configure either running app's API URL. The old `companions/clc` path remains only a fallback.
+See [source selection and disposable verification](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification)
+for install/build commands and database isolation. Record both tested revisions. A passing
+HTTP/browser harness neither deploys these branches nor validates physical printer/cutter
+behavior; a CLC `main` merge and production activation require their own release steps.
+
+Large ManaSync deck transfers use a scoped transport exception: each creation `deckText`,
+proposal `baseText`, `proposedText` or revised `reviewedText` field can contain 500,000
+Unicode code points. These four POST paths allow 12 MiB JSON, including escaped text:
+
+- `/api/integrations/v1/decks` and `/api/integrations/v1/decks/track-source`, requiring an
+  explicit `decks:create` token before larger-body parsing.
+- `/api/decks/:deckId/proposals`, requiring proposal access before parsing.
+- `/api/decks/:deckId/proposals/:proposalId/review`, requiring a CLC login session before parsing.
+
+Express also checks the global API rate limit first. Unrelated routes keep `512kb`;
+nginx's `12m` exception covers only those four paths, with its default 1 MiB elsewhere.
+Configure an external reverse proxy consistently for the same paths rather than raising
+every endpoint's limit. See [deck-transfer limits](MANASYNC_PROPOSALS.md#delivering-a-proposal).
+
+An etched-finish deck rejected by ManaSync with `422 unsupported_clc_finish` has not been
+converted to CLC's simpler foil notation. Preserve the local deck/draft and use its export
+or explicitly choose a supported finish before sending. Do not remove `*E*` automatically
+or alter the payload of an uncertain saved operation to force a retry.
 
 CLC encrypts saved ManaSync credentials, including the original credential retained by each
 pending print report. Back up `.manasync-bridge-key` beside `DB_PATH` as well as the database,

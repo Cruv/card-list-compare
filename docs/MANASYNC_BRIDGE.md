@@ -1,7 +1,59 @@
 # Connect CLC, ManaSync, and Mana Pool
 
-Use this CLC branch with the updated ManaSync server. Each application keeps its own
+Use the integrated CLC checkout with the updated ManaSync server. Each application keeps its own
 accounts, database, and secrets. An explicit user-granted connection maps each account.
+
+## Source checkouts and paired verification
+
+The ManaSync repository was supplied on 2026-09-11:
+[dennysparking/manasync](https://github.com/dennysparking/manasync). The paired source
+baseline is ManaSync `main` at `ef22e79` and
+[Cruv/card-list-compare](https://github.com/Cruv/card-list-compare), branch
+`codex/project-audit-print-workflow`, at `7d75fef` (CLC v2.48.0). CLC PR #5 is integrated
+into that branch; it is not a direction to use the older `feature/manasync-bridge` checkout
+or an exported source archive. Integration work, merging CLC to `main`, and deployment are
+separate steps. Current verification results are recorded in [MANASYNC_REVIEW.md](MANASYNC_REVIEW.md).
+The current CLC v2.48.1 working release adds deck-creation/proposal size compatibility and the paired
+etched-finish safeguards beyond that v2.48.0 source baseline.
+
+For a new working directory, clone the two repositories as siblings:
+
+```sh
+git clone --branch main https://github.com/dennysparking/manasync.git
+git clone --branch codex/project-audit-print-workflow https://github.com/Cruv/card-list-compare.git
+cd manasync
+export CLC_SOURCE_PATH="$(cd ../card-list-compare && pwd)"
+npm ci
+npm --prefix "$CLC_SOURCE_PATH" ci
+npm --prefix "$CLC_SOURCE_PATH/server" ci
+```
+
+Use existing clones if already present; set `CLC_SOURCE_PATH` to their actual absolute CLC
+path and record both selected revisions before verification. The 2026-09-11 local clones
+are `/Users/cruv/GitProjects/manasync` and `/Users/cruv/GitProjects/card-list-compare`.
+`CLC_SOURCE_PATH` selects local build/test code, not the deployed app's API address. An
+explicit relative path resolves from the command's working directory; without a value,
+the harness retains `companions/clc` inside ManaSync as its legacy fallback. Always set it
+explicitly for these separate checkouts; a shell export overrides ManaSync's `.env` value.
+
+From ManaSync, configure a local PostgreSQL connection in private configuration with a role
+allowed to create disposable test databases, then run:
+
+```sh
+PRINT_ENABLED=false node --import tsx scripts/verify-clc-bridge.mjs
+```
+
+The harness selects fresh PostgreSQL and CLC SQLite state and disables real print generation
+and station credentials. For browser checks, build both frontends with `npm run build` and
+`npm --prefix "$CLC_SOURCE_PATH" run build`, install/configure Playwright Chromium, then add
+`CLC_BRIDGE_BROWSER=1` to the command. `CLC_BRIDGE_ARTWORK_ONLY=1` narrows the browser journey
+to pending quantities and artwork. These checks use synthetic artwork and confirmations;
+they do not prove Epson output, paper handling, cutter geometry or physical iPhone behavior.
+
+ManaSync's `docker-compose.integration.yml` uses the same `CLC_SOURCE_PATH` for its CLC
+build. Follow its [connected-app setup](https://github.com/dennysparking/manasync/blob/main/docs/connected-apps.md)
+for the separate integration project, private secrets and host ports. Do not rebuild an
+existing production stack merely to run the disposable HTTP harness.
 
 ## Operator setup
 

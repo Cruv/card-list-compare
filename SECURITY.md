@@ -51,6 +51,31 @@ Email sends are additionally capped at 10/user/hour.
 The nginx/Vite import proxies to external deck sites bypass Express and its limiters;
 the global limit applies to requests actually handled by the Node backend.
 
+## JSON request limits
+
+Express retains its default application limit of `512kb` for ordinary JSON routes.
+Only these four POST paths permit a **12 MiB** JSON body:
+
+- `/api/integrations/v1/decks` and `/api/integrations/v1/decks/track-source`, each with an
+  explicit `decks:create` token. Legacy login tokens do not grant creation.
+- `/api/decks/:deckId/proposals`, with the existing `decks:propose` authorization.
+- `/api/decks/:deckId/proposals/:proposalId/review`, with a CLC login session.
+
+The `/api` rate limiter runs before parsing; the larger parser requires the authorization
+above before accepting the envelope.
+The destination route rechecks authorization after parsing. This exception does not grant
+integration tokens permission to review proposals or alter another user's deck.
+
+`deckText` on both creation routes and proposal `baseText`, `proposedText` and revised
+`reviewedText` are individually capped at **500,000 Unicode code points**, matching
+ManaSync's text schema. Creation requires a string; source tracking may omit it. Empty
+strings are allowed for those two `deckText` fields, but `null` is invalid. The 12 MiB envelope accommodates
+two maximum-size JSON-escaped texts; field caps, exact text hashes, account/deck ownership,
+operation replay checks and optimistic review revisions still apply. There is no global
+body-limit increase. Supplied nginx sets `client_max_body_size 12m` only on the corresponding
+four paths and otherwise retains its default 1 MiB limit. An external proxy needs the same
+scoped allowance to accept large deck transfers.
+
 ## Browser hardening
 
 - **CSP** on document responses (nginx): `default-src 'self'`, `script-src 'self'` (the Vite
@@ -177,6 +202,13 @@ change with its regression test.
   owner-scoped source identity, and reconciles observations without replacing paper history
   or divergent local edits. Provider requests use fixed HTTPS endpoints, bounded reads, and
   no redirects; inaccessible or unsupported lists retain the last saved state.
+- Card finish is part of the cross-app identity boundary. CLC cannot represent etched
+  `*E*` notation faithfully. ManaSync checks local-deck publication and proposal submission
+  before sending unsupported text, returning `422 unsupported_clc_finish` with line
+  information while preserving local drafts/exports. Queued delivery checks the same rule;
+  existing receipts remain available for reconciliation without resending unsupported text.
+  The guard does not convert etched to ordinary foil or authorize changes to saved uncertain
+  payloads. CLC's independent provider-source handling also refuses unsupported finishes.
 - Outbound ManaSync credentials are kept only server-side, encrypted with AES-256-GCM using
   a separate CLC key. `MANASYNC_BRIDGE_KEY` accepts a base64 encoded 32-byte key; otherwise CLC
   creates `.manasync-bridge-key` with mode 0600 beside `DB_PATH`. Back up this file separately

@@ -5,6 +5,7 @@ import { serializeDeck, textHash } from './structuredSnapshots.js';
 import { ProposalError } from './deckProposals.js';
 import { parse } from '../../src/lib/parser.js';
 import { findDecksBySource, normalizeDeckSourceLink } from './deckSources.js';
+import { validProposalText } from './proposalLimits.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const fields = ['operationId', 'name', 'deckText', 'expectedInstanceId', 'expectedAccountId', 'sourceLink'];
@@ -31,7 +32,7 @@ export function createIntegrationDeck(userId, input) {
     }
     if (typeof operationId !== 'string' || !UUID.test(operationId) ||
         typeof name !== 'string' || !name.trim() || name.length > 200 ||
-        typeof deckText !== 'string' || deckText.length > 500000 || Object.keys(input).some(key => !fields.includes(key))) {
+        !validProposalText(deckText) || Object.keys(input).some(key => !fields.includes(key))) {
       fail(400, 'invalid_deck_creation');
     }
     const sourceLink = input.sourceLink === undefined || input.sourceLink === null ? null : normalizeDeckSourceLink(input.sourceLink);

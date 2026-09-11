@@ -243,7 +243,19 @@ Set changes with the same collector number and foil-only changes are included in
 
 ManaSync owns collection holdings, purchases, proxies, and physical locations. Connect it in CLC Settings using your own HTTP(S) domain, port, or reverse-proxy URL and a user-scoped token to see originals, incoming purchases, reusable proxies, and shopping shortages. Prepared native batches automatically appear in **ManaSync → Proxy binder → Pending prints** with their exact front/back artwork. Confirm usable quantities or dismiss failed copies in ManaSync or CLC's **View proxy confirmation** panel; both apps share the result. Pending copies remain separate from available inventory. CLC also exposes scoped deck reads, optional manual deck creation, and a proposal inbox for reviewing ManaSync edits. Reviewed drafts survive refreshes, and uncertain decisions retain their original requests for recovery. Canonical Archidekt, Moxfield, and DeckCheck links let ManaSync reuse an existing source deck without replacing its list or creating another copy. With the explicit creation grant, new TapTogether provider URLs can start native CLC tracking automatically. Per-deck status shows unavailable provider lists while keeping snapshots and paper state intact; unsupported source printing identities, including etched finishes and collector numbers outside the deck-text grammar, wait for review instead of silently changing card identity.
 
-See [connection and print reporting setup](docs/MANASYNC_BRIDGE.md) and [deck API and proposal review](docs/MANASYNC_PROPOSALS.md). The native CLC collection feature stays retired; existing legacy rows remain in backups with no automatic migration.
+ManaSync is available in [dennysparking/manasync](https://github.com/dennysparking/manasync).
+The current paired source baseline is ManaSync `main` at `ef22e79` and this CLC
+`codex/project-audit-print-workflow` branch at `7d75fef`. Use separate clones and set
+`CLC_SOURCE_PATH` to this integrated CLC checkout for ManaSync's harness/Compose build;
+the old nested `companions/clc` path is only a compatibility fallback. Selecting or testing
+these sources does not merge CLC into `main` or deploy either app.
+The v2.48.1 follow-up aligns large deck-creation/proposal text and transport limits and rejects unsupported
+etched transfers visibly while preserving ManaSync's local decks, drafts and exports.
+
+See [connection, source selection and print reporting setup](docs/MANASYNC_BRIDGE.md),
+[deck API and proposal review](docs/MANASYNC_PROPOSALS.md), and the dated
+[integration verification record](docs/MANASYNC_REVIEW.md). The native CLC collection
+feature stays retired; existing legacy rows remain in backups with no automatic migration.
 
 ### Deck Analytics
 

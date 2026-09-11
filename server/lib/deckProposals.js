@@ -4,6 +4,7 @@ import { latestSnapshot, textHash } from './structuredSnapshots.js';
 import { pruneSnapshots } from './pruneSnapshots.js';
 import { parse } from '../../src/lib/parser.js';
 import { COMMANDER_HEADER } from '../../src/lib/constants.js';
+import { validProposalText } from './proposalLimits.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HASH = /^[0-9a-f]{64}$/;
@@ -19,7 +20,7 @@ export class ProposalError extends Error {
 }
 
 function fail(status, code, message) { throw new ProposalError(status, code, message); }
-function validText(value) { return typeof value === 'string' && value.length <= 200000; }
+const validText = validProposalText;
 function validId(value) { return typeof value === 'string' && /^[1-9]\d*$/.test(value); }
 function ownedDeck(userId, deckId) {
   const deck = get('SELECT * FROM tracked_decks WHERE id = ? AND user_id = ?', [deckId, userId]);

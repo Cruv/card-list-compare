@@ -52,9 +52,14 @@ remains historical context.
 
 ### Next bridge work
 
-- Run the paired ManaSync `scripts/verify-clc-bridge.mjs` harness against this integrated
-  branch and its matching ManaSync revision. The repository URL is still needed locally;
-  CLC-only fixtures do not establish compatibility with a deployed ManaSync server.
+- Complete paired browser acceptance against the selected integrated CLC checkout using
+  `CLC_SOURCE_PATH`; the real two-server HTTP harness passed on 2026-09-11 using disposable
+  PostgreSQL/SQLite and synthetic artwork. The actual
+  [ManaSync repository](https://github.com/dennysparking/manasync) was supplied on 2026-09-11:
+  its `main` baseline is `ef22e79`, paired with CLC `7d75fef` on
+  `codex/project-audit-print-workflow`. See [source setup](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification)
+  and [dated results](MANASYNC_REVIEW.md) for the working-tree fixes tested beyond those
+  baselines. Browser acceptance, final regression counts and deployment remain separate.
 - Ownership currently informs review and shopping; it does not automatically remove copies
   from PDFs. Inventory-aware print reduction needs ManaSync to distinguish usable unallocated
   proxies and define reservations, so a copy committed to another deck is not counted twice.

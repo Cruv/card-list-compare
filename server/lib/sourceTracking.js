@@ -4,6 +4,7 @@ import { normalizeDeckSourceLink, findDecksBySource, recordSourceTrackingStatus,
 import { serializeDeck, textHash } from './structuredSnapshots.js';
 import { refreshArchidektDeck } from './sourceSync.js';
 import { ProposalError } from './deckProposals.js';
+import { validProposalText } from './proposalLimits.js';
 
 export const SOURCE_TRACKING_PROVIDERS = ['archidekt', 'moxfield', 'deckcheck'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -28,7 +29,7 @@ export function createSourceTrackingService({ refreshSource = refreshArchidektDe
       }
       if (typeof operationId !== 'string' || !UUID.test(operationId) || !source ||
           (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 200)) ||
-          (deckText !== undefined && (typeof deckText !== 'string' || deckText.length > 500000)) ||
+          (deckText !== undefined && !validProposalText(deckText)) ||
           Object.keys(input).some(key => !fields.includes(key))) fail(400, 'invalid_source_tracking');
       const upstreamId = source.provider === 'archidekt' ? Number(source.deckId) : null;
       if (source.provider === 'archidekt' && !Number.isSafeInteger(upstreamId)) fail(400, 'invalid_source_tracking');

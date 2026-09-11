@@ -197,6 +197,9 @@ function DeckLibrary() {
         Reviewed edits survive refreshing or switching proposals in this browser. When the basis
         changes, review it again while keeping your text. If a response is lost, retry the saved
         decision before starting another. Changed or pruned bases require review.
+        Drafts and reviewed replacements support up to 500,000 characters per list.
+        ManaSync keeps etched-card drafts locally until you explicitly choose a supported
+        finish; CLC cannot yet preserve etched finishes in its deck text.
         Paper state changes only when you separately
         mark the physical deck as updated; proposal decisions never change collection holdings.
       </p>
