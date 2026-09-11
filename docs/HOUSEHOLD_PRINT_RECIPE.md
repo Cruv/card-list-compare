@@ -1,4 +1,4 @@
-# Household print reference — updated 2026-09-10
+# Household print reference — updated 2026-09-11
 
 Status: the Windows process below is the accepted reference. CLC now implements PDF
 generation and the native Mac companion. The Mac driver and a matching GUI preset were
@@ -106,10 +106,16 @@ path against that output. A generic CUPS submission or another PDF renderer must
 assumed to inherit Adobe's settings or reproduce its output. Keep only one color-conversion
 stage; do not add a printer ICC transform before an already active Vivid driver transform.
 
-Remaining operational inputs: the actual Studio cutting template, the opened two-sided
-preset with its binding/page order/flip instructions, rear-feeder practical stack capacity,
-and the intended CLC/printer-bridge hosts. These do not block image/comparison maintenance
-or downloadable-PDF implementation.
+The permanent CLC container and native printer companion now reside on the household Mac.
+The container's local data directory is `/Users/cruv/docker/Stacks/mtg/cardlistcompare`;
+the companion connects through `https://clc.blackbeardsvault.com/`. See the
+[installation checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11)
+for the installed companion and pending server connection.
+
+Remaining physical checks are the matching v6 Studio cutting template, manual rear-feeder
+flip direction and back alignment, and safe packet handling with earlier output present.
+The opened Windows two-sided preset can help establish the original binding/flip sequence;
+the new companion submits each face as a separate one-sided pass.
 
 ## Supplied sample
 

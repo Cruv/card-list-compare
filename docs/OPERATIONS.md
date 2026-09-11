@@ -171,6 +171,48 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 ### Household print jobs
 
+#### Household installation checkpoint — 2026-09-11
+
+The owner moved the permanent CLC stack to this Mac. Its `CardListCompare` container
+belongs to the `mtg` Compose project, publishes host port 8080, and mounts
+`/Users/cruv/docker/Stacks/mtg/cardlistcompare` at `/app/data`. The signed-in household
+origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
+the repository's default `./data` is not the household deployment path.
+
+The observed live container/UI is **v2.41.2**. The v2.48.1 print/station work is on
+`codex/project-audit-print-workflow`, not `main`; pulling the registry's `latest` tag
+alone does not deploy this branch. Update the stack's saved service definition as well
+as the running container when deploying it. Preserve the existing JWT secret, accounts,
+database and bind mount. Back up the live data and verify migrations against a copy;
+never start another backend against the live database.
+
+An isolated, network-disabled migration of a read-only database copy passed using the
+tested v2.48.1 image. Core row counts were preserved, SQLite integrity remained `ok`,
+and a second migration pass was idempotent. One pre-existing snapshot referencing a
+missing deck remained unchanged; this check did not delete or repair household data.
+The test never started schedulers, and its copied database was removed afterward.
+
+The native **v2.48.1 arm64 companion is installed** under
+`~/Library/Application Support/CLC Print Station/app`, with private configuration in
+`~/.config/clc-print-station`. Its server origin and `EPSON_ET_8550_Series` queue are
+configured. A separate private `print-station.env` was prepared in the household data
+directory with the matching station credential; it is **not yet loaded by the stack**.
+Keep its contents out of source control and logs, and retain the existing JWT settings
+when adding these print settings to the saved stack configuration. No additional
+household user grants have been added.
+
+Installation retained the previous manual-proof records, created a paused production
+ledger and wrote `~/Library/LaunchAgents/local.clc.print-station.plist` using
+`--no-launch`. The service is **not loaded or connected yet**. The plist is eligible to
+start at a subsequent login; both physical-proof flags remain false. Its read-only
+printer check passed all 66 configured driver options and reproduced the accepted
+recipe fingerprint recorded in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+No sheet was submitted during installation. After upgrading/configuring the server,
+load the LaunchAgent and verify a paused heartbeat in CLC's Print Station page. Complete
+the v6 cutting and manual duplex proofs before enabling their respective flags.
+
+#### Queue operation
+
 Open a tracked deck's Printing tab for plan review, PDF downloads and job status. Set a
 separate random `PRINT_STATION_TOKEN` to enable physical queue requests; administrators
 can queue by default, and `PRINT_ALLOWED_USER_IDS` grants access to other household accounts.

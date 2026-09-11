@@ -211,6 +211,9 @@ offline and its controls are disabled. Source checkouts report their version but
 support managed package updates. Neither the dashboard nor remote controls can enable
 physical-proof flags or change Epson driver options.
 
+For the household's permanent Mac stack and companion installation status, see the
+[dated deployment checkpoint](docs/OPERATIONS.md#household-installation-checkpoint--2026-09-11).
+
 ### Printing Metadata
 
 - **Printing metadata** &mdash; import and export set codes, collector numbers (including promos like `136p`, `DDO-20`), and foil markers
