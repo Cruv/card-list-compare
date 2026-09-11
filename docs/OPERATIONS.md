@@ -203,12 +203,15 @@ household user grants have been added.
 
 Installation retained the previous manual-proof records, created a paused production
 ledger and wrote `~/Library/LaunchAgents/local.clc.print-station.plist` using
-`--no-launch`. The service is **not loaded or connected yet**. The plist is eligible to
-start at a subsequent login; both physical-proof flags remain false. Its read-only
+`--no-launch`. At the owner's request, the LaunchAgent was subsequently loaded and the
+**v2.48.1 companion is running**, with KeepAlive and login startup enabled. Printing
+remains paused and both physical-proof flags remain false; the service can stay running
+during testing. It retries the current server, whose missing station endpoint returns
+HTTP 404 until the print-enabled version is deployed. Its read-only
 printer check passed all 66 configured driver options and reproduced the accepted
 recipe fingerprint recorded in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
-No sheet was submitted during installation. After upgrading/configuring the server,
-load the LaunchAgent and verify a paused heartbeat in CLC's Print Station page. Complete
+No sheet was submitted during installation or startup. After upgrading/configuring the
+server, verify the running companion's paused heartbeat in CLC's Print Station page. Complete
 the v6 cutting and manual duplex proofs before enabling their respective flags.
 
 #### Queue operation

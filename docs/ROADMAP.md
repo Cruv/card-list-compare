@@ -22,8 +22,9 @@ durable commands; managed version controls are restricted to administrators and 
 The self-contained Mac installer now bundles its runtime, starts paused at login, and
 supports checked version updates and rollback without replacing configuration or print history.
 The v2.48.1 companion was installed paused on the household Mac on 2026-09-11 and passed
-its read-only printer check. The moved permanent stack still runs v2.41.2; the saved stack
-configuration and server version must be updated before loading/connecting the service.
+its read-only printer check. Its LaunchAgent is now running and retries the server while
+printing remains paused. The moved permanent stack still runs v2.41.2; the saved stack
+configuration and server version must be updated before the station can connect successfully.
 See the [installation checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11).
 
 The household Mac now has Epson driver 13.45, a saved Uinkit fronts preset, an accepted
