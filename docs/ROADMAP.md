@@ -21,12 +21,11 @@ CLC's Print Station page now reports live station health and controls pause/refe
 durable commands; managed version controls are restricted to administrators and idle stations.
 The self-contained Mac installer now bundles its runtime, starts paused at login, and
 supports checked version updates and rollback without replacing configuration or print history.
-The v2.48.1 companion was installed paused on the household Mac on 2026-09-11 and passed
-its read-only printer check. Its LaunchAgent is running and connected to the locally
-deployed v2.48.1 server; the dashboard reports Online and printer Ready. The owner's
-interface Unpause request was applied; leave the station enabled for testing. Both local
-proof flags are still false and separately block physical submission. The real Silhouette
-generator initialized in the permanent local bind
+The v2.48.2 companion and server are deployed on the household Mac and passed their
+connection and printer checks. The dashboard reports Online, Enabled and printer Ready.
+Leave the station enabled for interface testing as requested. The local test-printing
+opt-in permits queued test jobs while both physical-proof flags remain false; DFC reload
+confirmation still applies. The real Silhouette generator initialized in the permanent local bind
 mount. Reconcile the saved Portainer CLC service before its next controller redeploy.
 See the [installation checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11).
 

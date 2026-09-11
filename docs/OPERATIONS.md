@@ -179,9 +179,9 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The household server is now **v2.48.1**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `cd268eb`. The local image is
-`clc-household:2.48.1-cd268eb`; its saved service configuration lives at
+The household server is now **v2.48.2**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `9aeffde`. The local image is
+`clc-household:2.48.2-9aeffde`; its saved service configuration lives at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
 existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
 UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
@@ -195,6 +195,12 @@ configuration are retained outside the live bind mount. Never run another backen
 against the live database; an image rollback also requires reviewing/restoring its
 matching data, after preserving any newer user changes.
 
+The subsequent test-printing update has a complete stopped-container backup at
+`/Users/cruv/docker/Backups/cardlistcompare/20260911T230744Z-before-2.48.2/data-complete`.
+Preserve Linux venv symlinks as links when copying the generator cache on macOS; following
+them would incorrectly resolve Linux interpreter paths against the Mac. The local
+deployment folder also retains `rollback-2.48.1-compose.yaml` and the update checkpoint.
+
 An isolated, network-disabled migration of a read-only database copy passed using the
 tested v2.48.1 image. Core row counts were preserved, SQLite integrity remained `ok`,
 and a second migration pass was idempotent. One pre-existing snapshot referencing a
@@ -204,7 +210,7 @@ After the actual deployment, integrity and core counts still matched the backup:
 3 users, 2 tracked owners, 13 decks, 69 snapshots and 1 shared comparison. The existing
 browser sign-in remained valid. Local and public health/station checks returned HTTP 200.
 
-The native **v2.48.1 arm64 companion is installed** under
+The native **v2.48.2 arm64 companion is installed** under
 `~/Library/Application Support/CLC Print Station/app`, with private configuration in
 `~/.config/clc-print-station`. Its server origin and `EPSON_ET_8550_Series` queue are
 configured. The deployed service loads the matching station credential and
@@ -223,19 +229,25 @@ do not use `down` or `--remove-orphans` with this partial stack definition.
 
 Installation retained the previous manual-proof records and created a paused production
 ledger. `~/Library/LaunchAgents/local.clc.print-station.plist` is loaded, and the
-**v2.48.1 companion is running**, with KeepAlive and login startup enabled. The owner
+**v2.48.2 companion is running**, with KeepAlive and login startup enabled. The owner
 unpaused it through CLC for interface testing; that command was applied and acknowledged.
-Leave the station enabled as requested. Both physical-proof flags remain false: this is
-a separate local submission gate, so Enabled does not yet permit physical printing.
-CLC's Print Station dashboard reports **Online**, version **2.48.1**, station work
+Leave the station enabled as requested. Both physical-proof flags remain false, and the
+separate `allow_unverified_printing: true` local setting now permits interface test jobs
+without marking those proofs passed. The update restored Enabled before restarting the
+worker and retained companion v2.48.1 as the rollback version.
+CLC's Print Station dashboard reports **Online**, version **2.48.2**, station work
 **Enabled**, and printer health **Ready**. Earlier HTTP 404 events remain
 in its activity history from before the server upgrade; current heartbeats succeed.
 Its read-only printer check passed all 66 configured driver options and reproduced the accepted
 recipe fingerprint recorded in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
 No sheet was submitted during installation or deployment, and no print job was created.
+The dashboard also shows **Test printing enabled**. Queue test sheets using the normal
+Printing tab; the exact-packet flip/reload confirmation still applies to every DFC back.
 The real Silhouette runtime initialized successfully in the data bind mount at upstream
 revision `4d4aa73a95e93b09676c863a1861765863398c63`, including its startup PDF checks.
-Complete the v6 cutting and manual duplex proofs before enabling their respective flags.
+Complete the v6 cutting and manual duplex proofs before enabling their respective flags,
+then turn off the local test-printing opt-in. The 2.48.2 change passed 844 app/server tests,
+111 native companion tests, lint, production builds and clean dependency audits.
 
 #### Queue operation
 
