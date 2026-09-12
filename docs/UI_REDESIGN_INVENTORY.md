@@ -266,3 +266,36 @@ Docker checks preceded deployment; this is additional read-only production evide
 
 These checks do not establish a connected ManaSync account or native iOS Simulator
 coverage. Both remain explicitly pending user sign-in/token or Xcode setup respectively.
+
+## Remaining native iOS acceptance
+
+A follow-up inspection still found no Xcode bundle or `simctl`. The App Store remained
+at its Xcode confirmation sheet, with no installation progress established. This is a
+setup dependency, not a passed or failed CLC rendering check.
+
+Once Xcode is installed and its first-launch setup is complete, install an iOS Simulator
+runtime in **Xcode → Settings → Components**. Apple also documents
+`xcodebuild -downloadPlatform iOS` in its
+[additional-components guide](https://developer.apple.com/documentation/xcode/downloading-and-installing-additional-xcode-components).
+Record the actual `xcodebuild -version`, `xcrun simctl list runtimes` and available device
+types before creating a dedicated **CLC UI QA** device. Do not reuse or erase an existing
+user Simulator. Use that new device's explicit UDID for boot, URL and screenshot commands.
+
+Native Safari needs a dedicated local fixture server. The previous Playwright route
+interceptors apply only to their controlled browser contexts; they do not protect
+Simulator Safari. Do not point native QA at Vite's default API proxies, the household
+origin, or a backend configured with household data or credentials.
+
+| Native check | Required evidence | Current status |
+| --- | --- | --- |
+| Identity and isolation | Actual iOS runtime/device/UDID, local fixture URL, fixture-only mutation log | Pending |
+| Shared navigation and routes | Compare, library, deck, Print studio, station, Connections, Account, Guide, Admin and public shared-deck screenshots; More drawer and browser back behavior | Pending |
+| Software keyboard | Login, comparison text, print extras, art search and connection-token fields remain readable and reachable with the on-screen keyboard open | Pending |
+| Safe areas and orientation | Portrait/landscape screenshots showing bottom navigation, sticky generation controls, drawer and dialogs clear of system insets | Pending |
+| Modal interaction | Artwork, Timeline/MPC, art picker and confirmation dialogs scroll and close correctly, returning focus to the launcher | Pending |
+| Account and settings | Account/Invites, all Guide topics, Admin sections and Connections expand correctly at phone width in both themes | Pending |
+| Print handling | Review/removal/filter/art selection, separate DFC indication, durable retry and exact-packet reload confirmation using fixtures only | Pending |
+| Session continuity | Refresh, route return and per-user draft persistence without viewport or keyboard obstruction | Pending |
+
+Do not replace these statuses with browser-emulation results. Any unsupported fixture
+state must be stated explicitly and supplied before claiming that native case passed.

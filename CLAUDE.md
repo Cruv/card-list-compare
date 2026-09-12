@@ -37,7 +37,7 @@ src/lib/fetcher.js       URL imports (Archidekt/Moxfield/Deckcheck/…) → deck
 src/lib/scryfall.js      Client Scryfall batch (images, types; exact printings)
 src/lib/cardIdentity.js  Card name/set/collector/foil keys + DFC name normalization
 src/lib/api.js           Client HTTP layer for all /api calls
-src/lib/useHashRoute.js  Routing: #admin #settings #guide #print-list #print-station #library #library/{id} #share/{id} #deck/{id}
+src/lib/useHashRoute.js  Routing: #admin #settings #connections #guide #print-list #print-station #library #library/{id} #share/{id} #deck/{id}
 src/lib/{powerLevel,recommendations,edhrec,analytics}.js  Deck analysis heuristics
 server/db.js             sql.js init + migrations + run/get/all helpers + persist()
 server/lib/deckToText.js       Server mirror of archidektToText()
