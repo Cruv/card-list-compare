@@ -382,8 +382,8 @@ or resolution failures. This source contained no custom cards, so this proves no
 edition/art selections, not arbitrary custom-image support. Proof:
 `/tmp/clc-archidekt-art-proof.json`.
 
-The household deck's latest CLC snapshot was instead labeled **Imported from DeckCheck**
-and **Local edits protected**. DeckCheck supplies names and quantities, so existing
+At initial inspection, the household deck's latest CLC snapshot was labeled **Imported
+from DeckCheck** and the source status was **Local edits protected**. DeckCheck supplies names and quantities, so existing
 printing metadata is carried forward where possible. Current Archidekt artwork is not
 silently fetched over that saved review; the print plan remains frozen to its snapshot
 and explicit **Pick art** overrides. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md).
@@ -394,3 +394,20 @@ checks**, production build and lint (zero errors, seven existing warnings) passe
 client and server dependency audits reported zero vulnerabilities. The browser matrix above
 adds 400 focused assertions across responsive controls, navigation, dialogs and offline/auth
 behavior; those assertions overlap and are not a count of distinct features.
+
+
+## Live v2.52.1 confirmation
+
+The deployment from `99ad625` preserved all pre-update data, including **73 snapshots**.
+The owner added a new Sauron snapshot labeled **Imported from Archidekt** at
+2026-09-12 00:41:58 local time during this work. After deployment, the signed-in browser
+confirmed Printing targets **Latest snapshot**, with **Scryfall — snapshot printings**,
+so that new snapshot supplies the selected artwork. The earlier DeckCheck observation
+above is historical; no CLC deck was edited by browser QA.
+
+The public and local origins matched all 34 Docker frontend files (68 responses), including
+the generated service worker. The browser showed v2.52.1, Connections rendered without
+console errors, and Print Station showed Online/Enabled/Ready with native v2.49.0 and no
+active batch. The normal viewport was restored. ManaSync is not yet connected because its
+personal app token has not been supplied. See [OPERATIONS.md](OPERATIONS.md) for the image
+and complete pre-update backup. The companion remained running and unpaused throughout.

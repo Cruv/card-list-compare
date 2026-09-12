@@ -179,9 +179,9 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The household server is now **v2.52.0**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `a6d9eeb`. The local image is
-`clc-household:2.52.0-a6d9eeb`; its saved service configuration lives at
+The household server is now **v2.52.1**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `99ad625`. The local image is
+`clc-household:2.52.1-99ad625`; its saved service configuration lives at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
 existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
 UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
@@ -378,6 +378,41 @@ On 2026-09-12 the owner requested browser verification instead of Simulator. Xco
 is no longer an acceptance blocker for this UI release. Browser and responsive WebKit
 checks are documented in [the UI inventory](UI_REDESIGN_INVENTORY.md); native iOS behavior
 is not claimed. The v6 cutting and manual-duplex physical proofs remain separate.
+
+#### Browser-fix deployment — 2026-09-12
+
+**v2.52.1** is committed and pushed at `99ad625` and deployed as
+`clc-household:2.52.1-99ad625`. It fixes small-screen focus and navigation,
+modal keyboard/launcher behavior, initial offline shell loading, update/rollback cache
+retention, transient login loss, and password-reset routing. The Guide and printing
+notes now explain how Archidekt-selected printing metadata reaches the PDF.
+
+The complete stopped-data backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T044424Z-before-2.52.1/data-complete`;
+`cardlistcompare-deployment/update-2.52.1.json` records this deployment. Image ID:
+`sha256:fa3716eceb1ee942650ab45cffc607be78e223c8e4cd50accaa78a2258922b5f`. The update preserved the pre-deployment
+three users, two owners, 14 decks, **73 snapshots**, and one completed print job.
+Database integrity passed, existing foreign-key findings were unchanged, and private
+runtime settings were preserved. Only CLC was recreated; native **v2.49.0** remained
+running, unpaused and enabled with its existing printer recipe and credentials.
+
+Validation passed **1,053 app/server tests**, **121 native fake-printer checks**, lint
+(zero errors, seven existing warnings), production/Docker builds and both dependency
+audits (zero vulnerabilities). Isolated Chrome/WebKit checks include rollback/failure
+recovery and total 400 focused assertions; scope and caveats are in
+[the UI inventory](UI_REDESIGN_INVENTORY.md). The Docker smoke used a separate disposable
+data mount and verified every precached file against its integrity value.
+
+After deployment, all **34 served frontend files** matched the Docker image through
+both localhost and the public origin (68 matching responses;
+`/tmp/clc-2521-live-assets.json`). The signed-in browser showed v2.52.1 and the Connections
+screen without console errors. Print Station showed **Online**, **Enabled**, **Ready**,
+native v2.49.0, and no active batch. ManaSync still needs the owner's personal app token
+in Connections; no credential was invented or saved during QA. No real print, Discord
+message, inventory write or household deck edit was submitted during these checks.
+There is no feature-branch GitHub Actions run or registry release for this commit; the
+household stack uses the tested local image. The Portainer controller's saved definition
+still needs its private service fragment reconciled before a future Portainer redeploy.
 
 #### Queue operation
 
