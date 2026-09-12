@@ -36,17 +36,19 @@ export default function IntegrationAccess() {
   }
 
   return <section className="user-settings-section integration-access">
-    <h3>ManaSync access to CLC</h3>
-    <p>Create a token for this CLC account and paste it into ManaSync’s CLC connection. Deck access reads digital and paper snapshots. Proposal access lets ManaSync send edits for your review here. Creation access lets ManaSync immediately create new manual decks when you choose “Put it in CLC.” Existing tokens keep their current permissions.</p>
+    <span className="integration-access-eyebrow">Optional · Deck sharing</span>
+    <h3>Let ManaSync use your CLC decks</h3>
+    <p>This is the other direction: ManaSync reads your deck library from CLC. Create a CLC deck token here, then paste it into ManaSync’s CLC connection under <strong>More → Connected apps</strong>.</p>
+    <p>You do not need this step to check ownership or prepare printed proxies in CLC.</p>
     <form className="user-settings-form" onSubmit={create}>
-      <label htmlFor="integration-token-name">Token name</label>
+      <label htmlFor="integration-token-name">Connection name</label>
       <input id="integration-token-name" value={name} onChange={event => setName(event.target.value)} maxLength={100} required />
       <label className="integration-access-check"><input type="checkbox" checked={proposals} onChange={event => setProposals(event.target.checked)} /> Allow deck proposals for review</label>
       <label className="integration-access-check"><input type="checkbox" checked={creation} onChange={event => setCreation(event.target.checked)} /> Allow immediate creation of new decks</label>
-      <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>{busy ? 'Saving…' : 'Create integration token'}</button>
+      <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>{busy ? 'Saving…' : 'Create CLC deck token'}</button>
     </form>
     {token && <div className="integration-token-result">
-      <p>Copy this token now. It is shown only once.</p>
+      <p>Copy this CLC deck token now; it is shown only once. Paste it in ManaSync’s CLC connection, not in the collection connection above.</p>
       <input aria-label="New integration token" readOnly value={token} onFocus={event => event.target.select()} />
       <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigator.clipboard.writeText(token).catch(error => setError(error.message))}>Copy token</button>
       <button type="button" className="btn btn-secondary btn-sm" onClick={() => setToken(null)}>Hide token</button>
@@ -56,5 +58,6 @@ export default function IntegrationAccess() {
       <span><strong>{item.name}</strong> · {item.scopes.includes('decks:propose') ? 'Read and propose' : item.scopes.includes('decks:create') ? 'Read' : 'Read only'}{item.scopes.includes('decks:create') ? ' + create new decks' : ''} · {item.revokedAt ? 'Revoked' : 'Active'}</span>
       {!item.revokedAt && <button type="button" className="btn btn-secondary btn-sm" onClick={() => revoke(item.id)} disabled={busy}>Revoke</button>}
     </li>)}</ul>}
+    <details className="integration-access-help"><summary>Deck permissions explained</summary><p>Every token reads digital and paper deck snapshots. Proposals send edits back for your review in CLC. Creation lets ManaSync create a new CLC deck immediately when you choose “Put it in CLC.” Existing tokens keep their current permissions.</p></details>
   </section>;
 }

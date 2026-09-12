@@ -5,10 +5,10 @@ integrated `codex/project-audit-print-workflow` checkout. Source selection and d
 paired checks are documented in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification).
 The older companion feature-branch/archive paths are historical, not a second API contract.
 
-In CLC, open **Account Settings → ManaSync access to CLC**. Create a token with
+In CLC, open **Connections → Let ManaSync use your CLC decks**. Create a token with
 deck reads and, if desired, **Allow deck proposals for review** and the separate
 **Allow immediate creation of new decks**. Existing tokens keep their permissions. Copy the token
-into ManaSync's CLC connection while signed into the intended ManaSync account.
+into ManaSync's **More → Connected apps** CLC connection while signed into the intended ManaSync account.
 The token is displayed once; CLC stores only its SHA-256 hash. Revoke it from the
 same settings section to stop access immediately. Ordinary CLC login tokens
 continue to work with the new read endpoints.

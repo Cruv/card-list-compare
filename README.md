@@ -4,6 +4,25 @@ Compare two MTG deck lists side-by-side and generate detailed changelogs showing
 
 CLC generates Silhouette v6 PDFs from standalone print lists, full deck snapshots or version differences, with ordinary fronts followed by separate, one-sheet double-faced packets for that batch. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
+## Find your way around
+
+CLC uses a persistent desktop sidebar and a five-item bottom bar on phones. **More**
+opens Connections, Guide, Account settings and, for administrators, Administration.
+Dark and light themes share the same layout and remember your preference.
+
+| Area | What it is for |
+| --- | --- |
+| Compare | Import Before/After lists, review changes, export or send the captured comparison to printing. |
+| Deck library | Browse commander artwork, search/filter decks, track sources and open snapshot history. |
+| Print studio | Build an ad-hoc list or review a comparison; choose artwork, edit copies and generate PDFs. |
+| Print station | Check household readiness, handle labeled paper-flip packets and connect Discord alerts. |
+| Connections | Verify your ManaSync collection account; optionally grant ManaSync access to CLC decks. |
+| Guide | Read topic-based instructions for comparison, imports, tracking, analytics, printing and exports. |
+
+The full route, tab and overlay inventory is maintained in
+[UI redesign inventory](docs/UI_REDESIGN_INVENTORY.md). Browser validation evidence and
+any remaining native-device checks are recorded there rather than inferred from screenshots.
+
 ## Supported Architectures
 
 The image supports `linux/amd64`. Published to GitHub Container Registry.
@@ -70,7 +89,7 @@ latest upstream main and keeps a validated installation, dependencies and wheel 
 `./data/silhouette-card-maker/`. If an update fails, it retains its last compatible version.
 Without a usable cache on an offline first boot, the web app remains available and PDF
 generation stays unavailable. Set `PRINT_ENABLED=false` to disable runtime preparation.
-Allow at least 2 GiB of memory for 600 PPI sheet generation. Open **Print List** for an ad-hoc batch or use the Printing tab in a tracked deck; see [operations](docs/OPERATIONS.md#silhouette-runtime).
+Allow at least 2 GiB of memory for 600 PPI sheet generation. Open **Print studio** for an ad-hoc batch or use the Printing tab in a tracked deck; see [operations](docs/OPERATIONS.md#silhouette-runtime).
 
 ### docker cli
 
@@ -183,7 +202,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Whole deck or changes** — choose exact snapshots, default to the paper baseline, include sideboards optionally, and review physical copy counts. Replacing changed printings starts off; excluding basic lands starts on.
 - **Silhouette Card Maker v6** — actual upstream generation at 600 PPI, Letter, standard cards, 1 mm crop, three registration marks and seven cards per sheet.
 - **Print from a comparison** — choose **Print cards** in comparison results, a deck changelog or snapshot history. Review new copies or the full After list using the exact compared versions, even if the input fields have since changed. Sign-in preserves the selection; an existing print draft is kept until you choose to replace it.
-- **Standalone print lists** — open **Print List**, name a batch, then paste cards, upload a list or import a supported URL. The workflow separates choosing cards, reviewing artwork and tracking a batch. Your draft stays in this browser; prepared batches and PDFs stay in your account history. No tracked deck or snapshot is created.
+- **Standalone print lists** — open **Print studio**, name a batch, then paste cards, upload a list or import a supported URL. The workflow separates choosing cards, reviewing artwork and tracking a batch. Your draft stays in this browser; prepared batches and PDFs stay in your account history. No tracked deck or snapshot is created.
 - **Edit a print order** — remove cards you have on hand, restore them, or add extra cards and quantities. Review the updated artwork and sheet counts before generating; the source deck and snapshots stay unchanged.
 - **Artwork review and picker** — inspect compact front/back previews, exact printings, copy counts and double-sided labels. Choose **Pick art** on a card to select another Scryfall printing, or restore its original art. Overrides apply only to this print order and require a refreshed review. Ordinary sheets and DFC packets are counted separately; unresolved faces and unsupported meld layouts block generation. **Save art for home PDFs** in the MPC overlay supplies custom artwork for tracked decks.
 - **Filter and buy** — search and sort the reviewed artwork, filter by single/double-sided cards or ManaSync ownership, and copy or open a Mana Pool buy list of visible missing originals. Filters do not change the print order; incoming or owned originals are never added to the missing-card buy list.
@@ -240,6 +259,8 @@ Set changes with the same collector number and foil-only changes are included in
 
 ### Deck Library
 
+Commander artwork leads the library and deck headers. Full Deck offers a card gallery or compact list, name search, and full-size artwork previews; analytics, exports and ownership remain available in expandable tool sections.
+
 - **Deck tracker** &mdash; track Archidekt users and decks with automatic snapshot history
 - **Deck pages** &mdash; full-page view per deck with tabs for Snapshots, Changelog, Timeline, Full Deck, Printing, Analytics, and Settings
 - **Grid layout** &mdash; deck cards in a responsive grid showing name, commander, price, tags, and last updated date
@@ -257,7 +278,9 @@ Set changes with the same collector number and foil-only changes are included in
 
 ### Optional ManaSync integration
 
-ManaSync owns collection holdings, purchases, proxies, and physical locations. Connect it in CLC Settings using your own HTTP(S) domain, port, or reverse-proxy URL and a user-scoped token to check original ownership. One original in any printing covers unlimited proxy copies across all decks; incoming originals are identified and prevent duplicate buying. Shopping suggests one original per missing card, without changing print quantities. Prepared native batches automatically appear in **ManaSync → Proxy binder → Pending prints** with their exact front/back artwork. Confirm usable quantities or dismiss failed copies in ManaSync or CLC's **Confirm usable copies** panel; both apps share the result. Pending copies remain separate from available inventory. CLC also exposes scoped deck reads, optional manual deck creation, and a proposal inbox for reviewing ManaSync edits. Reviewed drafts survive refreshes, and uncertain decisions retain their original requests for recovery. Canonical Archidekt, Moxfield, and DeckCheck links let ManaSync reuse an existing source deck without replacing its list or creating another copy. With the explicit creation grant, new TapTogether provider URLs can start native CLC tracking automatically. Per-deck status shows unavailable provider lists while keeping snapshots and paper state intact; unsupported source printing identities, including etched finishes and collector numbers outside the deck-text grammar, wait for review instead of silently changing card identity.
+ManaSync owns collection holdings, purchases, proxies, and physical locations. Open **Connections** to connect to [manasync.net](https://manasync.net), which is prefilled. In ManaSync, choose **More → Integration access → Personal app tokens**, create the default CLC token, and paste it once into CLC. CLC verifies the account before saving and provides **Check connection** for saved credentials. **Using another ManaSync server?** accepts a custom HTTP(S) domain, port or reverse-proxy path. One original in any printing covers unlimited proxy copies across all decks; incoming originals are identified and prevent duplicate buying. Shopping suggests one original per missing card, without changing print quantities. Prepared native batches automatically appear in **ManaSync → Proxy binder → Pending prints** with their exact front/back artwork. Confirm usable quantities or dismiss failed copies in ManaSync or CLC's **Confirm usable copies** panel; both apps share the result. Pending copies remain separate from available inventory. CLC also exposes scoped deck reads, optional manual deck creation, and a proposal inbox for reviewing ManaSync edits. Reviewed drafts survive refreshes, and uncertain decisions retain their original requests for recovery. Canonical Archidekt, Moxfield, and DeckCheck links let ManaSync reuse an existing source deck without replacing its list or creating another copy. With the explicit creation grant, new TapTogether provider URLs can start native CLC tracking automatically. Per-deck status shows unavailable provider lists while keeping snapshots and paper state intact; unsupported source printing identities, including etched finishes and collector numbers outside the deck-text grammar, wait for review instead of silently changing card identity.
+
+Collection access and deck access are separate directions. The optional **Let ManaSync use your CLC decks** section creates a CLC token to paste into ManaSync’s **More → Connected apps**. Deck reads are the default; proposals and immediate deck creation remain explicit grants. A CLC deck token cannot substitute for the ManaSync collection token.
 
 ManaSync is available in [dennysparking/manasync](https://github.com/dennysparking/manasync).
 Current paired verification uses ManaSync `codex/clc-bridge-verification` and CLC
@@ -296,7 +319,7 @@ feature stays retired; existing legacy rows remain in backups with no automatic 
 - **Image progress** &mdash; counts image files consistently, including repeated copies and both DFC faces; cached images count toward the same total
 - **DFC image retrieval** &mdash; paired Scryfall front/back files share a copy number; household PDFs preserve the corresponding page/slot pairing
 
-These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. For household printing, use **Print List** or a deck’s Printing tab: both generate validated Silhouette PDFs and expose the native Mac station queue. Local Epson driver/color settings still require a physical proof. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. For household printing, use **Print studio** or a deck’s Printing tab: both generate validated Silhouette PDFs and expose the native Mac station queue. Local Epson driver/color settings still require a physical proof. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ### Card Display
 

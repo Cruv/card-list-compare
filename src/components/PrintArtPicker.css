@@ -1,22 +1,32 @@
-.print-art-picker-backdrop { position: fixed; inset: 0; z-index: 250; display: grid; place-items: center; padding: 20px; background: rgb(0 0 0 / .7); }
-.print-art-picker { width: min(100%, 980px); max-height: 92dvh; min-height: 0; display: flex; flex-direction: column; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 48px rgb(0 0 0 / .3); }
-.print-art-picker header { display: flex; justify-content: space-between; align-items: start; gap: 16px; padding: 18px 20px 8px; }
+.print-art-picker-backdrop { position: fixed; inset: 0; z-index: 250; display: grid; place-items: center; padding: 24px; background: rgb(0 0 0 / .72); backdrop-filter: blur(5px); }
+.print-art-picker { width: min(100%, 980px); max-height: 92dvh; min-height: min(420px, 80dvh); display: flex; flex-direction: column; color: var(--text-primary); background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 20px; overflow: hidden; box-shadow: var(--shadow-lg); }
+.print-art-picker header { display: flex; justify-content: space-between; align-items: start; gap: 16px; padding: 24px 24px 12px; }
 .print-art-picker h2 { margin: 0 0 7px; font-size: var(--fs-lg); overflow-wrap: anywhere; }
 .print-art-picker p { margin: 6px 0; line-height: 1.5; color: var(--text-secondary); font-size: var(--fs-sm); }
-.print-art-picker header button { flex-shrink: 0; }
-.print-art-picker-filter { display: grid; gap: 5px; margin: 8px 20px 0; font-size: var(--fs-sm); color: var(--text-secondary); }
-.print-art-picker-filter input { min-width: 0; width: 100%; padding: 9px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.print-art-picker header button { flex-shrink: 0; min-height: 44px; }
+.print-art-picker-filter { display: grid; gap: 6px; margin: 8px 24px 0; font-size: var(--fs-sm); color: var(--text-secondary); }
+.print-art-picker-filter input { min-width: 0; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .print-art-picker .print-art-picker-status { margin: 8px 20px; }
-.print-art-picker-results { min-height: 0; overflow: auto; padding: 6px 20px 16px; }
+.print-art-picker-results { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 6px 24px 20px; }
 .print-art-picker-results ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 16px; padding: 0; margin: 0; list-style: none; }
-.print-art-picker-results li { min-width: 0; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); }
+.print-art-picker-results li { min-width: 0; padding: 12px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-primary); }
 .print-art-picker-results strong { display: block; margin-top: 10px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
-.print-art-picker-results li > button { margin-top: 6px; width: 100%; }
+.print-art-picker-results li > button { margin-top: 10px; width: 100%; min-height: 42px; }
 .print-art-picker-faces { display: flex; align-items: start; gap: 8px; }
 .print-art-picker-faces figure { flex: 1; min-width: 0; margin: 0; }
 .print-art-picker-faces img { display: block; width: 100%; aspect-ratio: 5 / 7; object-fit: contain; border-radius: 6px; }
 .print-art-picker-faces figcaption { margin-top: 6px; color: var(--text-secondary); font-size: var(--fs-xs, 12px); overflow-wrap: anywhere; }
 .print-art-picker-missing { display: grid; place-content: center; aspect-ratio: 5 / 7; padding: 6px; text-align: center; color: var(--text-secondary); }
 .print-art-picker-error { margin: 8px 20px; padding: 10px; border: 1px solid var(--accent-red); border-radius: 6px; }
-.print-art-picker footer { padding: 10px 20px 16px; border-top: 1px solid var(--border-color); }
-@media (max-width: 560px) { .print-art-picker-backdrop { padding: 8px; } .print-art-picker { max-height: 96dvh; } .print-art-picker header { padding: 14px 12px 5px; } .print-art-picker-filter, .print-art-picker .print-art-picker-status { margin-left: 12px; margin-right: 12px; } .print-art-picker-results { padding: 6px 12px 12px; } .print-art-picker footer { padding: 10px 12px; } }
+.print-art-picker footer { padding: 12px 24px 18px; border-top: 1px solid var(--border-color); }
+@media (max-width: 560px) {
+  .print-art-picker-backdrop { display: flex; align-items: flex-end; padding: 0; }
+  .print-art-picker { max-height: calc(100dvh - max(16px, env(safe-area-inset-top))); border-radius: 22px 22px 0 0; }
+  .print-art-picker header { padding: 20px 16px 8px; }
+  .print-art-picker-filter, .print-art-picker .print-art-picker-status { margin-left: 16px; margin-right: 16px; }
+  .print-art-picker-results { padding: 6px 16px 16px; }
+  .print-art-picker-results ul { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .print-art-picker-results li { padding: 9px; }
+  .print-art-picker-faces { gap: 4px; }
+  .print-art-picker footer { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+}

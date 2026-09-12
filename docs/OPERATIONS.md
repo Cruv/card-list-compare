@@ -340,7 +340,7 @@ this server feature requires no companion installation or printer change.
 
 #### Queue operation
 
-Open **Print List** for a standalone batch, or a tracked deck's Printing tab for snapshot
+Open **Print studio** for a standalone batch, or a tracked deck's Printing tab for snapshot
 plans. Both show artwork review, editable card selections, PDF downloads and job status.
 Standalone jobs store a null tracked-deck ID; startup migrates the old non-null column
 while retaining existing job IDs, requests, manifests and events. Set a
@@ -483,7 +483,7 @@ pending print report. Back up `.manasync-bridge-key` beside `DB_PATH` as well as
 or retain the separately managed `MANASYNC_BRIDGE_KEY`. A database-only admin export does
 not contain the key. Restore the matching key before retrying operations.
 
-Enter the server-reachable ManaSync URL and user integration token in CLC Settings.
+Open **Connections** (under **More** on phones). `https://manasync.net` is prefilled; enter a custom server address only when needed. Create the default CLC personal app token in ManaSync’s **More → Integration access**, then paste it into CLC. Use **Check connection** to verify a saved grant without an inventory write.
 Custom domains, ports, and reverse-proxy base paths need no server allowlist. Compose
 forwards only the optional managed encryption key for this connection.
 See [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md) for connection and receipt recovery. Token

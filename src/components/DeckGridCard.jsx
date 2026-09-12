@@ -1,93 +1,66 @@
 import { memo } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
-import './DeckGridCard.css';
+import { deckCommanders } from '../hooks/useDeckArtwork';
+import DeckArtwork from './DeckArtwork';
 import { sourceStatusLabel } from '../lib/sourceSync';
+import './DeckGridCard.css';
 import './SourceSyncReview.css';
 
 function formatDate(dateStr) {
   if (!dateStr) return null;
   const d = new Date(dateStr + (dateStr.endsWith('Z') ? '' : 'Z'));
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export default memo(function DeckGridCard({ deck, bulkMode, isSelected, onToggleSelect }) {
+export default memo(function DeckGridCard({ deck, imageUri, bulkMode, isSelected, onToggleSelect }) {
   const { priceDisplayEnabled } = useAppSettings();
-
-  let commanders = [];
-  try { commanders = JSON.parse(deck.commanders || '[]'); } catch { /* ignore */ }
-
+  const commanders = deckCommanders(deck);
   const tags = deck.tags || [];
-  const hasBudgetPrice = priceDisplayEnabled && deck.last_known_budget_price != null
-    && deck.last_known_budget_price > 0
+  const hasBudgetPrice = priceDisplayEnabled && deck.last_known_budget_price > 0
     && deck.last_known_price > 0
     && Math.abs(deck.last_known_budget_price - deck.last_known_price) >= 0.01;
+  const sourceName = { archidekt: 'Archidekt', moxfield: 'Moxfield', deckcheck: 'DeckCheck', manual: 'Manual deck' }[deck.source_type]
+    || (deck.archidekt_username ? `@${deck.archidekt_username}` : 'Tracked deck');
+  const updated = formatDate(deck.latest_snapshot_at);
 
   function handleClick() {
-    if (bulkMode) {
-      onToggleSelect(deck.id);
-      return;
-    }
-    window.location.hash = '#library/' + deck.id;
+    if (bulkMode) onToggleSelect(deck.id);
+    else window.location.hash = '#library/' + deck.id;
   }
 
   return (
-    <div
-      className={`deck-grid-card${deck.pinned ? ' deck-grid-card--pinned' : ''}${isSelected ? ' deck-grid-card--selected' : ''}`}
-      onClick={handleClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(e); } }}
-    >
-      {bulkMode && (
-        <input
-          type="checkbox"
-          className="deck-grid-card-checkbox"
-          checked={isSelected}
-          onChange={() => onToggleSelect(deck.id)}
-          onClick={e => e.stopPropagation()}
-        />
-      )}
-
-      <div className="deck-grid-card-header">
-        <span className="deck-grid-card-name">{deck.deck_name}</span>
-        {priceDisplayEnabled && deck.last_known_price > 0 && (
-          <div className="deck-grid-card-prices">
-            <span className="deck-grid-card-price">${deck.last_known_price.toFixed(2)}</span>
-            {hasBudgetPrice && (
-              <span className="deck-grid-card-budget">Cheapest printing: ${deck.last_known_budget_price.toFixed(2)}</span>
-            )}
+    <article className={`deck-grid-card${deck.pinned ? ' deck-grid-card--pinned' : ''}${isSelected ? ' deck-grid-card--selected' : ''}`}>
+      <button className="deck-grid-card-open" onClick={handleClick} type="button"
+        aria-label={`${bulkMode ? 'Select' : 'Open'} ${deck.deck_name}`}
+        aria-pressed={bulkMode ? !!isSelected : undefined}>
+        <div className="deck-grid-card-cover">
+          <DeckArtwork imageUri={imageUri} />
+          <div className="deck-grid-card-cover-badges">
+            {deck.pinned ? <span className="deck-grid-card-badge">Pinned</span> : null}
+            {deck.paper_snapshot_id ? <span className="deck-grid-card-badge deck-grid-card-badge--paper">Paper</span> : null}
+            {deck.share_id ? <span className="deck-grid-card-badge">Shared</span> : null}
           </div>
-        )}
-      </div>
-
-      {commanders.length > 0 && (
-        <div className="deck-grid-card-commander">
-          {commanders.join(' / ')}
+          {bulkMode && <span className={`deck-grid-card-selection${isSelected ? ' is-selected' : ''}`} aria-hidden="true">{isSelected ? '✓' : ''}</span>}
         </div>
-      )}
-
-      <div className="deck-grid-card-meta">
-        <span className="deck-grid-card-owner">{deck.source_type === 'manual' ? 'Manual deck' : `@${deck.archidekt_username}`}</span>
-        <span className="deck-grid-card-snapshots">{deck.snapshot_count} snap{deck.snapshot_count !== 1 ? 's' : ''}</span>
-        {deck.latest_snapshot_at && (
-          <span className="deck-grid-card-date">Last Updated: {formatDate(deck.latest_snapshot_at)}</span>
-        )}
-        {deck.share_id && <span className="deck-grid-card-badge deck-grid-card-badge--shared">Shared</span>}
-        {deck.paper_snapshot_id && <span className="deck-grid-card-badge deck-grid-card-badge--paper">Paper</span>}
-        {deck.source_type !== 'manual' && ['pending_review', 'local_changes'].includes(deck.source_sync?.status) &&
-          <span className={`source-sync-badge${deck.source_sync.status === 'pending_review' ? ' source-sync-badge--pending' : ''}`}>{sourceStatusLabel(deck.source_sync.status)}</span>}
-      </div>
-
-      {tags.length > 0 && (
-        <div className="deck-grid-card-tags">
-          {tags.slice(0, 3).map(tag => (
-            <span key={tag} className="deck-grid-card-tag">{tag}</span>
-          ))}
-          {tags.length > 3 && (
-            <span className="deck-grid-card-tag deck-grid-card-tag--more">+{tags.length - 3}</span>
-          )}
+        <div className="deck-grid-card-body">
+          <div className="deck-grid-card-header"><h3 className="deck-grid-card-name">{deck.deck_name}</h3></div>
+          <div className="deck-grid-card-commander">{commanders.length ? commanders.join(' / ') : sourceName}</div>
+          <div className="deck-grid-card-meta">
+            <span>{deck.snapshot_count || 0} snapshot{deck.snapshot_count === 1 ? '' : 's'}</span>
+            {updated && <span title="Last updated">{updated}</span>}
+          </div>
+          {priceDisplayEnabled && deck.last_known_price > 0 && <div className="deck-grid-card-prices">
+            <span className="deck-grid-card-price">${deck.last_known_price.toFixed(2)}</span>
+            {hasBudgetPrice && <span className="deck-grid-card-budget">From ${deck.last_known_budget_price.toFixed(2)}</span>}
+          </div>}
+          {deck.source_type !== 'manual' && ['pending_review', 'local_changes'].includes(deck.source_sync?.status) &&
+            <span className={`source-sync-badge${deck.source_sync.status === 'pending_review' ? ' source-sync-badge--pending' : ''}`}>{sourceStatusLabel(deck.source_sync.status)}</span>}
+          {tags.length > 0 && <div className="deck-grid-card-tags">
+            {tags.slice(0, 3).map(tag => <span key={tag} className="deck-grid-card-tag">{tag}</span>)}
+            {tags.length > 3 && <span className="deck-grid-card-tag">+{tags.length - 3}</span>}
+          </div>}
         </div>
-      )}
-    </div>
+      </button>
+    </article>
   );
-})
+});

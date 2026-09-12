@@ -14,8 +14,9 @@ A server without the new endpoints leaves prepared batches waiting with an updat
 
 ## Try the pending-print workflow
 
-1. Connect CLC to ManaSync in Settings with `inventory:read` and `proxies:write`. Use the
-   server-reachable domain/port; a bare hostname uses HTTPS. Keep both databases durable.
+1. Connect CLC to ManaSync in **Connections** with `inventory:read` and `proxies:write`.
+   `https://manasync.net` is prefilled; **Using another ManaSync server?** accepts a custom
+   server-reachable domain/port. Use **Check connection** to verify a saved token. Keep both databases durable.
 2. In a CLC deck's Printing tab, review a small list. Check ownership and the selected Mana
    Pool shortage link. Prepare a batch using saved front/back MPC art or Scryfall printings.
 3. When its PDFs are ready, open ManaSync's **Proxy binder → Pending prints**. The prepared

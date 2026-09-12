@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import './GuidePage.css';
 
 const SECTIONS = [
@@ -16,7 +16,9 @@ const SECTIONS = [
 function GettingStarted() {
   return (
     <div className="guide-section">
+
       <h3>Getting Started</h3>
+      <p>Use the sidebar on a computer or the bottom navigation on your phone. <strong>More</strong> opens Connections, Guide and Account settings. <strong>Print studio</strong> starts an ad-hoc batch, while tracked decks keep their own Printing tab. The header has your account, sign-out and theme controls.</p>
       <p>
         Card List Compare helps you compare MTG deck lists to see exactly what changed between
         two versions of a deck. Whether you're iterating on a Commander brew, tracking changes
@@ -191,7 +193,7 @@ function DeckLibrary() {
       <h3>Deck Library</h3>
       <h4>ManaSync deck integration</h4>
       <p>
-        Create a revocable integration token under <strong>Settings &rarr; Account</strong>.
+        Under <strong>Connections</strong>, open <strong>Let ManaSync use your CLC decks</strong> to create a revocable integration token.
         Grant deck reads for ManaSync polling and the separate proposal permission if you want
         to send deck edits back for review. Each deck&rsquo;s <strong>ManaSync proposals</strong>
         panel compares the submitted base, proposed text, and current digital latest.
@@ -247,7 +249,7 @@ function DeckLibrary() {
       <h4>Tracking Decks</h4>
       <ol className="guide-steps">
         <li>
-          Go to the <strong>Deck Tracker</strong> tab and enter an Archidekt username.
+          Go to the <strong>Track decks</strong> section and enter an Archidekt username.
         </li>
         <li>
           Browse their public decks and click <strong>Track</strong> on any deck you want to follow.
@@ -309,7 +311,7 @@ function DeckLibrary() {
       </ul>
       <p>
         ManaSync manages your collection holdings and locations. Connect it under
-        <strong> Settings &rarr; Account</strong> to view ownership and prepare shopping lists
+        <strong> Connections</strong> to view ownership and prepare shopping lists
         from a deck&rsquo;s <strong>Full Deck</strong> tab or reviewed <strong>Printing</strong> list. CLC tracks deck versions and paper
         snapshots; inventory changes require a separate physical-print confirmation.
       </p>
@@ -364,8 +366,7 @@ function ProxyPrinting() {
 
       <h4>ManaSync ownership, shopping, and confirmed prints</h4>
       <p>
-        In <strong>Settings &rarr; Account</strong>, connect your ManaSync backend with a
-        dedicated token granting <code>inventory:read</code> and <code>proxies:write</code>.
+        In <strong>Connections</strong>, open <strong>manasync.net</strong>, go to <strong>More → Integration access → Personal app tokens</strong>, and create a CLC token with collection-read and proxy-write access. Paste that token into CLC and choose <strong>Connect ManaSync</strong>. The connected account will appear after verification.
         Use your own domain, port, LAN address, or reverse-proxy path; no server allowlist is
         needed. Bare domains use HTTPS. Review the connected account shown on screen. In a tracked deck&rsquo;s
         <strong> Full Deck</strong> tab, open <strong>ManaSync ownership and Mana Pool shopping</strong>.
@@ -475,10 +476,10 @@ function ProxyPrinting() {
         recover an unresolved batch request before replacing its input.
       </p>
       <p>
-        Open <strong>Print List</strong> in the navigation for an ad-hoc batch. Name it,
+        Open <strong>Print studio</strong> in the navigation for an ad-hoc batch. Name it,
         paste cards, upload a list, or import a supported URL. This uses Scryfall artwork
         without creating a tracked deck or snapshot. Your draft stays in this browser;
-        generated batches stay in your account&rsquo;s Print List history with their PDFs
+        generated batches stay in your account&rsquo;s Print studio history with their PDFs
         and proxy confirmations.
       </p>
       <p>
@@ -702,7 +703,7 @@ function FAQ() {
       <div className="guide-faq-item">
         <p className="guide-faq-q">How do I track a deck?</p>
         <p className="guide-faq-a">
-          Go to the <strong>Decks</strong> page, enter an Archidekt username in the Deck Tracker
+          Go to the <strong>Decks</strong> page, enter an Archidekt username under Track decks
           tab, and click <strong>Track</strong> on any deck. The app will take an initial snapshot
           and track changes from that point.
         </p>
@@ -810,26 +811,19 @@ const SECTION_COMPONENTS = {
 export default function GuidePage() {
   const [activeSection, setActiveSection] = useState('getting-started');
 
-  const handleBack = useCallback(() => {
-    window.location.hash = '';
-  }, []);
-
   const ContentComponent = SECTION_COMPONENTS[activeSection] || GettingStarted;
 
   return (
     <div className="guide-page">
+      <header className="page-heading"><p className="eyebrow">A little guidance</p><h1>Make the most of CLC.</h1><p>From your first comparison to a fresh stack of cards. Find the workflow you need.</p></header>
       <aside className="guide-sidebar">
-        <div className="guide-sidebar-header">
-          <h2 className="guide-sidebar-title">Guide</h2>
-          <button className="guide-back-link" onClick={handleBack} type="button">
-            &larr; Back to Compare
-          </button>
-        </div>
-        <nav className="guide-sidebar-nav">
+        <label className="guide-section-select">Jump to a topic<select value={activeSection} onChange={e => setActiveSection(e.target.value)}>{SECTIONS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
+        <nav className="guide-sidebar-nav" aria-label="Guide topics">
           {SECTIONS.map((s) => (
             <button
               key={s.key}
               className={`guide-nav-item${activeSection === s.key ? ' guide-nav-item--active' : ''}`}
+              aria-current={activeSection === s.key ? 'page' : undefined}
               onClick={() => setActiveSection(s.key)}
               type="button"
             >
@@ -838,9 +832,9 @@ export default function GuidePage() {
           ))}
         </nav>
       </aside>
-      <main className="guide-content">
+      <article className="guide-content" aria-live="polite">
         <ContentComponent />
-      </main>
+      </article>
     </div>
   );
 }

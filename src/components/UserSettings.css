@@ -1783,3 +1783,30 @@
   color: var(--text-primary);
   text-transform: capitalize;
 }
+
+/* Account workspace. Tracker styles above are also shared by deck history. */
+.settings-page { max-width: 880px; width: 100%; padding: 0; }
+.settings-page > .user-settings { background: none; border: 0; border-radius: 0; padding: 0; box-shadow: none; }
+.settings-page .user-settings-tabs { border-bottom: none; gap: 8px; padding-bottom: 8px; }
+.settings-page .user-settings-tab { min-height: 44px; border: 0; border-radius: 10px; padding: 10px 18px; font-size: 13px; }
+.settings-page .user-settings-tab--active { background: var(--accent-soft); color: var(--accent); }
+.settings-page .user-settings-panel { display: grid; gap: 20px; }
+.settings-page .user-settings-section { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 16px; padding: 28px; }
+.settings-page .user-settings-section h3 { font-size: 18px; letter-spacing: -.2px; margin-bottom: 20px; }
+.settings-page .user-settings-form { max-width: 560px; gap: 12px; }
+.settings-page .user-settings-form input { background: var(--bg-primary); min-height: 46px; }
+.settings-page .user-settings-optional { opacity: 1; color: var(--text-muted); }
+.settings-page .user-settings-field { padding: 10px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 10px; }
+.settings-page .user-settings-field label { min-width: 130px; font-size: 12px; }
+.settings-page .user-settings-danger { border-color: var(--border-destructive); }
+.settings-page .user-settings-danger h3 { color: var(--text-destructive); }
+.settings-page .settings-invite-item { padding: 16px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 10px; }
+.settings-page .settings-invite-copy { min-height: 44px; min-width: 44px; }
+.settings-page .settings-invite-create input, .settings-page .settings-invite-create select { min-height: 44px; }
+@media(max-width: 600px) { .settings-page .user-settings-section { padding: 20px; } .settings-page .user-settings-input-row { flex-wrap: wrap; } .settings-page .user-settings-input-row input { min-width: 0; width: 100%; flex-basis: 100%; } .settings-page .user-settings-field { flex-wrap: wrap; } }
+.password-panel.user-settings { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 18px; padding: 28px; box-shadow: none; }
+.app-auth-required .password-panel { border: 0; padding: 0; text-align: left; margin-top: 24px; }
+.password-panel .user-settings-section { padding: 18px 0 0; }
+.password-panel .user-settings-input-row { flex-wrap: wrap; }
+.password-panel input { min-width: 0; width: 100%; min-height: 46px; background: var(--bg-primary); }
+.password-panel .user-settings-input-row input { flex-basis: 100%; }

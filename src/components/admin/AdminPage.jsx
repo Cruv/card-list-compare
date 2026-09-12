@@ -6,15 +6,16 @@ import AdminSettings from './AdminSettings';
 import AdminShares from './AdminShares';
 import AdminAuditLog from './AdminAuditLog';
 import AdminInvites from './AdminInvites';
+import Icon from '../Icon';
 import './AdminPage.css';
 
 const SECTIONS = [
-  { key: 'dashboard', label: 'Dashboard', icon: '📊' },
-  { key: 'users', label: 'Users', icon: '👥' },
-  { key: 'invites', label: 'Invites', icon: '🎟️' },
-  { key: 'settings', label: 'Settings', icon: '⚙️' },
-  { key: 'shares', label: 'Shares', icon: '🔗' },
-  { key: 'audit', label: 'Audit Log', icon: '📋' },
+  { key: 'dashboard', label: 'Dashboard', icon: 'station' },
+  { key: 'users', label: 'Users', icon: 'user' },
+  { key: 'invites', label: 'Invites', icon: 'plus' },
+  { key: 'settings', label: 'Settings', icon: 'settings' },
+  { key: 'shares', label: 'Shares', icon: 'connections' },
+  { key: 'audit', label: 'Audit Log', icon: 'guide' },
 ];
 
 export default function AdminPage() {
@@ -63,33 +64,26 @@ export default function AdminPage() {
 
   return (
     <div className="admin-page">
+      <header className="page-heading"><p className="eyebrow">Behind the scenes</p><h1>Administration</h1><p>A clear view of your community, activity and app settings.</p></header>
       <aside className="admin-sidebar">
-        <div className="admin-sidebar-header">
-          <h2 className="admin-sidebar-title">Admin</h2>
-          <button className="admin-back-link" onClick={handleBack} type="button">
-            &larr; Back to Compare
-          </button>
-        </div>
-        <nav className="admin-sidebar-nav">
+        <nav className="admin-sidebar-nav" aria-label="Administration sections">
           {SECTIONS.map((s) => (
             <button
               key={s.key}
               className={`admin-nav-item${activeSection === s.key ? ' admin-nav-item--active' : ''}`}
+              aria-current={activeSection === s.key ? 'page' : undefined}
               onClick={() => setActiveSection(s.key)}
               type="button"
             >
-              <span className="admin-nav-icon">{s.icon}</span>
+              <Icon name={s.icon} size={18} />
               {s.label}
             </button>
           ))}
         </nav>
-        <div className="admin-sidebar-footer">
-          <span className="admin-sidebar-user">Logged in as <strong>{user.username}</strong></span>
-        </div>
       </aside>
-      <main className="admin-content">
+      <section className="admin-content" aria-live="polite">
         {content}
-      </main>
+      </section>
     </div>
   );
 }

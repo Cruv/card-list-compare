@@ -317,7 +317,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
                 <button
                   className="btn btn-secondary btn-sm"
                   type="button"
-                  onClick={() => setShowMpc(true)}
+                  onClick={event => { event.currentTarget.focus(); setShowMpc(true); }}
                 >
                   Print Proxies
                 </button>

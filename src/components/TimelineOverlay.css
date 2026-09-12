@@ -341,3 +341,18 @@
     display: none;
   }
 }
+
+/* Shared workspace appearance, retaining each overlay's interaction model. */
+.timeline-overlay { padding: 24px; background: #000b; }
+.timeline-overlay-panel { border-radius: 20px; max-height: calc(100dvh - 48px); background: var(--bg-secondary); }
+.timeline-overlay-header { padding: 20px; }
+.timeline-overlay-title { font-size: 19px; line-height: 1.3; letter-spacing: -.02em; white-space: normal; }
+.timeline-overlay-close { min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; border: 1px solid var(--border-color); border-radius: 10px; padding: 8px; color: var(--text-secondary); }
+.timeline-overlay input, .timeline-overlay select, .timeline-overlay textarea { border-radius: 8px; }
+@media (max-width: 600px) {
+  .timeline-overlay { padding: 0; }
+  .timeline-overlay-panel { max-height: 100dvh; border-radius: 0; width: 100%; height: 100dvh; border: 0; }
+  .timeline-overlay-header { padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 14px; }
+  .timeline-overlay input, .timeline-overlay select, .timeline-overlay textarea { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .timeline-overlay, .timeline-overlay-panel { animation: none; } }

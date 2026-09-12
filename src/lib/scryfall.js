@@ -17,8 +17,8 @@ import { cardIdentityKey, normalizedName, normalizeCardName } from './cardIdenti
 
 const SCRYFALL_BATCH_SIZE = 75;
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-// Earlier caches lack the resolved identity required for ManaSync ownership.
-const STORAGE_KEY = 'clc-scryfall-cache-v3';
+// Covers need separate illustration crops; old printing images remain unchanged.
+const STORAGE_KEY = 'clc-scryfall-cache-v4';
 const STORAGE_WRITE_DEBOUNCE = 2000; // ms — batch writes to sessionStorage
 const STORAGE_MAX_ENTRIES = 2000; // cap to ~400KB in sessionStorage
 
@@ -180,6 +180,7 @@ function extractCardData(card) {
     isBackLand: (card.card_faces?.[1]?.type_line || '').includes('Land'),
     manaCost: getManaCost(card),
     imageUri: getImageUri(card),
+    artCropUri: card.image_uris?.art_crop || card.card_faces?.[0]?.image_uris?.art_crop || null,
     priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
     priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
     colorIdentity: card.color_identity || [],

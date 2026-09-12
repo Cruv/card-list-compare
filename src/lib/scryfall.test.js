@@ -47,6 +47,22 @@ describe('fetchCardData DFC front-face aliasing (audit H6)', () => {
   });
 });
 
+describe('decorative deck covers', () => {
+  it('keeps front-face artwork crops separate from the full printing image', async () => {
+    const dfc = { ...DFC_CARD, card_faces: [
+      { image_uris: { normal: 'https://img/front.jpg', art_crop: 'https://img/front-art.jpg' } },
+      { image_uris: { normal: 'https://img/back.jpg', art_crop: 'https://img/back-art.jpg' } },
+    ] };
+    const single = { name: 'Sol Ring', type_line: 'Artifact', image_uris: { normal: 'https://img/ring.jpg', art_crop: 'https://img/ring-art.jpg' } };
+    fetch.mockResolvedValue({ ok: true, json: async () => ({ data: [dfc, single] }) });
+    const map = await fetchCardData(['Fable of the Mirror-Breaker', 'Sol Ring']);
+    expect(map.get('fable of the mirror-breaker').artCropUri).toBe('https://img/front-art.jpg');
+    expect(map.get('fable of the mirror-breaker').imageUri).toBe('https://img/front.jpg');
+    expect(map.get('sol ring').artCropUri).toBe('https://img/ring-art.jpg');
+    expect(map.get('sol ring').imageUri).toBe('https://img/ring.jpg');
+  });
+});
+
 describe('primaryType', () => {
   it('uses the front face of a DFC type_line', () => {
     expect(primaryType('Enchantment — Saga // Legendary Artifact Creature — Goblin')).toBe('Enchantment');

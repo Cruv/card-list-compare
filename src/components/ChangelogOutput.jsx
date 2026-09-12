@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
 import PrintComparisonButton from './PrintComparisonButton';
+import Icon from './Icon';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS } from '../lib/formatter';
 import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
@@ -60,59 +61,20 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
   }, []);
 
   return (
-    <div className="changelog-output">
+    <div className="changelog-output" aria-label="Comparison results">
       <div className="changelog-output-header">
+        <div className="changelog-output-heading">
+        <p className="changelog-output-eyebrow">Your comparison</p>
+        <h2 className="changelog-output-title">Changelog</h2>
         {commanderLabel && (
-          <h2 className="changelog-output-commander">{commanderLabel}</h2>
+          <p className="changelog-output-commander">{commanderLabel}</p>
         )}
-        <h2 className="changelog-output-title">
-          Changelog
-          <span className="changelog-output-timestamp">
-            {new Date().toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}{' '}
-            {new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-          </span>
-        </h2>
-        {!noChanges && (
-          <div className="changelog-output-summary">
-            {totalIn > 0 && <span className="summary-badge summary-badge--in">+{totalIn} in</span>}
-            {totalOut > 0 && (
-              <span className="summary-badge summary-badge--out">-{totalOut} out</span>
-            )}
-            {totalChanged > 0 && (
-              <span className="summary-badge summary-badge--changed">
-                ~{totalChanged} changed
-              </span>
-            )}
-            {totalPrinting > 0 && (
-              <span className="summary-badge summary-badge--printing">
-                &#8635;{totalPrinting} reprinted
-              </span>
-            )}
-            {unchangedPct > 0 && (
-              <span className="summary-badge summary-badge--unchanged">
-                {unchangedPct}% unchanged
-              </span>
-            )}
-          </div>
-        )}
+        <p className="changelog-output-caption">See what changed, then prepare your next print batch.</p>
+        </div>
         <div className="changelog-output-buttons">
           <PrintComparisonButton beforeText={beforeText} afterText={afterText}
             listName={commanderLabel ? `${commanderLabel} comparison` : 'Compared lists'} />
-          {hasAdditions && (
-            <CopyButton
-              getText={() => formatMpcFill(diffResult)}
-              label="Copy for MPCFill"
-              className="copy-btn copy-btn--mpc"
-            />
-          )}
           {!noChanges && <CopyButton getText={() => formatChangelog(diffResult, cardMap)} label="Copy Changelog" />}
-          {afterText && (
-            <CopyButton
-              getText={() => formatForArchidekt(afterText, commanders, beforeText)}
-              label="Copy for Archidekt"
-              className="copy-btn copy-btn--archidekt"
-            />
-          )}
           <MoreMenu
             diffResult={diffResult}
             cardMap={cardMap}
@@ -124,11 +86,38 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
         </div>
       </div>
 
+      {!noChanges && <div className="changelog-output-summary" aria-label="Change summary">
+        <div className="changelog-stat changelog-stat--in"><strong>{totalIn}</strong><span>Cards in</span></div>
+        <div className="changelog-stat changelog-stat--out"><strong>{totalOut}</strong><span>Cards out</span></div>
+        <div className="changelog-stat changelog-stat--changed"><strong>{totalChanged}</strong><span>Quantity changes</span></div>
+        <div className="changelog-stat changelog-stat--printing"><strong>{totalPrinting}</strong><span>Printing changes</span></div>
+      </div>}
+      <div className="changelog-output-export-bar">
+        <span className="changelog-output-export-note">{noChanges ? 'No changes in this comparison' : `${unchangedPct}% of unique cards unchanged`}</span>
+        <div className="changelog-output-export-actions">
+          {hasAdditions && (
+            <CopyButton
+              getText={() => formatMpcFill(diffResult)}
+              label="Copy for MPCFill"
+              className="copy-btn copy-btn--mpc"
+            />
+          )}
+          {afterText && (
+            <CopyButton
+              getText={() => formatForArchidekt(afterText, commanders, beforeText)}
+              label="Copy for Archidekt"
+              className="copy-btn copy-btn--archidekt"
+            />
+          )}
+        </div>
+      </div>
+
       {noChanges ? (
-        <p className="changelog-output-identical">Lists are identical — no changes detected.</p>
+        <div className="changelog-output-identical"><Icon name="check" size={28} /><p>Lists are identical — no changes detected.</p><span>You can still print the complete After list.</span></div>
       ) : (
         <div className="changelog-output-body">
           <div className="changelog-search">
+            <Icon name="search" size={18} />
             <input
               type="text"
               className="changelog-search-input"
@@ -144,10 +133,11 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
                 onClick={clearSearch}
                 aria-label="Clear search"
               >
-                &times;
+                <Icon name="close" size={18} />
               </button>
             )}
           </div>
+          {searchQuery && <p className="changelog-filter-note">Filtering the view only. Copies, exports, and printing use the full comparison.</p>}
           <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={cardMap} />
           {hasSideboard && <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={cardMap} />}
         </div>
@@ -165,20 +155,21 @@ function MoreMenu({ diffResult, cardMap, afterText, noChanges, onShare, commande
     function handleClick(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
     }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('pointerdown', handleClick);
+    return () => document.removeEventListener('pointerdown', handleClick);
   }, [open]);
 
   return (
-    <div className="more-menu" ref={menuRef}>
+    <div className="more-menu" ref={menuRef} onKeyDown={e => {
+      if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); menuRef.current?.querySelector('button')?.focus(); }
+    }} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}>
       <button
         type="button"
         className="copy-btn copy-btn--more"
         onClick={() => setOpen(prev => !prev)}
         aria-expanded={open}
-        aria-haspopup="true"
       >
-        More &#9662;
+        <Icon name="more" size={18} /> More
       </button>
       {open && (
         <div className="more-menu-dropdown">

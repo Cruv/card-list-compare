@@ -203,3 +203,20 @@
     gap: var(--space-xs);
   }
 }
+
+.shared-deck-page { max-width: 1000px; width: 100%; padding: 0; }
+.shared-deck-card { background: var(--bg-secondary); border-radius: 18px; padding: 30px; box-shadow: none; }
+.shared-deck-header { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border-color); }
+.shared-deck-title { font-size: clamp(26px, 3vw, 36px); letter-spacing: -.9px; line-height: 1.2; margin-bottom: 14px; overflow-wrap: anywhere; }
+.shared-deck-commanders { font-style: normal; }
+.shared-deck-actions { gap: 10px; margin-bottom: 24px; }
+.shared-deck-compare { background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 12px; padding: 18px; gap: 12px; }
+.shared-deck-compare select { min-height: 44px; padding: 10px 12px; flex: 1; font-size: 12px; min-width: 0; }
+.shared-deck-section-title { margin-top: 30px; padding-top: 26px; font-size: 18px; }
+.shared-deck-snap-list { gap: 10px; }
+.shared-deck-snap { padding: 14px 18px; background: var(--bg-primary); border: 1px solid var(--border-color); }
+.shared-deck-snap-info { flex-wrap: wrap; }
+.shared-deck-snap--locked { border-left: 3px solid var(--accent); }
+.shared-deck-changelog { margin-block: 24px; }
+.shared-deck-changelog-copy { gap: 8px; margin-block: 14px; }
+@media(max-width: 600px) { .shared-deck-card { padding: 20px 16px; } .shared-deck-compare { padding: 14px; } .shared-deck-snap { padding: 12px; } }

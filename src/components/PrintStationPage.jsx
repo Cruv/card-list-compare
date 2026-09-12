@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import Icon from './Icon';
 import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand } from '../lib/api';
 import './PrintStationPage.css';
 
@@ -184,6 +185,15 @@ export default function PrintStationPage() {
   const discordPending = commands.some(item => isDiscordCommand(item.type) && item.status === 'pending');
   const canRetryDiscord = online && data?.permissions.canUpdate && discord?.supported && !busy && !commandWaiting;
   const connectionLabel = loading && !data ? 'Connecting' : !fresh ? 'Status unavailable' : station.online ? 'Online' : 'Offline';
+  const stationSummary = !fresh ? loading ? 'Checking in with your Mac' : 'Waiting for a fresh status'
+    : !online ? 'The Mac is offline' : station.paused ? 'Printing is paused'
+      : activeJob?.state === 'awaiting_refeed' ? 'Your paper needs flipping'
+        : activeJob?.state === 'uncertain' ? 'Review this batch on the Mac'
+          : station.health?.ok === false ? 'The printer needs attention'
+            : activeJob ? JOB_STATES[activeJob.state] || 'A batch is in progress'
+              : station.testPrintingEnabled ? 'Ready for a test batch'
+                : !station.recipeVerified ? 'Verify your print recipe on the Mac'
+                  : station.health?.ok === true ? 'Ready for your next batch' : 'Waiting for printer status';
 
   async function submit(command) {
     if (commandControllerRef.current) return;
@@ -284,11 +294,10 @@ export default function PrintStationPage() {
   }
 
   return (
-    <main className="station-page">
-      <nav className="station-nav" aria-label="Print station navigation"><a href="#">← Compare</a><a href="#print-list">Create print list</a><a href="#library">Deck library</a><a href="#guide">Guide</a></nav>
-      <header className="station-header">
-        <div><p className="station-eyebrow">Household printing</p><h1>Print Station</h1><p>Your Mac, Epson printer and the next batch of cards.</p></div>
-        <button className="btn btn-secondary" type="button" onClick={() => refreshRef.current()}>Refresh status</button>
+    <section className="station-page">
+      <header className="page-heading station-header">
+        <div><p className="eyebrow">Household printing</p><h1>Print Station</h1><p>Your printer at a glance. Follow a batch, handle a paper flip and keep the next session moving.</p></div>
+        <button className="btn btn-secondary" type="button" onClick={() => refreshRef.current()}><Icon name="refresh" size={17} />Refresh status</button>
       </header>
 
       {restricted ? <section className="station-card station-restricted"><h2>Household access required</h2><p>Your account does not have access to this print station. Ask the administrator to enable household printing for your account.</p><p className="station-small">{connectionError}</p><a href="#library">Return to your decks</a></section> : <>
@@ -322,12 +331,13 @@ export default function PrintStationPage() {
         </section>}
 
         <section className="station-card station-overview" aria-label="Station connection">
-          <div className="station-card-heading"><div><h2>{station?.stationId || 'Household Mac'}</h2><p className="station-small">Last seen: {timestamp(station?.lastSeenAt)}</p></div><Badge tone={online ? 'good' : fresh ? 'warning' : 'neutral'}>{connectionLabel}</Badge></div>
+          <div className="station-card-heading"><div className="station-device"><span className="station-device-icon"><Icon name="station" size={27} /></span><div><strong>{station?.stationId || 'Household Mac'}</strong><p className="station-small">Last seen: {timestamp(station?.lastSeenAt)}</p></div></div><Badge tone={online ? 'good' : fresh ? 'warning' : 'neutral'}>{connectionLabel}</Badge></div>
+          <h2 className="station-readiness">{stationSummary}</h2>
           {!loading && !station?.lastSeenAt && fresh && <p>The Mac has not checked in yet. Start the configured companion on the Mac to connect it.</p>}
           {!fresh && data && <p className="station-small">Showing the last received details. Connection and controls will return after a successful refresh.</p>}
           {fresh && !station.online && station.lastSeenAt && <p>The Mac is not checking in. It may be asleep, disconnected, or the companion may be stopped.</p>}
           <dl className="station-facts"><div><dt>Printer queue</dt><dd>{station?.queue || 'Not reported'}</dd></div><div><dt>Companion version</dt><dd>{station?.version || 'Not reported'}</dd></div><div><dt>Station work</dt><dd>{!online ? 'Unknown' : station.paused ? 'Paused' : 'Enabled'}</dd></div></dl>
-          <div className="station-actions"><button className="btn btn-primary" type="button" disabled={!canControl || updateBusy} onClick={() => command(station?.paused ? 'unpause' : 'pause')}>{busy ? 'Sending request…' : station?.paused ? 'Unpause station' : 'Pause station'}</button><p className="station-small">Pausing stops new station work. Pages already sent to Epson keep printing.</p></div>
+          <div className="station-actions"><a className="btn btn-primary" href="#print-list"><Icon name="print" size={18} />Prepare a batch</a><button className="btn btn-secondary" type="button" disabled={!canControl || updateBusy} onClick={() => command(station?.paused ? 'unpause' : 'pause')}>{busy ? 'Sending request…' : station?.paused ? 'Unpause station' : 'Pause station'}</button></div><p className="station-small">Pausing stops new station work. Pages already sent to Epson keep printing.</p>
           {commandWaiting && <p className="station-small" role="status">A request is waiting for the Mac. Controls return when it is applied, rejected or expires.</p>}
         </section>
 
@@ -340,13 +350,13 @@ export default function PrintStationPage() {
               {activeJob.state === 'awaiting_refeed' && <p>Use the paper reload instructions above. The remaining queue waits for this exact back pass.</p>}
               {activeJob.state === 'uncertain' && <p className="station-message station-message--warning">Check this batch against Epson’s queue at the Mac. Reconcile the existing submission before sending any more pages.</p>}
               <p className="station-small">Spooler completion does not confirm color, sheet alignment or cutting readiness.</p>
-            </> : <p>{fresh ? 'No active batch reported by the Mac.' : 'Refresh status to confirm the current batch.'}</p>}
+            </> : <div className="station-empty-batch"><Icon name="print" size={32} /><p>{fresh ? 'No active batch reported by the Mac.' : 'Refresh status to confirm the current batch.'}</p><span className="station-small">Your next batch appears here when the Mac picks it up.</span></div>}
           </section>
 
           <section className="station-card" aria-label="Printer health and recipe">
             <div className="station-card-heading"><h2>Printer and recipe</h2><Badge tone={fresh && station?.health?.ok === true ? 'good' : fresh && station?.health?.ok === false ? 'warning' : 'neutral'}>{!fresh ? 'Unknown' : station?.health?.ok === true ? 'Ready' : station?.health?.ok === false ? 'Needs attention' : 'Not reported'}</Badge></div>
             <p>{station?.health?.message || 'Printer health has not been reported.'}</p>
-            <ul className="station-proofs"><ProofFlag verified={station?.recipeVerified === true}>Color and front layout</ProofFlag><ProofFlag verified={station?.duplexVerified === true}>Manual double-faced layout</ProofFlag></ul>
+            <details className="station-proof-details"><summary>Physical print checks <span>{station?.recipeVerified === true && station?.duplexVerified === true ? '2 verified' : 'Review verification'}</span></summary><ul className="station-proofs"><ProofFlag verified={station?.recipeVerified === true}>Color and front layout</ProofFlag><ProofFlag verified={station?.duplexVerified === true}>Manual double-faced layout</ProofFlag></ul></details>
             {online && station?.duplexVerified === false && <p className="station-message station-message--warning">{station.testPrintingEnabled ? 'Use a small double-faced test batch to verify the manual flip direction, page order and alignment. Test printing still stops for your explicit paper reload confirmation.' : 'Verify the manual flip direction, page order and alignment on the Mac before sending a batch with double-faced cards. A mixed batch can otherwise stop after its ordinary fronts.'}</p>}
             <p className="station-small">Proofs are recorded on the Mac after physical testing. They cannot be changed here.</p>
             {station?.recipeFingerprint && <details><summary>Recipe fingerprint</summary><p className="station-fingerprint">{station.recipeFingerprint}</p></details>}
@@ -371,21 +381,23 @@ export default function PrintStationPage() {
           <details><summary>Where to get the webhook and user ID</summary><p className="station-small">In your Discord server’s settings, open Integrations → Webhooks, create a webhook for the channel, and copy its URL. To ping yourself, enable Developer Mode in Discord’s Advanced settings, then copy your user ID. Leave the ID empty for a channel message without a personal ping.</p></details>
         </section>
 
-        <section className="station-card" aria-label="Companion updates">
-          <div className="station-card-heading"><div><h2>Companion updates</h2><p className="station-small">Updates install on the Mac when it has no active batch.</p></div><Badge tone={update?.status === 'failed' ? 'warning' : 'neutral'}>{UPDATE_STATES[update?.status] || 'Not reported'}</Badge></div>
+        <details className="station-card station-management" aria-label="Companion updates">
+          <summary><span className="station-disclosure-title"><Icon name="settings" size={22} /><span>Companion updates<small>Manage the software on your Mac</small></span></span><Badge tone={update?.status === 'failed' ? 'warning' : 'neutral'}>{UPDATE_STATES[update?.status] || 'Not reported'}</Badge></summary>
+          <div className="station-disclosure-content"><p className="station-small">Updates install on the Mac when it has no active batch.</p>
           <dl className="station-facts"><div><dt>Current version</dt><dd>{currentVersion || 'Not reported'}</dd></div><div><dt>Available version</dt><dd>{nextVersion || 'Not reported'}</dd></div><div><dt>Rollback version</dt><dd>{update?.previousVersion || 'None reported'}</dd></div></dl>
           {update?.error && <p className="station-message station-message--error">{update.error}</p>}
           {update?.supported === false && <p>Managed updates are not available for this station. Its installation must support updates before these controls can be used.</p>}
           {!update && <p>The Mac has not reported managed update support.</p>}
           {data?.permissions.canUpdate ? <><div className="station-actions"><button className="btn btn-secondary" type="button" disabled={!canCheckUpdate} onClick={() => command('check_update')}>Check for updates</button><button className="btn btn-primary" type="button" disabled={!canUpdate || !nextVersion || nextVersion === currentVersion} onClick={() => command('update', { targetVersion: nextVersion })}>{nextVersion && nextVersion !== currentVersion ? `Install ${nextVersion}` : 'Install update'}</button><button className="btn btn-secondary" type="button" disabled={!canUpdate || !update?.previousVersion || update.previousVersion === currentVersion} onClick={() => command('rollback', { targetVersion: update.previousVersion })}>{update?.previousVersion ? `Roll back to ${update.previousVersion}` : 'Roll back'}</button></div>{activeJob && <p className="station-small">Finish or reconcile the current batch before updating the companion.</p>}</> : <p className="station-small">Only an administrator can check for, install, or roll back companion updates.</p>}
-        </section>
+          </div>
+        </details>
 
         <div className="station-grid station-history">
-          <section className="station-card" aria-label="Recent requests"><h2>Recent requests</h2><p className="station-small">A pending request has not yet been confirmed by the Mac.</p>{commands.length ? <ol>{commands.slice(0, 20).map(item => <li key={item.id}><div className="station-card-heading"><strong>{COMMAND_NAMES[item.type] || item.type}</strong><Badge tone={item.status === 'applied' ? 'good' : ['rejected', 'expired'].includes(item.status) ? 'warning' : 'neutral'}>{COMMAND_STATES[item.status] || item.status}</Badge></div><time className="station-small">{timestamp(item.createdAt)}</time>{item.targetVersion && <p className="station-small">Version {item.targetVersion}</p>}{item.jobId && <p className="station-batch-id">Batch {item.jobId}</p>}{item.artifactId && <p className="station-small">Back pass: {item.artifactId}</p>}{item.message && <p>{item.message}</p>}{item.acknowledgedAt && <p className="station-small">Acknowledged {timestamp(item.acknowledgedAt)}</p>}</li>)}</ol> : <p>No station requests yet.</p>}</section>
-          <section className="station-card" aria-label="Station activity"><h2>Station activity</h2><p className="station-small">Recent messages reported by the Mac.</p>{events.length ? <ol>{events.slice(0, 50).map(item => <li key={item.id}><div className="station-card-heading"><Badge tone={item.level === 'error' ? 'error' : item.level === 'warning' ? 'warning' : 'neutral'}>{item.level === 'error' ? 'Error' : item.level === 'warning' ? 'Warning' : 'Info'}</Badge><time className="station-small">{timestamp(item.at)}</time></div><p>{item.message}</p></li>)}</ol> : <p>No station activity reported yet.</p>}</section>
+          <details className="station-card station-management" aria-label="Recent requests"><summary><span className="station-disclosure-title"><Icon name="check" size={22} /><span>Recent requests<small>{commands.length} requests{commandWaiting ? ' · awaiting the Mac' : ''}</small></span></span></summary><div className="station-disclosure-content"><p className="station-small">A pending request has not yet been confirmed by the Mac.</p>{commands.length ? <ol>{commands.slice(0, 20).map(item => <li key={item.id}><div className="station-card-heading"><strong>{COMMAND_NAMES[item.type] || item.type}</strong><Badge tone={item.status === 'applied' ? 'good' : ['rejected', 'expired'].includes(item.status) ? 'warning' : 'neutral'}>{COMMAND_STATES[item.status] || item.status}</Badge></div><time className="station-small">{timestamp(item.createdAt)}</time>{item.targetVersion && <p className="station-small">Version {item.targetVersion}</p>}{item.jobId && <p className="station-batch-id">Batch {item.jobId}</p>}{item.artifactId && <p className="station-small">Back pass: {item.artifactId}</p>}{item.message && <p>{item.message}</p>}{item.acknowledgedAt && <p className="station-small">Acknowledged {timestamp(item.acknowledgedAt)}</p>}</li>)}</ol> : <p>No station requests yet.</p>}</div></details>
+          <details className="station-card station-management" aria-label="Station activity"><summary><span className="station-disclosure-title"><Icon name="station" size={22} /><span>Station activity<small>Recent messages from the Mac</small></span></span></summary><div className="station-disclosure-content"><p className="station-small">Recent messages reported by the Mac.</p>{events.length ? <ol>{events.slice(0, 50).map(item => <li key={item.id}><div className="station-card-heading"><Badge tone={item.level === 'error' ? 'error' : item.level === 'warning' ? 'warning' : 'neutral'}>{item.level === 'error' ? 'Error' : item.level === 'warning' ? 'Warning' : 'Info'}</Badge><time className="station-small">{timestamp(item.at)}</time></div><p>{item.message}</p></li>)}</ol> : <p>No station activity reported yet.</p>}</div></details>
         </div>
         <p className="station-footer">Status refreshes every five seconds while this page is visible.</p>
       </>}
-    </main>
+    </section>
   );
 }

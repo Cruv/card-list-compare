@@ -1,9 +1,10 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useId } from 'react';
 import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
 import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot, createSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
+import Icon from './Icon';
 import './DeckInput.css';
 import { sourceRefreshFeedback, sourceStatusLabel } from '../lib/sourceSync';
 import './SourceSyncReview.css';
@@ -32,6 +33,8 @@ function siteLabel(site) {
 
 export default function DeckInput({ label, value, onChange, user }) {
   const fileRef = useRef(null);
+  const textRef = useRef(null);
+  const inputId = useId();
   const [urlInput, setUrlInput] = useState('');
   const [showUrl, setShowUrl] = useState(false);
   const [showTracked, setShowTracked] = useState(false);
@@ -339,15 +342,37 @@ export default function DeckInput({ label, value, onChange, user }) {
     <div className="deck-input">
       {ConfirmDialog}
       <div className="deck-input-header">
-        <label className="deck-input-label">{label}</label>
-        <div className="deck-input-actions">
+        <div className="deck-input-heading">
+          <label className="deck-input-label" htmlFor={inputId}>{label}</label>
+          <span className="deck-input-caption">Paste a list or import your deck</span>
+        </div>
+        {user && value.trim() && (
+          <button
+            className={`deck-input-btn deck-input-save-toggle${showSavePanel ? ' deck-input-btn--active' : ''}`}
+            onClick={() => {
+              if (showSavePanel) setShowSavePanel(false);
+              else { closeAllPanels(); setSavePrompt(null); handleOpenSavePanel(); }
+            }}
+            type="button"
+            aria-expanded={showSavePanel}
+            title="Save this deck list as a snapshot to a tracked deck"
+          ><Icon name="plus" size={16} /> Save</button>
+        )}
+      </div>
+      <div className="deck-input-actions" role="group" aria-label={`${label} import options`}>
+          <button className={`deck-input-btn${!showUrl && !showTracked ? ' deck-input-btn--active' : ''}`}
+            onClick={() => { closeAllPanels(); textRef.current?.focus(); }} type="button"
+            aria-pressed={!showUrl && !showTracked}>
+            <Icon name="cards" size={16} /> Paste
+          </button>
           <button
             className={`deck-input-btn${showUrl ? ' deck-input-btn--active' : ''}`}
             onClick={() => { closeAllPanels(); setSavePrompt(null); setShowUrl(!showUrl); }}
             type="button"
             title="Import from URL"
+            aria-expanded={showUrl}
           >
-            URL
+            <Icon name="connections" size={16} /> URL
           </button>
           {user && (
             <button
@@ -355,8 +380,9 @@ export default function DeckInput({ label, value, onChange, user }) {
               onClick={() => { closeAllPanels(); setSavePrompt(null); setShowTracked(!showTracked); }}
               type="button"
               title="Load from tracked decks"
+              aria-expanded={showTracked}
             >
-              Tracked
+              <Icon name="library" size={16} /> Tracked
             </button>
           )}
           <button
@@ -365,26 +391,8 @@ export default function DeckInput({ label, value, onChange, user }) {
             type="button"
             title="Upload a file"
           >
-            File
+            <Icon name="download" size={16} /> File
           </button>
-          {user && value.trim() && (
-            <button
-              className={`deck-input-btn${showSavePanel ? ' deck-input-btn--active' : ''}`}
-              onClick={() => {
-                if (showSavePanel) {
-                  setShowSavePanel(false);
-                } else {
-                  closeAllPanels();
-                  setSavePrompt(null);
-                  handleOpenSavePanel();
-                }
-              }}
-              type="button"
-              title="Save this deck list as a snapshot to a tracked deck"
-            >
-              Save
-            </button>
-          )}
           <input
             ref={fileRef}
             type="file"
@@ -392,7 +400,6 @@ export default function DeckInput({ label, value, onChange, user }) {
             onChange={handleFile}
             hidden
           />
-        </div>
       </div>
 
       {showUrl && (
@@ -404,6 +411,7 @@ export default function DeckInput({ label, value, onChange, user }) {
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={handleUrlKeyDown}
             placeholder="Paste Archidekt, Moxfield, TappedOut, Deckstats, or DeckCheck URL..."
+            aria-label={`${label} deck URL`}
             autoFocus
             disabled={loading}
           />
@@ -462,12 +470,13 @@ export default function DeckInput({ label, value, onChange, user }) {
           {savePanelLoading ? (
             <p className="deck-input-tracked-empty">Loading tracked decks...</p>
           ) : savePanelDecks.length === 0 ? (
-            <p className="deck-input-tracked-empty">No tracked decks yet. Add them in Settings.</p>
+            <p className="deck-input-tracked-empty">No tracked decks yet. <a href="#library">Add a deck in your library.</a></p>
           ) : (
             <>
               <div className="deck-input-save-panel-row">
-                <label className="deck-input-save-panel-label">Save to:</label>
+                <label className="deck-input-save-panel-label" htmlFor={`${inputId}-save-deck`}>Save to:</label>
                 <select
+                  id={`${inputId}-save-deck`}
                   className="deck-input-save-panel-select"
                   value={savePanelSelected || ''}
                   onChange={(e) => setSavePanelSelected(Number(e.target.value))}
@@ -478,8 +487,9 @@ export default function DeckInput({ label, value, onChange, user }) {
                 </select>
               </div>
               <div className="deck-input-save-panel-row">
-                <label className="deck-input-save-panel-label">Nickname:</label>
+                <label className="deck-input-save-panel-label" htmlFor={`${inputId}-nickname`}>Nickname:</label>
                 <input
+                  id={`${inputId}-nickname`}
                   className="deck-input-save-panel-nick"
                   type="text"
                   value={savePanelNickname}
@@ -519,7 +529,7 @@ export default function DeckInput({ label, value, onChange, user }) {
           {trackedLoading ? (
             <p className="deck-input-tracked-empty">Loading tracked decks...</p>
           ) : trackedDecks.length === 0 ? (
-            <p className="deck-input-tracked-empty">No tracked decks yet. Add them in Settings.</p>
+            <p className="deck-input-tracked-empty">No tracked decks yet. <a href="#library">Add a deck in your library.</a></p>
           ) : (
             <ul className="deck-input-tracked-list">
               {trackedDecks.map(deck => (
@@ -532,7 +542,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                       aria-expanded={expandedDeckId === deck.id}
                     >
                       <span className="deck-input-tracked-deck-name">
-                        {expandedDeckId === deck.id ? '\u25BC' : '\u25B6'} {deck.deck_name}
+                        <Icon name="chevron" size={16} className={expandedDeckId === deck.id ? 'deck-input-chevron--open' : ''} /> {deck.deck_name}
                       </span>
                       <span className="deck-input-tracked-deck-meta">
                         {deck.source_type === 'manual' ? 'Manual deck' : deck.archidekt_username} &middot; {deck.snapshot_count} snap{deck.snapshot_count !== 1 ? 's' : ''}
@@ -547,7 +557,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                       type="button"
                       title={deck.source_type === 'manual' ? 'Manual decks have no Archidekt source' : 'Refresh deck from Archidekt'}
                     >
-                      {refreshingDeckId === deck.id ? '...' : '\u21BB'}
+                      {refreshingDeckId === deck.id ? <span className="spinner" /> : <Icon name="refresh" size={16} />}
                     </button>
                   </div>
                   {expandedDeckId === deck.id && (
@@ -569,6 +579,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                                     value={nicknameValue}
                                     onChange={(e) => setNicknameValue(e.target.value)}
                                     placeholder="Nickname (optional)"
+                                    aria-label="Snapshot nickname"
                                     maxLength={100}
                                     onKeyDown={(e) => {
                                       if (e.key === 'Enter') handleSaveNickname(deck.id, snap.id);
@@ -582,7 +593,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                                     type="button"
                                     title="Save nickname"
                                   >
-                                    &#10003;
+                                    <Icon name="check" size={16} />
                                   </button>
                                   <button
                                     className="deck-input-tracked-snap-cancel"
@@ -590,7 +601,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                                     type="button"
                                     title="Cancel"
                                   >
-                                    &#10005;
+                                    <Icon name="close" size={16} />
                                   </button>
                                 </div>
                               ) : (
@@ -625,7 +636,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                                     type="button"
                                     title="Delete this snapshot"
                                   >
-                                    &times;
+                                    <Icon name="close" size={16} />
                                   </button>
                                 </>
                               )}
@@ -664,6 +675,8 @@ export default function DeckInput({ label, value, onChange, user }) {
       )}
 
       <textarea
+        id={inputId}
+        ref={textRef}
         className="deck-input-textarea"
         value={value}
         onChange={(e) => { onChange(e.target.value); setError(null); setSavePrompt(null); }}
@@ -671,7 +684,12 @@ export default function DeckInput({ label, value, onChange, user }) {
         placeholder={PLACEHOLDER}
         spellCheck={false}
         aria-label={`${label} deck list`}
+        aria-describedby={`${inputId}-hint`}
       />
+      <div className="deck-input-footer" id={`${inputId}-hint`}>
+        <span>Text, CSV, or a deck link</span>
+        <span>{value.trim() ? `${value.trim().split('\n').length} lines` : 'Ready for your list'}</span>
+      </div>
     </div>
   );
 }

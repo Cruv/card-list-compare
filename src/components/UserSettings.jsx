@@ -7,8 +7,6 @@ import {
   createInviteCode, getMyInvites, deleteInviteCode,
 } from '../lib/api';
 import PasswordRequirements from './PasswordRequirements';
-import ManaSyncSettings from './ManaSyncSettings';
-import IntegrationAccess from './IntegrationAccess';
 import './UserSettings.css';
 
 export default function UserSettings() {
@@ -128,14 +126,10 @@ export default function UserSettings() {
 
   return (
     <div className="settings-page">
-      <button className="settings-back-link" onClick={() => { window.location.hash = ''; }} type="button">
-        &larr; Back to Compare
-      </button>
+      <header className="page-heading"><p className="eyebrow">Make yourself at home</p><h1>Account settings</h1><p>Manage your profile, keep your account secure, and invite your pod.</p></header>
       <div className="user-settings">
         {ConfirmDialog}
-        <div className="user-settings-header">
-          <h2>Account Settings</h2>
-        </div>
+
 
         <nav className="user-settings-tabs">
           <button
@@ -252,8 +246,8 @@ export default function UserSettings() {
       </section>
 
       {/* Danger Zone */}
-      <ManaSyncSettings />
-      <IntegrationAccess />
+
+
       <section className="user-settings-section user-settings-danger">
         <h3>Danger Zone</h3>
         <p>Permanently delete your account and all associated data. This action cannot be undone.</p>

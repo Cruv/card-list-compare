@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import {
-  initBridgeSchema, connectionStatus, connect, disconnect, readRemote, containers,
+  initBridgeSchema, connectionStatus, connect, disconnect, checkConnection, readRemote, containers,
   queueItem, queueItems, listQueue, cancelItem, confirmIncrement, bindLocalIncrement, reportOperation,
   processPending, reconcile, correctLot, markOwnershipRead,
 } from '../lib/manasyncBridge.js';
@@ -15,6 +15,7 @@ const handle = fn => async (req,res) => {
 };
 router.get('/connection',handle(req => connectionStatus(req.user.userId)));
 router.put('/connection',handle(req => connect(req.user.userId,req.body)));
+router.post('/connection/check',handle(req => checkConnection(req.user.userId)));
 router.delete('/connection',handle(req => disconnect(req.user.userId)));
 router.get('/availability',handle(async req => {
   const by = req.query.by === 'printing' ? 'printing' : 'oracle';

@@ -1,6 +1,8 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
 import CardLine from './CardLine';
+import Icon from './Icon';
+import { useModalLayer } from '../lib/useModalLayer';
 import { cardDataForEntry, groupByType, TYPE_ORDER } from '../lib/scryfall';
 import { cardIdentityKey, normalizeCardName } from '../lib/cardIdentity';
 import { symbolToSvgUrl } from './ManaCost';
@@ -209,7 +211,7 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
   );
 }
 
-function DeckSection({ sectionName, cards, cardMap }) {
+function DeckSection({ sectionName, cards, cardMap, layout, onInspect }) {
   const cardArray = useMemo(() => {
     const arr = [];
     for (const [, entry] of cards) {
@@ -236,8 +238,7 @@ function DeckSection({ sectionName, cards, cardMap }) {
     const nameLower = card.name.toLowerCase();
     const bareData = cardMap?.get(nameLower);
     const data = cardDataForEntry(cardMap, card);
-    return (
-      <CardLine
+    const cardLine = <CardLine
         key={cardIdentityKey(card)}
         name={card.name}
         quantity={card.quantity}
@@ -251,12 +252,13 @@ function DeckSection({ sectionName, cards, cardMap }) {
         priceUsdFoil={data?.priceUsdFoil}
         cheapestPriceUsd={bareData?.priceUsd}
         cheapestPriceUsdFoil={bareData?.priceUsdFoil}
-      />
-    );
+      />;
+    if (layout !== 'gallery') return cardLine;
+    return <DeckGalleryTile key={cardIdentityKey(card)} card={card} imageUri={data?.imageUri} onInspect={onInspect}>{cardLine}</DeckGalleryTile>;
   }
 
   return (
-    <section className="deck-list-section">
+    <section className={`deck-list-section deck-list-section--${layout}`}>
       <h3 className="deck-list-section-title">
         {sectionName}
         <span className="deck-list-section-count">{totalCards} cards ({uniqueCards} unique)</span>
@@ -265,14 +267,27 @@ function DeckSection({ sectionName, cards, cardMap }) {
         groups.map(({ type, cards: groupCards }) => (
           <div key={type} className="section-changelog-type-group">
             <span className="section-changelog-type-label">{type}</span>
-            {groupCards.map(renderCard)}
+            <div className={layout === 'gallery' ? 'deck-gallery-grid' : 'deck-list-rows'}>{groupCards.map(renderCard)}</div>
           </div>
         ))
       ) : (
-        cardArray.map(renderCard)
+        <div className={layout === 'gallery' ? 'deck-gallery-grid' : 'deck-list-rows'}>{cardArray.map(renderCard)}</div>
       )}
     </section>
   );
+}
+
+function DeckGalleryTile({ card, imageUri, onInspect, children }) {
+  const [failedUri, setFailedUri] = useState(null);
+  const available = imageUri && failedUri !== imageUri;
+  return <article className="deck-gallery-card">
+    <button className="deck-gallery-art" type="button" onClick={event => { event.currentTarget.focus(); onInspect({ name: card.name, imageUri }); }}
+      aria-label={`View ${card.name} artwork`} disabled={!available}>
+      {available ? <img src={imageUri} alt="" loading="lazy" onError={() => setFailedUri(imageUri)} /> : <span><Icon name="cards" size={32} />Artwork unavailable</span>}
+      <span className="deck-gallery-quantity">{card.quantity}×</span>
+    </button>
+    <div className="deck-gallery-card-caption">{children}</div>
+  </article>;
 }
 
 /** Compute total deck value from a parsed deck and card data map. */
@@ -328,7 +343,11 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
   // Hooks must run unconditionally — see Rules of Hooks. Guard on the derived
   // values below, never with an early return before the hooks.
   const { priceDisplayEnabled } = useAppSettings();
-  const [showAnalytics, setShowAnalytics] = useState(true);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [localSearch, setLocalSearch] = useState('');
+  const [layout, setLayout] = useState('gallery');
+  const [inspectedCard, setInspectedCard] = useState(null);
+  const query = (searchQuery ?? localSearch).trim();
   const { mainboard, sideboard, commanders } = parsedDeck || {};
 
   const deckPrice = useMemo(() => (priceDisplayEnabled && parsedDeck) ? computeDeckPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
@@ -337,8 +356,8 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
   // Filter cards by search query if provided
   const filteredMainboard = useMemo(() => {
     if (!mainboard) return new Map();
-    if (!searchQuery) return mainboard;
-    const lower = searchQuery.toLowerCase();
+    if (!query) return mainboard;
+    const lower = query.toLowerCase();
     const filtered = new Map();
     for (const [key, entry] of mainboard) {
       if (entry.displayName.toLowerCase().includes(lower)) {
@@ -346,12 +365,12 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
       }
     }
     return filtered;
-  }, [mainboard, searchQuery]);
+  }, [mainboard, query]);
 
   const filteredSideboard = useMemo(() => {
     if (!sideboard) return new Map();
-    if (!searchQuery) return sideboard;
-    const lower = searchQuery.toLowerCase();
+    if (!query) return sideboard;
+    const lower = query.toLowerCase();
     const filtered = new Map();
     for (const [key, entry] of sideboard) {
       if (entry.displayName.toLowerCase().includes(lower)) {
@@ -359,12 +378,22 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
       }
     }
     return filtered;
-  }, [sideboard, searchQuery]);
+  }, [sideboard, query]);
 
   if (!parsedDeck) return null;
 
   return (
     <div className="deck-list-view">
+      <div className="deck-list-toolbar">
+        {searchQuery === undefined && <label className="deck-list-search"><Icon name="search" size={18} />
+          <input type="search" value={localSearch} onChange={event => setLocalSearch(event.target.value)} placeholder="Find a card in this deck…" aria-label="Search deck cards" />
+        </label>}
+        <div className="deck-list-layout" role="group" aria-label="Card display">
+          <button className={layout === 'gallery' ? 'is-active' : ''} aria-pressed={layout === 'gallery'} onClick={() => setLayout('gallery')} type="button"><Icon name="cards" size={16} /> Gallery</button>
+          <button className={layout === 'list' ? 'is-active' : ''} aria-pressed={layout === 'list'} onClick={() => setLayout('list')} type="button"><Icon name="library" size={16} /> List</button>
+        </div>
+      </div>
+      {query && <p className="deck-list-search-summary" role="status">{filteredMainboard.size + filteredSideboard.size} matching printing{filteredMainboard.size + filteredSideboard.size === 1 ? '' : 's'} · filtering this view only</p>}
       {commanders && commanders.length > 0 && (
         <div className="deck-list-commanders">
           {commanders.join(' / ')}
@@ -384,6 +413,7 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
             type="button"
             className="deck-analytics-toggle-btn"
             onClick={() => setShowAnalytics(v => !v)}
+            aria-expanded={showAnalytics}
           >
             <span className={`deck-analytics-arrow${showAnalytics ? ' deck-analytics-arrow--open' : ''}`}>&#9654;</span>
             Deck Analytics
@@ -393,8 +423,31 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
       {showAnalytics && cardMap && cardMap.size > 0 && (
         <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />
       )}
-      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} />
-      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} />}
+      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />
+      {filteredMainboard.size === 0 && filteredSideboard.size === 0 && <p className="deck-list-no-results">{query ? 'No cards match this search.' : 'This snapshot has no cards.'}</p>}
+      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />}
+      {inspectedCard && <DeckCardDialog card={inspectedCard} onClose={() => setInspectedCard(null)} />}
     </div>
   );
 });
+
+function DeckCardDialog({ card, onClose }) {
+  const dialogRef = useRef(null);
+  useModalLayer(onClose, { containerRef: dialogRef, trapFocus: false });
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previouslyFocused = document.activeElement;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
+  return <dialog ref={dialogRef} className="deck-card-dialog" aria-label={card.name}
+    onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === dialogRef.current) onClose(); }}>
+    <div className="deck-card-dialog-content">
+      <div className="deck-card-dialog-heading"><strong>{card.name}</strong><button className="btn btn-secondary" aria-label="Close card artwork" onClick={onClose} type="button"><Icon name="close" /></button></div>
+      <img src={card.imageUri} alt={card.name} />
+    </div>
+  </dialog>;
+}

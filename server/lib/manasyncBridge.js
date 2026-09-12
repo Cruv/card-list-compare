@@ -8,6 +8,7 @@ import { getInstanceId } from './integrationSchema.js';
 export class BridgeError extends Error {
   constructor(message, status = 400) { super(message); this.status = status; }
 }
+export const DEFAULT_MANASYNC_URL = 'https://manasync.net';
 export function initBridgeSchema() {
   run(`CREATE TABLE IF NOT EXISTS manasync_connections (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -100,8 +101,11 @@ export function validateBaseUrl(value) {
   if (/\s|\\/.test(input) || authority?.includes('@') || url.username || url.password || url.href.includes('?') || url.href.includes('#')) {
     throw new BridgeError('Use a backend URL without credentials, query parameters, or a fragment.');
   }
-  // Keep a reverse-proxy prefix: remote() appends /api/v1/... to this base.
-  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  // A copied API root is equivalent to the app address. Keep any preceding
+  // reverse-proxy prefix; remote() appends /api/v1/... exactly once.
+  const pathname = url.pathname.replace(/\/+$/, '').replace(/\/api\/v1$/i, '');
+  if (/\/api\/v1\//i.test(pathname)) throw new BridgeError('Use the ManaSync app address, such as https://manasync.net, without an individual API endpoint.');
+  return `${url.origin}${pathname}`;
 }
 export function isBridgeUserActive(userId) {
   const user = get('SELECT suspended FROM users WHERE id = ?', [userId]);
@@ -112,17 +116,38 @@ export async function remote(connection, path, options = {}) {
   // may happen while a request is in flight. Keep the frozen outbox retryable.
   if (!isBridgeUserActive(connection.user_id)) throw new BridgeError('ManaSync delivery is paused because this CLC account is suspended or unavailable.', 503);
   const { contentType = 'application/json', ...requestOptions } = options;
-  const response = await fetch(`${connection.base_url}${path}`, {
-    ...requestOptions, redirect: 'error', signal: AbortSignal.timeout(12000),
-    headers: { 'Content-Type': contentType, Authorization: `Bearer ${decryptToken(connection.token_cipher)}`,
-      ...(connection.account_id ? { 'X-ManaSync-User': connection.account_id } : {}) },
-  });
+  // Decode locally before the network catch so a damaged saved credential is
+  // not misreported as an unreachable server. Never include it in diagnostics.
+  const authorization = `Bearer ${decryptToken(connection.token_cipher)}`;
+  let response;
+  try {
+    response = await fetch(`${connection.base_url}${path}`, {
+      ...requestOptions, redirect: 'error', signal: AbortSignal.timeout(12000),
+      headers: { 'Content-Type': contentType, Authorization: authorization,
+        ...(connection.account_id ? { 'X-ManaSync-User': connection.account_id } : {}) },
+    });
+  } catch (error) {
+    const code = error.cause?.code || error.code;
+    if (['TimeoutError', 'AbortError'].includes(error.name) || code === 'UND_ERR_CONNECT_TIMEOUT') {
+      throw new BridgeError('ManaSync did not respond in time. Check that it is online, then try again.', 504);
+    }
+    if (['ENOTFOUND', 'EAI_AGAIN'].includes(code)) {
+      throw new BridgeError('The CLC server could not find this ManaSync hostname. Check the server address and DNS.', 502);
+    }
+    if (['CERT_HAS_EXPIRED', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'CERT_SIGNATURE_FAILURE', 'ERR_TLS_CERT_ALTNAME_INVALID'].includes(code)) {
+      throw new BridgeError('CLC could not verify the ManaSync HTTPS certificate. Correct the certificate or use the verified public address.', 502);
+    }
+    if (error.cause?.message === 'unexpected redirect') {
+      throw new BridgeError('This address redirects the ManaSync API. Use the final HTTPS server address and allow its API through the proxy.', 502);
+    }
+    throw new BridgeError('The CLC server could not reach ManaSync. Check the address, port and server availability. For a container, localhost refers to that container.', 502);
+  }
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = typeof body?.message === 'string' ? body.message : typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`;
     throw new BridgeError(`ManaSync: ${detail}`, response.status);
   }
-  if (!body || typeof body !== 'object') throw new BridgeError('ManaSync returned an invalid response.', 502);
+  if (!body || typeof body !== 'object') throw new BridgeError('This address did not return the ManaSync API. Use the ManaSync app address and check that its proxy forwards /api/v1 requests.', 502);
   return body;
 }
 export function connectionFor(userId) { return get('SELECT * FROM manasync_connections WHERE user_id = ?', [userId]); }
@@ -131,10 +156,19 @@ export function connectionStatus(userId) {
   return { configured: !!c, connected: !!c?.connected, baseUrl: c?.base_url || '', accountId: c?.account_id || '',
     username: c?.username || '', actorId: c?.actor_id || '', lastSuccess: c?.last_success || null, lastOwnership: c?.last_ownership || null, error: c?.last_error || null };
 }
-export async function connect(userId, { baseUrl, token }) {
+export async function connect(userId, { baseUrl = DEFAULT_MANASYNC_URL, token } = {}) {
   if (typeof token !== 'string' || !token.trim() || token.length > 8192) throw new BridgeError('Enter a user-granted ManaSync token.');
-  const c = { user_id: userId, base_url: validateBaseUrl(baseUrl), token_cipher: encryptToken(token.trim()) };
-  const context = await remote(c, '/api/v1/integration/context');
+  const secret = token.trim().replace(/^Bearer(?:\s+|$)/i, '');
+  if (secret.startsWith('clc_')) throw new BridgeError('This is a CLC deck-access token. Create the token in ManaSync under More → Integration access, then paste it here.');
+  if (!/^[A-Za-z0-9_-]+$/.test(secret)) throw new BridgeError('Paste only the token copied from ManaSync, without quotes or extra text.');
+  const c = { user_id: userId, base_url: validateBaseUrl(baseUrl), token_cipher: encryptToken(secret) };
+  let context;
+  try { context = await remote(c, '/api/v1/integration/context'); }
+  catch (error) {
+    if (error.status === 401) throw new BridgeError('ManaSync rejected this token. Create a new personal app token in ManaSync → More → Integration access, then paste it here.', 401);
+    if (error.status === 404) throw new BridgeError('The ManaSync integration API was not found. Check the app address and update self-hosted ManaSync to a version with integration access.', 404);
+    throw error;
+  }
   if (!context.user?.id || !context.actorId || !Array.isArray(context.scopes)) throw new BridgeError('Update ManaSync to a version supporting integration context.', 400);
   if (!['inventory:read', 'proxies:write'].every(scope => context.scopes.includes(scope))) throw new BridgeError('Grant inventory:read and proxies:write to this ManaSync token.');
   if (context.scopes.some(scope => !['inventory:read', 'proxies:write'].includes(scope))) throw new BridgeError('Use a dedicated ManaSync token with only inventory:read and proxies:write.');
@@ -154,8 +188,35 @@ export function disconnect(userId) {
 }
 function requireConnection(userId) {
   const c = connectionFor(userId);
-  if (!c?.connected) throw new BridgeError('Connect ManaSync in Settings to read ownership or report printed cards.', 409);
+  if (!c?.connected) throw new BridgeError('Connect ManaSync in Connections to read ownership or report printed cards.', 409);
   return c;
+}
+export async function checkConnection(userId) {
+  const original = requireConnection(userId);
+  const unchanged = () => {
+    const current = connectionFor(userId);
+    return current?.connected && current.base_url === original.base_url && current.account_id === original.account_id
+      && current.actor_id === original.actor_id && current.token_cipher === original.token_cipher;
+  };
+  try {
+    const context = await remote(original, '/api/v1/integration/context');
+    if (context.user?.id !== original.account_id || context.actorId !== original.actor_id) {
+      throw new BridgeError('ManaSync identifies a different account or token. Reconnect the intended account before continuing.', 409);
+    }
+    if (!Array.isArray(context.scopes) || context.scopes.length !== 2
+      || !['inventory:read', 'proxies:write'].every(scope => context.scopes.includes(scope))) {
+      throw new BridgeError('Reconnect with a dedicated ManaSync token granting only inventory:read and proxies:write.', 403);
+    }
+    const result = await remote(original, '/api/v1/containers');
+    if (!Array.isArray(result.containers)) throw new BridgeError('ManaSync returned invalid locations.', 502);
+    if (!unchanged()) throw new BridgeError('The ManaSync connection changed during this check. Check the current connection again.', 409);
+    run('UPDATE manasync_connections SET last_success=?,last_error=NULL,containers_json=? WHERE user_id=?',
+      [new Date().toISOString(), JSON.stringify(result.containers), userId]);
+    return connectionStatus(userId);
+  } catch (error) {
+    if (unchanged()) run('UPDATE manasync_connections SET last_error=? WHERE user_id=?', [error.message, userId]);
+    throw error;
+  }
 }
 export async function readRemote(userId, path) {
   const c = requireConnection(userId);

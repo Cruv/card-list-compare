@@ -23,3 +23,9 @@
 .source-sync-error { color: var(--danger, #ef9191); }
 .source-sync-badge { display: inline-block; font-size: .72rem; line-height: 1.4; padding: .2rem .45rem; border-radius: .35rem; background: rgba(105, 156, 205, .14); color: var(--text-primary, #ddd); }
 .source-sync-badge--pending { background: rgba(217, 164, 65, .18); color: #eac477; }
+.source-sync-review { background: var(--bg-secondary); padding: 20px; border-radius: 14px; }
+.source-sync-review summary { min-height: 44px; display: flex; align-items: center; }
+.source-sync-review textarea { color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; }
+.source-sync-review fieldset { border-radius: 10px; padding: 16px; }
+.source-sync-review fieldset label, .source-sync-confirm { min-height: 44px; padding-block: 8px; }
+.source-sync-diff { background: var(--bg-primary); padding: 16px; border-radius: 10px; }

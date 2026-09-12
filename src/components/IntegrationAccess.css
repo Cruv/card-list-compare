@@ -1,4 +1,6 @@
 .integration-access p { color: var(--text-secondary); line-height: 1.55; }
+.integration-access-eyebrow { display: block; color: var(--text-muted, #8996a4); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.integration-access-help summary { cursor: pointer; padding: .6rem 0; color: var(--text-secondary); font-size: .88rem; font-weight: 600; }
 .integration-access-check { display: flex; gap: .6rem; align-items: center; }
 .integration-access-check input { width: auto; }
 .integration-token-list { list-style: none; padding: 0; }
@@ -6,3 +8,7 @@
 .integration-token-result { padding: 1rem 0; }
 .integration-token-result input { width: 100%; font-family: monospace; margin-bottom: .6rem; }
 .integration-token-result button { margin-right: .5rem; }
+@media (max-width: 480px) {
+  .integration-token-list li { align-items: flex-start; flex-wrap: wrap; }
+  .integration-token-result button { min-height: 42px; margin-bottom: .4rem; }
+}

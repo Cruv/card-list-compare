@@ -21,6 +21,9 @@ export function useHashRoute() {
   if (hash === '#admin' || hash.startsWith('#admin/')) {
     return { route: 'admin' };
   }
+  if (hash === '#connections') {
+    return { route: 'connections' };
+  }
   if (hash === '#settings') {
     return { route: 'settings' };
   }

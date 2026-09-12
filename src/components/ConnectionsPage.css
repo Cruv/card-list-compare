@@ -1,0 +1,14 @@
+.connections-page { max-width: 920px; margin: 0 auto; }
+.connection-journey { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin: 0 0 30px; padding: 20px 24px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 14px; color: var(--text-muted); }
+.connection-journey span { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-secondary); }
+.connection-journey span svg { color: var(--accent); }
+.connection-deck-access { margin-top: 24px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 14px; padding: 20px; }
+.connection-deck-access > summary, .connection-station-link { display: flex; justify-content: space-between; align-items: center; gap: 16px; font-size: 14px; font-weight: 600; list-style: none; }
+.connection-deck-access > summary::-webkit-details-marker { display: none; }
+.connection-deck-access > summary > span, .connection-station-link > span { display: flex; gap: 14px; align-items: center; }
+.connection-deck-access small, .connection-station-link small { display: block; font-size: 12px; color: var(--text-secondary); font-weight: 400; margin-top: 4px; }
+.connection-deck-access[open] > summary { margin-bottom: 20px; }
+.connection-deck-access[open] > summary > svg { transform: rotate(90deg); }
+.connection-station-link { text-decoration: none; color: var(--text-primary); padding: 24px 20px; margin-top: 10px; border-radius: 14px; }
+.connection-station-link:hover { background: var(--bg-secondary); }
+@media (max-width: 600px) { .connection-journey { gap: 12px; padding: 16px; } .connection-journey > svg { display: none; } .connection-journey span { width: 100%; } }

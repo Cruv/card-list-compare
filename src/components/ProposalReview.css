@@ -17,3 +17,9 @@
 .proposal-review-draft-status { margin-bottom: 1rem; color: var(--text-secondary); font-size: var(--fs-sm); }
 .proposal-review textarea { color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: .4rem; padding: .6rem; }
 @media (max-width: 520px) { .proposal-review-texts { grid-template-columns: minmax(0, 1fr); } }
+.proposal-review { padding: 20px; border-radius: 14px; background: var(--bg-secondary); }
+.proposal-review summary { min-height: 44px; display: flex; align-items: center; }
+.proposal-review li { padding: 12px 0; border-bottom: 1px solid var(--border-color); }
+.proposal-review-texts label { color: var(--text-secondary); font-size: 12px; }
+.proposal-review textarea { border-radius: 10px; padding: 14px; }
+.proposal-review .proposal-review-check { min-height: 44px; }

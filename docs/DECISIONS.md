@@ -306,3 +306,32 @@ ManaSync holdings. The source panel explains the distinction and exposes the thr
 **Where.** `server/lib/sourceSync.js`, `server/routes/sourceSync.js`,
 `src/components/SourceSyncReview.jsx`, and `src/lib/sourceSync.js`.
 The real two-server bridge harness also checks refresh after accepted ManaSync changes.
+
+
+## D12 — One responsive workspace and a guided ManaSync connection
+
+**Decision.** Use a shared desktop sidebar and mobile bottom navigation for every hash
+route, with account authentication and theme controls in the same header. Compare,
+library, print studio and station are primary destinations; Connections, Guide, Account
+and Administration are available in the mobile More drawer. Keep every existing deck
+section, export and recovery action. Commander art uses the existing batched Scryfall
+metadata/cache; full-card previews retain exact printing identity.
+
+**Why.** Separate page-specific navigation and long settings forms made the print journey
+hard to discover. A consistent shell, focused review steps and expandable secondary tools
+make the main task visible without removing advanced workflows. The drawer unmounts when
+crossing to desktop width so a hidden modal cannot trap focus or lock scrolling.
+
+**ManaSync boundary.** Default to the actual hosted app, `https://manasync.net`, and guide
+users through its existing personal app tokens. Collection authorization is created in
+ManaSync; optional deck authorization is created in CLC. No invented OAuth flow or shared
+account assumption. The saved-token check performs remote reads and only updates matching
+local connection state; historical deliveries keep their original credentials and account.
+
+**Validation.** Inventory every route and nested surface before redesigning. Use disposable
+browser data and intercepted side effects for responsive, keyboard, theme, recovery and
+permission checks. Desktop mobile emulation or Playwright WebKit does not establish native
+iOS Simulator proof. Record the actual runtime/device separately when it is available.
+
+**Where.** `src/components/AppShell.*`, `ConnectionsPage.*`, `ManaSyncSettings.jsx`,
+`src/index.css`, `server/lib/manasyncBridge.js`, `docs/UI_REDESIGN_INVENTORY.md`.

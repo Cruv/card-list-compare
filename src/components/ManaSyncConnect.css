@@ -1,0 +1,48 @@
+.manasync-connect { min-width: 0; }
+.manasync-connect-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.manasync-connect-heading h3 { margin: .25rem 0 0; }
+.manasync-eyebrow { display: block; color: var(--text-muted, #8996a4); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.manasync-connection-status { flex-shrink: 0; padding: .35rem .7rem; border: 1px solid var(--border-color, #344052); border-radius: 999px; font-size: .75rem; color: var(--text-secondary, #aebccc); background: var(--bg-secondary, #18212c); }
+.manasync-connection-status.is-connected { color: #87ddbc; border-color: #3a6958; background: #19382d; }
+.manasync-connect p, .manasync-connect li { color: var(--text-secondary, #aebccc); line-height: 1.55; }
+.manasync-connect p { font-size: .9rem; }
+.manasync-connect strong, .manasync-connect b { color: var(--text-primary, #e8edf4); }
+.manasync-connect small { display: block; color: var(--text-muted, #8996a4); font-size: .78rem; line-height: 1.5; overflow-wrap: anywhere; }
+.manasync-connect-actions { display: flex; gap: .65rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; }
+.manasync-connect-actions .btn { min-height: 42px; }
+.manasync-connected-account { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; justify-content: space-between; padding: 1rem; margin: 1rem 0; border: 1px solid var(--border-color, #344052); border-radius: 12px; background: var(--bg-secondary, #18212c); }
+.manasync-connected-account .manasync-connect-actions { margin: 0; }
+.manasync-connect-steps { list-style: none; padding: 0; margin: 1.4rem 0; counter-reset: connect; display: grid; gap: 1.25rem; }
+.manasync-connect-steps > li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: .8rem; }
+.manasync-connect-steps > li::before { counter-increment: connect; content: counter(connect); display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; color: var(--text-primary, #e8edf4); background: var(--bg-tertiary, #26384b); font-weight: 700; font-size: .85rem; }
+.manasync-connect-steps p { margin: .3rem 0 .7rem; }
+.manasync-connect-steps small { margin-top: .55rem; }
+.manasync-connect-form input { display: block; width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid var(--border-color, #344052); border-radius: 8px; background: var(--bg-input, var(--bg-secondary, #18212c)); color: var(--text-primary, #e8edf4); padding: .7rem .8rem; font: inherit; }
+.manasync-connect-form input:focus { outline: 2px solid var(--accent, #74b9ef); outline-offset: 2px; }
+.manasync-connect-form label { display: block; margin: .7rem 0 .4rem; color: var(--text-primary, #e8edf4); font-size: .9rem; }
+.manasync-connect summary { cursor: pointer; color: var(--text-secondary, #aebccc); font-size: .88rem; font-weight: 600; padding: .6rem 0; }
+.manasync-other-server { border-top: 1px solid var(--border-color, #344052); padding-top: .4rem; }
+.manasync-other-server small { margin: .6rem 0; }
+.manasync-connect-details { margin-top: 1.2rem; padding-top: .4rem; border-top: 1px solid var(--border-color, #344052); }
+.manasync-connect-details ul { margin: .4rem 0; padding-left: 1.3rem; font-size: .87rem; }
+.manasync-connect-error, .manasync-connect-notice { padding: .8rem 1rem; border-radius: 8px; overflow-wrap: anywhere; }
+.manasync-connect .manasync-connect-error { color: var(--error, #f0aba5); background: var(--error-bg, #372227); }
+.manasync-connect .manasync-connect-notice { color: #a8dcc7; background: #19382d; }
+@media (max-width: 480px) {
+  .manasync-connect-heading { align-items: flex-start; gap: .6rem; }
+  .manasync-connect-actions > .btn { flex: 1; }
+  .manasync-connect-steps { margin-top: 1rem; }
+  .manasync-connected-account { padding: .8rem; }
+  .manasync-connected-account .manasync-connect-actions { width: 100%; }
+}
+
+.user-settings-section.manasync-connect { border: 1px solid var(--border-color); border-radius: 16px; padding: 28px; background: var(--bg-secondary); }
+.manasync-connect-heading { margin-bottom: 12px; }
+.manasync-connect-heading h3 { font-size: 20px; }
+.manasync-connect-steps > li::before { color: var(--accent); background: var(--accent-soft); }
+.manasync-connect-actions .btn { min-height: 44px; }
+.manasync-connected-account, .manasync-connect-form input { background: var(--bg-primary); }
+.manasync-connect summary { min-height: 44px; }
+.manasync-connect .manasync-connect-error { color: var(--text-destructive); background: var(--bg-destructive-hover); }
+.manasync-connect .manasync-connect-notice { color: var(--accent-green); background: color-mix(in srgb, var(--accent-green) 10%, var(--bg-secondary)); }
+@media(max-width: 600px) { .user-settings-section.manasync-connect { padding: 20px; } .manasync-connect-heading { flex-wrap: wrap; } .manasync-connect-steps > li { grid-template-columns: 24px minmax(0,1fr); gap: 10px; } }

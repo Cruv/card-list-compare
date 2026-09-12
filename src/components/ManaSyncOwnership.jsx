@@ -53,7 +53,7 @@ export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,ca
   if (compact) {
     const missing = [...new Map(displayedRows.filter(row => row.ownership?.hasOriginal === false).map(row => [row.shoppingKey, row])).values()];
     return <section className="print-ownership-compact" aria-label="ManaSync ownership and shopping">
-      <div className="print-panel-heading"><p className="print-panel-meta">{loading ? 'Refreshing ownership…' : data?.known ? 'Ownership checked with ManaSync' : <>Ownership unknown · <a href="#settings">connect ManaSync in Settings</a></>}</p><button className="print-text-button" type="button" onClick={refresh} disabled={loading}>Refresh ownership</button></div>
+      <div className="print-panel-heading"><p className="print-panel-meta">{loading ? 'Refreshing ownership…' : data?.known ? 'Ownership checked with ManaSync' : <>Ownership unknown · <a href="#connections">connect ManaSync</a></>}</p><button className="print-text-button" type="button" onClick={refresh} disabled={loading}>Refresh ownership</button></div>
       {error && <p role="alert" className="print-panel-meta">{error}</p>}{data?.error && <p role="status" className="print-panel-meta">{data.error}</p>}
       <details className="print-buy-list"><summary>Buy missing originals{missing.length ? ` (${missing.length})` : ''}</summary>
         <p className="print-panel-meta">One original in any printing covers unlimited proxies. This buy list uses only missing cards in your current view; owned, incoming and unknown cards are excluded.</p>
@@ -77,7 +77,7 @@ export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,ca
     <details open={initiallyOpen || undefined}>
       <summary>ManaSync ownership and Mana Pool shopping</summary>
       <div className="mana-sync-actions"><button className="btn btn-secondary btn-sm" onClick={refresh} disabled={loading} type="button">{loading ? 'Refreshing…' : 'Refresh ownership'}</button></div>
-      <p>{data?.known ? 'Ownership from ManaSync' : 'Ownership unknown. Connect or reconnect ManaSync in Settings.'} · Last successful ownership refresh: {data?.connection?.lastOwnership ? new Date(data.connection.lastOwnership).toLocaleString() : 'Never'}</p>
+      <p>{data?.known ? 'Ownership from ManaSync' : 'Ownership unknown. Connect or reconnect ManaSync in Connections.'} · Last successful ownership refresh: {data?.connection?.lastOwnership ? new Date(data.connection.lastOwnership).toLocaleString() : 'Never'}</p>
       {data?.error && <p role="status">{data.error}</p>}
       <p>One original in any printing covers unlimited proxy copies across all your decks, including originals already in another deck. Incoming originals also count so you do not buy them again. Proxies do not count as originals.</p>
       <p>Select a card only to add one original to your Mana Pool shopping list. This does not place an order or change any print quantities. Different printings of the same card share one shopping selection.</p>

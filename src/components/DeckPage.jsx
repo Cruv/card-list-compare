@@ -30,11 +30,15 @@ import MpcOverlay from './MpcOverlay';
 import ManaSyncOwnership from './ManaSyncOwnership';
 import ProposalReview from './ProposalReview';
 import SourceSyncReview from './SourceSyncReview';
-import { sourceRefreshFeedback } from '../lib/sourceSync';
+import { sourceRefreshFeedback, sourceStatusLabel } from '../lib/sourceSync';
 import PriceHistoryOverlay from './PriceHistoryOverlay';
 import PrintPanel from './PrintPanel';
 import PrintComparisonButton from './PrintComparisonButton';
 import './DeckPage.css';
+import './DeckGridCard.css';
+import useDeckArtwork, { deckCommanders } from '../hooks/useDeckArtwork';
+import DeckArtwork from './DeckArtwork';
+import Icon from './Icon';
 
 function formatDate(dateStr) {
   if (!dateStr) return null;
@@ -68,6 +72,7 @@ export default function DeckPage({ deckId }) {
 
   // Core data
   const [deck, setDeck] = useState(null);
+  const coverFor = useDeckArtwork(deck ? [deck] : []);
   const [loading, setLoading] = useState(true);
   const [snapshots, setSnapshots] = useState([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
@@ -146,10 +151,7 @@ export default function DeckPage({ deckId }) {
   const downloadPollRef = useRef(null);
 
   // Parse commanders from deck
-  const commanders = useMemo(() => {
-    if (!deck) return [];
-    try { return JSON.parse(deck.commanders || '[]'); } catch { return []; }
-  }, [deck]);
+  const commanders = useMemo(() => deckCommanders(deck), [deck]);
 
   // --- Data loading ---
 
@@ -714,32 +716,26 @@ export default function DeckPage({ deckId }) {
           &larr; Back to Library
         </button>
         <div className="deck-page-topbar-actions">
-          <button className="btn btn-primary btn-sm" onClick={handleRefresh} disabled={refreshing || deck.source_type === 'manual'} title={deck.source_type === 'manual' ? 'Manual decks have no upstream source to refresh' : undefined} type="button">
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+          <button className="btn btn-secondary btn-sm" onClick={handleRefresh} disabled={refreshing || deck.source_type === 'manual'} title={deck.source_type === 'manual' ? 'Manual decks have no upstream source to refresh' : undefined} type="button">
+            <Icon name="refresh" size={16} /> {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           {deck.deck_url && (
             <a href={deck.deck_url} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
               {sourceName}
             </a>
           )}
-          <button className="btn btn-sm btn-ghost-danger" onClick={handleUntrack} type="button">
-            Untrack
-          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('printing')} type="button"><Icon name="print" size={17} /> Print cards</button>
+          <details className="deck-page-more"><summary aria-label="More deck actions"><Icon name="more" /></summary>
+            <div><button className="btn btn-sm btn-ghost-danger" onClick={handleUntrack} type="button">Untrack deck</button></div>
+          </details>
         </div>
       </div>
 
-      <SourceSyncReview deckId={deckId} manual={deck.source_type === 'manual'} sourceProvider={sourceProvider}
-        refreshKey={`${snapshots[0]?.id}:${deck.source_sync?.status}:${deck.source_sync?.checkedAt}`}
-        onChanged={async () => {
-          setParsedDeck(null); setDeckCardMap(null); setDeckText(null);
-          setChangelogData(null); setChangelogCardMap(null); setChangelogTexts(null); setTimelineData(null);
-          const updated = await loadSnapshots();
-          await Promise.all([loadDeck(), ...(activeTab === 'fulldeck' && updated?.[0] ? [loadFullDeck(updated[0].id)] : []),
-            ...(activeTab === 'changelog' ? [loadChangelog()] : []), ...(activeTab === 'timeline' ? [loadTimeline()] : [])]);
-        }} />
-
       {/* Header */}
-      <div className="deck-page-header">
+      <div className="deck-page-hero">
+        <DeckArtwork imageUri={coverFor(commanders[0])} className="deck-page-cover" />
+        <div className="deck-page-header">
+        <span className="deck-page-eyebrow">{sourceName === 'Archidekt' && deck.source_type === 'manual' ? 'Manual deck' : sourceName} · Deck workspace</span>
         <div className="deck-page-header-top">
           <h1 className="deck-page-name">{deck.deck_name}</h1>
           <div className="deck-page-header-badges">
@@ -757,7 +753,7 @@ export default function DeckPage({ deckId }) {
               type="button"
               title={deck.pinned ? 'Unpin' : 'Pin to top'}
             >
-              {'\u{1F4CC}'}
+              <Icon name="pin" size={18} />
             </button>
           </div>
         </div>
@@ -796,7 +792,7 @@ export default function DeckPage({ deckId }) {
                 type="button"
                 title="Edit commander(s)"
               >
-                &#9998;
+                <Icon name="edit" size={15} />
               </button>
             </div>
           )}
@@ -894,13 +890,29 @@ export default function DeckPage({ deckId }) {
         )}
       </div>
 
+      </div>
+
+      {deck.source_type !== 'manual' && <details className="deck-source-disclosure" open={['pending_review', 'local_changes'].includes(deck.source_sync?.status)}>
+      <summary><Icon name="connections" size={16} /><span>{sourceName} source</span><span className="deck-source-summary-status">{sourceStatusLabel(deck.source_sync?.status).replaceAll('Archidekt', sourceName)}</span></summary>
+      <SourceSyncReview deckId={deckId} manual={deck.source_type === 'manual'} sourceProvider={sourceProvider}
+        refreshKey={`${snapshots[0]?.id}:${deck.source_sync?.status}:${deck.source_sync?.checkedAt}`}
+        onChanged={async () => {
+          setParsedDeck(null); setDeckCardMap(null); setDeckText(null);
+          setChangelogData(null); setChangelogCardMap(null); setChangelogTexts(null); setTimelineData(null);
+          const updated = await loadSnapshots();
+          await Promise.all([loadDeck(), ...(activeTab === 'fulldeck' && updated?.[0] ? [loadFullDeck(updated[0].id)] : []),
+            ...(activeTab === 'changelog' ? [loadChangelog()] : []), ...(activeTab === 'timeline' ? [loadTimeline()] : [])]);
+        }} />
+      </details>}
+
       {/* Tabs */}
-      <nav className="deck-page-tabs">
+      <nav className="deck-page-tabs" aria-label="Deck sections">
         {['snapshots', 'changelog', 'timeline', 'fulldeck', 'printing', 'analytics', 'settings'].map(tab => (
           <button
             key={tab}
             className={`deck-page-tab${activeTab === tab ? ' deck-page-tab--active' : ''}`}
             onClick={() => setActiveTab(tab)}
+            aria-current={activeTab === tab ? 'page' : undefined}
             type="button"
           >
             {{
@@ -1048,7 +1060,7 @@ export default function DeckPage({ deckId }) {
                         type="button"
                         title={snap.locked ? 'Unlock' : 'Lock'}
                       >
-                        {snap.locked ? '\uD83D\uDD12' : '\uD83D\uDD13'}
+                        <Icon name={snap.locked ? "lock" : "unlock"} size={17} />
                       </button>
                       <button
                         className={`deck-page-snap-icon-btn${deck.paper_snapshot_id === snap.id ? ' deck-page-snap-icon-btn--active' : ''}`}
@@ -1056,7 +1068,7 @@ export default function DeckPage({ deckId }) {
                         type="button"
                         title={deck.paper_snapshot_id === snap.id ? 'Remove paper marker' : 'Mark as paper'}
                       >
-                        {'\uD83D\uDCCB'}
+                        <Icon name="cards" size={17} />
                       </button>
                       <button
                         className="deck-page-snap-icon-btn"
@@ -1064,7 +1076,7 @@ export default function DeckPage({ deckId }) {
                         type="button"
                         title="Edit nickname"
                       >
-                        &#9998;
+                        <Icon name="edit" size={15} />
                       </button>
                       <button
                         className="deck-page-snap-icon-btn deck-page-snap-icon-btn--delete"
@@ -1073,7 +1085,7 @@ export default function DeckPage({ deckId }) {
                         disabled={!!snap.locked}
                         title={snap.locked ? 'Unlock to delete' : 'Delete'}
                       >
-                        &#10005;
+                        <Icon name="close" size={17} />
                       </button>
                     </div>
                   </li>
@@ -1185,7 +1197,9 @@ export default function DeckPage({ deckId }) {
               <p className="deck-page-empty">No deck data available. The deck needs at least one snapshot.</p>
             ) : (
               <>
-                <div className="deck-page-diff-buttons" style={{ marginBottom: 'var(--space-md)' }}>
+                <div className="deck-full-toolbar"><div><h2>Latest snapshot</h2><p>Browse the cards and print the version you want to play.</p></div>
+                  <details className="deck-tools"><summary><Icon name="download" size={17} /> Export & images</summary>
+                <div className="deck-page-diff-buttons">
                   {deckText && (
                     <>
                       <CopyButton
@@ -1197,7 +1211,7 @@ export default function DeckPage({ deckId }) {
                       <CopyButton getText={() => formatTTS(deckText, deckCardMap, commanders)} label="Copy for TTS" className="copy-btn copy-btn--tts" />
                     </>
                   )}
-                  <button className="btn btn-secondary btn-sm" onClick={handlePrintProxies} type="button">
+                  <button className="btn btn-secondary btn-sm" onClick={event => { event.currentTarget.focus(); handlePrintProxies(); }} type="button">
                     Print Proxies (MPCFill)
                   </button>
                   <button
@@ -1214,7 +1228,8 @@ export default function DeckPage({ deckId }) {
                             : 'Download Images (Scryfall)'
                       : 'Download Images (Scryfall)'}
                   </button>
-                </div>
+                </div></details></div>
+                {downloadJob && downloadJob.status !== 'failed' && <p className="deck-download-status" role="status">{downloadJob.status === 'processing' ? `Downloading ${downloadJob.downloadedImages || 0}/${downloadJob.totalImages || '?'} images…` : downloadJob.status === 'queued' ? 'Your image download is queued.' : 'Image download complete.'}</p>}
                 {downloadJob?.status === 'failed' && (
                   <div className="deck-page-download-error" role="alert">
                     <strong>Image download could not be completed</strong>
@@ -1222,7 +1237,9 @@ export default function DeckPage({ deckId }) {
                     <button className="btn btn-secondary btn-sm" type="button" onClick={() => setDownloadJob(null)}>Dismiss</button>
                   </div>
                 )}
-                <ManaSyncOwnership deckId={deckId} parsedDeck={parsedDeck} cardMap={deckCardMap} deckText={deckText} />
+                <details className="deck-ownership-disclosure"><summary><Icon name="connections" size={17} /> Ownership & shopping</summary>
+                  <ManaSyncOwnership deckId={deckId} parsedDeck={parsedDeck} cardMap={deckCardMap} deckText={deckText} />
+                </details>
                 <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} />
               </>
             )}
@@ -1237,11 +1254,11 @@ export default function DeckPage({ deckId }) {
                 {loadingPrices ? 'Checking...' : 'Check Prices'}
               </button>
               {priceDisplayEnabled && deck.last_known_price > 0 && (
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowPriceHistory(true)} type="button">
+                <button className="btn btn-secondary btn-sm" onClick={event => { event.currentTarget.focus(); setShowPriceHistory(true); }} type="button">
                   Price History
                 </button>
               )}
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowRecommendations(true)} type="button">
+              <button className="btn btn-secondary btn-sm" onClick={event => { event.currentTarget.focus(); setShowRecommendations(true); }} type="button">
                 Suggest Cards
               </button>
             </div>
@@ -1483,7 +1500,7 @@ function SnapshotTimeline({ entries, loading, onEntryClick, paperSnapshotId }) {
         <div
           key={entry.snapshotId}
           className={`settings-timeline-entry${onEntryClick ? ' settings-timeline-entry--clickable' : ''}`}
-          onClick={onEntryClick ? () => onEntryClick(entry, originalIndex) : undefined}
+          onClick={onEntryClick ? event => { event.currentTarget.focus(); onEntryClick(entry, originalIndex); } : undefined}
           role={onEntryClick ? 'button' : undefined}
           tabIndex={onEntryClick ? 0 : undefined}
           onKeyDown={onEntryClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onEntryClick(entry, originalIndex); } } : undefined}
@@ -1497,7 +1514,7 @@ function SnapshotTimeline({ entries, loading, onEntryClick, paperSnapshotId }) {
               <span className="settings-timeline-date">{formatTimelineDate(entry.date)}</span>
               {entry.nickname && <span className="settings-timeline-nick">{entry.nickname}</span>}
               {entry.locked && <span className="settings-timeline-lock" title="Locked">{'\uD83D\uDD12'}</span>}
-              {paperSnapshotId === entry.snapshotId && <span className="settings-timeline-paper" title="Paper deck">{'\uD83D\uDCCB'}</span>}
+              {paperSnapshotId === entry.snapshotId && <span className="settings-timeline-paper" title="Paper deck"><Icon name="cards" size={17} /></span>}
             </div>
             <div className="settings-timeline-stats">
               <span className="settings-timeline-card-count">{entry.cardCount} cards</span>

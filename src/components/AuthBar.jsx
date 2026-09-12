@@ -1,10 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { login, register, getRegistrationStatus } from '../lib/api';
 import { toast } from './Toast';
 import PasswordRequirements from './PasswordRequirements';
+import { useModalLayer } from '../lib/useModalLayer';
+import Icon from './Icon';
 import './AuthBar.css';
+
+function AuthDialog({ children, onClose, title }) {
+  const ref = useRef(null);
+  useModalLayer(onClose, { containerRef: ref });
+  return <div className="auth-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}><section className="auth-modal" ref={ref} role="dialog" aria-modal="true" aria-labelledby="auth-title" tabIndex={-1}><div className="auth-modal-heading"><span className="auth-emblem"><Icon name="cards" size={28} /></span><button className="shell-icon-button" onClick={onClose} aria-label="Close sign in"><Icon name="close" /></button></div><h2 id="auth-title">{title}</h2><p>Keep your decks, artwork and print batches together.</p>{children}</section></div>;
+}
 
 export default function AuthBar({ onShowForgotPassword }) {
   const { user, loading, loginUser, logoutUser } = useAuth();
@@ -57,82 +65,17 @@ export default function AuthBar({ onShowForgotPassword }) {
     }
   }
 
-  const themeToggle = (
-    <button
-      className="auth-bar-btn auth-bar-theme-toggle"
-      onClick={toggleTheme}
-      type="button"
-      title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-      aria-label="Toggle theme"
-    >
-      {theme === 'dark' ? '\u2600' : '\u263D'}
-    </button>
-  );
-
-  const guideButton = (
-    <button
-      className="auth-bar-btn auth-bar-guide"
-      onClick={() => { window.location.hash = '#guide'; }}
-      type="button"
-      title="How to use this app"
-    >
-      Guide
-    </button>
-  );
-
-  if (user) {
-    return (
-      <div className="auth-bar">
-        {themeToggle}
-        {guideButton}
-        <span className="auth-bar-user">{user.username}</span>
-        {user.isAdmin && (
-          <button className="auth-bar-btn" onClick={() => { window.location.hash = '#admin'; }} type="button" title="Admin Panel">
-            Admin
-          </button>
-        )}
-        <button className="auth-bar-btn" onClick={() => { window.location.hash = '#library'; }} type="button" title="Deck Library">
-          Decks
-        </button>
-        <button className="auth-bar-btn" onClick={() => { window.location.hash = '#print-station'; }} type="button" title="Household Print Station">
-          Print Station
-        </button>
-        <button className="auth-bar-btn" onClick={() => { window.location.hash = '#print-list'; }} type="button" title="Create a standalone print list">
-          Print List
-        </button>
-        <button className="auth-bar-btn" onClick={() => { window.location.hash = '#settings'; }} type="button" title="Account Settings">
-          Settings
-        </button>
-        <button className="auth-bar-btn" onClick={logoutUser} type="button">
-          Log Out
-        </button>
-      </div>
-    );
-  }
-
-  if (!showForm) {
-    return (
-      <div className="auth-bar">
-        {themeToggle}
-        {guideButton}
-        <button className="auth-bar-btn" onClick={() => setShowForm(true)} type="button">
-          Log In
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="auth-bar">
-      {themeToggle}
-      {guideButton}
+  const closeForm = () => { setShowForm(false); setError(null); setIsRegister(false); setInviteCode(''); setPassword(''); };
+  return <div className="auth-bar">
+    <button className="auth-bar-btn auth-bar-theme-toggle" onClick={toggleTheme} type="button" title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} aria-label="Toggle theme"><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} /></button>
+    {user ? <><a className="auth-account" href="#settings" title="Account settings"><span className="auth-avatar">{user.username?.slice(0, 1).toUpperCase()}</span><span className="auth-bar-user">{user.username}</span></a><button className="auth-bar-btn auth-logout" onClick={logoutUser} type="button" aria-label="Log Out" title="Log Out"><Icon name="logout" size={18} /></button></> : <button className="auth-bar-btn auth-bar-btn--primary" onClick={event => { event.currentTarget.focus(); setShowForm(true); }} type="button">Log In</button>}
+    {showForm && !user && <AuthDialog onClose={closeForm} title={isRegister ? 'Make room for your decks.' : 'Welcome back.'}>
       <form className="auth-bar-form" onSubmit={handleSubmit} aria-label="Authentication">
         <input
           type="text"
           placeholder="Username"
           value={username}
           onChange={e => setUsername(e.target.value)}
-          autoFocus
           disabled={submitting}
           aria-label="Username"
           autoComplete="username"
@@ -159,7 +102,7 @@ export default function AuthBar({ onShowForgotPassword }) {
         )}
         {isRegister && <PasswordRequirements password={password} />}
         <button className="auth-bar-btn auth-bar-btn--primary" type="submit" disabled={submitting}>
-          {submitting ? '...' : isRegister ? 'Register' : 'Log In'}
+          {submitting ? 'Signing in…' : isRegister ? 'Create account' : 'Log In'}
         </button>
         {registrationMode !== 'closed' && (
           <button
@@ -173,7 +116,7 @@ export default function AuthBar({ onShowForgotPassword }) {
         <button
           className="auth-bar-btn"
           type="button"
-          onClick={() => { setShowForm(false); setError(null); setIsRegister(false); setInviteCode(''); }}
+          onClick={closeForm}
         >
           Cancel
         </button>
@@ -181,13 +124,13 @@ export default function AuthBar({ onShowForgotPassword }) {
           <button
             className="auth-bar-link"
             type="button"
-            onClick={() => { setShowForm(false); onShowForgotPassword?.(); }}
+            onClick={() => { closeForm(); onShowForgotPassword?.(); }}
           >
             Forgot password?
           </button>
         )}
       </form>
       {error && <div className="auth-bar-error" role="alert">{error}</div>}
-    </div>
-  );
+    </AuthDialog>}
+  </div>;
 }

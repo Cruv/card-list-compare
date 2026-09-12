@@ -10,6 +10,8 @@ import {
   getNotificationHistory,
 } from '../lib/api';
 import DeckGridCard from './DeckGridCard';
+import useDeckArtwork, { deckCommanders } from '../hooks/useDeckArtwork';
+import Icon from './Icon';
 import Skeleton from './Skeleton';
 import './UserSettings.css';
 import './DeckLibrary.css';
@@ -20,16 +22,15 @@ export default function DeckLibrary() {
 
   return (
     <div className="settings-page deck-library-page">
-      <button className="settings-back-link" onClick={() => { window.location.hash = ''; }} type="button">
-        &larr; Back to Compare
-      </button>
       <div className="user-settings">
         {ConfirmDialog}
         <div className="user-settings-header">
-          <h2>Deck Library</h2>
+          <div><span className="deck-library-eyebrow">Your workspace</span><h1>Deck Library</h1>
+            <p>Keep your decks, changes and paper copies together.</p></div>
+          <a className="btn btn-primary" href="#compare"><Icon name="plus" size={18} /> Import a deck</a>
         </div>
 
-        <nav className="user-settings-tabs">
+        <nav className="user-settings-tabs" aria-label="Library sections">
           <button
             className={`user-settings-tab${activeTab === 'deck-tracker' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('deck-tracker')}
@@ -88,6 +89,9 @@ function DeckTrackerSettings({ confirm }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [showSources, setShowSources] = useState(false);
+  const coverFor = useDeckArtwork(trackedDecks);
 
   // Search + collapse + tag filter state
   const [deckSearch, setDeckSearch] = useState('');
@@ -147,11 +151,13 @@ function DeckTrackerSettings({ confirm }) {
   const refresh = useCallback(async () => {
     try {
       const [ownersData, decksData] = await Promise.all([getOwners(), getTrackedDecks()]);
+      setError(null);
       setOwners(ownersData.owners);
       setTrackedDecks(decksData.decks);
     } catch {
+      setError('Failed to load your decks. Please refresh to try again.');
       toast.error('Failed to load tracking data.');
-    }
+    } finally { setInitialLoading(false); }
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -344,6 +350,153 @@ function DeckTrackerSettings({ confirm }) {
     <div className="settings-tracker">
       {error && <div className="settings-tracker-error" role="alert">{error}</div>}
 
+      {initialLoading && <div className="deck-library-loading" role="status" aria-label="Loading decks"><Skeleton lines={8} /></div>}
+      {trackedDecks.length > 0 && (
+        <div className="settings-tracker-decks">
+          <div className="settings-tracker-decks-header">
+            <div><h2>Your decks <span className="deck-library-count">{trackedDecks.length}</span></h2><p className="deck-library-section-hint">Open a deck to review changes or prepare a print.</p></div>
+            <div className="settings-tracker-decks-header-actions">
+              <button
+                className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
+                onClick={toggleBulkMode}
+                type="button"
+              >
+                {bulkMode ? 'Done selecting' : 'Select decks'}
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleRefreshAll}
+                disabled={refreshingAll || trackedDecks.every(deck => deck.source_type === 'manual')}
+                type="button"
+              >
+                <Icon name="refresh" size={16} /> {refreshingAll ? 'Refreshing...' : 'Refresh all'}
+              </button>
+            </div>
+          </div>
+
+          {/* Bulk action bar */}
+          {bulkMode && (
+            <div className="settings-tracker-bulk-bar">
+              <div className="settings-tracker-bulk-bar-left">
+                <button className="btn btn-secondary btn-sm" onClick={selectAllDecks} type="button">All</button>
+                <button className="btn btn-secondary btn-sm" onClick={deselectAllDecks} type="button">None</button>
+                <span className="settings-tracker-bulk-count">{selectedDecks.size} selected</span>
+              </div>
+              {selectedDecks.size > 0 && (
+                <div className="settings-tracker-bulk-bar-right">
+                  <button className="btn btn-primary btn-sm" onClick={handleBulkRefresh} disabled={!trackedDecks.some(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual')} type="button">
+                    Refresh ({trackedDecks.filter(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual').length})
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleBulkExport} type="button">
+                    Export ({selectedDecks.size})
+                  </button>
+                  <button className="btn btn-sm btn-ghost-danger" onClick={handleBulkUntrack} type="button">
+                    Untrack ({selectedDecks.size})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Search + tag filter */}
+          {trackedDecks.length > 0 && (
+            <div className="settings-tracker-filter-row">
+              <div className="settings-tracker-search"><Icon name="search" size={18} />
+                <input
+                  className="settings-tracker-search-input"
+                  type="text"
+                  placeholder="Search decks or users…"
+                  value={deckSearch}
+                  onChange={e => setDeckSearch(e.target.value)}
+                  aria-label="Filter tracked decks"
+                />
+                {deckSearch && (
+                  <button
+                    className="settings-tracker-search-clear"
+                    onClick={() => setDeckSearch('')}
+                    type="button"
+                    aria-label="Clear search"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+              {allTags.length > 0 && (
+                <select
+                  className="settings-tracker-tag-filter"
+                  value={tagFilter}
+                  onChange={e => setTagFilter(e.target.value)}
+                  aria-label="Filter by tag"
+                >
+                  <option value="">All tags</option>
+                  {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* Owner groups */}
+          {filteredDecksByOwner.length === 0 && (deckSearch.trim() || tagFilter) && (
+            <p className="settings-tracker-empty">No decks matching "{deckSearch}"</p>
+          )}
+
+          {filteredDecksByOwner.map(([ownerName, decks]) => {
+            const isSearchActive = deckSearch.trim().length > 0;
+            const isCollapsed = !isSearchActive && collapsedOwners.has(ownerName);
+
+            return (
+              <div key={ownerName} className="settings-tracker-owner-group">
+                <div className="settings-tracker-owner-group-header-row">
+                  {bulkMode && (
+                    <input
+                      type="checkbox"
+                      className="settings-tracker-bulk-checkbox"
+                      aria-label={`Select all decks by ${ownerName}`}
+                      checked={decks.every(d => selectedDecks.has(d.id))}
+                      onChange={() => toggleOwnerSelection(decks)}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  )}
+                  <button
+                    className="settings-tracker-owner-group-header"
+                    onClick={() => toggleOwnerCollapse(ownerName)}
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                  >
+                    <span className="settings-tracker-owner-group-arrow">{isCollapsed ? '\u25B6' : '\u25BC'}</span>
+                    <span className="settings-tracker-owner-group-name">{ownerName}</span>
+                    <span className="settings-tracker-owner-group-count">{decks.length}</span>
+                  </button>
+                </div>
+                {!isCollapsed && (
+                  <div className="deck-tracker-grid">
+                    {decks.map(deck => (
+                      <DeckGridCard
+                        key={deck.id}
+                        deck={deck}
+                        imageUri={coverFor(deckCommanders(deck)[0])}
+                        bulkMode={bulkMode}
+                        isSelected={selectedDecks.has(deck.id)}
+                        onToggleSelect={toggleDeckSelection}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!initialLoading && trackedDecks.length === 0 && <div className="deck-library-empty">
+        <Icon name="library" size={42} /><h2>Your next deck starts here</h2>
+        <p>Import a list on Compare, or track an Archidekt user to follow their decks.</p>
+        <a className="btn btn-primary" href="#compare">Import a deck</a>
+      </div>}
+      {!initialLoading && <details className="deck-library-sources" open={showSources || trackedDecks.length === 0}
+        onToggle={event => setShowSources(event.currentTarget.open)}>
+        <summary><Icon name="plus" size={18} /><span>Track decks & manage sources</span><span className="deck-library-source-count">{owners.length} user{owners.length === 1 ? '' : 's'}</span></summary>
+        <div className="deck-library-sources-body"><p>Follow an Archidekt user, then choose the decks to track.</p>
       <form className="settings-tracker-add" onSubmit={handleAddOwner}>
         <input
           type="text"
@@ -420,146 +573,8 @@ function DeckTrackerSettings({ confirm }) {
         </div>
       )}
 
-      {trackedDecks.length > 0 && (
-        <div className="settings-tracker-decks">
-          <div className="settings-tracker-decks-header">
-            <h4>Tracked Decks</h4>
-            <div className="settings-tracker-decks-header-actions">
-              <button
-                className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
-                onClick={toggleBulkMode}
-                type="button"
-              >
-                {bulkMode ? 'Cancel Select' : 'Select'}
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={handleRefreshAll}
-                disabled={refreshingAll || trackedDecks.every(deck => deck.source_type === 'manual')}
-                type="button"
-              >
-                {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.filter(deck => deck.source_type !== 'manual').length})`}
-              </button>
-            </div>
-          </div>
-
-          {/* Bulk action bar */}
-          {bulkMode && (
-            <div className="settings-tracker-bulk-bar">
-              <div className="settings-tracker-bulk-bar-left">
-                <button className="btn btn-secondary btn-sm" onClick={selectAllDecks} type="button">All</button>
-                <button className="btn btn-secondary btn-sm" onClick={deselectAllDecks} type="button">None</button>
-                <span className="settings-tracker-bulk-count">{selectedDecks.size} selected</span>
-              </div>
-              {selectedDecks.size > 0 && (
-                <div className="settings-tracker-bulk-bar-right">
-                  <button className="btn btn-primary btn-sm" onClick={handleBulkRefresh} disabled={!trackedDecks.some(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual')} type="button">
-                    Refresh ({trackedDecks.filter(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual').length})
-                  </button>
-                  <button className="btn btn-secondary btn-sm" onClick={handleBulkExport} type="button">
-                    Export ({selectedDecks.size})
-                  </button>
-                  <button className="btn btn-sm btn-ghost-danger" onClick={handleBulkUntrack} type="button">
-                    Untrack ({selectedDecks.size})
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Search + tag filter */}
-          {trackedDecks.length > 3 && (
-            <div className="settings-tracker-filter-row">
-              <div className="settings-tracker-search">
-                <input
-                  className="settings-tracker-search-input"
-                  type="text"
-                  placeholder="Filter decks..."
-                  value={deckSearch}
-                  onChange={e => setDeckSearch(e.target.value)}
-                  aria-label="Filter tracked decks"
-                />
-                {deckSearch && (
-                  <button
-                    className="settings-tracker-search-clear"
-                    onClick={() => setDeckSearch('')}
-                    type="button"
-                    aria-label="Clear search"
-                  >
-                    &times;
-                  </button>
-                )}
-              </div>
-              {allTags.length > 0 && (
-                <select
-                  className="settings-tracker-tag-filter"
-                  value={tagFilter}
-                  onChange={e => setTagFilter(e.target.value)}
-                  aria-label="Filter by tag"
-                >
-                  <option value="">All tags</option>
-                  {allTags.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              )}
-            </div>
-          )}
-
-          {/* Owner groups */}
-          {filteredDecksByOwner.length === 0 && (deckSearch.trim() || tagFilter) && (
-            <p className="settings-tracker-empty">No decks matching "{deckSearch}"</p>
-          )}
-
-          {filteredDecksByOwner.map(([ownerName, decks]) => {
-            const isSearchActive = deckSearch.trim().length > 0;
-            const isCollapsed = !isSearchActive && collapsedOwners.has(ownerName);
-
-            return (
-              <div key={ownerName} className="settings-tracker-owner-group">
-                <div className="settings-tracker-owner-group-header-row">
-                  {bulkMode && (
-                    <input
-                      type="checkbox"
-                      className="settings-tracker-bulk-checkbox"
-                      checked={decks.every(d => selectedDecks.has(d.id))}
-                      onChange={() => toggleOwnerSelection(decks)}
-                      onClick={e => e.stopPropagation()}
-                    />
-                  )}
-                  <button
-                    className="settings-tracker-owner-group-header"
-                    onClick={() => toggleOwnerCollapse(ownerName)}
-                    type="button"
-                    aria-expanded={!isCollapsed}
-                  >
-                    <span className="settings-tracker-owner-group-arrow">{isCollapsed ? '\u25B6' : '\u25BC'}</span>
-                    <span className="settings-tracker-owner-group-name">{ownerName}</span>
-                    <span className="settings-tracker-owner-group-count">{decks.length}</span>
-                  </button>
-                </div>
-                {!isCollapsed && (
-                  <div className="deck-tracker-grid">
-                    {decks.map(deck => (
-                      <DeckGridCard
-                        key={deck.id}
-                        deck={deck}
-                        bulkMode={bulkMode}
-                        isSelected={selectedDecks.has(deck.id)}
-                        onToggleSelect={toggleDeckSelection}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
         </div>
-      )}
-
-      {owners.length === 0 && trackedDecks.length === 0 && (
-        <p className="settings-tracker-empty">
-          No tracked users yet. Enter an Archidekt username above to start tracking their decks.
-        </p>
-      )}
+      </details>}
     </div>
   );
 }

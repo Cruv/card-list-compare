@@ -1,9 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { forgotPassword, getEmailConfigured } from '../lib/api';
 import { toast } from './Toast';
+import { useModalLayer } from '../lib/useModalLayer';
 import './UserSettings.css';
 
 export default function ForgotPassword({ onClose }) {
+  const modalRef = useRef(null);
+  useModalLayer(onClose, { containerRef: modalRef });
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
@@ -32,9 +35,9 @@ export default function ForgotPassword({ onClose }) {
   }
 
   return (
-    <div className="user-settings">
+    <div className="auth-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}><div className="user-settings password-panel auth-modal" ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="forgot-password-title" tabIndex={-1}>
       <div className="user-settings-header">
-        <h2>Reset Password</h2>
+        <h2 id="forgot-password-title">Reset Password</h2>
         <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Close</button>
       </div>
 
@@ -79,6 +82,6 @@ export default function ForgotPassword({ onClose }) {
           </p>
         </section>
       )}
-    </div>
+    </div></div>
   );
 }

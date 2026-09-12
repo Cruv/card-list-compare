@@ -18,3 +18,9 @@
 .mana-sync-artwork-faces figure { margin: 0; max-width: 100%; width: 170px; }
 .mana-sync-artwork-faces img { display: block; width: 100%; height: auto; border-radius: 8px; }
 .mana-sync-artwork-faces figcaption { margin-top: .4rem; font-size: .85rem; }
+.mana-sync summary { min-height: 44px; }
+.mana-sync input:not([type=checkbox]), .mana-sync select { min-height: 44px; border-radius: 10px; }
+.mana-sync td, .mana-sync th { padding: 14px 12px; }
+.mana-sync-operation { border-radius: 12px; padding: 16px; background: var(--bg-secondary); }
+.mana-sync-print-item { margin-top: 20px; padding-top: 20px; }
+.mana-sync-actions { gap: 10px; }

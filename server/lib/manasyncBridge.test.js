@@ -43,6 +43,7 @@ async function fakeManaSync(url,options) {
 beforeAll(async () => {
   vi.stubEnv('DB_PATH',join(dir,'clc.db'));
   vi.stubEnv('MANASYNC_BRIDGE_KEY',Buffer.alloc(32,7).toString('base64'));
+  vi.stubEnv('JWT_SECRET','test-only-manasync-connect-session');
   db = await import('../db.js');await db.initDb();
   const {initIntegrationSchema} = await import('./integrationSchema.js');initIntegrationSchema();
   bridge = await import('./manasyncBridge.js');bridge.initBridgeSchema();
@@ -87,6 +88,8 @@ describe('ManaSync durable physical-print bridge',() => {
     ['https://mana.example:443/', 'https://mana.example'],
     ['https://proxy.example/apps/manasync///', 'https://proxy.example/apps/manasync'],
     ['proxy.example/apps/manasync/', 'https://proxy.example/apps/manasync'],
+    ['https://manasync.net/api/v1/', 'https://manasync.net'],
+    ['https://proxy.example/apps/manasync/api/v1', 'https://proxy.example/apps/manasync'],
   ])('accepts and normalizes a server-reachable backend address: %s', (input, normalized) => {
     expect(bridge.validateBaseUrl(input)).toBe(normalized);
   });
@@ -99,9 +102,109 @@ describe('ManaSync durable physical-print bridge',() => {
     'https://mana.example?token=secret', 'https://mana.example?',
     'https://mana.example#settings', 'https://mana.example#',
     'https://mana.\nexample', 'https://mana.example\\',
+    'https://manasync.net/api/v1/integration/context',
   ])('rejects an invalid or ambiguous backend address: %j', input => {
     expect(() => bridge.validateBaseUrl(input)).toThrow(bridge.BridgeError);
     expect(fetch).not.toHaveBeenCalled();
+  });
+  it('defaults to the deployed ManaSync app and accepts a copied bearer value without storing the prefix', async () => {
+    const status = await bridge.connect(1, {token:'  Bearer user-a-original  '});
+    expect(status).toMatchObject({connected:true,baseUrl:'https://manasync.net'});
+    expect(fetch.mock.calls[0][0]).toBe('https://manasync.net/api/v1/integration/context');
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer user-a-original');
+    expect(bridge.connectionFor(1).token_cipher).not.toContain('user-a-original');
+    expect(writes).toEqual([]);
+  });
+  it('explains tokens copied from the wrong app and rejects malformed values before network access', async () => {
+    await expect(bridge.connect(1,{token:'clc_test_only'})).rejects.toThrow('CLC deck-access token');
+    for (const token of ['"ms_example"','ms_example extra','Bearer ','ms_example\nsecret']) {
+      await expect(bridge.connect(1,{token})).rejects.toMatchObject({status:400});
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    expect(bridge.connectionStatus(1).configured).toBe(false);
+  });
+  it.each([
+    [{cause:{code:'ENOTFOUND'}},'hostname',502],
+    [{cause:{code:'ECONNREFUSED'}},'address, port',502],
+    [{cause:{code:'CERT_HAS_EXPIRED'}},'HTTPS certificate',502],
+    [{cause:{message:'unexpected redirect'}},'redirects',502],
+    [{name:'TimeoutError'},'respond in time',504],
+    [{cause:{code:'UND_ERR_CONNECT_TIMEOUT'}},'respond in time',504],
+    [{},'CLC server could not reach',502],
+  ])('gives actionable server diagnostics without echoing credentials: %j', async (details,message,status) => {
+    const failure = Object.assign(new Error('private-upstream-test-value'),details);
+    fetch.mockRejectedValueOnce(failure);
+    const error = await bridge.connect(1,{token:'user-a-original'}).catch(value => value);
+    expect(error).toMatchObject({status});
+    expect(error.message).toContain(message);
+    expect(error.message).not.toMatch(/private-upstream-test-value|user-a-original/);
+    expect(bridge.connectionStatus(1).configured).toBe(false);
+  });
+  it.each([
+    [() => json({error:'unauthorized'},401),'rejected this token',401],
+    [() => json({error:'not_found'},404),'integration API was not found',404],
+    [() => new Response('<html>Sign in</html>',{headers:{'content-type':'text/html'}}),'did not return the ManaSync API',502],
+  ])('keeps the previous grant intact when replacement setup fails', async (response,message,status) => {
+    await connect();
+    const before = bridge.connectionFor(1);
+    fetch.mockResolvedValueOnce(response());
+    const failure = await connect(1,'user-a-replacement').catch(error => error);
+    expect(failure).toMatchObject({status});
+    expect(failure.message).toContain(message);
+    expect(bridge.connectionFor(1)).toEqual(before);
+    expect(writes).toEqual([]);
+  });
+  it('checks the saved account without changing its token, ownership timestamp or historical confirmations', async () => {
+    await connect();
+    const item = queue();
+    const result = await confirm(1,item.id,{operationId:randomUUID(),quantity:1});
+    const operation = db.get('SELECT * FROM manasync_print_operations WHERE id=?',[result.id]);
+    const before = bridge.connectionFor(1);
+    const originalWriteCount = writes.length;
+    fetch.mockClear();
+    const status = await bridge.checkConnection(1);
+    expect(status).toMatchObject({connected:true,accountId:'account-a',lastOwnership:before.last_ownership});
+    expect(fetch.mock.calls.map(([url]) => new URL(url).pathname)).toEqual(['/api/v1/integration/context','/api/v1/containers']);
+    expect(bridge.connectionFor(1).token_cipher).toBe(before.token_cipher);
+    expect(db.get('SELECT * FROM manasync_print_operations WHERE id=?',[result.id])).toEqual(operation);
+    expect(writes).toHaveLength(originalWriteCount);
+  });
+  it('refuses changed context and clears a saved diagnostic after a successful check', async () => {
+    await connect();
+    fetch.mockResolvedValueOnce(json({user:{id:'account-b'},actorId:'user-a-original',scopes:['inventory:read','proxies:write']}));
+    await expect(bridge.checkConnection(1)).rejects.toMatchObject({status:409});
+    expect(bridge.connectionStatus(1).error).toContain('different account');
+    expect((await bridge.checkConnection(1)).error).toBeNull();
+    expect(writes).toEqual([]);
+  });
+  it('does not restore a disconnected grant or overwrite a new account while a check is in flight', async () => {
+    await connect();
+    fetch.mockImplementationOnce(async (url,options) => { bridge.disconnect(1); return fakeManaSync(url,options); });
+    await expect(bridge.checkConnection(1)).rejects.toThrow('connection changed');
+    expect(bridge.connectionStatus(1).connected).toBe(false);
+    await connect();
+    fetch.mockImplementationOnce(async (url,options) => { await connect(1,'user-b-new'); return fakeManaSync(url,options); });
+    await expect(bridge.checkConnection(1)).rejects.toThrow('connection changed');
+    expect(bridge.connectionStatus(1)).toMatchObject({connected:true,accountId:'account-b',error:null});
+  });
+  it('keeps connection checks owner scoped and maps upstream rejection without expiring the CLC session', async () => {
+    const router = (await import('../routes/manasync.js')).default;
+    const {createToken} = await import('../middleware/auth.js');
+    const request = (method,url,userId) => new Promise((resolve,reject) => {
+      const req = {method,url,headers:userId ? {authorization:`Bearer ${createToken({id:userId,username:'test'})}`} : {}};
+      const res = {statusCode:200,status(code) {this.statusCode=code;return this;},json(body) {resolve({status:this.statusCode,body});return this;}};
+      router.handle(req,res,error => error ? reject(error) : resolve({status:404}));
+    });
+    await connect();
+    expect((await request('POST','/connection/check')).status).toBe(401);
+    expect((await request('POST','/connection/check',2)).status).toBe(409);
+    expect((await request('POST','/connection/check',1)).status).toBe(200);
+    fetch.mockResolvedValueOnce(json({message:'This token was revoked.'},401));
+    const rejected = await request('POST','/connection/check',1);
+    expect(rejected.status).toBe(424);
+    expect(rejected.body.error).toContain('revoked');
+    expect(bridge.connectionStatus(2).configured).toBe(false);
+    expect(writes).toEqual([]);
   });
   it.each([
     ['mana.example:8443', 'https://mana.example:8443'],

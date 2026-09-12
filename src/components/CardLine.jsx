@@ -1,7 +1,9 @@
-import { memo, useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import { memo, useState, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppSettings } from '../context/AppSettingsContext';
 import ManaCost from './ManaCost';
+import Icon from './Icon';
+import { useModalLayer } from '../lib/useModalLayer';
 import './CardLine.css';
 
 // Detect touch-primary device once
@@ -48,23 +50,18 @@ function CardTooltip({ imageUri, name, triggerRef }) {
 }
 
 function CardOverlay({ imageUri, name, onClose }) {
-  useEffect(() => {
-    const handleKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', handleKey);
-    return () => document.removeEventListener('keydown', handleKey);
-  }, [onClose]);
-
+  const dialogRef = useRef(null);
+  useModalLayer(onClose, { containerRef: dialogRef });
   if (!imageUri) return null;
 
   return createPortal(
-    <div className="card-overlay" onClick={e => { e.stopPropagation(); onClose(); }} role="dialog" aria-label={name}>
-      <img
-        src={imageUri}
-        alt={name}
-        className="card-overlay-img"
-        loading="eager"
-      />
-      <span className="card-overlay-name">{name}</span>
+    <div className="card-overlay" onClick={e => { e.stopPropagation(); onClose(); }}>
+      <div className="card-overlay-dialog" ref={dialogRef} role="dialog" aria-modal="true" aria-label={name} tabIndex={-1}
+        onClick={e => e.stopPropagation()}>
+        <button type="button" className="card-overlay-close" onClick={onClose} aria-label="Close card preview"><Icon name="close" /></button>
+        <img src={imageUri} alt={name} className="card-overlay-img" loading="eager" />
+        <span className="card-overlay-name">{name}</span>
+      </div>
     </div>,
     document.body
   );
@@ -76,7 +73,7 @@ function PrintingBadge({ setCode, collectorNumber, isFoil }) {
     <span className="card-line-printing">
       {setCode && <span className="card-line-set">({setCode.toUpperCase()})</span>}
       {collectorNumber && <span className="card-line-collector">#{collectorNumber}</span>}
-      {isFoil && <span className="card-line-foil">&#10022;</span>}
+      {isFoil && <span className="card-line-foil" title="Foil" aria-label="Foil">&#10022;</span>}
     </span>
   );
 }
@@ -112,122 +109,38 @@ export default memo(function CardLine({ name, quantity, changeType, oldQty, newQ
   const cheapestTotalPrice = priceDisplayEnabled && cheapestUnitPrice != null && quantity ? cheapestUnitPrice * quantity : null;
 
   const handleClick = useCallback(() => {
-    if (isTouch && imageUri) {
-      setOverlayOpen(true);
-    }
+    if (imageUri) setOverlayOpen(true);
   }, [imageUri]);
-
   const closeOverlay = useCallback(() => setOverlayOpen(false), []);
-
-  const tooltip = !isTouch && hovering && imageUri && (
-    <CardTooltip imageUri={imageUri} name={name} triggerRef={nameRef} />
+  const tooltip = !isTouch && hovering && !overlayOpen && imageUri && createPortal(
+    <CardTooltip imageUri={imageUri} name={name} triggerRef={nameRef} />, document.body
   );
-  const overlay = overlayOpen && (
-    <CardOverlay imageUri={imageUri} name={name} onClose={closeOverlay} />
-  );
+  const isPrinting = changeType === 'printing';
+  const isQuantityChange = changeType === 'changed';
 
-  if (changeType === 'in') {
-    return (
-      <div
-        className="card-line card-line--in"
-        onMouseEnter={isTouch ? undefined : () => setHovering(true)}
-        onMouseLeave={isTouch ? undefined : () => setHovering(false)}
-        onClick={handleClick}
-      >
-        <span className="card-line-prefix">+</span>
-        <span className="card-line-qty">{quantity}</span>
-        <span className="card-line-name" ref={nameRef}>{name}</span>
-        <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
-        {manaCost && <ManaCost cost={manaCost} />}
-        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} unitPrice={unitPrice} quantity={quantity} />
-        {tooltip}
-        {overlay}
-      </div>
-    );
-  }
-
-  if (changeType === 'out') {
-    return (
-      <div
-        className="card-line card-line--out"
-        onMouseEnter={isTouch ? undefined : () => setHovering(true)}
-        onMouseLeave={isTouch ? undefined : () => setHovering(false)}
-        onClick={handleClick}
-      >
-        <span className="card-line-prefix">-</span>
-        <span className="card-line-qty">{quantity}</span>
-        <span className="card-line-name" ref={nameRef}>{name}</span>
-        <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
-        {manaCost && <ManaCost cost={manaCost} />}
-        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} unitPrice={unitPrice} quantity={quantity} />
-        {tooltip}
-        {overlay}
-      </div>
-    );
-  }
-
-  if (changeType === 'list') {
-    return (
-      <div
-        className="card-line card-line--list"
-        onMouseEnter={isTouch ? undefined : () => setHovering(true)}
-        onMouseLeave={isTouch ? undefined : () => setHovering(false)}
-        onClick={handleClick}
-      >
-        <span className="card-line-qty">{quantity}</span>
-        <span className="card-line-name" ref={nameRef}>{name}</span>
-        <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
-        {manaCost && <ManaCost cost={manaCost} />}
-        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} unitPrice={unitPrice} quantity={quantity} />
-        {tooltip}
-        {overlay}
-      </div>
-    );
-  }
-
-  if (changeType === 'printing') {
-    return (
-      <div
-        className="card-line card-line--printing"
-        onMouseEnter={isTouch ? undefined : () => setHovering(true)}
-        onMouseLeave={isTouch ? undefined : () => setHovering(false)}
-        onClick={handleClick}
-      >
-        <span className="card-line-prefix">~</span>
-        <span className="card-line-qty">{quantity}</span>
-        <span className="card-line-name" ref={nameRef}>{name}</span>
-        {manaCost && <ManaCost cost={manaCost} />}
-        <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} unitPrice={unitPrice} quantity={quantity} />
-        <span className="card-line-detail">
-          <PrintingBadge setCode={oldSetCode} collectorNumber={oldCollectorNumber} isFoil={oldIsFoil} />
-          &nbsp;&rarr;&nbsp;
-          <PrintingBadge setCode={newSetCode} collectorNumber={newCollectorNumber} isFoil={newIsFoil} />
-        </span>
-        {tooltip}
-        {overlay}
-      </div>
-    );
-  }
-
-  // changeType === 'changed'
-  const sign = delta > 0 ? '+' : '';
   return (
-    <div
-      className="card-line card-line--changed"
+    <div className={`card-line card-line--${changeType}`}
       onMouseEnter={isTouch ? undefined : () => setHovering(true)}
-      onMouseLeave={isTouch ? undefined : () => setHovering(false)}
-      onClick={handleClick}
-    >
-      <span className="card-line-prefix">~</span>
-      <span className="card-line-name" ref={nameRef}>{name}</span>
-      <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />
+      onMouseLeave={isTouch ? undefined : () => setHovering(false)}>
+      <span className="card-line-count">
+        {changeType !== 'list' && <span className="card-line-prefix" aria-hidden="true">{changeType === 'in' ? '+' : changeType === 'out' ? '−' : '~'}</span>}
+        {!isQuantityChange && <span className="card-line-qty">{quantity}</span>}
+      </span>
+      <div className="card-line-main">
+        {imageUri ? <button type="button" className="card-line-name card-line-preview" ref={nameRef} onClick={handleClick}
+          aria-label={`View ${name}`} aria-haspopup="dialog">{name}</button>
+          : <span className="card-line-name" ref={nameRef}>{name}</span>}
+        {isPrinting ? <span className="card-line-detail">
+          <PrintingBadge setCode={oldSetCode} collectorNumber={oldCollectorNumber} isFoil={oldIsFoil} />
+          <span aria-label="changes to">→</span>
+          <PrintingBadge setCode={newSetCode} collectorNumber={newCollectorNumber} isFoil={newIsFoil} />
+        </span> : <PrintingBadge setCode={setCode} collectorNumber={collectorNumber} isFoil={isFoil} />}
+        {isQuantityChange && <span className="card-line-detail">{oldQty} → {newQty} ({delta > 0 ? '+' : ''}{delta})</span>}
+      </div>
       {manaCost && <ManaCost cost={manaCost} />}
       <PriceBadge price={totalPrice} cheapestPrice={cheapestTotalPrice} unitPrice={unitPrice} quantity={quantity} />
-      <span className="card-line-detail">
-        {oldQty} &rarr; {newQty} ({sign}{delta})
-      </span>
       {tooltip}
-      {overlay}
+      {overlayOpen && <CardOverlay imageUri={imageUri} name={name} onClose={closeOverlay} />}
     </div>
   );
 });

@@ -248,7 +248,7 @@ Why things are the way they are — context for changes, not rules.
    history stays readable after account deletion.
 9. **Admin sort columns are whitelisted** via an explicit map — the only
    accepted defense for ORDER BY injection.
-10. **Hash-based routing** (`useHashRoute`: `#admin`, `#settings`, `#guide`,
+10. **Hash-based routing** (`useHashRoute`: `#admin`, `#settings`, `#connections`, `#guide`,
     `#library`, `#library/{deckId}`, `#share/{id}`, `#deck/{id}`) avoids a
     router dependency and server-side route handling entirely.
 11. **Snapshot pruning is synchronous** after every INSERT (no cron) and never

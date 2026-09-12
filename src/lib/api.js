@@ -536,6 +536,7 @@ export async function downloadPrintArtifact(downloadUrl, filename) {
 // Optional ManaSync ownership and confirmed physical-print bridge.
 export const getManaSyncConnection = () => apiFetch('/manasync/connection');
 export const connectManaSync = data => apiFetch('/manasync/connection',{method:'PUT',body:JSON.stringify(data)});
+export const checkManaSyncConnection = () => apiFetch('/manasync/connection/check',{method:'POST'});
 export const disconnectManaSync = () => apiFetch('/manasync/connection',{method:'DELETE'});
 export const getManaSyncAvailability = by => apiFetch(`/manasync/availability?by=${by}`);
 export const getManaSyncContainers = () => apiFetch('/manasync/containers');

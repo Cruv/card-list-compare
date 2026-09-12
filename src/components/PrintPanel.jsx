@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
   getStandalonePrintJobs, previewStandalonePrintJob, createStandalonePrintJob, queueStandalonePrintJob, cancelStandalonePrintJob, expireStandalonePrintArtifacts } from '../lib/api';
 import DeckInput from './DeckInput';
+import Icon from './Icon';
 import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
@@ -383,7 +384,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const step = creationPending || (!editingSource && !plan) ? 3 : plan && !editingSource ? 2 : 1;
 
   return <div className="print-panel">
-    <ol className="print-steps" aria-label="Print workflow">{['Choose cards', 'Review & print', 'Batch status'].map((label, index) => <li key={label} className={step === index + 1 ? 'is-current' : ''} aria-current={step === index + 1 ? 'step' : undefined}><span>{index + 1}</span>{label}</li>)}</ol>
+    <ol className="print-steps" aria-label="Print workflow">{['Choose cards', 'Review & print', 'Batch status'].map((label, index) => <li key={label} className={step === index + 1 ? 'is-current' : step > index + 1 ? 'is-complete' : ''} aria-current={step === index + 1 ? 'step' : undefined}><span>{step > index + 1 ? <Icon name="check" size={15} /> : index + 1}</span>{label}</li>)}</ol>
 
     {incomingComparison && <section className="print-panel-confirmation" aria-label="Print compared lists">
       <h3>Print the lists you compared?</h3><p>{creationPending ? 'Resolve the pending batch below first. Your compared lists will wait here.' : 'Your current draft is still here. Use the compared lists and keep this draft available to restore, or continue your current list.'}</p>

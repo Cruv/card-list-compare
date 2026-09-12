@@ -7,7 +7,7 @@ corrected companion sheet; manual duplex and v6 cutter calibration still require
 ## Print from comparison results
 
 Choose **Print cards** from Compare, a deck changelog or snapshot comparison. The action
-opens Print List with the complete Before and After texts used for those displayed results.
+opens Print studio with the complete Before and After texts used for those displayed results.
 It defaults to the positive physical-copy difference; choose the full After list to print
 everything instead. Search filters in the changelog do not change this input. Even an
 identical comparison can open review and switch to the full list.
@@ -20,14 +20,14 @@ the comparison mode are frozen privately with the job; public summaries expose h
 
 ## Standalone print lists
 
-Open **Print List** in the navigation to create an ad-hoc batch. Give it a name, then
+Open **Print studio** in the navigation to create an ad-hoc batch. Give it a name, then
 paste cards, upload a text/CSV list, or import a supported deck URL. Importing here copies
 the list without tracking the deck. Quantities and exact set/collector metadata use the
 same card-list format as Compare. Include the sideboard when wanted, review the Scryfall
 front/back artwork, then **Generate PDFs** or **Generate & print**.
 
 The draft is saved per signed-in account in this browser. Prepared batches are kept in
-that account’s Print List history, including downloads and the same ManaSync pending-proxy
+that account’s Print studio history, including downloads and the same ManaSync pending-proxy
 confirmation as deck batches. No tracked deck, snapshot or paper marker is created.
 Standalone lists use Scryfall artwork; saved MPC artwork belongs to tracked decks.
 The list name and exact reviewed text are frozen into the job. Later draft edits leave

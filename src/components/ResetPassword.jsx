@@ -31,7 +31,7 @@ export default function ResetPassword({ token, onComplete }) {
   }
 
   return (
-    <div className="user-settings" style={{ margin: '24px auto' }}>
+    <div className="user-settings password-panel">
       <div className="user-settings-header">
         <h2>Set New Password</h2>
       </div>

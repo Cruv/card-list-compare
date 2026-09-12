@@ -85,12 +85,37 @@ so receipt recovery still uses the original identity.
 
 ## Connect your accounts
 
-1. In ManaSync, create a dedicated API token with `inventory:read` and `proxies:write` only.
-2. In CLC, open Settings → Account → ManaSync collection connection. Enter the server-reachable
-   ManaSync backend URL and that token. The saved view shows the explicit account ID and name.
-3. To import CLC decks into ManaSync, create a separate token in CLC's integration-access
-   settings with `decks:read`. Add `decks:propose` only if sending edits back for review.
-   Enter that token in ManaSync's CLC connection. See [proposal workflow](MANASYNC_PROPOSALS.md).
+1. Open **Connections** in CLC (under **More** on phones). The default address is
+   `https://manasync.net`; **Open ManaSync** opens that app.
+2. In ManaSync, choose **More → Integration access → Personal app tokens**. Leave the
+   default CLC name and permissions (**Read collection and availability** and
+   **Add/move/adjust proxies**), then create and copy the token. These are
+   `inventory:read` and `proxies:write`.
+3. Paste it into CLC and choose **Connect my account**. CLC reads the integration context
+   and containers to verify the grant, then displays the account name and last check time.
+   The plaintext is cleared from the form after success and saved encrypted server-side.
+4. A different deployment can be entered under **Using another ManaSync server?**.
+   Bare domains use HTTPS. A copied trailing `/api/v1` or `Bearer ` token prefix is
+   normalized; embedded credentials, query strings and fragments are rejected.
+5. **Check connection** verifies the existing saved token without changing inventory.
+   A failed upstream token check leaves the CLC login intact and explains how to reconnect.
+6. Optional deck access works in the opposite direction. Open **Let ManaSync use your
+   CLC decks** to create a CLC `decks:read` token; add proposal/creation permissions only
+   when wanted. Paste that token into ManaSync’s **More → Connected apps** CLC connection.
+   See [proposal workflow](MANASYNC_PROPOSALS.md).
+
+`POST /api/manasync/connection/check` requires the ordinary authenticated CLC session.
+It checks `/api/v1/integration/context` and `/api/v1/containers`, and only updates the
+local verified status/container cache when the saved credential, account, actor and URL
+still match the original read. Concurrent disconnect or rotation cannot revive a stale
+connection. Existing pending/outbox operations retain their original identity.
+
+Reachability and account authorization are separate. Read-only probes from the household
+CLC container to `https://manasync.net/api/v1/integration/context` and `/api/v1/containers`
+returned JSON 401 responses during this redesign: DNS, HTTPS and routing worked, but an
+account token was still required. No production collection connection or inventory grant
+was created by visual QA. Hosted ManaSync currently uses manual personal tokens, not an
+OAuth/pairing flow; the guide reflects that actual contract.
 
 ## Ownership and buying originals
 

@@ -8,6 +8,7 @@ import SectionChangelog from './SectionChangelog';
 import { parse } from '../lib/parser';
 import { computeDiff } from '../lib/differ';
 import { formatChangelog, formatReddit, formatJSON } from '../lib/formatter';
+import Icon from './Icon';
 import './SharedDeckView.css';
 
 export default function SharedDeckView({ shareId }) {
@@ -138,13 +139,11 @@ export default function SharedDeckView({ shareId }) {
 
   return (
     <div className="shared-deck-page">
-      <button className="settings-back-link" onClick={() => { window.location.hash = ''; }} type="button">
-        &larr; Back to Compare
-      </button>
+      <p className="eyebrow"><Icon name="connections" size={16} /> Shared with your pod</p>
 
       <div className="shared-deck-card">
         <div className="shared-deck-header">
-          <h2 className="shared-deck-title">{deckName}</h2>
+          <h1 className="shared-deck-title">{deckName}</h1>
           <div className="shared-deck-meta">
             {commanders.length > 0 && (
               <span className="shared-deck-commanders">{commanders.join(' / ')}</span>

@@ -1,26 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
-  <rect width="1200" height="630" fill="#1a1a2e"/>
-  <!-- Subtle diamond lattice -->
-  <defs>
-    <pattern id="lattice" x="0" y="0" width="60" height="60" patternUnits="userSpaceOnUse">
-      <path d="M0 30 L30 0 L60 30 L30 60 Z" fill="none" stroke="rgba(92,107,192,0.06)" stroke-width="1"/>
-    </pattern>
-  </defs>
-  <rect width="1200" height="630" fill="url(#lattice)"/>
-  <!-- Corner glows -->
-  <ellipse cx="200" cy="0" rx="400" ry="300" fill="rgba(92,107,192,0.08)"/>
-  <ellipse cx="1000" cy="630" rx="400" ry="300" fill="rgba(76,175,80,0.06)"/>
-  <!-- Card icons -->
-  <rect x="440" y="160" width="120" height="170" rx="10" fill="#16213e" stroke="#5c6bc0" stroke-width="3" opacity="0.7"/>
-  <rect x="480" y="180" width="120" height="170" rx="10" fill="#0f3460" stroke="#7c8cf0" stroke-width="3"/>
-  <!-- Arrows -->
-  <path d="M640 250 L680 250" stroke="#f44336" stroke-width="4" stroke-linecap="round"/>
-  <path d="M680 250 L672 242" stroke="#f44336" stroke-width="3" stroke-linecap="round"/>
-  <path d="M680 250 L672 258" stroke="#f44336" stroke-width="3" stroke-linecap="round"/>
-  <path d="M720 290 L680 290" stroke="#4caf50" stroke-width="4" stroke-linecap="round"/>
-  <path d="M680 290 L688 282" stroke="#4caf50" stroke-width="3" stroke-linecap="round"/>
-  <path d="M680 290 L688 298" stroke="#4caf50" stroke-width="3" stroke-linecap="round"/>
-  <!-- Title -->
-  <text x="600" y="480" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" fill="#e8e8f0" text-anchor="middle" letter-spacing="-1">Card List Compare</text>
-  <text x="600" y="530" font-family="system-ui, -apple-system, sans-serif" font-size="22" fill="#a0a0b8" text-anchor="middle">MTG Deck Changelog Generator</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+ <rect width="1200" height="630" fill="#151515"/>
+ <rect x="60" y="60" width="1080" height="510" rx="28" fill="#202020" stroke="#383838"/>
+ <rect x="112" y="112" width="84" height="84" rx="22" fill="#ffcb48"/>
+ <g fill="none" stroke="#251c05" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M147 131h31v43h-31zM138 141h-9v44h31"/></g>
+ <text x="222" y="165" font-family="Arial, sans-serif" font-size="30" font-weight="700" fill="#f5f5f5">Card List Compare</text>
+ <text x="112" y="312" font-family="Arial, sans-serif" font-size="62" font-weight="700" letter-spacing="-2" fill="#f5f5f5">From list to game night.</text>
+ <text x="112" y="374" font-family="Arial, sans-serif" font-size="25" fill="#a9a9aa">Compare decks. Choose your artwork. Get ready to print.</text>
+ <rect x="112" y="438" width="172" height="58" rx="12" fill="#ffcb48"/>
+ <text x="142" y="475" font-family="Arial, sans-serif" font-size="21" font-weight="700" fill="#251c05">Less sorting.</text>
+ <text x="308" y="475" font-family="Arial, sans-serif" font-size="21" fill="#a9a9aa">More playing.</text>
 </svg>
