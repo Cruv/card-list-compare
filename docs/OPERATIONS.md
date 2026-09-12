@@ -178,9 +178,9 @@ project, publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistc
 at `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The repository's
 `./data` is not the household deployment path.
 
-The deployed server is **v2.53.0**, source `28410a1`, local image
-`clc-household:2.53.0-28410a1` with image ID
-`sha256:d14dc0b4d3a358c7f102f815d1be830882219fe394c21dd1fcb102e4232e715e`.
+The deployed server is **v2.53.1**, source `7789eb1`, local image
+`clc-household:2.53.1-7789eb1` with image ID
+`sha256:afc6dc78c59fb08e1ec6d96c5003b8239f009deb6fc5fc37a451b7b477a93d6b`.
 Source changes after this checkpoint are not a deployment claim. Private configuration is
 in `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and `runtime.env`.
 It preserves the container name, external `mtg_default` network, UID/GID, timezone, signing
@@ -190,9 +190,11 @@ for CLC. The registry's `latest` does not contain this feature branch. Do not pr
 Deployment preserved all six print jobs and their immutable plans/manifests, including
 Rendmaw in Epson and the replacement 100-copy Jin Sakai batch waiting in CLC. All 38
 frontend files match the image through localhost and the household HTTPS origin.
+The signed-in browser verified all six household batches, untracked Archidekt deck choices
+and the reorganized deck workspace without creating a job or changing deck data.
 
 The latest complete stopped-container backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T055901Z-before-2.53.0/data-complete`.
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T060720Z-before-2.53.1/data-complete`.
 The private deployment folder retains dated `update-*.json` checkpoints and rollback
 configurations. Preserve generator-cache symlinks as links when copying Linux venvs on the
 Mac. Take a fresh backup before another update, including newer jobs and user changes;
@@ -211,9 +213,9 @@ The accepted color/orientation recipe and remaining cutting/duplex checks are re
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The installed version and queue state
 are runtime observations; new source features require an actual companion update.
 
-The v2.53.0 arm64 companion package is prepared at
-`~/Downloads/CLC Print Station 2.53.0`, archive SHA-256
-`d36685ab146f88fef22f2af7f463ad8dfb9aaa7a9ee92c267220a42bd865c4c9`.
+The v2.53.1 arm64 companion package is prepared at
+`~/Downloads/CLC Print Station 2.53.1`, archive SHA-256
+`e020bf3430ed88f04817f0d0c7ec0ec62f3fd2513599f2e85111572165c8c989`.
 It passed isolated self-check and repeat installation with history/configuration preserved.
 The native upgrade is waiting for an idle point; do not replace an active print process
 or describe the packaged version as installed until the native checkpoint is recorded.
