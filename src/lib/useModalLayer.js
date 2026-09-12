@@ -24,14 +24,30 @@ const FOCUSABLE = [
   'textarea:not([disabled])',
   'input:not([disabled])',
   'select:not([disabled])',
+  'summary',
   '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
+function insideClosedDetails(el) {
+  // Some browsers still report layout rectangles for collapsed contents.
+  // Only the first direct summary remains reachable in each closed ancestor.
+  for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (ancestor.localName !== 'details' || ancestor.open) continue;
+    const summary = [...ancestor.children].find(child => child.localName === 'summary');
+    if (!summary?.contains(el)) return true;
+  }
+  return false;
+}
+
 function visibleFocusable(container) {
   if (!container) return [];
-  return [...container.querySelectorAll(FOCUSABLE)].filter(
-    (el) => el.offsetParent !== null || el === document.activeElement
-  );
+  return [...container.querySelectorAll(FOCUSABLE)]
+    .filter(el => el.tabIndex >= 0 && !el.matches(':disabled')
+      && !el.closest('[inert], [aria-hidden="true"]')
+      && !insideClosedDetails(el)
+      && el.getClientRects().length > 0
+      && getComputedStyle(el).visibility !== 'hidden')
+    .sort((a, b) => (a.tabIndex || Infinity) - (b.tabIndex || Infinity));
 }
 
 /**
@@ -102,18 +118,15 @@ export function useModalLayer(onEscape, options = {}) {
         container.focus?.();
         return;
       }
-      const first = nodes[0];
-      const last = nodes[nodes.length - 1];
-      if (!container.contains(document.activeElement)) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      // Move every Tab ourselves. Safari's keyboard-navigation preference can
+      // otherwise skip links/buttons inside the dialog and send focus to BODY
+      // before a boundary-only trap has a chance to wrap it.
+      e.preventDefault();
+      const current = nodes.indexOf(document.activeElement);
+      const next = current < 0
+        ? (e.shiftKey ? nodes.length - 1 : 0)
+        : (current + (e.shiftKey ? -1 : 1) + nodes.length) % nodes.length;
+      nodes[next].focus();
     }
 
     document.addEventListener('keydown', handleKey);

@@ -726,7 +726,7 @@ export default function DeckPage({ deckId }) {
           )}
           <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('printing')} type="button"><Icon name="print" size={17} /> Print cards</button>
           <details className="deck-page-more"><summary aria-label="More deck actions"><Icon name="more" /></summary>
-            <div><button className="btn btn-sm btn-ghost-danger" onClick={handleUntrack} type="button">Untrack deck</button></div>
+            <div><button className="btn btn-sm btn-ghost-danger" onClick={event => { event.currentTarget.focus(); handleUntrack(); }} type="button">Untrack deck</button></div>
           </details>
         </div>
       </div>

@@ -33,7 +33,7 @@ export default function PrintPlanArtwork({ plan, onRemove, excludedCards = [], d
           {!!card.errors?.length && <p className="print-panel-error" role="alert">{card.errors.join('\n')}</p>}
         </div>
         <div className="print-review-row-actions"><strong className="print-copy-count">{card.quantity}×</strong>
-          {onPickArt && <button type="button" className="btn btn-secondary btn-sm" disabled={disabled || excluded} onClick={() => onPickArt(card)} aria-label={`Pick art for ${card.displayName}`}>Pick art</button>}
+          {onPickArt && <button type="button" className="btn btn-secondary btn-sm" disabled={disabled || excluded} onClick={event => { event.currentTarget.focus(); onPickArt(card); }} aria-label={`Pick art for ${card.displayName}`}>Pick art</button>}
           {onResetArt && overridden && <button type="button" className="print-text-button" disabled={disabled} onClick={() => onResetArt(card)} aria-label={`Use original art for ${card.displayName}`}>Use original art</button>}
           {onRemove && card.selectionKey && card.baseQuantity > 0 && <button type="button" className="print-text-button" disabled={disabled || excluded} onClick={() => onRemove(card)} aria-label={`Remove ${card.baseQuantity} suggested ${card.baseQuantity === 1 ? 'copy' : 'copies'} of ${card.displayName}`}>{excluded ? 'Removed' : 'Remove'}</button>}
         </div>

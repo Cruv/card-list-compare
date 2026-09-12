@@ -18,7 +18,8 @@ export function AuthProvider({ children }) {
     getMe()
       .then(data => setUser(data.user))
       .catch((err) => {
-        localStorage.removeItem('clc-auth-token');
+        // apiFetch removes an actually unauthorized token on HTTP 401. Offline
+        // or temporary server failures must not erase a recoverable session.
         // If account was suspended, show a clear message
         if (err.message && err.message.toLowerCase().includes('suspended')) {
           toast.error('Your account has been suspended. Please contact an admin.');

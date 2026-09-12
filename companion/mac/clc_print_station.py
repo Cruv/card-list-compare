@@ -27,7 +27,7 @@ from clc_station_alerts import RefeedAlerts, validate_alert_config
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.52.0"
+COMPANION_VERSION = "2.52.1"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")

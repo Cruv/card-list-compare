@@ -330,8 +330,16 @@ local connection state; historical deliveries keep their original credentials an
 
 **Validation.** Inventory every route and nested surface before redesigning. Use disposable
 browser data and intercepted side effects for responsive, keyboard, theme, recovery and
-permission checks. Desktop mobile emulation or Playwright WebKit does not establish native
-iOS Simulator proof. Record the actual runtime/device separately when it is available.
+permission checks. On 2026-09-12 the owner replaced the requested iOS Simulator validation
+with browser verification. Desktop Chrome and responsive Chrome/WebKit checks therefore
+satisfy that platform scope; they do not establish native iOS software-keyboard or device
+proof. Physical printing and cutting proofs remain separate.
+
+**Offline shell.** Precache the complete public build with final-byte integrity checks
+and a generated revision. Private API responses remain online-only. Retain the actual
+previously active shell for open tabs, including rollback/re-upgrade sequences; failed
+installs must not remove a previously complete build. Transient account-check failures
+keep the credential while the private workspace stays gated until successful validation.
 
 **Where.** `src/components/AppShell.*`, `ConnectionsPage.*`, `ManaSyncSettings.jsx`,
 `src/index.css`, `server/lib/manasyncBridge.js`, `docs/UI_REDESIGN_INVENTORY.md`.

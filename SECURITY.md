@@ -31,6 +31,10 @@ Report issues privately to the repository owner.
 - **Passwords:** bcrypt (`bcryptjs`), never stored or logged in plaintext.
 - **Sessions:** stateless HS256 JWT bearer tokens, 7-day expiry, signed with `JWT_SECRET`.
   Sent as `Authorization: Bearer …`; the client keeps the token in `localStorage`.
+  HTTP 401 clears the saved token. Offline, forbidden and temporary server failures
+  preserve it for a later validated reload; private routes remain gated until account
+  validation succeeds. A completed password reset removes the reset URL and synchronizes
+  the client route without replaying the token.
 - **Invalidation:** `requireAuth` re-checks the user each request (short TTL cache) for
   suspension and compares the token's `iat` against `password_changed_at`, so a password
   change or suspend invalidates existing sessions. Admin status is always re-read from the
@@ -41,6 +45,15 @@ Report issues privately to the repository owner.
   hash the incoming value, so a DB read (or the admin backup) can't replay a live token.
   Reset tokens are single-use and expire in 1h; verification tokens in 24h.
   (`server/lib/tokens.js`, `server/routes/auth.js`)
+
+The service worker precaches only the public application shell and build-declared assets,
+with a generated revision and integrity checks for their final bytes. API responses,
+external artwork and arbitrary URL/token queries are not added to that cache. The previously active
+shell cache remains available for already-open tabs during an upgrade, including after
+rollback; a separate cache stores only the active/previous build names. A failed new install
+removes its incomplete cache, while a failed reinstall retains its existing complete cache.
+The previous worker remains usable. Offline shell access
+does not grant access to saved decks, inventory, printing or other authenticated APIs.
 
 ## Rate limiting
 

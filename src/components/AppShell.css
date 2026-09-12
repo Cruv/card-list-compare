@@ -1,5 +1,6 @@
 .workspace-shell { min-height: 100vh; }
-.shell-sidebar { position: fixed; inset: 0 auto 0 0; width: 232px; z-index: 30; background: var(--bg-secondary); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 28px 16px 20px; }
+html { scroll-padding-bottom: 16px; }
+.shell-sidebar { position: fixed; inset: 0 auto 0 0; width: 232px; z-index: 30; background: var(--bg-secondary); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 28px 16px 20px; overflow-y: auto; overscroll-behavior: contain; }
 .shell-brand { display: flex; align-items: center; gap: 12px; color: var(--text-primary); font-size: 17px; font-weight: 750; line-height: 1.2; text-decoration: none; padding: 0 8px 38px; letter-spacing: -.4px; }
 .shell-brand-mark { display: grid; place-items: center; width: 42px; height: 46px; border-radius: 12px; color: var(--accent-ink); background: var(--accent); }
 .shell-brand-second { display: block; }
@@ -27,6 +28,7 @@
 .page-heading p { color: var(--text-secondary); max-width: 650px; line-height: 1.65; }
 @media (max-width: 1050px) and (min-width: 801px) { .shell-sidebar { width: 205px; padding-inline: 10px; } .shell-workspace { margin-left: 205px; } .shell-content { padding: 28px 24px 64px; } .shell-topbar { padding-inline: 24px; } }
 @media (max-width: 800px) {
+  html { scroll-padding-bottom: calc(78px + env(safe-area-inset-bottom)); }
   .shell-sidebar { display: none; }
   .shell-workspace { margin-left: 0; }
   .shell-topbar { min-height: 62px; padding: 10px 16px; }

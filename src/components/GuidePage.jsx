@@ -43,6 +43,11 @@ function GettingStarted() {
         The result shows a grouped changelog with cards added, removed, quantity changes, and
         printing swaps &mdash; organized by card type (Creatures, Instants, Sorceries, etc.).
       </p>
+      <p>
+        After an online visit finishes preparing the app, Compare and this Guide can reopen
+        offline. Saved decks, imports, artwork lookups, ownership and printing need a connection.
+        A temporary connection failure keeps your saved login and print draft for when you reconnect.
+      </p>
 
       <div className="guide-tip">
         <div className="guide-tip-label">Tip</div>
@@ -496,6 +501,12 @@ function ProxyPrinting() {
         {' '}and <strong>Batch status</strong>. Review keeps the artwork, quantities and next
         action together. Edit the source when needed; expand extra cards, removed cards,
         detailed guidance or older batches only when you need them.
+      </p>
+      <p>
+        Archidekt imports keep your selected set and collector number, so the default artwork
+        matches that printing. Printing uses the version you reviewed. A later DeckCheck or
+        plain-text import can inherit earlier artwork but does not fetch your current Archidekt
+        selections. Use <strong>Pick art</strong> to change a card just for this batch.
       </p>
       <p>
         In either workflow, remove suggested cards you already have on hand and add extra

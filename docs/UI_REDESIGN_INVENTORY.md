@@ -1,5 +1,11 @@
 # CLC UI redesign inventory and validation plan
 
+**Acceptance update — 2026-09-12:** the owner requested browser verification instead
+of iOS Simulator. Desktop and responsive browser checks are the acceptance criteria.
+The native setup notes below are retained as history; Xcode and Simulator are no longer
+requirements for completing this redesign. Browser checks do not establish physical iOS
+keyboard behavior or Epson/cutter proofs.
+
 Inventory captured from the v2.51.0 source on 2026-09-11, with the new shell and
 Connections route added during the redesign. This is the coverage
 baseline for the whole-app redesign, not a claim that the redesign has passed QA.
@@ -143,9 +149,10 @@ Minimum browser matrix:
 - Fresh browser context plus existing persisted theme/draft/service-worker state.
 - Auth absent/loading/member/admin/household-denied, expired token and switched
   account. Mock data must use real DTO shapes (`isAdmin`, not DB `is_admin`).
-- Screenshot open navigation, tables, editable forms, drawer/modal and the software
-  keyboard on real iOS Simulator once available. Check sticky controls and focused
-  fields against keyboard/safe-area obstruction.
+- Screenshot open navigation, tables, editable forms and drawers/modals at phone,
+  landscape and short viewport sizes. Check keyboard focus, larger text and sticky
+  control clearance. Physical iOS software-keyboard behavior is outside this browser-only
+  acceptance scope.
 
 Existing automated tests are semantic guards, not full visual coverage:
 
@@ -163,7 +170,7 @@ comparison, including intercepted APIs and synthetic artwork. They are local
 working artifacts, not repository tests or proof that redesigned screens passed.
 Expand the coverage ledger beyond those flows to the complete route matrix above.
 
-## iOS Simulator and browser tooling availability
+## Initial iOS Simulator and browser tooling availability
 
 Read-only inspection on this Mac at inventory time:
 
@@ -184,7 +191,8 @@ device, Safari URL, viewport/orientation and screenshots. Use a disposable
 Simulator and isolated test server; keep real household data and active devices
 untouched. Desktop Chrome with an iPhone viewport, desktop Safari and Playwright
 WebKit are useful additional tests but cannot substitute for the requested
-native iOS Simulator validation.
+native iOS Simulator validation. The owner subsequently replaced that requirement with
+browser verification on 2026-09-12.
 
 ## Completed browser checks for the comparison and print surfaces
 
@@ -207,8 +215,8 @@ actual station commands, native printing, Discord sends or live inventory edits.
 Fixture job creation/confirmation was confined to the disposable harness.
 
 Inventory status: complete for the source surfaces listed above. Whole-app visual
-coverage is tracked by the release review; native iOS Simulator validation remains
-pending until the runtime and a real Simulator proof are available.
+coverage is tracked by the release review. Native iOS Simulator validation was pending
+at this checkpoint and was removed from acceptance by the owner on 2026-09-12.
 
 
 ## Full workspace review for v2.52.0
@@ -240,7 +248,7 @@ The native companion's fake-spooler suite passed 121 tests. Both dependency audi
 reported zero vulnerabilities. The real running station remains enabled; visual QA
 never sent a live print job, station command, Discord message or inventory mutation.
 
-Native iOS Simulator is still pending. App Store installation of Xcode stalled on
+At this checkpoint, native iOS Simulator was pending. App Store installation of Xcode stalled on
 an empty confirmation sheet; the owner was asked to complete installation. The release
 must not be described as having passed native iOS checks until an actual runtime/device
 is booted and its Safari/keyboard/orientation proof is recorded.
@@ -265,9 +273,13 @@ Docker checks preceded deployment; this is additional read-only production evide
   locations are recorded in [OPERATIONS.md](OPERATIONS.md).
 
 These checks do not establish a connected ManaSync account or native iOS Simulator
-coverage. Both remain explicitly pending user sign-in/token or Xcode setup respectively.
+coverage. Account connection needs the owner's ManaSync token. Simulator coverage was
+pending at this checkpoint and is no longer required under the 2026-09-12 acceptance update.
 
-## Remaining native iOS acceptance
+## Superseded native iOS checklist
+
+This checklist records the deferred native work before the owner's 2026-09-12 change
+to browser verification. Its pending rows are historical, not outstanding release gates.
 
 A follow-up inspection still found no Xcode bundle or `simctl`. The App Store remained
 at its Xcode confirmation sheet, with no installation progress established. This is a
@@ -313,3 +325,72 @@ The fixture deliberately blocks generation, real queue/deck writes and remote ar
 trusted-host art-picker thumbnails therefore show their unavailable state. It also disables
 service-worker installation. Do not claim native printing recovery, loaded picker images,
 PWA offline behavior or unsupported overlays from this limited fixture alone.
+
+
+## Browser acceptance and follow-up fixes — 2026-09-12
+
+The owner replaced Simulator verification with browser verification. The focused follow-up
+found and fixed clipped keyboard focus under mobile print/navigation controls, unreachable
+sidebar links in short windows, stale scroll on shared navigation, modal focus escaping or
+stalling in collapsed disclosures, first-visit offline shell loading, lost credentials after
+transient account failures, and a stale route after password reset. No native iOS results
+are inferred from these checks.
+
+- **Responsive controls:** 195 assertions passed across Chrome 152.0.7977.83 and WebKit
+  26.5 at 375×420, 667×375, 844×390, a 640×400/DPR2 layout equivalent, and 1280×800
+  with doubled computed text. Proof: `/tmp/clc-responsive-fixed-qa-MykeMu/results.json`.
+- **Navigation:** 55 assertions passed in both engines, covering fresh route entry,
+  reachable sidebar links, polling without scroll jumps, deck-tab behavior and Back/Forward.
+  WebKit restored the exact recorded history offset; Chrome restored a nonzero offset
+  after asynchronous remount, so exact Chrome history scroll restoration is not claimed.
+  Proof: `/tmp/clc-navigation-browser-qa-DjfbIv/results.json`.
+- **Dialogs:** 28 checks passed in each engine for both Tab directions, hidden and
+  collapsed controls, nested Timeline/MPC dialogs, Escape closing one layer, scroll lock,
+  and exact launcher focus restoration for Untrack, Pick art and login. Service workers
+  were blocked for this modal-only fixture so every API remained intercepted; separate
+  worker tests cover caching. Proof: `/tmp/clc-modal-fixed-chrome-WS9PIC/results.json`
+  and `/tmp/clc-modal-fixed-webkit-j4hmno/results.json`.
+- **Offline/authentication:** Chrome passed 32 checks for initial offline readiness,
+  private-route gating, credential/draft retention, 401 vs 403/503 handling, reset and
+  verification links, and legacy service-worker upgrade through a failed integrity check
+  and successful retry. Proof: `/tmp/clc-pwa-fixed-qa-bHR9T8/results.json`.
+- **WebKit offline/authentication:** 32 assertions passed after adapting network-loss
+  simulation to actual fixture socket failure. This includes fresh-document offline
+  loading, failed-integrity and successful legacy upgrades, draft/handoff preservation,
+  reset navigation and 401/403/503 handling. WebKit's service-worker requests bypass the
+  harness interceptor, so account recovery was separately checked with the worker blocked;
+  the combined worker-controlled online recovery remains Chrome proof. Fixture-server
+  requests were GET-only and failed closed; no real backend was attached.
+  Proof: `/tmp/clc-pwa-webkit-complete-qa-nrHHMJ/results.json`.
+
+- **Rollback and failed reinstall:** 15 assertions passed in each engine through
+  A → B → a failed reinstall of retained A → A → C. The actual prior active build A
+  remained usable offline, including a lazy chunk absent from C; obsolete B was removed,
+  and drafts/handoff survived. The deliberate missing-B request is recorded separately
+  from unexpected runtime errors. Proof: `/tmp/clc-pwa-rollback-chrome-n50iO2/results.json`
+  and `/tmp/clc-pwa-rollback-webkit-yuadsa/results.json`.
+
+All mutating browser QA used disposable fixtures. These checks did not print, send a
+Discord notification, change a household deck, or acquire inventory. The native companion
+remained enabled. Physical v6 cut alignment and manual-duplex proof remain independent.
+
+### Archidekt artwork verification
+
+The live Sauron source (`https://archidekt.com/decks/18032574`) supplied 98 card rows.
+Every row resolved to the exact Scryfall printing ID selected in Archidekt: zero mismatches
+or resolution failures. This source contained no custom cards, so this proves normal
+edition/art selections, not arbitrary custom-image support. Proof:
+`/tmp/clc-archidekt-art-proof.json`.
+
+The household deck's latest CLC snapshot was instead labeled **Imported from DeckCheck**
+and **Local edits protected**. DeckCheck supplies names and quantities, so existing
+printing metadata is carried forward where possible. Current Archidekt artwork is not
+silently fetched over that saved review; the print plan remains frozen to its snapshot
+and explicit **Pick art** overrides. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md).
+
+
+Release validation for these fixes: **1,053 tests in 59 files**, **121 native fake-printer
+checks**, production build and lint (zero errors, seven existing warnings) passed. Both
+client and server dependency audits reported zero vulnerabilities. The browser matrix above
+adds 400 focused assertions across responsive controls, navigation, dialogs and offline/auth
+behavior; those assertions overlap and are not a count of distinct features.

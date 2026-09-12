@@ -1,6 +1,6 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.51.0 includes comparison-to-print handoff, editable artwork review, PDF generation, artifact downloads, the household
+Status: CLC includes comparison-to-print handoff, editable artwork review, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
 
@@ -117,6 +117,18 @@ requires every selected front and required back; it does not silently fall back 
 search result or Scryfall artwork. Scryfall determines the required face pairing even when
 MPC provides the pixels. Name-only snapshot entries use Scryfall's resolved printing;
 record exact set/collector metadata when a particular printing matters.
+
+Archidekt URL imports and tracked Archidekt snapshots preserve the user's selected set
+and collector number. The default Scryfall source resolves that exact printing, including
+paired DFC faces; an unavailable exact printing blocks preparation instead of substituting
+another edition. A reviewed **Pick art** override takes precedence.
+
+The selected snapshot is the source of that identity. DeckCheck provides names and
+quantities, so a later saved DeckCheck/plain-text import carries forward prior snapshot
+metadata where possible and resolves newly added cards through Scryfall. Printing does
+not fetch current Archidekt choices to replace that snapshot's art. Protected source
+changes still go through source review. In changes mode, an art-only swap requests
+replacement copies only when **Replace copies when the set or printing changes** is enabled.
 
 The preview includes a plan hash covering resolved printing IDs, face URLs and saved MPC
 identifiers. Creating a job revalidates those selections and pins source/target IDs,

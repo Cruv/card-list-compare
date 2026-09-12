@@ -372,11 +372,12 @@ TLS and API routing work, but this household account still needs its ManaSync pe
 app token. Connections remains correctly **Not connected** until that token is saved and
 verified. No account grant was created during QA.
 
-Native iOS Simulator validation remains pending: full Xcode is not installed, its App
+At the initial deployment, native iOS Simulator validation was pending: full Xcode was not installed, its App
 Store confirmation stalled, and the alternative Apple download requires account sign-in.
-The owner was asked to complete installation. Playwright WebKit phone checks passed but
-do not replace the requested Simulator Safari, keyboard and orientation proof. The v6
-cutting and manual-duplex physical proofs also remain separate from this UI release.
+On 2026-09-12 the owner requested browser verification instead of Simulator. Xcode setup
+is no longer an acceptance blocker for this UI release. Browser and responsive WebKit
+checks are documented in [the UI inventory](UI_REDESIGN_INVENTORY.md); native iOS behavior
+is not claimed. The v6 cutting and manual-duplex physical proofs remain separate.
 
 #### Queue operation
 

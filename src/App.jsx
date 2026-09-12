@@ -23,18 +23,19 @@ import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
 import { collectCardIdentifiers, fetchCardData } from './lib/scryfall';
 import { createShare, getShare, verifyEmail } from './lib/api';
+import { clearPasswordResetUrl } from './lib/authNavigation';
 import { toast } from './components/Toast';
 import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.52.0';
+const APP_VERSION = '2.52.1';
 const WHATS_NEW = [
-  'A new workspace with easier navigation on desktop and phone',
-  'Guided ManaSync setup and a connection check for your saved account',
-  'Artwork-led deck browsing and a cleaner print studio',
-  'Clearer paper-flip alerts and station controls',
+  'Print controls stay reachable on smaller screens',
+  'Smoother keyboard navigation through artwork and deck dialogs',
+  'Compare and Guide reopen offline after the app is prepared',
+  'Temporary connection failures keep your saved login for reconnecting',
 ];
 
 function getResetToken() {
@@ -234,11 +235,11 @@ export default function App() {
 
   const inShell = content => <AppShell route={route} version={APP_VERSION} onWhatsNew={() => setShowWhatsNew(true)} onShowForgotPassword={() => setShowForgotPassword(true)}>
     {showForgotPassword && !user && <ErrorBoundary><ForgotPassword onClose={() => setShowForgotPassword(false)} /></ErrorBoundary>}
-    <ErrorBoundary key={route}><Suspense fallback={<div className="app-loading" role="status"><span className="loading-pulse" /> Loading your workspace…</div>}>{content}</Suspense></ErrorBoundary>
+    <ErrorBoundary key={resetToken ? 'password-reset' : route}><Suspense fallback={<div className="app-loading" role="status"><span className="loading-pulse" /> Loading your workspace…</div>}>{content}</Suspense></ErrorBoundary>
     {showWhatsNew && <WhatsNewModal version={APP_VERSION} changes={WHATS_NEW} onClose={() => setShowWhatsNew(false)} />}
   </AppShell>;
 
-  if (resetToken) return inShell(<div className="app-auth-required"><header className="page-heading"><h1>A fresh start.</h1><p>Choose a new password for your CLC account.</p></header><ResetPassword token={resetToken} onComplete={() => { setResetToken(null); window.history.replaceState(null, '', window.location.pathname); }} /></div>);
+  if (resetToken) return inShell(<div className="app-auth-required"><header className="page-heading"><h1>A fresh start.</h1><p>Choose a new password for your CLC account.</p></header><ResetPassword token={resetToken} onComplete={() => { clearPasswordResetUrl(); setResetToken(null); }} /></div>);
   if (AUTH_ROUTES[route] && authLoading) return inShell(<div className="app-loading" role="status">Loading your account…</div>);
   if (AUTH_ROUTES[route] && !user) return inShell(<section className="app-auth-required"><span className="auth-required-icon"><Icon name="cards" size={36} /></span><p className="eyebrow">Your personal workspace</p><h1>Bring your decks along.</h1><p>{AUTH_ROUTES[route]} is available when you’re signed in. Use <strong>Log In</strong> above to pick up where you left off.</p><a className="btn btn-secondary" href="#">Compare without an account <Icon name="arrow" size={16} /></a></section>);
   if (route === 'guide') return inShell(<GuidePage />);
