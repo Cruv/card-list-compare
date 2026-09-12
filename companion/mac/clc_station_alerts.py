@@ -1,11 +1,13 @@
-"""Best-effort flip alerts; never authorize or submit a print pass."""
+"""Best-effort flip and printer-error alerts; never authorize or submit a print pass."""
 
+import hashlib
 import json
 import re
 import subprocess
 import time
 import urllib.parse
 import urllib.request
+import uuid
 
 
 APPLE_SCRIPT = '''on run argv
@@ -22,6 +24,7 @@ end run
 SNOWFLAKE = re.compile(r"[1-9][0-9]{0,19}\Z")
 WEBHOOK_PATH = re.compile(r"/api/webhooks/([1-9][0-9]{0,19})/[A-Za-z0-9_-]{1,256}\Z")
 CHANNEL_TABLES = {"mac": "refeed_alerts", "discord": "refeed_discord_alerts"}
+DISCORD_USERNAME = "Proxy Balboa"
 
 
 def valid_snowflake(value):
@@ -120,7 +123,7 @@ def discord_payload(job, artifact, config):
     validate_alert_config(config)
     title, subtitle, body = alert_text(job, artifact)
     mention = config.get("refeed_discord_user_id", "")
-    content = (f"<@{mention}> " if mention else "") + title + "\n" + discord_text(subtitle)
+    content = (f"<@{mention}> " if mention else "") + "Yo, champ! Time to flip the next packet.\n" + title + "\n" + discord_text(subtitle)
     # The packet ID remains useful for legacy jobs whose PDF has no job label.
     content += "\nPacket ID: " + discord_text(display_text(artifact["id"], 96))
     content += "\n" + discord_text(body)
@@ -133,7 +136,7 @@ def discord_payload(job, artifact, config):
             content += "\nOpen CLC Print Station: <" + origin.rstrip("/") + "/#print-station>"
     if len(content) > 2000:
         raise ValueError("Discord flip message exceeds its content limit")
-    return {"content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
+    return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
 
 
 DISCORD_SETTING = "managed_discord_notifications"
@@ -172,8 +175,8 @@ def discord_status(ledger, config):
 def discord_test_payload(config):
     validate_alert_config(config)
     mention = config.get("refeed_discord_user_id", "")
-    content = (f"<@{mention}> " if mention else "") + "CLC Print Station: Discord test confirmed. Future flip alerts identify the deck, exact packet and printed sheet to reload. This test does not print or resume anything."
-    return {"content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
+    content = (f"<@{mention}> " if mention else "") + "Yo, champ! Proxy Balboa is in your corner. Discord test confirmed. Future alerts identify sheets to flip and printer errors that need attention. This test does not print or resume anything."
+    return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
 
 
 class RefeedAlerts:
@@ -272,3 +275,117 @@ class RefeedAlerts:
             return response
         except Exception:
             return result("failed", "Flip notifications are unavailable. Check the waiting batch in CLC Print Station.", "warning")
+
+
+    def printer_error(self, health, job=None, pending=None):
+        """A healthy read ends an episode. Unknown/unreadable status never does.
+
+        Reserve each channel before delivery. Repeated observations, restarts,
+        transport timeouts and alternating already-seen faults never resend.
+        """
+        if not health.get("known"):
+            return result("unknown")
+        if getattr(self, "error_storage_failed", False):
+            return result("duplicate")
+        try:
+            self.ledger.write("""CREATE TABLE IF NOT EXISTS printer_error_alerts (
+                episode TEXT NOT NULL, fault TEXT NOT NULL, channel TEXT NOT NULL,
+                attempted_at REAL NOT NULL, outcome TEXT NOT NULL,
+                PRIMARY KEY(episode, fault, channel))""")
+            key = "printer_error_episode"
+            if health.get("ok") is True:
+                self.ledger.write("DELETE FROM settings WHERE key=?", (key,))
+                return result("healthy")
+            reasons = health.get("reasons")
+            if not isinstance(reasons, list) or not reasons or len(reasons) > 64:
+                return result("unknown")
+            fault = hashlib.sha256(json.dumps(sorted(reasons)).encode()).hexdigest()
+            with self.ledger.db:
+                row = self.ledger.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+                episode = json.loads(row["value"]) if row else None
+                if not episode or episode.get("queue") != self.config.get("queue"):
+                    episode = {"id": uuid.uuid4().hex, "queue": self.config.get("queue"), "faults": []}
+                if fault not in episode["faults"]:
+                    if len(episode["faults"]) >= 32:
+                        return result("duplicate")  # Bound a continuously malfunctioning device's alerts.
+                    episode["faults"].append(fault)
+                self.ledger.db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, json.dumps(episode)))
+                self.ledger.db.execute("DELETE FROM printer_error_alerts WHERE episode != ? AND rowid NOT IN (SELECT rowid FROM printer_error_alerts ORDER BY rowid DESC LIMIT 200)", (episode["id"],))
+            title, subtitle, body = printer_alert_text(health, job, pending, self.config)
+            channels = {}
+            for channel in ("mac", "discord"):
+                effective = self.config
+                if channel == "discord":
+                    try:
+                        effective, _managed = effective_alert_config(self.ledger, self.config)
+                    except Exception:
+                        channels[channel] = result("failed", "Saved Discord settings are unavailable. Check Printer in CLC.", "warning")
+                        continue
+                if ((channel == "mac" and self.config.get("refeed_notifications", True) is False)
+                        or (channel == "discord" and not effective.get("refeed_discord_webhook_url"))):
+                    channels[channel] = result("disabled")
+                    continue
+                with self.ledger.db:
+                    reserved = self.ledger.db.execute("INSERT OR IGNORE INTO printer_error_alerts VALUES(?,?,?,?,?)",
+                                                      (episode["id"], fault, channel, time.time(), "attempting"))
+                if reserved.rowcount != 1:
+                    channels[channel] = result("duplicate")
+                    continue
+                name = "Mac" if channel == "mac" else "Discord"
+                try:
+                    if channel == "mac":
+                        complete = self.runner(["/usr/bin/osascript", "-", title, subtitle, body,
+                                                "false" if self.config.get("refeed_sound", True) is False else "true"],
+                                               input=APPLE_SCRIPT, capture_output=True, text=True, timeout=5, check=False)
+                        if complete.returncode:
+                            raise ValueError("Notification failed")
+                    else:
+                        self.discord_transport(effective["refeed_discord_webhook_url"],
+                                               printer_discord_payload(title, subtitle, body, effective), timeout=5)
+                    channels[channel] = result("attempted", name + " printer-error notification requested: " + subtitle + ". " + body, "info")
+                except Exception:
+                    channels[channel] = result("failed", name + " printer-error notification was not confirmed and will not be retried automatically. Check Printer in CLC.", "warning")
+                self.ledger.write("UPDATE printer_error_alerts SET outcome=? WHERE episode=? AND fault=? AND channel=?",
+                                  (channels[channel]["status"], episode["id"], fault, channel))
+            messages = [item["message"] for item in channels.values() if item.get("message")]
+            status = next(value for value in ("failed", "attempted", "duplicate", "disabled") if any(item["status"] == value for item in channels.values()))
+            return {**result(status, " ".join(messages) or None, "warning" if status == "failed" else "info" if messages else None), "channels": channels}
+        except Exception:
+            self.error_storage_failed = True
+            return result("failed", "Printer-error alerts could not be saved safely. Check Printer in CLC; no automatic resend will be attempted.", "warning")
+
+
+def printer_alert_text(health, job, pending, config):
+    def clean(value, limit):
+        value = str(value)
+        for secret in (config.get("token"), config.get("refeed_discord_webhook_url")):
+            if secret:
+                value = value.replace(secret, "[credential]")
+        value = re.sub(r"https?://[^\s]+|(?i:bearer)\s+[^\s]+", "[redacted]", value)
+        return display_text(value, limit)
+    title = "CLC: printer needs attention"
+    subtitle = "Household printer"
+    if job:
+        subtitle = clean(job.get("deckName") or "Print batch", 60) + " · " + clean(job.get("id", ""), 12)
+    body = clean(health["message"], 450) + ". "
+    if pending:
+        artifact = next((item for item in (job or {}).get("artifacts", []) if item.get("id") == pending["artifact_id"]), {})
+        label = artifact.get("label") or pending["artifact_id"]
+        body += "Packet: " + clean(label, 80) + "; pass: " + ("backs" if pending.get("phase") == "backs" else "fronts") + ". "
+    body += "Check the printer and Printer in CLC. This alert does not pause, resume or retry printing."
+    return title, subtitle, body
+
+
+def printer_discord_payload(title, subtitle, body, config):
+    validate_alert_config(config)
+    mention = config.get("refeed_discord_user_id", "")
+    content = (f"<@{mention}> " if mention else "") + "Yo, champ! The printer needs a little attention before the next round.\n" + title + "\n" + discord_text(subtitle) + "\n" + discord_text(body)
+    origin = config.get("server_url", "")
+    if isinstance(origin, str) and origin:
+        parsed = urllib.parse.urlsplit(origin)
+        if (parsed.scheme in {"https", "http"} and parsed.hostname and not parsed.username and not parsed.password
+                and not parsed.query and not parsed.fragment and parsed.path in {"", "/"} and not re.search(r"[\s<>]", origin)):
+            content += "\nOpen Printer in CLC: <" + origin.rstrip("/") + "/#print-station>"
+    if len(content) > 2000:
+        raise ValueError("Printer alert exceeds the message limit")
+    return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}

@@ -165,3 +165,4 @@
 }
 .deck-library-page .settings-tracker-owner-group-name { flex: none; }
 .deck-library-page .settings-tracker-owner-group-count { padding: 2px 6px; background: var(--bg-surface); border-radius: 5px; }
+.deck-library-count-label { margin: 0; color: var(--text-secondary); font-size: 13px; }

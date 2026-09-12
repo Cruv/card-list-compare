@@ -1,6 +1,6 @@
 .manasync-connect { min-width: 0; }
 .manasync-connect-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
-.manasync-connect-heading h3 { margin: .25rem 0 0; }
+.manasync-connect-heading h2 { margin: .25rem 0 0; }
 .manasync-eyebrow { display: block; color: var(--text-muted, #8996a4); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .manasync-connection-status { flex-shrink: 0; padding: .35rem .7rem; border: 1px solid var(--border-color, #344052); border-radius: 999px; font-size: .75rem; color: var(--text-secondary, #aebccc); background: var(--bg-secondary, #18212c); }
 .manasync-connection-status.is-connected { color: #87ddbc; border-color: #3a6958; background: #19382d; }
@@ -38,7 +38,7 @@
 
 .user-settings-section.manasync-connect { border: 1px solid var(--border-color); border-radius: 16px; padding: 28px; background: var(--bg-secondary); }
 .manasync-connect-heading { margin-bottom: 12px; }
-.manasync-connect-heading h3 { font-size: 20px; }
+.manasync-connect-heading h2 { font-size: 20px; }
 .manasync-connect-steps > li::before { color: var(--accent); background: var(--accent-soft); }
 .manasync-connect-actions .btn { min-height: 44px; }
 .manasync-connected-account, .manasync-connect-form input { background: var(--bg-primary); }

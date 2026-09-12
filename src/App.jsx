@@ -30,12 +30,12 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.52.1';
+const APP_VERSION = '2.53.0';
 const WHATS_NEW = [
-  'Print controls stay reachable on smaller screens',
-  'Smoother keyboard navigation through artwork and deck dialogs',
-  'Compare and Guide reopen offline after the app is prepared',
-  'Temporary connection failures keep your saved login for reconnecting',
+  'Simpler navigation for comparing, managing decks and printing',
+  'Admins can see every batch in Printer while everyone keeps queuing new lists',
+  'Add decks directly from pasted lists or links, with clearer print copy counts',
+  'Proxy Balboa brings Discord printer alerts and flip reminders from the Mac',
 ];
 
 function getResetToken() {
@@ -55,13 +55,13 @@ const AUTH_ROUTES = {
   library: 'The deck library',
   libraryDeck: 'This deck',
   admin: 'The admin panel',
-  printStation: 'The print station',
+  printStation: 'The printer',
   printList: 'Print lists',
 };
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
-  const { route, shareId, deckShareId, deckId } = useHashRoute();
+  const { route, shareId, deckShareId, deckId, initialPrintJobId } = useHashRoute();
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
   const [comparedLists, setComparedLists] = useState(null);
@@ -127,19 +127,6 @@ export default function App() {
         window.history.replaceState(null, '', window.location.pathname + window.location.hash);
       });
   }, []);
-
-  // Prompt existing users without email (once per session)
-  useEffect(() => {
-    if (!user) return;
-    if (user.email) return;
-    if (sessionStorage.getItem('clc-email-prompted')) return;
-    sessionStorage.setItem('clc-email-prompted', '1');
-    // Small delay so it doesn't fire immediately on login
-    const timer = setTimeout(() => {
-      toast.info('Add an email in Settings to enable password reset.', 6000);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [user]);
 
   const showComparison = useCallback((beforeText, afterText) => {
     const revision = ++comparisonRevision.current;
@@ -224,14 +211,15 @@ export default function App() {
 
   useEffect(() => {
     function handleKeyDown(e) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && canCompareRef.current) {
+      if (['main', 'share'].includes(route) && !e.target.closest?.('[role="dialog"], dialog')
+        && (e.ctrlKey || e.metaKey) && e.key === 'Enter' && canCompareRef.current) {
         e.preventDefault();
         handleCompareRef.current();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [route]);
 
   const inShell = content => <AppShell route={route} version={APP_VERSION} onWhatsNew={() => setShowWhatsNew(true)} onShowForgotPassword={() => setShowForgotPassword(true)}>
     {showForgotPassword && !user && <ErrorBoundary><ForgotPassword onClose={() => setShowForgotPassword(false)} /></ErrorBoundary>}
@@ -239,35 +227,39 @@ export default function App() {
     {showWhatsNew && <WhatsNewModal version={APP_VERSION} changes={WHATS_NEW} onClose={() => setShowWhatsNew(false)} />}
   </AppShell>;
 
-  if (resetToken) return inShell(<div className="app-auth-required"><header className="page-heading"><h1>A fresh start.</h1><p>Choose a new password for your CLC account.</p></header><ResetPassword token={resetToken} onComplete={() => { clearPasswordResetUrl(); setResetToken(null); }} /></div>);
+  if (resetToken) return inShell(<div className="app-auth-required"><header className="page-heading"><h1>Set a new password</h1><p>Choose a new password for your CLC account.</p></header><ResetPassword token={resetToken} onComplete={() => { clearPasswordResetUrl(); setResetToken(null); }} /></div>);
   if (AUTH_ROUTES[route] && authLoading) return inShell(<div className="app-loading" role="status">Loading your account…</div>);
-  if (AUTH_ROUTES[route] && !user) return inShell(<section className="app-auth-required"><span className="auth-required-icon"><Icon name="cards" size={36} /></span><p className="eyebrow">Your personal workspace</p><h1>Bring your decks along.</h1><p>{AUTH_ROUTES[route]} is available when you’re signed in. Use <strong>Log In</strong> above to pick up where you left off.</p><a className="btn btn-secondary" href="#">Compare without an account <Icon name="arrow" size={16} /></a></section>);
+  if (AUTH_ROUTES[route] && !user) return inShell(<section className="app-auth-required"><span className="auth-required-icon"><Icon name="user" size={36} /></span><h1>Log in to continue</h1><p>{AUTH_ROUTES[route]} is available when you’re signed in. Use <strong>Log In</strong> above to pick up where you left off.</p><a className="btn btn-secondary" href="#">Compare without an account <Icon name="arrow" size={16} /></a></section>);
   if (route === 'guide') return inShell(<GuidePage />);
   if (route === 'admin') return inShell(<AdminPage />);
   if (route === 'settings' && user) return inShell(<UserSettings key={user.id} />);
   if (route === 'connections' && user) return inShell(<ConnectionsPage key={user.id} />);
-  if (route === 'printList' && user) return inShell(<PrintListPage key={user.id} initialComparison={printComparison} onComparisonConsumed={onComparisonConsumed} />);
+  if (route === 'printList' && user) return inShell(<PrintListPage key={user.id} initialPrintJobId={initialPrintJobId} initialComparison={printComparison} onComparisonConsumed={onComparisonConsumed} />);
   if (route === 'printStation' && user) return inShell(<PrintStationPage key={user.id} />);
   if (route === 'library' && user) return inShell(<DeckLibrary key={user.id} />);
-  if (route === 'libraryDeck' && user && deckId) return inShell(<DeckPage key={`${user.id}:${deckId}`} deckId={deckId} />);
+  if (route === 'libraryDeck' && user && deckId) return inShell(<DeckPage key={`${user.id}:${deckId}`} deckId={deckId} initialPrintJobId={initialPrintJobId} />);
   if (route === 'deck' && deckShareId) return inShell(<SharedDeckView key={deckShareId} shareId={deckShareId} />);
 
   return inShell(
     <div className="app compare-workspace">
       <header className="compare-hero">
-        <div><p className="eyebrow">Less sorting. More playing.</p><h1>From list to game night.</h1><p>See what changed, choose your artwork, and get your next deck ready for the table.</p></div>
-        <div className="compare-journey" aria-label="Compare, review and print"><span><Icon name="compare" /><small>Compare</small></span><Icon name="chevron" size={14} /><span><Icon name="cards" /><small>Review</small></span><Icon name="chevron" size={14} /><span><Icon name="print" /><small>Print</small></span></div>
+        <div><h1>Compare deck lists</h1><p>Find cards to add or remove, then print or export the changes.</p></div>
+        <a className="compare-help" href="#guide/deck-comparison">How to compare <Icon name="guide" size={16} /></a>
       </header>
 
       <div id="deck-inputs" className="app-inputs">
         <DeckInput
+          key={`${user?.id || 'guest'}-before`}
           label="Before"
+          caption="Earlier version or the deck you have in paper"
           value={beforeText}
           onChange={setBeforeText}
           user={user}
         />
         <DeckInput
+          key={`${user?.id || 'guest'}-after`}
           label="After"
+          caption="Newer version you want to build"
           value={afterText}
           onChange={setAfterText}
           user={user}
@@ -286,10 +278,10 @@ export default function App() {
           Compare Lists <Icon name="arrow" size={18} />
         </button>
         <button className="btn btn-secondary" onClick={handleSwap} type="button">
-          Swap
+          Swap lists
         </button>
         <button className="btn btn-secondary" onClick={handleClear} type="button">
-          Clear
+          Clear lists
         </button>
       </div>
 
@@ -301,7 +293,7 @@ export default function App() {
         </>}
       </ErrorBoundary>
 
-      {!diffResult && <aside className="compare-next"><div><Icon name="library" size={24} /><span><strong>Your next comparison, already saved.</strong><p>Track decks to keep snapshots and compare what changed since your last print.</p></span></div><a href="#library">Explore your library <Icon name="arrow" size={16} /></a></aside>}
+
     </div>
   );
 }

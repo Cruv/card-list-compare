@@ -315,7 +315,7 @@ async function sendPriceAlertEmail(email, username, deckName, currentPrice, prev
   return sendEmail(email, `Price Alert: ${deckName} ${direction} by $${Math.abs(delta).toFixed(2)}`, html);
 }
 
-async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, currentPrice, previousPrice, delta, mode) {
+export async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, currentPrice, previousPrice, delta, mode) {
   try {
     const appUrl = getAppUrl();
     const direction = delta > 0 ? 'increased' : 'decreased';
@@ -323,6 +323,9 @@ async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, curre
     const color = delta > 0 ? 0xf44336 : 0x4caf50;
 
     const body = {
+      username: 'Proxy Balboa',
+      content: 'Yo, champ! Prices moved this round. Here are the numbers.',
+      allowed_mentions: { parse: [] },
       embeds: [{
         title: `Price Alert: ${deckName}`,
         description: `Deck value has ${direction} by **$${Math.abs(delta).toFixed(2)}** (${modeLabel}).`,
@@ -356,7 +359,7 @@ async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, curre
   }
 }
 
-async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSummary) {
+export async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSummary) {
   try {
     let commanders = [];
     try { commanders = commandersJson ? JSON.parse(commandersJson) : []; } catch { /* ignore */ }
@@ -389,6 +392,9 @@ async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSu
     }
 
     const body = {
+      username: 'Proxy Balboa',
+      content: 'Yo, champ! Your deck has a new lineup. Here are the changes.',
+      allowed_mentions: { parse: [] },
       embeds: [{
         title: `Deck Updated: ${deckName}`,
         description: changeSummary

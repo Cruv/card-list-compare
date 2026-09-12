@@ -13,7 +13,7 @@ import urllib.request
 from unittest import mock
 
 from clc_print_station import Ledger
-from clc_station_alerts import APPLE_SCRIPT, NoDiscordRedirect, RefeedAlerts, post_discord, validate_alert_config
+from clc_station_alerts import APPLE_SCRIPT, NoDiscordRedirect, RefeedAlerts, post_discord, validate_alert_config, discord_test_payload
 
 
 def fixture():
@@ -215,10 +215,38 @@ class DiscordAlertTests(unittest.TestCase):
         self.assertIn("Packet ID: dfc-1", payload["content"])
         self.assertIn("Printed label: CLC a12b34c56d78 DFC 1/2", payload["content"])
         self.assertIn("only the 1 printed sheet", payload["content"])
+        self.assertEqual(payload["username"], "Proxy Balboa")
+        self.assertIn("Yo, champ!", payload["content"])
+        self.assertIn("Remove blank paper from the rear feeder", payload["content"])
+        self.assertIn("Reload only the matching printed paper, then confirm", payload["content"])
+        self.assertNotIn("Yo, champ!", " ".join(self.runner.call_args.args[0]), "Mac notifications remain plain")
         self.assertIn("<https://clc.test/#print-station>", payload["content"])
         self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [USER_ID], "roles": []})
         self.assertFalse(payload["tts"])
         self.assertLessEqual(len(payload["content"]), 2000)
+
+    def test_proxy_balboa_error_message_keeps_exact_problem_and_packet_without_mac_style_changes(self):
+        health = {"ok": False, "known": True, "reasons": ["media-jam"], "message": "Printer has a paper jam"}
+        pending = {"artifact_id": self.artifact["id"], "phase": "backs"}
+        self.alerts.printer_error(health, self.job, pending)
+        payload = self.transport.call_args.args[1]
+        self.assertEqual(payload["username"], "Proxy Balboa")
+        for value in ("Yo, champ!", "Sauron", "job-12345678", "Printer has a paper jam", "CLC a12b34c56d78 DFC 1/2", "pass: backs", "does not pause, resume or retry printing"):
+            self.assertIn(value, payload["content"])
+        self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [USER_ID], "roles": []})
+        self.assertLessEqual(len(payload["content"]), 2000)
+        self.assertNotIn("Yo, champ!", " ".join(self.runner.call_args.args[0]))
+
+    def test_proxy_balboa_test_message_retains_explicit_no_print_effect_and_safe_mentions(self):
+        payload = discord_test_payload(self.config)
+        self.transport(WEBHOOK, payload, timeout=5)
+        self.assertEqual(payload["username"], "Proxy Balboa")
+        for text in ("Yo, champ!", "Discord test confirmed", "sheets to flip", "printer errors", "does not print or resume anything"):
+            self.assertIn(text, payload["content"])
+        self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [USER_ID], "roles": []})
+        self.assertLessEqual(len(payload["content"]), 2000)
+        self.assertFalse(payload["tts"])
+        self.runner.assert_not_called()
 
     def test_deck_text_cannot_add_user_role_or_everyone_mentions(self):
         self.job["deckName"] = "@everyone @here <@123456789> <@&987654321> **name**\n# fake heading"

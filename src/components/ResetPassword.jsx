@@ -43,7 +43,7 @@ export default function ResetPassword({ token, onComplete }) {
             Your password has been reset. You can now log in with your new password.
           </p>
           <button className="btn btn-primary btn-sm" onClick={onComplete} type="button">
-            Go to Login
+            Back to CLC
           </button>
         </section>
       ) : (

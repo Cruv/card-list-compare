@@ -288,3 +288,18 @@ change with its regression test.
   ManaSync commits quantity decisions and proxy acquisition atomically; CLC synchronizes
   owner-scoped results from either app. Token rotation permits new decisions in the same
   account while already saved decisions keep their original actor for exact replay.
+
+### Household batch administration and native polling
+
+Authorized administrators can list sanitized household batch summaries across users and
+cancel a job only before any spooler submission has begun. Owner-scoped PDF/deck routes
+remain owner-scoped; a summary is not an artifact or deck-content grant. Cancellation
+rechecks persisted steps, preserves artifacts/receipts and refuses ambiguous physical
+states. Session-authenticated library imports derive account/instance identity on the
+server and use durable replay receipts; request bodies cannot choose another owner.
+
+Valid current station credentials receive a separate bounded 240-request/minute household
+protocol budget. Invalid/missing/revoked credentials and browser management routes remain
+under the 120-request/minute general API limiter. No credential bypasses station endpoint
+authorization. Native error alerts normalize driver status, reserve delivery before send,
+suppress duplicate episodes and keep private webhook values out of telemetry.

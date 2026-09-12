@@ -220,3 +220,24 @@
 .shared-deck-changelog { margin-block: 24px; }
 .shared-deck-changelog-copy { gap: 8px; margin-block: 14px; }
 @media(max-width: 600px) { .shared-deck-card { padding: 20px 16px; } .shared-deck-compare { padding: 14px; } .shared-deck-snap { padding: 12px; } }
+.shared-deck-tabs { display: flex; gap: 28px; border-bottom: 1px solid var(--border-color); margin-bottom: 24px; }
+.shared-deck-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; font: inherit; font-size: 14px; color: var(--text-secondary); min-height: 48px; padding: 12px 0; cursor: pointer; }
+.shared-deck-tabs button[aria-current] { color: var(--accent); border-color: var(--accent); }
+.shared-version-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+.shared-version-heading h2 { font-size: 19px; margin: 0 0 8px; }
+.shared-version-heading p { margin: 0; font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+.shared-deck-compare { align-items: flex-end; }
+.shared-deck-compare label { display: flex; flex: 1; flex-direction: column; gap: 7px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
+.shared-deck-compare select { width: 100%; }
+.shared-deck-compare > button { min-height: 44px; }
+.shared-raw-text { margin-top: 24px; border-top: 1px solid var(--border-color); }
+.shared-raw-text > summary { padding: 16px 0; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
+.shared-raw-text pre { padding: 16px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-primary); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.shared-deck-snap-list { padding: 0; }
+@media(max-width: 640px) {
+  .shared-deck-compare { align-items: stretch; }
+  .shared-deck-compare select { font-size: 16px; }
+  .shared-deck-page .deck-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .shared-deck-changelog-header { overflow-wrap: anywhere; }
+}
+.shared-deck-compare select { appearance: none; flex: auto; padding-right: 32px; background-image: linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%), linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }

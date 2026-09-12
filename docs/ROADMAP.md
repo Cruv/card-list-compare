@@ -5,51 +5,38 @@ briefly for rationale, not as a queue. (Replaces the untracked `CLAUDE.local.md`
 which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 `CLAUDE.local.md`; the default belongs here.
 
-## Next — household printer and cutter proof
+## Next — physical cutter/duplex proof and native rollout
 
-CLC now implements [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): printing directly from comparisons, standalone print lists,
-full-snapshot and physical-copy delta plans, frozen artwork/face manifests, the actual cached upstream v6
-runtime, downloadable PDFs and an authenticated station protocol. The
-[native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
-configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
-New jobs keep each batch's ordinary fronts first, then numbered DFC packets of up to seven
-copies on one front/back sheet. Printed job/packet labels match explicit reload waits;
-Mac notifications with Glass sound default on, and administrators connect optional Discord alerts
-through Print Station; the Mac sends them. The queue holds until the exact waiting packet is reloaded and its
-back pass completes. Dismissing an alert never prints; waits remain visible while paused.
-CLC's Print Station page now reports live station health and controls pause/refeed through
-durable commands; managed version controls are restricted to administrators and idle stations.
-Print review now shows selected front/back art, resolved printings and separate DFC packet
-counts before generation. Missing faces block creation, and uncertain creation requests
-retain the same identity across reloads. Print orders can remove suggestions and add extra
-cards; printing swaps default to keeping existing copies and basic lands default to
-excluded. Search, side/ownership filters and sorting change the review view only. Visible
-missing originals can be copied or opened together in Mana Pool, one per logical card.
-The three-step workflow separates choosing cards, review and batch status. Per-card art
-picking selects verified Scryfall printings, preserves custom art on other rows and requires
-a refreshed review. Comparison handoffs freeze both input lists and protect saved drafts.
-The self-contained Mac installer now bundles its runtime, starts paused at login, and
-supports checked version updates and rollback without replacing configuration or print history.
-The v2.49.0 companion and v2.51.0 server are deployed on the household Mac and passed their
-connection and printer checks. The dashboard reports Online, Enabled and printer Ready.
-Leave the station enabled for interface testing as requested. The local test-printing
-opt-in permits queued test jobs while both physical-proof flags remain false; DFC reload
-confirmation still applies. The real Silhouette generator initialized in the permanent local bind
-mount. Reconcile the saved Portainer CLC service before its next controller redeploy.
-See the [installation checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11).
+Source implements the current [print workflow](PRINT_WORKFLOW.md): exact snapshot/delta
+or standalone plans, editable paired artwork, actual cached Silhouette v6 generation,
+immutable PDFs and durable native receipts. The workspace is Compare / Decks / Print;
+Cards / Changes / Print / Settings inside a deck. Library imports start tracking directly.
+Prepare and Batches preserve drafts; Printer shows all household waiting/spooled batches.
+Fresh pasted lists no longer inherit an unrelated comparison baseline, and review explains
+entries, copies, baseline reductions and exclusions. Inventory-only work is called manual
+print records. [UI organization](UI_REDESIGN_INVENTORY.md) is the current capability map.
 
-The household Mac now has Epson driver 13.45, a saved Uinkit fronts preset, an accepted
-Adobe color test after nozzle cleaning, and an accepted companion sheet after the landscape
-fix. An offline real-generator check of one ordinary card plus eight DFCs verified two
-separate DFC packets, labels, all five rendered pages and unchanged face/slot geometry.
-It printed no paper. Remaining work is to test v6 cutter geometry and manual DFC
-page order/flip/alignment. The owner's 600 PPI,
-1 mm crop, skipped slot 4 and Epson Vivid recipe are preserved in
-[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The Mac must be awake for unattended
-ordinary fronts; DFCs require manual reload between the one-sided passes of every packet.
-Legacy PDFs remain immutable and may contain several DFC sheets without the new job label;
-inspect their preview and all pages before reloading. Drying, lamination and cutting
-tracking remain excluded. Printing does not advance the assembled paper-deck marker.
+The new native source reports printer/active-pass faults through Mac and optional Discord
+alerts with durable duplicate suppression; it does not pause, resume or retry prints.
+The deployed server/native versions are separately recorded in
+[the household checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11).
+A companion update must wait for its active physical work to finish; preserve Enabled and
+all private receipts/settings during the household rollout. Never pause the running
+household station for interface testing. Reconcile Portainer's saved service definition
+before its next controller redeploy.
+
+The Epson 13.45 driver and Uinkit fronts recipe have accepted color (after nozzle cleaning)
+and companion landscape output. Remaining physical work is **v6 cutter geometry** and
+**manual DFC page order, flip and alignment**. A real-generator offline fixture verified
+labels and geometry for one ordinary card plus eight DFCs in separate packets, without
+printing paper. The owner's 600 PPI, 1 mm crop and Epson Vivid settings are preserved in
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+
+Ordinary fronts run first, followed by numbered DFC packets of at most seven copies on
+one front/back sheet. The queue waits for that exact sheet to be reloaded; its backs
+complete before the next packet. The Mac must be awake. Earlier unlabeled/multi-sheet PDFs
+stay immutable and need careful matching. Drying, lamination and cutting tracking remain
+excluded. Printing never advances the assembled paper-deck marker automatically.
 
 ## Optional companion integration — ManaSync
 
@@ -81,7 +68,7 @@ remains historical context.
   print quantities, require exact-printing ownership, or plan quantity/reservation checks.
   ManaSync retains its inventory quantities and physical-copy reporting responsibilities.
 
-## Open — reviewed 2026-09-08
+## Open — reviewed 2026-09-12
 
 Earlier critical/high-priority work shipped in v2.40.3–v2.42.x. The current review is
 summarized in [PROJECT_REVIEW.md](PROJECT_REVIEW.md); older detailed security audits remain local.

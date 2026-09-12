@@ -46,7 +46,7 @@ export default memo(function DeckGridCard({ deck, imageUri, bulkMode, isSelected
           <div className="deck-grid-card-header"><h3 className="deck-grid-card-name">{deck.deck_name}</h3></div>
           <div className="deck-grid-card-commander">{commanders.length ? commanders.join(' / ') : sourceName}</div>
           <div className="deck-grid-card-meta">
-            <span>{deck.snapshot_count || 0} snapshot{deck.snapshot_count === 1 ? '' : 's'}</span>
+            <span>{deck.snapshot_count || 0} version{deck.snapshot_count === 1 ? '' : 's'}</span>
             {updated && <span title="Last updated">{updated}</span>}
           </div>
           {priceDisplayEnabled && deck.last_known_price > 0 && <div className="deck-grid-card-prices">

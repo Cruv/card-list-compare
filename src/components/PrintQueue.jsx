@@ -69,16 +69,16 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
     if (result.operation.status !== 'reported') setError(result.operation.error || 'Correction saved for delivery.');
   }
   return <details className="mana-sync-print-queue" open={!!printJobId || items.length > 0}>
-    <summary>{printJobId ? 'Printed proxies from this batch' : 'Print queue and confirmed physical prints'} {items.length ? `(${items.length})` : ''}</summary>
+    <summary>{printJobId ? 'Printed proxies from this batch' : 'Proxy print records'} {items.length ? `(${items.length})` : ''}</summary>
     <p>Prepared batches appear in ManaSync&rsquo;s Proxy binder under Pending prints with their actual artwork. Confirm usable copies there or here after printing; the result stays in sync. Dismiss any failed or cancelled copies. Pending prints are separate from your available proxies.</p>
     <p>{!connection ? 'Loading ManaSync connection…' : connection.connected ? `Reports go to ${connection.username} (${connection.accountId}).` : 'ManaSync is disconnected. Prepared batches wait in CLC until the connection is restored.'}</p>
     <div className="mana-sync-actions"><label>Physical destination <select value={destination} onChange={e => setDestination(e.target.value)} disabled={!connection?.connected || busy}>
       <option value="">Unassigned</option>{locations.filter(v => v.kind !== 'unassigned').map(v => <option key={v.id} value={v.id}>{v.name} ({v.kind})</option>)}</select></label>
-      <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => act(() => refresh(true))}>Refresh queue</button></div>
+      <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => act(() => refresh(true))}>Refresh records</button></div>
     {error && <p role="alert">{error} If a response was lost, retry the same action to recover its saved operation.</p>}
-    {!items.length && <p>{printJobId ? 'No confirmation items loaded for this batch. Refresh the queue to try again.' : 'Use a card’s Queue button above to plan a later inventory confirmation. Generate PDFs and manage Mac print batches in the Printing tab.'}</p>}
+    {!items.length && <p>{printJobId ? 'No confirmation items loaded for this batch. Refresh records to try again.' : 'Prepare a manual record above after printing outside CLC, then confirm the usable copies here.'}</p>}
     {items.map(item => <div className="mana-sync-print-item" key={item.id}>
-      <strong>{item.card.name}</strong> · {item.confirmed} confirmed of {item.quantity} queued{item.cancelled ? ' · remaining prints cancelled' : ''}
+      <strong>{item.card.name}</strong> · {item.confirmed} usable of {item.quantity} planned{item.cancelled ? ' · remaining records cancelled' : ''}
       {item.pendingProxy && item.pendingProxy.status !== 'legacy' && <div role="status">
         <p>{item.pendingProxy.dismissedQuantity > 0 && `${item.pendingProxy.dismissedQuantity} dismissed · `}{item.pendingProxy.remainingQuantity > 0 ? `${item.pendingProxy.remainingQuantity} awaiting quantity confirmation` : 'Quantity confirmation complete'}</p>
         {item.pendingProxy.status === 'publishing' && <p>Sending this batch and its artwork to ManaSync&rsquo;s Pending prints…</p>}
@@ -93,7 +93,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
         <label>Actually printed <input type="number" min="1" max={item.remaining} value={quantities[item.id] ?? item.remaining} onChange={e => setQuantities(previous => ({...previous,[item.id]:e.target.value}))} disabled={busy} /></label>
         <button className="btn btn-primary btn-sm" type="button" disabled={busy || (item.pendingProxy && item.pendingProxy.status !== 'legacy' && (!connection?.connected || !['pending','partial'].includes(item.pendingProxy.status) || item.pendingProxy.actionPending)) || !Number.isInteger(Number(quantities[item.id] ?? item.remaining)) || Number(quantities[item.id] ?? item.remaining) < 1 || Number(quantities[item.id] ?? item.remaining) > item.remaining} onClick={() => act(() => confirm(item))}>Confirm printed quantity</button>
         <button className="btn btn-secondary btn-sm" type="button" disabled={busy || item.pendingProxy?.actionPending} onClick={() => act(() => cancelPrintItem(item.id))}>{item.pendingProxy && item.pendingProxy.status !== 'legacy' ? 'Dismiss remaining' : 'Cancel remaining'}</button></div>}
-      {item.operations.map(operation => <div className="mana-sync-operation" key={operation.id}>
+      {item.operations.map(operation => <details className="mana-sync-operation" key={operation.id} open={operation.error || ['local', 'pending', 'reconnect', 'review'].includes(operation.status) ? true : undefined}><summary>Record details · {operation.quantity || ''} {operation.kind === 'acquire' ? 'usable copies' : operation.kind === 'dismiss' ? 'dismissal' : 'correction'} · {operation.status}</summary>
         <span>{operation.kind === 'acquire' ? `${operation.quantity} usable copies` : operation.kind === 'dismiss' ? 'Dismiss remaining copies' : `${operation.kind} correction`} · <strong>{operation.status === 'local' ? 'Saved in CLC' : operation.status}</strong>{operation.attempts >= 6 && operation.status === 'pending' ? ' · automatic retry limit reached' : ''}</span>
         <small>Operation {operation.id}{operation.lotId ? ` · holding ${operation.lotId}` : ''}</small>
         {operation.error && <p>{operation.error}</p>}
@@ -102,7 +102,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
           {['pending','reconnect','review'].includes(operation.status) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => act(() => retryPrintReport(operation.id))}>Retry original operation</button>}
           {operation.status !== 'local' && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => act(() => inspect(operation))}>{operation.kind === 'dismiss' ? 'Inspect decision receipt' : 'Inspect receipt and holding'}</button>}
         </div>
-      </div>)}
+      </details>)}
     </div>)}
     {inspection && <div className="mana-sync-inspection">
       <h4>{inspection.operation.kind === 'dismiss' ? 'Review dismissal receipt' : 'Review recorded proxy holding'}</h4>

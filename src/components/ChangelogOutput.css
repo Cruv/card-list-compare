@@ -54,3 +54,6 @@
   .changelog-output-export-actions .copy-btn { flex: 1; min-height: 44px; }
   .changelog-search-input { font-size: 16px; }
 }
+
+.changelog-output > .changelog-output-export-note { padding: 14px 0 18px; margin: 0; }
+.changelog-output-buttons .action-menu .btn { font-size: 13px; }

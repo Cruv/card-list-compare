@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printReviewReady, printReviewSummary, rejectedPrintCreation } from './printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, printReviewReady, printReviewSummary, rejectedPrintCreation } from './printReview';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -9,6 +9,17 @@ const plan = () => ({ totalCopies: 8, ordinaryCopies: 1, doubleFacedCopies: 7,
     { isDFC: true, faces: [face('front', 'saved-mpc'), face('back', 'saved-mpc')], errors: [] }] });
 
 describe('physical artwork review', () => {
+  it('offers cancellation for untouched work, but never between printed packets or after an uncertain submission', () => {
+    for (const state of ['preparing', 'ready', 'queued', 'claimed']) expect(canCancelReviewedPrintJob({ state, steps: [] })).toBe(true);
+    const pending = { state: 'claimed', steps: [{ phase: 'fronts', state: 'pending' }, { phase: 'backs', state: 'pending' }] };
+    expect(canCancelReviewedPrintJob(pending)).toBe(true);
+    for (const state of ['submitting', 'submitted', 'completed', 'uncertain', 'failed']) {
+      expect(canCancelReviewedPrintJob({ ...pending, steps: [{ state }, { state: 'pending' }] })).toBe(false);
+    }
+    expect(canCancelReviewedPrintJob({ state: 'claimed' })).toBe(false);
+    expect(canCancelReviewedPrintJob({ ...pending, state: 'awaiting_refeed' })).toBe(false);
+    expect(canCancelReviewedPrintJob({ ...pending, state: 'canceled' })).toBe(false);
+  });
   it('counts each double-sided copy once, with a separate front/back packet', () => {
     expect(printReviewSummary(plan())).toEqual({ ordinary: 1, doubleFaced: 7, ordinarySheets: 1, packets: 1, sheets: 2, pages: 3 });
     expect(printReviewReady(plan())).toBe(true);
@@ -201,5 +212,25 @@ describe('print review filters and shopping', () => {
     expect(atob(link.searchParams.get('deck'))).toBe('1 Lightning Bolt');
     expect(shoppingText(printReviewIndexes(selection, { ownership: 'incoming' }, ownership).map(index => ownership[index]))).toBe('');
     expect(shoppingText(printReviewIndexes(selection, { ownership: 'unknown' }, ownership).map(index => ownership[index]))).toBe('');
+  });
+});
+
+
+describe('print copy accounting', () => {
+  it('distinguishes physical copies from entries and honors the selected sections', () => {
+    const text = 'Commander\n1 Jin Sakai, Ghost of Tsushima\n4 Plains\n2 Island\n2 Swamp\n1 Rhystic Study (j18) [7] F\nSideboard\n3 Sol Ring';
+    expect(printSourceCopies(text)).toBe(10);
+    expect(printSourceCopies(text, true)).toBe(13);
+  });
+  it('explains a comparison reduction before basic filtering or manual adjustments', () => {
+    expect(printCopyBreakdown({ totalCopies: 94, cards: [{ quantity: 94 }] }, 100)).toEqual({
+      sourceCopies: 100, suggestedCopies: 94, unchangedCopies: 6, extraCopies: 0, removedCopies: 0, basicCopies: 0, totalCopies: 94,
+    });
+  });
+  it('accounts for removed suggestions, readded extras and skipped extra basics exactly once', () => {
+    const result = printCopyBreakdown({ totalCopies: 5, cards: [{ quantity: 5, additionalQuantity: 2 }],
+      removedCards: [{ quantity: 3 }], excludedBasicLands: [{ quantity: 6, additionalQuantity: 2 }] }, 15);
+    expect(result).toEqual({ sourceCopies: 15, suggestedCopies: 10, unchangedCopies: 5, extraCopies: 4, removedCopies: 3, basicCopies: 6, totalCopies: 5 });
+    expect(result.sourceCopies - result.unchangedCopies + result.extraCopies - result.removedCopies - result.basicCopies).toBe(result.totalCopies);
   });
 });

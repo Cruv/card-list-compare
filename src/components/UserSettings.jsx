@@ -12,13 +12,13 @@ import './UserSettings.css';
 export default function UserSettings() {
   const { user, logoutUser } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
-  const [activeTab, setActiveTab] = useState('account');
 
   // User capabilities
   const [canInvite, setCanInvite] = useState(false);
 
   // Account info
   const [email, setEmail] = useState('');
+  const [savedEmail, setSavedEmail] = useState('');
   const [createdAt, setCreatedAt] = useState('');
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
@@ -37,6 +37,7 @@ export default function UserSettings() {
   useEffect(() => {
     getMe().then(data => {
       setEmail(data.user.email || '');
+      setSavedEmail(data.user.email || '');
       setCreatedAt(data.user.createdAt || '');
       setEmailVerified(!!data.user.emailVerified);
       setCanInvite(!!data.user.canInvite);
@@ -49,6 +50,7 @@ export default function UserSettings() {
     try {
       const data = await updateEmail(email.trim() || null);
       setEmail(data.user.email || '');
+      setSavedEmail(data.user.email || '');
       setEmailVerified(!!data.user.emailVerified);
       if (email.trim()) {
         toast.success('Email updated — check your inbox for a verification link');
@@ -121,41 +123,21 @@ export default function UserSettings() {
   }
 
   const formattedDate = createdAt
-    ? new Date(createdAt + 'Z').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+    ? new Date(createdAt + (createdAt.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
     : '...';
 
   return (
     <div className="settings-page">
-      <header className="page-heading"><p className="eyebrow">Make yourself at home</p><h1>Account settings</h1><p>Manage your profile, keep your account secure, and invite your pod.</p></header>
+      <header className="page-heading"><h1>Account</h1><p>Your profile, sign-in security and invitations.</p></header>
       <div className="user-settings">
         {ConfirmDialog}
 
 
-        <nav className="user-settings-tabs">
-          <button
-            className={`user-settings-tab${activeTab === 'account' ? ' user-settings-tab--active' : ''}`}
-            onClick={() => setActiveTab('account')}
-            type="button"
-          >
-            Account
-          </button>
-          {(canInvite || user?.isAdmin) && (
-            <button
-              className={`user-settings-tab${activeTab === 'invites' ? ' user-settings-tab--active' : ''}`}
-              onClick={() => setActiveTab('invites')}
-              type="button"
-            >
-              Invites
-            </button>
-          )}
-        </nav>
-
-      {activeTab === 'account' && (
         <div className="user-settings-panel">
 
       {/* Account Info */}
       <section className="user-settings-section">
-        <h3>Account Info</h3>
+        <h2>Profile</h2>
         <div className="user-settings-field">
           <label>Username</label>
           <span className="user-settings-value">{user?.username}</span>
@@ -177,10 +159,10 @@ export default function UserSettings() {
               autoComplete="email"
             />
             <button className="btn btn-primary btn-sm" type="submit" disabled={emailSaving}>
-              {emailSaving ? '...' : 'Save'}
+              {emailSaving ? 'Saving…' : 'Save email'}
             </button>
           </div>
-          {email && (
+          {email && email === savedEmail && (
             <div className="user-settings-email-status">
               {emailVerified ? (
                 <span className="email-verified">{'\u2713'} Verified</span>
@@ -193,7 +175,7 @@ export default function UserSettings() {
                     onClick={handleResendVerification}
                     disabled={resending}
                   >
-                    {resending ? '...' : 'Resend'}
+                    {resending ? 'Sending…' : 'Resend verification'}
                   </button>
                 </span>
               )}
@@ -202,9 +184,9 @@ export default function UserSettings() {
         </form>
       </section>
 
-      {/* Change Password */}
-      <section className="user-settings-section">
-        <h3>Change Password</h3>
+      <details className="account-disclosure">
+        <summary>Security<small>Change your password</small></summary>
+        <div className="user-settings-section">
         <form className="user-settings-form" onSubmit={handlePasswordChange}>
           <label htmlFor="settings-current-pw">Current Password</label>
           <input
@@ -243,13 +225,18 @@ export default function UserSettings() {
             {passwordSaving ? '...' : 'Change Password'}
           </button>
         </form>
-      </section>
+      </div></details>
 
-      {/* Danger Zone */}
+      {(canInvite || user?.isAdmin) && (
+        <details className="account-disclosure" id="my-invitations"><summary>My invitations<small>Create and manage invitation codes you share</small></summary><InviteManagement /></details>
+      )}
+
+      {/* Account deletion remains a separate, deliberate action. */}
 
 
-      <section className="user-settings-section user-settings-danger">
-        <h3>Danger Zone</h3>
+      <details className="account-disclosure account-danger">
+        <summary>Delete account<small>Permanently remove your account and saved data</small></summary>
+        <div className="user-settings-section user-settings-danger">
         <p>Permanently delete your account and all associated data. This action cannot be undone.</p>
         <form className="user-settings-form" onSubmit={handleDeleteAccount}>
           <label htmlFor="settings-delete-confirm">Type your username to confirm</label>
@@ -272,16 +259,10 @@ export default function UserSettings() {
             </button>
           </div>
         </form>
-      </section>
+      </div></details>
 
         </div>
-      )}
 
-      {activeTab === 'invites' && (canInvite || user?.isAdmin) && (
-        <div className="user-settings-panel">
-          <InviteManagement />
-        </div>
-      )}
 
       </div>
     </div>
@@ -343,7 +324,7 @@ function InviteManagement() {
 
   function formatDate(iso) {
     if (!iso) return '';
-    return new Date(iso + 'Z').toLocaleDateString(undefined, {
+    return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, {
       month: 'short', day: 'numeric', year: 'numeric',
     });
   }
@@ -351,7 +332,7 @@ function InviteManagement() {
   return (
     <div className="settings-invites">
       <section className="user-settings-section" style={{ borderTop: 'none' }}>
-        <h3>Invite Codes</h3>
+        <h3>Create an invitation</h3>
         <p className="user-settings-desc">
           Create invite codes to share with others. Each code can be used a limited number of times.
         </p>
@@ -372,7 +353,7 @@ function InviteManagement() {
             <option value={50}>50</option>
           </select>
           <button className="btn btn-primary btn-sm" type="submit" disabled={creating}>
-            {creating ? '...' : 'Create Code'}
+            {creating ? 'Creating…' : 'Create invitation'}
           </button>
         </form>
 

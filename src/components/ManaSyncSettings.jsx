@@ -52,15 +52,15 @@ export default function ManaSyncSettings() {
   const connected = connection?.connected;
   const displayedError = error || connection?.error;
   return <section className="user-settings-section manasync-connect" aria-labelledby="manasync-connect-title">
-    <div className="manasync-connect-heading"><div><span className="manasync-eyebrow">Collection & printed cards</span><h3 id="manasync-connect-title">Connect ManaSync</h3></div>
+    <div className="manasync-connect-heading"><div><h2 id="manasync-connect-title">ManaSync collection in CLC</h2></div>
       <span className={`manasync-connection-status ${connected && !displayedError ? 'is-connected' : ''}`}>{loading ? 'Checking…' : connected ? displayedError ? 'Needs attention' : 'Connected' : 'Not connected'}</span></div>
-    <p>See which cards you own while preparing a print list, and keep your printed proxies together in ManaSync.</p>
+    <p>Read ownership for your print lists and record the usable proxies you confirm. One original covers as many proxies as you need.</p>
     {connected && <div className="manasync-connected-account"><div><strong>{connection.username}</strong><small>{connection.baseUrl}</small><small>Last checked: {connection.lastSuccess ? new Date(connection.lastSuccess).toLocaleString() : 'Never'}</small></div>
       <div className="manasync-connect-actions"><button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={check}>{busy ? 'Working…' : 'Check connection'}</button>
         <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => {
           if (editing) {setBaseUrl(connection.baseUrl || DEFAULT_URL);setOtherServer(!!connection.baseUrl && connection.baseUrl !== DEFAULT_URL);}
           setEditing(v => !v);setToken('');
-        }}>{editing ? 'Cancel changes' : 'Change connection'}</button></div></div>}
+        }}>{editing ? 'Cancel changes' : 'Edit connection'}</button><button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={disconnect}>Disconnect</button></div></div>}
     {(!connected || editing) && <form className="manasync-connect-form" onSubmit={save} aria-label="Connect your ManaSync account">
       <ol className="manasync-connect-steps">
         <li><div><strong>Get your ManaSync token</strong><p>In ManaSync, open <b>More → Integration access</b>. Under <b>Personal app tokens</b>, leave the app name as <b>CLC</b> and choose <b>Create token</b>.</p>
@@ -75,15 +75,14 @@ export default function ManaSyncSettings() {
         <small>The address must work from the CLC server. Use explicit http:// for local HTTP. Inside a container, localhost means that container; on Docker Desktop, host.docker.internal reaches your Mac.</small>
         <button type="button" className="btn btn-secondary btn-sm" disabled={busy || loading} onClick={() => {setBaseUrl(DEFAULT_URL);setOtherServer(false);}}>Use manasync.net</button>
       </details>
-      <div className="manasync-connect-actions"><button className="btn btn-primary" type="submit" disabled={busy || loading || !token.trim()}>{busy ? 'Verifying account…' : 'Connect my account'}</button><small>{address === DEFAULT_URL ? 'Connects to manasync.net' : address || 'Check your server address'}</small></div>
+      <div className="manasync-connect-actions"><button className="btn btn-primary" type="submit" disabled={busy || loading || !token.trim()}>{busy ? 'Verifying account…' : connected ? 'Save connection' : 'Connect ManaSync'}</button><small>{address === DEFAULT_URL ? 'Connects to manasync.net' : address || 'Check your server address'}</small></div>
     </form>}
     {displayedError && <p className="manasync-connect-error" role="alert">{displayedError}</p>}
     {notice && <p className="manasync-connect-notice" role="status">{notice}</p>}
-    <details className="manasync-connect-details"><summary>What this connection can do</summary>
+    <details className="manasync-connect-details"><summary>Permissions and account changes</summary>
       <ul><li>Read originals, incoming cards, storage locations and reusable proxies.</li><li>Send prepared batches to Pending prints, then record the usable copies you confirm.</li><li>Keep your original cards unchanged. One owned original covers any number of proxies.</li></ul>
       <p>Use a dedicated token with <code>inventory:read</code> and <code>proxies:write</code>. This connection does not give ManaSync access to your CLC decks; deck access is separate.</p>
       <p>Changing accounts keeps earlier confirmations attached to their original account. Unsent confirmations wait for reconciliation.</p>
-      {connected && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={disconnect}>Disconnect ManaSync</button>}
     </details>
   </section>;
 }

@@ -1,3 +1,29 @@
+import { parse } from './parser';
+
+/** Count physical source copies using the same parser as deck comparison. */
+export function printSourceCopies(text, includeSideboard = false) {
+  const parsed = parse(text);
+  return [...parsed.mainboard.values(), ...(includeSideboard ? parsed.sideboard.values() : [])]
+    .reduce((total, card) => total + card.quantity, 0);
+}
+
+/** Account for changes and selection adjustments without counting copies twice. */
+export function printCopyBreakdown(plan, fullSourceCopies) {
+  const selected = plan?.cards || [], removed = plan?.removedCards || [], basics = plan?.excludedBasicLands || [];
+  const sum = rows => rows.reduce((total, card) => total + card.quantity, 0);
+  const extraCopies = [...selected, ...basics].reduce((total, card) => total + (card.additionalQuantity || 0), 0);
+  const totalCopies = plan?.totalCopies || 0, removedCopies = sum(removed), basicCopies = sum(basics);
+  const suggestedCopies = totalCopies + removedCopies + basicCopies - extraCopies;
+  const sourceCopies = Number.isSafeInteger(fullSourceCopies) && fullSourceCopies >= suggestedCopies ? fullSourceCopies : suggestedCopies;
+  return { sourceCopies, suggestedCopies, unchangedCopies: sourceCopies - suggestedCopies, extraCopies, removedCopies, basicCopies, totalCopies };
+}
+
+/** Cancellation is available only before any pass has left the pending state. */
+export function canCancelReviewedPrintJob(job) {
+  return ['preparing', 'ready', 'queued', 'claimed'].includes(job?.state)
+    && Array.isArray(job.steps) && job.steps.every(step => step.state === 'pending');
+}
+
 /** Sheet counts are meaningful only after every card's physical faces resolve. */
 export function printReviewSummary(plan) {
   const ordinary = plan?.ordinaryCopies, doubleFaced = plan?.doubleFacedCopies;

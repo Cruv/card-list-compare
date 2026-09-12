@@ -48,7 +48,7 @@ server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF job
 companion/mac/           Native station/controls, versioned installer/updater, local Epson options/receipts
 server/routes/           auth, owners, decks, snapshots, share, admin, integrations, print(-station-management)
 server/lib/{manasyncBridge,deckProposals,sourceSync,sourceTracking}.js  Inventory, review, provider tracking
-src/components/          UI components; admin/ subdir is the full-page admin panel
+src/components/          Task UI; ActionMenu is the shared export/options disclosure; admin/ contains administration
 ```
 
 ## Invariants (top 5 — full catalog: [docs/INVARIANTS.md](docs/INVARIANTS.md))
@@ -89,9 +89,8 @@ Prefer the `/release` skill (.claude/skills/release) — it executes this.
 ## Guide sync
 
 User-facing changes must update the matching section of
-`src/components/GuidePage.jsx` (`SECTIONS`: getting-started, deck-comparison,
-importing-decks, deck-library, deck-analytics, proxy-printing, export-formats,
-recommendations, faq) — or state "Guide: no impact" in the commit body.
+`src/components/GuidePage.jsx` (`SECTIONS`: getting-started, compare, decks,
+printing, connections, account, reference; old topic hashes remain aliases) — or state "Guide: no impact" in the commit body.
 
 ## Verification runbook
 

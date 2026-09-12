@@ -405,7 +405,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
       setOverrides(next);
       saveOverrides(deckId, next);
       await overrideSync.save(next);
-      toast.success('Artwork saved for home PDFs. Choose Saved MPC artwork in the Printing tab.');
+      toast.success('Artwork saved for home PDFs. Choose Saved MPC artwork in the Print tab.');
     } catch (err) {
       toast.error(err.message || 'Could not save artwork for printing.');
     } finally { setSavingPrintArt(false); }
@@ -526,7 +526,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   const hasCustomSettings = isNonDefault(searchSettings);
 
   return createPortal(
-    <div className="mpc-overlay" onClick={showSettings || altPickerCard ? undefined : onClose} role="dialog" aria-modal="true" aria-label="Print Proxies">
+    <div className="mpc-overlay" onClick={showSettings || altPickerCard ? undefined : onClose} role="dialog" aria-modal="true" aria-label="MPCFill artwork">
       <div className="mpc-overlay-panel" onClick={e => e.stopPropagation()} ref={panelRef} tabIndex={-1}>
         {/* Header */}
         <div className="mpc-overlay-header">
@@ -541,7 +541,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
             )}
             <div className="mpc-overlay-title-group">
               <h2 className="mpc-overlay-title">
-                {altPickerCard ? 'Choose Art' : showSettings ? 'Search Settings' : 'Print Proxies'}
+                {altPickerCard ? 'Choose Art' : showSettings ? 'Search Settings' : 'MPCFill artwork'}
               </h2>
               {altPickerCard && <span className="mpc-overlay-deck-name">{altPickerCard.name}</span>}
               {!altPickerCard && !showSettings && deckName && <span className="mpc-overlay-deck-name">{deckName}</span>}
@@ -1067,7 +1067,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
                     type="button"
                     title="Download XML project file for the MPC Autofill desktop tool"
                   >
-                    {downloading === 'xml' ? 'Generating...' : 'Download XML'}
+                    {downloading === 'xml' ? 'Generating...' : 'Download MPCFill XML'}
                   </button>
                   <button
                     className="btn btn-primary btn-sm"

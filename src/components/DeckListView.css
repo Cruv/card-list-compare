@@ -364,3 +364,6 @@
 .deck-gallery-card-caption .card-line-unit-price, .deck-gallery-card-caption .card-line-cheapest-price { font-size: 10px; }
 /* Reset styles must not override the native dialog's centered placement. */
 .deck-card-dialog { inset: 0; width: fit-content; height: fit-content; margin: auto; }
+.deck-insights-panel { margin-top: 16px; padding: 20px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; }
+.deck-insights-panel .deck-analytics { margin-top: 0; }
+@media (max-width: 640px) { .deck-insights-panel { padding: 16px 12px; } }

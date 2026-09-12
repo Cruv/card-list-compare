@@ -78,3 +78,8 @@
   .deck-input-btn { gap: 4px; padding: 8px 6px; font-size: 12px; }
   .deck-input-tracked-snaps { margin-left: 3px; padding-left: 2px; }
 }
+
+.deck-input-actions { flex-wrap: wrap; }
+.deck-input-actions .deck-input-btn { white-space: normal; }
+.deck-input-manage-link { display: inline-flex; align-items: center; min-height: 44px; font-size: 12px; padding: 8px; }
+.deck-input-save-toggle { font-size: 12px; }

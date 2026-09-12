@@ -49,6 +49,29 @@ class ManagerTests(unittest.TestCase):
              "version": version, "architecture": manager.architecture(), "files": manager.bundle_files(root)}))
         return root
 
+    def test_new_release_requires_printer_health_files_but_older_rollback_does_not(self):
+        old = self.bundle("2.52.1")
+        (old / "clc_station_alerts.py").write_text("# alert fixture")
+        new = self.bundle("2.53.0")
+        (new / "clc_station_alerts.py").write_text("# alert fixture")
+        def resign(root):
+            data = json.loads((root / "bundle-manifest.json").read_text())
+            data["files"] = manager.bundle_files(root)
+            (root / "bundle-manifest.json").write_text(json.dumps(data))
+        resign(old)
+        manager.verify_bundle(old)
+        resign(new)
+        with self.assertRaisesRegex(manager.ManagerError, "printer status"):
+            manager.verify_bundle(new)
+        for name in ("clc_printer_health.py", "get-printer.test"):
+            (new / name).write_text("# local health fixture")
+        resign(new)
+        manager.verify_bundle(new)
+        (new / "get-printer.test").unlink()
+        resign(new)
+        with self.assertRaisesRegex(manager.ManagerError, "printer status"):
+            manager.verify_bundle(new)
+
     def install(self):
         return manager.install_bundle(self.bundle(), self.config_path, load_agent=False, launch_agents=self.root / "agents")
 

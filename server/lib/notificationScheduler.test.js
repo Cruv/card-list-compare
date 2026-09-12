@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { evaluatePriceAlert } from './notificationScheduler.js';
+import { evaluatePriceAlert, sendDiscordWebhook, sendPriceAlertWebhook } from './notificationScheduler.js';
 
 describe('evaluatePriceAlert (audit: price-alert baseline)', () => {
   it('establishes a baseline on first observation without firing', () => {
@@ -80,5 +80,36 @@ describe('canSendEmail rate limit (audit: dead SQL comparison)', () => {
   it('ignores emails older than an hour', () => {
     for (let i = 0; i < 20; i++) logEmail('-2 hours');
     expect(canSendEmail(1)).toBe(true); // all outside the window
+  });
+});
+
+
+describe('Proxy Balboa Discord messages', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps deck-change details with a short greeting and no implicit pings', async () => {
+    const transport = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', transport);
+    expect(await sendDiscordWebhook('https://discord.invalid/fixture', '@everyone deck', '["Commander"]', {
+      added: ['1 Sol Ring'], removed: ['2 Island'], changed: [],
+    })).toBe(true);
+    const payload = JSON.parse(transport.mock.calls[0][1].body);
+    expect(payload.username).toBe('Proxy Balboa');
+    expect(payload.content).toContain('Yo, champ!');
+    expect(payload.allowed_mentions).toEqual({ parse: [] });
+    expect(payload.embeds[0].title).toBe('Deck Updated: @everyone deck');
+    expect(payload.embeds[0].fields.map(field => field.value)).toEqual(['1 Sol Ring', '2 Island']);
+  });
+
+  it('keeps the exact price comparison in the same voice', async () => {
+    const transport = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', transport);
+    expect(await sendPriceAlertWebhook('https://discord.invalid/fixture', 'Sauron', '[]', 125, 100, 25, 'cheapest')).toBe(true);
+    const payload = JSON.parse(transport.mock.calls[0][1].body);
+    expect(payload.username).toBe('Proxy Balboa');
+    expect(payload.content).toContain('Yo, champ!');
+    expect(payload.allowed_mentions).toEqual({ parse: [] });
+    expect(payload.embeds[0].description).toContain('increased by **$25.00** (cheapest printings)');
+    expect(payload.embeds[0].fields.map(field => field.value)).toEqual(['$100.00', '$125.00', '+$25.00']);
   });
 });

@@ -14,7 +14,7 @@ disagree, the tests win.
 ## Grammar
 
 ```
-<qty>[x] <Card Name> [(SET)] [[COLLECTOR] | COLLECTOR] [*F*]
+<qty>[x] <Card Name> [(SET)] [[COLLECTOR] | COLLECTOR] [*F* | F]
 ```
 
 | Part | Meaning | Example |
@@ -24,7 +24,7 @@ disagree, the tests win.
 | `(SET)` | Set/edition code, alphanumeric | `(m10)`, `(2xm)` |
 | `[COLLECTOR]` | Bracketed collector number — CardListCompare's own format | `[227]`, `[136p]`, `[DDO-20]` |
 | bare `COLLECTOR` | Unbracketed collector number, **only valid directly after a set code** — Arena/Archidekt style | `(C20) 215` |
-| `*F*` | Foil marker | `*F*` |
+| `*F*` or trailing `F` | Foil marker; exports emit `*F*` | `*F*`, `(sld) [731] F` |
 
 Collector numbers are alphanumeric with hyphens (promos: `136p`, `DDO-20`, `2022-3`).
 

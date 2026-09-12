@@ -81,6 +81,15 @@ describe('snapshot selection and physical-deck marker', () => {
     expect(exported.decks[0].text).toBe('1 Counterspell');
   });
 
+  it('reports printing-only revisions in version history, including sideboard changes', async () => {
+    const before = snapshot('1 Sol Ring (C21) 263\n\nSideboard\n1 Counterspell (2XM) 47');
+    const after = snapshot('1 Sol Ring (CMM) 396\n\nSideboard\n1 Counterspell (DMR) 45');
+    const timeline = await (await request('/api/decks/1/timeline')).json();
+    expect(timeline.entries.map(entry => entry.snapshotId)).toEqual([before, after]);
+    expect(timeline.entries[0].delta).toBeUndefined();
+    expect(timeline.entries[1].delta).toEqual({ added: 0, removed: 0, changed: 0, printingChanged: 2 });
+  });
+
   it('uses the same latest snapshot ordering in public shared decks', async () => {
     db.run('DROP INDEX idx_deck_snapshots_created');
     const first = snapshot('1 Sol Ring');

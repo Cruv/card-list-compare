@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Icon from './Icon';
+import PrintBatchList from './PrintBatchList';
 import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand } from '../lib/api';
 import './PrintStationPage.css';
 
@@ -13,9 +14,9 @@ const isDiscordCommand = type => ['configure_discord', 'test_discord'].includes(
 const JOB_STATES = {
   active: 'Preparing on the Mac',
   claimed: 'Preparing on the Mac', submitting: 'Submitting to Epson',
-  submitted: 'Printing', awaiting_refeed: 'Waiting for flip and reload',
+  submitted: 'In the Epson queue', awaiting_refeed: 'Waiting for flip and reload',
   uncertain: 'Needs review at the Mac', completed: 'Spooler completed',
-  queued: 'Waiting for the Mac', failed: 'Failed', canceled: 'Canceled',
+  preparing: 'Generating PDFs in CLC', queued: 'Waiting in CLC', failed: 'Failed', canceled: 'Canceled', expired: 'PDFs expired',
 };
 const COMMAND_STATES = { pending: 'Pending', applied: 'Applied', rejected: 'Rejected', expired: 'Expired' };
 const UPDATE_STATES = {
@@ -296,7 +297,7 @@ export default function PrintStationPage() {
   return (
     <section className="station-page">
       <header className="page-heading station-header">
-        <div><p className="eyebrow">Household printing</p><h1>Print Station</h1><p>Your printer at a glance. Follow a batch, handle a paper flip and keep the next session moving.</p></div>
+        <div><h1>Printer</h1><p>Follow the household printer and handle sheets that need your attention.</p></div>
         <button className="btn btn-secondary" type="button" onClick={() => refreshRef.current()}><Icon name="refresh" size={17} />Refresh status</button>
       </header>
 
@@ -313,7 +314,19 @@ export default function PrintStationPage() {
           <p className="station-small">This setting is controlled locally on the Mac. It does not mark either physical proof as verified.{!online && ' This is the last reported setting; the station is not currently confirmed online.'}</p>
         </section>}
 
-        {activeJob?.state === 'awaiting_refeed' && <section className="station-card station-refeed" aria-label="Paper reload required">
+
+        <section className="station-card station-overview" aria-label="Station connection">
+          <div className="station-card-heading"><div className="station-device"><span className="station-device-icon"><Icon name="station" size={27} /></span><div><strong>{station?.stationId || 'Household Mac'}</strong><p className="station-small">Last seen: {timestamp(station?.lastSeenAt)}</p></div></div><Badge tone={online ? 'good' : fresh ? 'warning' : 'neutral'}>{connectionLabel}</Badge></div>
+          <h2 className="station-readiness">{stationSummary}</h2>
+          {!loading && !station?.lastSeenAt && fresh && <p>The Mac has not checked in yet. Start the configured companion on the Mac to connect it.</p>}
+          {!fresh && data && <p className="station-small">Showing the last received details. Connection and controls will return after a successful refresh.</p>}
+          {fresh && !station.online && station.lastSeenAt && <p>The Mac is not checking in. It may be asleep, disconnected, or the companion may be stopped.</p>}
+          <p className="station-small">{station?.queue || 'Printer not reported'} · {station?.version || 'Companion version not reported'}</p>
+          <div className="station-actions"><button className="btn btn-secondary" type="button" disabled={!canControl || updateBusy} onClick={() => command(station?.paused ? 'unpause' : 'pause')}>{busy ? 'Sending request…' : station?.paused ? 'Unpause station' : 'Pause station'}</button></div><details className="station-pause-help"><summary>About pausing</summary><p className="station-small">Pausing stops new station work. Pages already sent to Epson keep printing.</p></details>
+          {commandWaiting && <p className="station-small" role="status">A request is waiting for the Mac. Controls return when it is applied, rejected or expires.</p>}
+        </section>
+
+        {activeJob?.state === 'awaiting_refeed' ? <section className="station-card station-refeed" aria-label="Paper reload required">
           <h2>{packet ? `Flip and reload ${packet.sheetCount} ${sheetWord}` : 'Paper reload is waiting'}</h2>
           <h3>{activeJob.deckName || 'Card batch'}{packet ? ` · ${packetName}` : ''}</h3>
           <p className="station-batch-id">Batch {activeJob.id}</p>
@@ -323,49 +336,38 @@ export default function PrintStationPage() {
             <p>Set aside the other completed output and remove unused blank paper from the rear feeder. Reload only {packet.sheetCount === 1 ? 'this matching sheet' : `these ${packet.sheetCount} matching sheets`}, following {station.testPrintingEnabled && !station.duplexVerified ? 'the flip direction and page order you are testing' : 'your verified flip direction and page order'}. This packet contains {packet.cardCount} {packet.cardCount === 1 ? 'card' : 'cards'}.</p>
             <p>After its back pass finishes, return blank paper to the rear feeder for the next front pass.</p>
             <p>The print queue is held while this back pass waits. Confirm below only after the matching paper is loaded.</p>
-            <button className="btn btn-primary" type="button" disabled={!canResume} onClick={() => { setResumeJobId(activeJob.id); setResumeArtifactId(activeJob.artifactId); setPaperReloaded(false); }}>Confirm this paper is reloaded</button>
+            {(!resumeJobId || !matchingResume) && <button className="btn btn-primary" type="button" disabled={!canResume} onClick={() => { setResumeJobId(activeJob.id); setResumeArtifactId(activeJob.artifactId); setPaperReloaded(false); }}>Confirm this paper is reloaded</button>}
           </> : <p>The waiting sheet details could not be verified. Refresh status before reloading or resuming.</p>}
           {!fresh && <p>Status is stale. Wait for a successful refresh before handling this packet.</p>}
           {station.paused && <p>Unpause the station before confirming this reloaded packet.</p>}
-          {resumeJobId && <section className="station-refeed" aria-label="Confirm reloaded batch"><h3>Confirm the paper at the printer</h3><p className="station-batch-id">Batch {resumeJobId}<br />Back pass: {resumeArtifactId}</p>{matchingResume && packet && <p><strong>{packetName} · {packet.sheetCount} {sheetWord}</strong>{packet.label && <><br />{packet.label}</>}</p>}{!matchingResume && <p>This is no longer the waiting pass. Check the current batch before resuming.</p>}<label><input type="checkbox" checked={paperReloaded && matchingResume} onChange={event => setPaperReloaded(event.target.checked)} disabled={!canResume || !matchingResume} /><span>I matched this packet to the completed output, then flipped and reloaded only its {packet?.sheetCount === 1 ? 'sheet' : 'sheets'} into the rear feeder using {station.testPrintingEnabled && !station.duplexVerified ? 'the direction and page order I am testing' : 'the verified direction and page order'}.</span></label><div className="station-actions"><button className="btn btn-primary" type="button" disabled={!canResume || !matchingResume || !paperReloaded} onClick={() => command('resume', { jobId: resumeJobId, artifactId: resumeArtifactId, paperReloaded: true })}>Confirm and print this packet’s backs</button><button className="btn btn-secondary" type="button" onClick={() => { setResumeJobId(null); setResumeArtifactId(null); setPaperReloaded(false); }}>Cancel</button></div></section>}
-        </section>}
-
-        <section className="station-card station-overview" aria-label="Station connection">
-          <div className="station-card-heading"><div className="station-device"><span className="station-device-icon"><Icon name="station" size={27} /></span><div><strong>{station?.stationId || 'Household Mac'}</strong><p className="station-small">Last seen: {timestamp(station?.lastSeenAt)}</p></div></div><Badge tone={online ? 'good' : fresh ? 'warning' : 'neutral'}>{connectionLabel}</Badge></div>
-          <h2 className="station-readiness">{stationSummary}</h2>
-          {!loading && !station?.lastSeenAt && fresh && <p>The Mac has not checked in yet. Start the configured companion on the Mac to connect it.</p>}
-          {!fresh && data && <p className="station-small">Showing the last received details. Connection and controls will return after a successful refresh.</p>}
-          {fresh && !station.online && station.lastSeenAt && <p>The Mac is not checking in. It may be asleep, disconnected, or the companion may be stopped.</p>}
-          <dl className="station-facts"><div><dt>Printer queue</dt><dd>{station?.queue || 'Not reported'}</dd></div><div><dt>Companion version</dt><dd>{station?.version || 'Not reported'}</dd></div><div><dt>Station work</dt><dd>{!online ? 'Unknown' : station.paused ? 'Paused' : 'Enabled'}</dd></div></dl>
-          <div className="station-actions"><a className="btn btn-primary" href="#print-list"><Icon name="print" size={18} />Prepare a batch</a><button className="btn btn-secondary" type="button" disabled={!canControl || updateBusy} onClick={() => command(station?.paused ? 'unpause' : 'pause')}>{busy ? 'Sending request…' : station?.paused ? 'Unpause station' : 'Pause station'}</button></div><p className="station-small">Pausing stops new station work. Pages already sent to Epson keep printing.</p>
-          {commandWaiting && <p className="station-small" role="status">A request is waiting for the Mac. Controls return when it is applied, rejected or expires.</p>}
-        </section>
-
-        <div className="station-grid">
-          <section className="station-card" aria-label="Current print batch">
+          {resumeJobId && <section className="station-refeed" aria-label="Confirm reloaded batch"><h3>Confirm the paper at the printer</h3>{!matchingResume && <p className="station-batch-id">Batch {resumeJobId}<br />Back pass: {resumeArtifactId}</p>}{!matchingResume && <p>This is no longer the waiting pass. Check the current batch before resuming.</p>}<label><input type="checkbox" autoFocus checked={paperReloaded && matchingResume} onChange={event => setPaperReloaded(event.target.checked)} disabled={!canResume || !matchingResume} /><span>I matched this packet to the completed output, then flipped and reloaded only its {packet?.sheetCount === 1 ? 'sheet' : 'sheets'} into the rear feeder using {station.testPrintingEnabled && !station.duplexVerified ? 'the direction and page order I am testing' : 'the verified direction and page order'}.</span></label><div className="station-actions"><button className="btn btn-primary" type="button" disabled={!canResume || !matchingResume || !paperReloaded} onClick={() => command('resume', { jobId: resumeJobId, artifactId: resumeArtifactId, paperReloaded: true })}>Confirm and print this packet’s backs</button><button className="btn btn-secondary" type="button" onClick={() => { setResumeJobId(null); setResumeArtifactId(null); setPaperReloaded(false); }}>Cancel</button></div></section>}
+        </section> : <section className="station-card" aria-label="Current print batch">
             <div className="station-card-heading"><h2>Current batch</h2>{activeJob && <Badge tone={activeJob.state === 'uncertain' ? 'warning' : 'neutral'}>{JOB_STATES[activeJob.state] || activeJob.state}</Badge>}</div>
             {activeJob ? <><h3>{activeJob.deckName || 'Card batch'}</h3><p className="station-batch-id">Batch {activeJob.id}</p>
               {packet && <><p><strong>{packetName}</strong> · {packet.sheetCount} {sheetWord} · {packet.cardCount} cards</p>{packet.label && <p className="station-batch-id">Margin label: {packet.label}</p>}</>}
               {packet && activeJob.phase === 'fronts' && <p>This is a front pass. Load blank paper in the rear feeder and keep completed sheets separate.</p>}
-              {activeJob.state === 'awaiting_refeed' && <p>Use the paper reload instructions above. The remaining queue waits for this exact back pass.</p>}
               {activeJob.state === 'uncertain' && <p className="station-message station-message--warning">Check this batch against Epson’s queue at the Mac. Reconcile the existing submission before sending any more pages.</p>}
               <p className="station-small">Spooler completion does not confirm color, sheet alignment or cutting readiness.</p>
             </> : <div className="station-empty-batch"><Icon name="print" size={32} /><p>{fresh ? 'No active batch reported by the Mac.' : 'Refresh status to confirm the current batch.'}</p><span className="station-small">Your next batch appears here when the Mac picks it up.</span></div>}
-          </section>
+          </section>}
 
-          <section className="station-card" aria-label="Printer health and recipe">
-            <div className="station-card-heading"><h2>Printer and recipe</h2><Badge tone={fresh && station?.health?.ok === true ? 'good' : fresh && station?.health?.ok === false ? 'warning' : 'neutral'}>{!fresh ? 'Unknown' : station?.health?.ok === true ? 'Ready' : station?.health?.ok === false ? 'Needs attention' : 'Not reported'}</Badge></div>
+      </>}
+      <PrintBatchList />
+      {!restricted && <>
+
+        <section className="station-settings" aria-label="Printer settings"><h2>Printer settings</h2>
+          <details className="station-card station-management" aria-label="Printer health and recipe">
+            <summary><span className="station-disclosure-title"><Icon name="settings" size={22} /><span>Printer and recipe<small>Health and physical print checks</small></span></span><Badge tone={fresh && station?.health?.ok === true ? 'good' : fresh && station?.health?.ok === false ? 'warning' : 'neutral'}>{!fresh ? 'Unknown' : station?.health?.ok === true ? station.recipeVerified && station.duplexVerified ? 'Verified' : 'Checks pending' : station?.health?.ok === false ? 'Needs attention' : 'Not reported'}</Badge></summary><div className="station-disclosure-content">
             <p>{station?.health?.message || 'Printer health has not been reported.'}</p>
             <details className="station-proof-details"><summary>Physical print checks <span>{station?.recipeVerified === true && station?.duplexVerified === true ? '2 verified' : 'Review verification'}</span></summary><ul className="station-proofs"><ProofFlag verified={station?.recipeVerified === true}>Color and front layout</ProofFlag><ProofFlag verified={station?.duplexVerified === true}>Manual double-faced layout</ProofFlag></ul></details>
             {online && station?.duplexVerified === false && <p className="station-message station-message--warning">{station.testPrintingEnabled ? 'Use a small double-faced test batch to verify the manual flip direction, page order and alignment. Test printing still stops for your explicit paper reload confirmation.' : 'Verify the manual flip direction, page order and alignment on the Mac before sending a batch with double-faced cards. A mixed batch can otherwise stop after its ordinary fronts.'}</p>}
             <p className="station-small">Proofs are recorded on the Mac after physical testing. They cannot be changed here.</p>
             {station?.recipeFingerprint && <details><summary>Recipe fingerprint</summary><p className="station-fingerprint">{station.recipeFingerprint}</p></details>}
-          </section>
-        </div>
+          </div></details>
 
-        <section className="station-card station-discord" aria-label="Discord notifications">
-          <div className="station-card-heading"><div><h2>Discord flip alerts</h2><p className="station-small">Get a ping with the deck, exact packet and printed sheet that needs flipping.</p></div><Badge tone={online && discord?.configured && !discordPending ? 'good' : 'neutral'}>{discordPending ? 'Waiting for the Mac' : !fresh ? 'Status unavailable' : discord?.supported ? discord.configured ? online ? 'Connected' : 'Last reported connected' : 'Not connected' : 'Companion update required'}</Badge></div>
-          <p>Discord alerts appear when a double-faced front pass finishes. You still flip and reload only that packet, then confirm in CLC before its backs print.</p>
+        <details className="station-card station-management station-discord" aria-label="Discord notifications">
+          <summary><span className="station-disclosure-title"><Icon name="connections" size={22} /><span>Discord printer alerts<small>Flip reminders and printer errors</small></span></span><Badge tone={discord?.lastTest?.status && discord.lastTest.status !== 'confirmed' ? 'warning' : online && discord?.configured && !discordPending ? 'good' : 'neutral'}>{discord?.lastTest?.status && discord.lastTest.status !== 'confirmed' ? 'Test needs review' : discordPending ? 'Waiting for the Mac' : !fresh ? 'Status unavailable' : discord?.supported ? discord.configured ? online ? 'Connected' : 'Last reported connected' : 'Not connected' : 'Companion update required'}</Badge></summary><div className="station-disclosure-content">
+          <p>Get a ping when a double-faced packet needs flipping. With companion 2.53 or newer, alerts also report paper, jam, offline and other errors reported by the Mac printer queue. Repeated faults are quiet until the printer recovers; unknown or unavailable status does not count as recovery. You still reload only the matching packet and confirm before its backs print.</p>
           {discord?.configured && <p className="station-small">{discord.managed ? 'Settings are managed here.' : 'The Mac is using its local Discord configuration.'} {discord.userId ? `Mentioning Discord user ${discord.userId}.` : 'Messages do not ping a specific user.'}{!online && ' This is the last reported configuration; the Mac is not currently confirmed online.'}</p>}
           {discord?.lastTest && <p className={`station-message${discord.lastTest.status === 'confirmed' ? '' : ' station-message--warning'}`} role="status">{discord.lastTest.status === 'confirmed' ? 'Discord confirmed the test message.' : 'The test was not confirmed. Check Discord before requesting another test; it will not retry automatically.'} <span className="station-small">{timestamp(discord.lastTest.at)}</span></p>}
           {!discord?.supported && <p className="station-small">Install a companion version that supports managed Discord settings, then refresh this page.</p>}
@@ -379,7 +381,7 @@ export default function PrintStationPage() {
             <div className="station-actions">{discord?.configured && !editingDiscord && <button className="btn btn-secondary" type="button" disabled={!canManageDiscord} onClick={() => { setDiscordUserId(discord.userId || ''); setWebhookUrl(''); setEditingDiscord(true); }}>Change connection</button>}<button className="btn btn-secondary" type="button" disabled={!canManageDiscord || !discord?.configured || !discord?.revision} onClick={() => submitDiscord({ idempotencyKey: requestId(), type: 'test_discord', revision: discord.revision })}>Send test message</button><button className="btn btn-secondary" type="button" disabled={!canManageDiscord || !discord?.configured} onClick={() => saveDiscord(false)}>Disconnect Discord</button></div>
           </> : <p className="station-small">An administrator can connect Discord, send a test, or disconnect this household station.</p>}
           <details><summary>Where to get the webhook and user ID</summary><p className="station-small">In your Discord server’s settings, open Integrations → Webhooks, create a webhook for the channel, and copy its URL. To ping yourself, enable Developer Mode in Discord’s Advanced settings, then copy your user ID. Leave the ID empty for a channel message without a personal ping.</p></details>
-        </section>
+        </div></details>
 
         <details className="station-card station-management" aria-label="Companion updates">
           <summary><span className="station-disclosure-title"><Icon name="settings" size={22} /><span>Companion updates<small>Manage the software on your Mac</small></span></span><Badge tone={update?.status === 'failed' ? 'warning' : 'neutral'}>{UPDATE_STATES[update?.status] || 'Not reported'}</Badge></summary>
@@ -391,6 +393,7 @@ export default function PrintStationPage() {
           {data?.permissions.canUpdate ? <><div className="station-actions"><button className="btn btn-secondary" type="button" disabled={!canCheckUpdate} onClick={() => command('check_update')}>Check for updates</button><button className="btn btn-primary" type="button" disabled={!canUpdate || !nextVersion || nextVersion === currentVersion} onClick={() => command('update', { targetVersion: nextVersion })}>{nextVersion && nextVersion !== currentVersion ? `Install ${nextVersion}` : 'Install update'}</button><button className="btn btn-secondary" type="button" disabled={!canUpdate || !update?.previousVersion || update.previousVersion === currentVersion} onClick={() => command('rollback', { targetVersion: update.previousVersion })}>{update?.previousVersion ? `Roll back to ${update.previousVersion}` : 'Roll back'}</button></div>{activeJob && <p className="station-small">Finish or reconcile the current batch before updating the companion.</p>}</> : <p className="station-small">Only an administrator can check for, install, or roll back companion updates.</p>}
           </div>
         </details>
+        </section>
 
         <div className="station-grid station-history">
           <details className="station-card station-management" aria-label="Recent requests"><summary><span className="station-disclosure-title"><Icon name="check" size={22} /><span>Recent requests<small>{commands.length} requests{commandWaiting ? ' · awaiting the Mac' : ''}</small></span></span></summary><div className="station-disclosure-content"><p className="station-small">A pending request has not yet been confirmed by the Mac.</p>{commands.length ? <ol>{commands.slice(0, 20).map(item => <li key={item.id}><div className="station-card-heading"><strong>{COMMAND_NAMES[item.type] || item.type}</strong><Badge tone={item.status === 'applied' ? 'good' : ['rejected', 'expired'].includes(item.status) ? 'warning' : 'neutral'}>{COMMAND_STATES[item.status] || item.status}</Badge></div><time className="station-small">{timestamp(item.createdAt)}</time>{item.targetVersion && <p className="station-small">Version {item.targetVersion}</p>}{item.jobId && <p className="station-batch-id">Batch {item.jobId}</p>}{item.artifactId && <p className="station-small">Back pass: {item.artifactId}</p>}{item.message && <p>{item.message}</p>}{item.acknowledgedAt && <p className="station-small">Acknowledged {timestamp(item.acknowledgedAt)}</p>}</li>)}</ol> : <p>No station requests yet.</p>}</div></details>

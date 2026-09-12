@@ -24,10 +24,11 @@ import urllib.request
 import uuid
 
 from clc_station_alerts import RefeedAlerts, validate_alert_config
+from clc_printer_health import parse_printer_health
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.52.1"
+COMPANION_VERSION = "2.53.0"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -254,12 +255,15 @@ class Ledger:
           CREATE TABLE IF NOT EXISTS passes (
             job_id TEXT NOT NULL, artifact_id TEXT NOT NULL, phase TEXT NOT NULL,
             state TEXT NOT NULL, title TEXT NOT NULL, spooler_id TEXT, detail TEXT,
-            resume_requested INTEGER NOT NULL DEFAULT 0,
+            resume_requested INTEGER NOT NULL DEFAULT 0, cups_started INTEGER,
             PRIMARY KEY(job_id, artifact_id, phase));
           CREATE TABLE IF NOT EXISTS events (
             event_key TEXT PRIMARY KEY, payload TEXT NOT NULL, reply TEXT);
           CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
+        if "cups_started" not in {row[1] for row in self.db.execute("PRAGMA table_info(passes)")}:
+            # Older ambiguous passes have no proof that CUPS was never called.
+            self.write("ALTER TABLE passes ADD COLUMN cups_started INTEGER")
         os.chmod(self.directory / "station.sqlite3", 0o600)
 
     @contextlib.contextmanager
@@ -421,6 +425,20 @@ class Cups:
                 "duplex_verified": bool(self.config.get("duplex_verified")),
                 "recipe_fingerprint": recipe_fingerprint(self.config)}
 
+    def status(self, spooler_id=None):
+        # Fixed local destination and operation; no printer settings or job changes.
+        data = self.runner(["/usr/bin/ipptool", "-X", "-T", "15",
+                            "ipp://localhost/printers/" + self.config["queue"], str(HERE / "get-printer.test")])
+        state = None
+        if spooler_id:
+            match = next((item for item in self.jobs() if item["id"] == spooler_id), None)
+            if match:
+                state = match["state"]
+        health = parse_printer_health(data, state)
+        if spooler_id and state is None and health["ok"]:
+            return {"ok": False, "known": False, "reasons": [], "message": "Active print pass is not visible in CUPS; reconcile its receipt in CLC"}
+        return health
+
     def jobs(self):
         queue = self.config["queue"]
         # macOS lpstat does not reliably expose job-name. Cross-check IDs there,
@@ -512,8 +530,39 @@ class Station:
                     # ledger. Recover from CUPS, never treat it as a fresh pass.
                     local = "intent" if state_value == "submitting" else state_value
                     title = "CLC-" + hashlib.sha256((job["id"] + "/" + artifact["id"] + "/" + phase).encode()).hexdigest()[:32]
-                    self.ledger.db.execute("INSERT INTO passes(job_id,artifact_id,phase,state,title,spooler_id) VALUES(?,?,?,?,?,?)",
-                                           (job["id"], artifact["id"], phase, local, title, step.get("spoolerId")))
+                    self.ledger.db.execute("INSERT INTO passes(job_id,artifact_id,phase,state,title,spooler_id,cups_started) VALUES(?,?,?,?,?,?,?)",
+                                           (job["id"], artifact["id"], phase, local, title, step.get("spoolerId"),
+                                            0 if state_value == "pending" else 1))
+
+    def retire_canceled_before_cups(self, original, fresh):
+        """Release only a verified cancellation with durable proof of no CUPS attempt."""
+        if (not isinstance(fresh, dict) or fresh.get("state") != "canceled"
+                or any(fresh.get(key) != original.get(key) for key in ("id", "manifestSha256", "claimToken"))):
+            return False
+        entries = self.ledger.passes(original["id"])
+        if not entries or any(entry["cups_started"] != 0 or entry["spooler_id"]
+                              or entry["state"] not in {"pending", "intent", "uncertain"} for entry in entries):
+            return False
+        steps = fresh.get("steps")
+        expected = {(entry["artifact_id"], entry["phase"]) for entry in entries}
+        if (not isinstance(steps, list) or len(steps) != len(expected)
+                or any(not isinstance(step, dict) or step.get("state") != "pending"
+                       or not isinstance(step.get("artifactId"), str) or not isinstance(step.get("phase"), str)
+                       or any(step.get(key) for key in ("spoolerId", "submissionEventId", "submittingAt", "submittedAt", "completedAt"))
+                       for step in steps)
+                or {(step.get("artifactId"), step.get("phase")) for step in steps} != expected):
+            return False
+        # Also retain successful authorization receipts: an older companion
+        # resumed after rollback may not know about the new local boundary.
+        prefix = original["id"] + "/"
+        receipts = self.ledger.db.execute("SELECT payload FROM events WHERE substr(event_key,1,?)=? AND reply IS NOT NULL",
+                                          (len(prefix), prefix))
+        if any(json.loads(row["payload"]).get("state") == "submitting" for row in receipts):
+            return False
+        with self.ledger.db:
+            self.ledger.db.execute("UPDATE jobs SET state='canceled',payload=?,detail=?,updated=? WHERE id=?",
+                                   (json.dumps(fresh), "Canceled on CLC before any local CUPS attempt", time.time(), original["id"]))
+        return True
 
     def report(self, job, entry, state_value, **extra):
         remote = next((step for step in job.get("steps", []) if step["artifactId"] == entry["artifact_id"]
@@ -615,6 +664,8 @@ class Station:
             raise StationError("Server job identity changed; refusing to continue")
         job = fresh
         self.ledger.write("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(job), job["id"]))
+        if self.retire_canceled_before_cups(job, fresh):
+            return "canceled before submission"
         remote = {(step["artifactId"], step["phase"]): step for step in job.get("steps", [])}
         for entry in self.ledger.passes(job["id"]):
             step = remote.get((entry["artifact_id"], entry["phase"]), {})
@@ -685,9 +736,19 @@ class Station:
             if reply.get("replayed"):
                 self.uncertain(job, pending, "Submission authorization was replayed; reconcile CUPS before proceeding")
                 return "uncertain"
+            # Commit before calling lp. A crash or timeout after this point is
+            # always a possible physical attempt, even without a spooler ID.
+            self.ledger.write("UPDATE passes SET cups_started=1 WHERE job_id=? AND artifact_id=? AND phase=?",
+                              (job["id"], pending["artifact_id"], pending["phase"]))
             spooler_id = self.cups.submit(artifact, pending["phase"], pending["title"], path)
             self.ledger.set_pass(pending, "submitted", spooler_id=spooler_id)
         except (StationError, OSError, subprocess.TimeoutExpired) as error:
+            if all(entry["cups_started"] == 0 for entry in self.ledger.passes(job["id"])):
+                try:
+                    if self.retire_canceled_before_cups(job, self.client.get_job(job["id"])):
+                        return "canceled before submission"
+                except (StationError, OSError, ValueError):
+                    pass  # A failed lookup cannot establish that nothing printed.
             self.uncertain(job, pending, "Submission outcome uncertain: " + str(error))
             return "uncertain"
         # A reporting failure leaves the local submitted ID durable. The next

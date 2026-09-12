@@ -54,8 +54,8 @@ step 7's push. Everything user-visible follows the full protocol.
 
 ## 5. Guide check (src/components/GuidePage.jsx)
 
-Sections: getting-started, deck-comparison, importing-decks, deck-library,
-deck-analytics, proxy-printing, export-formats, recommendations, faq.
+Sections: getting-started, compare, decks, printing, connections, account, reference.
+Earlier topic hashes remain supported aliases.
 
 - If the release changes anything a user can see or do: update the matching
   section (or add one to `SECTIONS`).

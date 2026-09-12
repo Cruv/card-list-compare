@@ -13,21 +13,25 @@ import DeckGridCard from './DeckGridCard';
 import useDeckArtwork, { deckCommanders } from '../hooks/useDeckArtwork';
 import Icon from './Icon';
 import Skeleton from './Skeleton';
+import AddDecksDialog from './AddDecksDialog';
 import './UserSettings.css';
 import './DeckLibrary.css';
 
 export default function DeckLibrary() {
   const [confirm, ConfirmDialog] = useConfirm();
   const [activeTab, setActiveTab] = useState('deck-tracker');
+  const [showAddDecks, setShowAddDecks] = useState(false);
+  const [libraryRevision, setLibraryRevision] = useState(0);
 
   return (
     <div className="settings-page deck-library-page">
       <div className="user-settings">
         {ConfirmDialog}
+        {showAddDecks && <AddDecksDialog onClose={() => setShowAddDecks(false)} onAdded={() => setLibraryRevision(value => value + 1)} />}
         <div className="user-settings-header">
-          <div><span className="deck-library-eyebrow">Your workspace</span><h1>Deck Library</h1>
-            <p>Keep your decks, changes and paper copies together.</p></div>
-          <a className="btn btn-primary" href="#compare"><Icon name="plus" size={18} /> Import a deck</a>
+          <div><h1>Decks</h1>
+            <p>Saved lists and the versions you play.</p></div>
+          <button className="btn btn-primary" type="button" onClick={event => { event.currentTarget.focus(); setShowAddDecks(true); }}><Icon name="plus" size={18} /> Add decks</button>
         </div>
 
         <nav className="user-settings-tabs" aria-label="Library sections">
@@ -36,27 +40,27 @@ export default function DeckLibrary() {
             onClick={() => setActiveTab('deck-tracker')}
             type="button"
           >
-            Deck Tracker
+            Decks
           </button>
           <button
             className={`user-settings-tab${activeTab === 'overlap' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('overlap')}
             type="button"
           >
-            Overlap
+            Shared cards
           </button>
           <button
             className={`user-settings-tab${activeTab === 'notifications' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('notifications')}
             type="button"
           >
-            Notifications
+            Alert history
           </button>
         </nav>
 
         {activeTab === 'deck-tracker' && (
           <div className="user-settings-panel">
-            <DeckTrackerSettings confirm={confirm} />
+            <DeckTrackerSettings confirm={confirm} refreshKey={libraryRevision} onAddDecks={() => setShowAddDecks(true)} />
           </div>
         )}
 
@@ -79,7 +83,7 @@ export default function DeckLibrary() {
 
 // --- Deck Tracker Management ---
 
-function DeckTrackerSettings({ confirm }) {
+function DeckTrackerSettings({ confirm, refreshKey, onAddDecks }) {
   const [owners, setOwners] = useState([]);
   const [trackedDecks, setTrackedDecks] = useState([]);
   const [newOwner, setNewOwner] = useState('');
@@ -160,7 +164,7 @@ function DeckTrackerSettings({ confirm }) {
     } finally { setInitialLoading(false); }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, refreshKey]);
 
   async function handleAddOwner(e) {
     e.preventDefault();
@@ -183,7 +187,7 @@ function DeckTrackerSettings({ confirm }) {
     const owner = owners.find(o => o.id === id);
     const confirmed = await confirm({
       title: 'Remove tracked user?',
-      message: `This will stop tracking "${owner?.archidekt_username || 'this user'}" and delete all their tracked decks and snapshots.`,
+      message: `This will stop tracking "${owner?.archidekt_username || 'this user'}" and delete all their tracked decks and saved versions.`,
       confirmLabel: 'Remove',
       danger: true,
     });
@@ -308,7 +312,7 @@ function DeckTrackerSettings({ confirm }) {
     const ids = [...selectedDecks];
     const confirmed = await confirm({
       title: `Untrack ${ids.length} decks?`,
-      message: 'All snapshots for these decks will be permanently deleted.',
+      message: 'All saved versions for these decks will be permanently deleted.',
       confirmLabel: `Untrack ${ids.length}`,
       danger: true,
     });
@@ -354,7 +358,7 @@ function DeckTrackerSettings({ confirm }) {
       {trackedDecks.length > 0 && (
         <div className="settings-tracker-decks">
           <div className="settings-tracker-decks-header">
-            <div><h2>Your decks <span className="deck-library-count">{trackedDecks.length}</span></h2><p className="deck-library-section-hint">Open a deck to review changes or prepare a print.</p></div>
+            <p className="deck-library-count-label">{trackedDecks.length} saved deck{trackedDecks.length === 1 ? '' : 's'}</p>
             <div className="settings-tracker-decks-header-actions">
               <button
                 className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
@@ -363,14 +367,14 @@ function DeckTrackerSettings({ confirm }) {
               >
                 {bulkMode ? 'Done selecting' : 'Select decks'}
               </button>
-              <button
+              {!bulkMode && <button
                 className="btn btn-secondary btn-sm"
                 onClick={handleRefreshAll}
                 disabled={refreshingAll || trackedDecks.every(deck => deck.source_type === 'manual')}
                 type="button"
               >
-                <Icon name="refresh" size={16} /> {refreshingAll ? 'Refreshing...' : 'Refresh all'}
-              </button>
+                <Icon name="refresh" size={16} /> {refreshingAll ? 'Checking…' : 'Check for updates'}
+              </button>}
             </div>
           </div>
 
@@ -490,13 +494,13 @@ function DeckTrackerSettings({ confirm }) {
 
       {!initialLoading && trackedDecks.length === 0 && <div className="deck-library-empty">
         <Icon name="library" size={42} /><h2>Your next deck starts here</h2>
-        <p>Import a list on Compare, or track an Archidekt user to follow their decks.</p>
-        <a className="btn btn-primary" href="#compare">Import a deck</a>
+        <p>Choose an untracked deck, paste a card list, or import a URL.</p>
+        <button className="btn btn-primary" type="button" onClick={event => { event.currentTarget.focus(); onAddDecks(); }}>Add a deck</button>
       </div>}
       {!initialLoading && <details className="deck-library-sources" open={showSources || trackedDecks.length === 0}
         onToggle={event => setShowSources(event.currentTarget.open)}>
-        <summary><Icon name="plus" size={18} /><span>Track decks & manage sources</span><span className="deck-library-source-count">{owners.length} user{owners.length === 1 ? '' : 's'}</span></summary>
-        <div className="deck-library-sources-body"><p>Follow an Archidekt user, then choose the decks to track.</p>
+        <summary><Icon name="plus" size={18} /><span>Manage sources</span><span className="deck-library-source-count">{owners.length} account{owners.length === 1 ? '' : 's'}</span></summary>
+        <div className="deck-library-sources-body"><p>Add an Archidekt account to browse its public decks. Choose which decks CLC keeps up to date.</p>
       <form className="settings-tracker-add" onSubmit={handleAddOwner}>
         <input
           type="text"
@@ -507,7 +511,7 @@ function DeckTrackerSettings({ confirm }) {
           aria-label="Archidekt username to track"
         />
         <button className="btn btn-primary btn-sm" type="submit" disabled={loading || !newOwner.trim()}>
-          {loading ? 'Adding...' : 'Track User'}
+          {loading ? 'Adding…' : 'Add account'}
         </button>
       </form>
 
@@ -597,8 +601,8 @@ function DeckOverlapAnalysis() {
   if (!data || data.decks.length < 2) {
     return (
       <div className="settings-overlap">
-        <h3>Deck Overlap</h3>
-        <p className="settings-tracker-empty">Track at least 2 decks with snapshots to see overlap analysis.</p>
+        <h2>Shared cards</h2>
+        <p className="settings-tracker-empty">Save at least two decks with cards to compare their shared cards.</p>
       </div>
     );
   }
@@ -617,7 +621,7 @@ function DeckOverlapAnalysis() {
 
   return (
     <div className="settings-overlap">
-      <h3>Deck Overlap</h3>
+      <h2>Shared cards</h2>
       <p className="settings-overlap-summary">
         {totalShared} card{totalShared !== 1 ? 's' : ''} shared across {decks.length} decks
       </p>
@@ -740,7 +744,7 @@ function NotificationHistory() {
 
   return (
     <div>
-      <h3>Notification History</h3>
+      <h2>Alert history</h2>
       <p className="settings-section-desc">
         Recent notifications sent for your tracked decks.
       </p>

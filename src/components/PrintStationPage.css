@@ -118,3 +118,11 @@
 .station-discord-form .station-actions, .station-discord-form > p { grid-column: 1 / -1; margin-top: 0; }
 .station-message > .station-discord-field { margin-bottom: 16px; }
 @media (max-width: 680px) { .station-discord-form { grid-template-columns: 1fr; } }
+
+.station-settings { display: grid; gap: 12px; min-width: 0; }
+.station-settings > h2 { font-size: var(--fs-md); color: var(--text-secondary); margin: 6px 0 0; }
+.station-settings > details { margin: 0; }
+.station-overview .station-readiness { font-size: 23px; margin: 10px 0; }
+.station-overview .station-actions { margin-top: 12px; }
+.station-pause-help { margin-top: 8px; }
+.station-refeed > .station-refeed { border: 0; border-top: 1px solid var(--border-color); border-radius: 0; padding: 18px 0 0; background: transparent; }

@@ -1810,3 +1810,11 @@
 .password-panel .user-settings-input-row { flex-wrap: wrap; }
 .password-panel input { min-width: 0; width: 100%; min-height: 46px; background: var(--bg-primary); }
 .password-panel .user-settings-input-row input { flex-basis: 100%; }
+
+.account-disclosure { border-top:1px solid var(--border-color); padding:18px 0; }
+.account-disclosure > summary { min-height:44px; font-weight:600; font-size:16px; cursor:pointer; }
+.account-disclosure > summary small { display:block; font-weight:400; font-size:13px; color:var(--text-secondary); margin-top:5px; }
+.account-disclosure[open] > summary { margin-bottom:14px; }
+.account-disclosure .user-settings-section { border-top:0; padding-bottom:8px; }
+.account-danger > summary { color:var(--text-destructive); }
+.user-settings-section h2 { font-size:20px; margin:0 0 20px; }

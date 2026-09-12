@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import AdminDashboard from './AdminDashboard';
 import AdminUserList from './AdminUserList';
@@ -6,21 +6,34 @@ import AdminSettings from './AdminSettings';
 import AdminShares from './AdminShares';
 import AdminAuditLog from './AdminAuditLog';
 import AdminInvites from './AdminInvites';
+import AdminSystem from './AdminSystem';
 import Icon from '../Icon';
 import './AdminPage.css';
 
 const SECTIONS = [
-  { key: 'dashboard', label: 'Dashboard', icon: 'station' },
+  { key: 'dashboard', label: 'Overview', icon: 'station' },
   { key: 'users', label: 'Users', icon: 'user' },
-  { key: 'invites', label: 'Invites', icon: 'plus' },
-  { key: 'settings', label: 'Settings', icon: 'settings' },
-  { key: 'shares', label: 'Shares', icon: 'connections' },
-  { key: 'audit', label: 'Audit Log', icon: 'guide' },
+  { key: 'invites', label: 'All invitations', icon: 'plus' },
+  { key: 'settings', label: 'App settings', icon: 'settings' },
+  { key: 'shares', label: 'Shared links', icon: 'connections' },
+  { key: 'audit', label: 'Audit log', icon: 'guide' },
+  { key: 'system', label: 'System', icon: 'station' },
 ];
+
+function sectionFromHash() {
+  const section = window.location.hash.split('/')[1];
+  return SECTIONS.some(item => item.key === section) ? section : 'dashboard';
+}
 
 export default function AdminPage() {
   const { user } = useAuth();
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const [activeSection, setActiveSection] = useState(sectionFromHash);
+
+  useEffect(() => {
+    const update = () => setActiveSection(sectionFromHash());
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
 
   const handleBack = useCallback(() => {
     window.location.hash = '';
@@ -58,26 +71,28 @@ export default function AdminPage() {
     case 'audit':
       content = <AdminAuditLog />;
       break;
+    case 'system':
+      content = <AdminSystem />;
+      break;
     default:
       content = <AdminDashboard />;
   }
 
   return (
     <div className="admin-page">
-      <header className="page-heading"><p className="eyebrow">Behind the scenes</p><h1>Administration</h1><p>A clear view of your community, activity and app settings.</p></header>
+      <header className="page-heading"><h1>Administration</h1><p>Manage access, app settings and maintenance.</p></header>
       <aside className="admin-sidebar">
         <nav className="admin-sidebar-nav" aria-label="Administration sections">
           {SECTIONS.map((s) => (
-            <button
+            <a
               key={s.key}
               className={`admin-nav-item${activeSection === s.key ? ' admin-nav-item--active' : ''}`}
               aria-current={activeSection === s.key ? 'page' : undefined}
-              onClick={() => setActiveSection(s.key)}
-              type="button"
+              href={`#admin/${s.key}`}
             >
               <Icon name={s.icon} size={18} />
               {s.label}
-            </button>
+            </a>
           ))}
         </nav>
       </aside>

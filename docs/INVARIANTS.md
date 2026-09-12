@@ -175,11 +175,14 @@ In `server/index.js`, order is load-bearing:
 
 ## 12. UI stacking order (z-index ladder)
 
-`CardOverlay` (fullscreen card image) 1000 > `WhatsNewModal` 300 > main overlays
-(Timeline/Mpc/PriceHistory/Recommendations) and Toast 200 >
-`ConfirmModal` 150 > card tooltip 100. New overlays slot in at 200;
-only the tap-to-view card image may sit above everything (exception: the
-accessibility skip-link `.sr-only-focusable:focus` sits at 9999 by design).
+The current layers are authentication 1200, mobile More drawer 1100, full-card preview
+1000, Add decks 500, What’s new 300, main overlays (version/MPC/price/suggestions) and
+Toast 200, confirmation 150, and card tooltip 100. The accessibility skip-link sits at
+9999 while focused. Add decks has no nested editor/confirmation. Do not infer keyboard
+ownership from z-index alone: `useModalLayer` tracks the active modal, traps focus and
+restores the launcher. Nested editors must preserve their parent's state and launcher;
+menus stay mounted while a modal opened from them owns focus. Test new combinations in
+Chrome and WebKit at desktop and phone widths.
 
 Also: `DeckLibrary.jsx` **imports `UserSettings.css`** and reuses its
 `.user-settings-*` / `.settings-page` classes — restyling Settings restyles the

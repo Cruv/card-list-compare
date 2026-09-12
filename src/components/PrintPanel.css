@@ -8,12 +8,12 @@
 .print-list-header p, .print-panel p { color: var(--text-secondary); line-height: 1.5; }
 .print-panel p { margin: 0 0 var(--space-sm); }
 .print-panel h3, .print-panel h4 { margin: 0 0 var(--space-sm); }
-.print-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; list-style: none; margin: 0; padding: 6px; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-secondary); }
-.print-steps li { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 14px; border-radius: 8px; color: var(--text-muted); font-size: 13px; }
-.print-steps li span { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid var(--border-color); border-radius: 50%; flex-shrink: 0; font-size: 12px; }
-.print-steps .is-current { color: var(--text-primary); font-weight: 650; background: var(--bg-surface); }
-.print-steps .is-current span { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.print-steps .is-complete span { color: var(--accent); border-color: transparent; background: var(--accent-soft); }
+ .print-workspace-views { display: flex; gap: 6px; width: fit-content; padding: 4px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 10px; }
+.print-workspace-views button { border: 0; border-radius: 7px; padding: 10px 20px; min-height: 44px; font: inherit; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.print-workspace-views button[aria-pressed="true"] { background: var(--bg-surface); color: var(--text-primary); font-weight: 650; }
+.print-prepare-view, .print-batches-view { display: grid; gap: 20px; min-width: 0; }
+.print-prepare-view[hidden], .print-batches-view[hidden] { display: none; }
+.print-active-summary { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; justify-content: space-between; font-size: var(--fs-sm); color: var(--text-secondary); }
 .print-panel-card { min-width: 0; border: 1px solid var(--border-color); border-radius: 16px; padding: 24px; background: var(--bg-secondary); }
 .print-source > h3 { font-size: 19px; letter-spacing: -.35px; }
 .print-list-inputs { border: 0; min-width: 0; margin: var(--space-md) 0; padding: 0; }
@@ -49,7 +49,7 @@
 .print-list-removed ul, .print-buy-cards { display: grid; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
 .print-list-removed li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm); }
 .print-list-removed li span { overflow-wrap: anywhere; }
-.print-review-filters { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(120px, 1fr)); gap: var(--space-sm); margin: var(--space-md) 0 var(--space-sm); }
+.print-review-filters { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr); align-items: start; gap: var(--space-sm); margin: var(--space-md) 0 var(--space-sm); }
 .print-review-filters label { display: grid; gap: 5px; color: var(--text-secondary); font-size: var(--fs-sm); }
 .print-review { margin: var(--space-md) 0; }
 .print-review-cards { display: grid; gap: 10px; list-style: none; padding: 0; margin: 0; }
@@ -91,6 +91,10 @@
 .print-batch-details .print-panel-confirmation { margin: var(--space-sm) 0; }
 .print-history, .print-help { border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-secondary); padding: 14px 18px; }
 .print-help p { font-size: var(--fs-sm); }
+.print-filter-options { border: 1px solid var(--border-color); border-radius: 9px; padding: 6px 12px; }
+.print-review-filters .print-filter-options { margin-top: 0; }
+.print-filter-options > summary { min-height: 32px; }
+.print-filter-options > div { display: grid; gap: 10px; }
 @media (max-width: 900px) { .print-review-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 800px) { .print-review-footer { bottom: calc(78px + env(safe-area-inset-bottom)); } }
 @media (max-width: 560px) {
@@ -98,9 +102,6 @@
   .print-studio-mark { width: 52px; height: 56px; border-radius: 14px; }
   .print-studio-mark svg { width: 25px; }
   .print-panel-card { padding: 16px; border-radius: 12px; }
-  .print-steps { gap: 3px; padding: 4px; }
-  .print-steps li { gap: 5px; padding: 7px; min-height: 46px; font-size: 11px; }
-  .print-steps li span { width: 20px; height: 20px; }
   .print-panel-fields { grid-template-columns: 1fr; }
   .print-review-card { grid-template-columns: 118px minmax(0, 1fr); gap: 10px; padding: 12px; }
   .print-review-row-actions { grid-column: 2; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: var(--space-sm); }
@@ -116,3 +117,12 @@
   .print-review-tools > details { flex-basis: 100%; }
   .print-review-row-actions .btn, .print-review-row-actions .print-text-button { min-height: 42px; }
 }
+
+.print-review-edit { border-bottom: 1px solid var(--border-color); padding: 6px 0 10px; }
+.print-review-edit > summary { font-weight: 600; }
+.manual-print-records .print-buy-cards { max-height: 360px; overflow-y: auto; margin: 16px 0; }
+.manual-print-records .print-buy-cards > li { display: flex; gap: 8px; justify-content: space-between; align-items: center; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--border-color); }
+
+.print-copy-breakdown { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px; font-size: var(--fs-sm); color: var(--text-secondary); }
+.print-copy-breakdown strong { color: var(--text-primary); }
+.print-skipped-basics ul { padding-left: 20px; font-size: var(--fs-sm); margin-bottom: 10px; }

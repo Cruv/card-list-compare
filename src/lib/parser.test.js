@@ -537,6 +537,16 @@ SB: 2 Fatal Push
 });
 
 describe('printing and export completeness', () => {
+  it('recognizes a plain F finish marker without losing exact printing metadata', () => {
+    const parsed = parse("1 Sigarda's Aid (sld) [731] F\n1 Rhystic Study (j18) [7] F\n2 Sol Ring (C21) 263 F");
+    expect([...parsed.mainboard.values()]).toEqual([
+      expect.objectContaining({ displayName: "Sigarda's Aid", quantity: 1, setCode: 'sld', collectorNumber: '731', isFoil: true }),
+      expect.objectContaining({ displayName: 'Rhystic Study', quantity: 1, setCode: 'j18', collectorNumber: '7', isFoil: true }),
+      expect.objectContaining({ displayName: 'Sol Ring', quantity: 2, setCode: 'C21', collectorNumber: '263', isFoil: true }),
+    ]);
+    expect([...parse('1 F').mainboard.values()][0].displayName).toBe('F');
+  });
+
   it('keeps equal collector numbers across sets and finishes separate', () => {
     const parsed = parse('2 Sol Ring (c21) [263]\n3 Sol Ring (ltc) [263]\n4 Sol Ring (ltc) [263] *F*');
     expect(parsed.mainboard.size).toBe(3);

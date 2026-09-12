@@ -11,10 +11,12 @@ import { fetchCardMetadata } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
 import { submitJob, getJobStatus } from '../lib/downloadQueue.js';
 import { trackArchidektDeck } from '../lib/deckTracking.js';
+import deckImports from './deckImports.js';
 
 const router = Router();
 
 router.use(requireAuth);
+router.use('/import', deckImports);
 
 router.get('/', (req, res) => {
   const decks = all(`

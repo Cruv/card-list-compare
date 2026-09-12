@@ -7,11 +7,15 @@ import {
   queuePrintJob, cancelPrintJob, ownedPrintArtifact, ownedPrintManifest, expireOwnedPrintArtifacts,
 } from '../lib/printQueue.js';
 import { getPrintGeneratorStatus } from '../lib/printGenerator.js';
+import { listPrintBatches } from '../lib/printBatchHistory.js';
 
 const router = Router();
 router.use(requireAuth);
 export const standalonePrintRouter = Router();
 standalonePrintRouter.use(requireAuth);
+export const printBatchesRouter = Router();
+printBatchesRouter.use(requireAuth);
+printBatchesRouter.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
 const deckId = req => {
   const value = Number(req.params.deckId);
   if (!/^\d+$/.test(req.params.deckId) || !Number.isSafeInteger(value) || value < 1) throw printError('Invalid deck ID');
@@ -24,6 +28,7 @@ const route = callback => async (req, res) => {
     res.status(error.status || 500).json({ error: error.message });
   }
 };
+printBatchesRouter.get('/', route((req, res) => res.json(listPrintBatches(req.user.userId, req.query))));
 router.post('/:deckId/print-plan', route(async (req, res) => {
   const plan = await buildPrintPlan(req.user.userId, deckId(req), req.body || {});
   res.json({ plan: publicPrintPlan(plan), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });

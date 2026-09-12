@@ -281,6 +281,9 @@ def verify_bundle(directory, expected_version=None, expected_arch=None):
             raise ManagerError("Package lacks its self-contained runtime or station code")
     if tuple(map(int, value.split("."))) >= (2, 48, 0) and not (root / "clc_station_alerts.py").is_file():
         raise ManagerError("Package lacks its flip notification helper")
+    if tuple(map(int, value.split("."))) >= (2, 53, 0):
+        if not all((root / name).is_file() for name in ("clc_printer_health.py", "get-printer.test")):
+            raise ManagerError("Package lacks its read-only printer status support")
     return data
 
 

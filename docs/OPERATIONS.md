@@ -11,7 +11,7 @@ rename) and keeps `cardlistcompare.db.bak` refreshed at boot and on graceful shu
 
 **Back up (safe while running):** the atomic rename means the live file is never torn, so
 `cp ./data/cardlistcompare.db backup-$(date +%F).db` is safe on the supported local
-filesystem. Admin Dashboard also offers a database download. Verify important copies with
+filesystem. Administration → System also offers a database download. Verify important copies with
 `sqlite3 backup-YYYY-MM-DD.db "PRAGMA integrity_check;"`. For a quiet restore point,
 `docker compose stop` first. Keep independent dated copies; `.bak` is overwritten on normal
 starts and stops and is not a versioned backup history.
@@ -173,250 +173,63 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 #### Household installation checkpoint — 2026-09-11
 
-The owner moved the permanent CLC stack to this Mac. Its `CardListCompare` container
-belongs to the `mtg` Compose project, publishes host port 8080, and mounts
-`/Users/cruv/docker/Stacks/mtg/cardlistcompare` at `/app/data`. The signed-in household
-origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
-the repository's default `./data` is not the household deployment path.
+Updated 2026-09-12. The permanent `CardListCompare` container belongs to the `mtg` Compose
+project, publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistcompare`
+at `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The repository's
+`./data` is not the household deployment path.
 
-The household server is now **v2.52.1**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `99ad625`. The local image is
-`clc-household:2.52.1-99ad625`; its saved service configuration lives at
-`/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
-existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
-UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
-build selected, and Watchtower is disabled for this container. Do not prune the image.
-The registry's `latest` tag does not contain this feature branch yet.
+The deployed server is **v2.52.1**, source `99ad625`, local image
+`clc-household:2.52.1-99ad625` with image ID
+`sha256:fa3716eceb1ee942650ab45cffc607be78e223c8e4cd50accaa78a2258922b5f`.
+Source changes after this checkpoint are not a deployment claim. Private configuration is
+in `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and `runtime.env`.
+It preserves the container name, external `mtg_default` network, UID/GID, timezone, signing
+secret and data mount. `pull_policy: never` selects the local image; Watchtower is disabled
+for CLC. The registry's `latest` does not contain this feature branch. Do not prune its image.
 
-Only CLC was stopped and recreated. A complete, private pre-upgrade backup was taken at
-`/Users/cruv/docker/Backups/cardlistcompare/20260911T225536Z-before-2.48.1` while the old
-container was stopped. Backup hashes, private prior-container settings and rollback
-configuration are retained outside the live bind mount. Never run another backend
-against the live database; an image rollback also requires reviewing/restoring its
-matching data, after preserving any newer user changes.
+The latest complete stopped-container backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T044424Z-before-2.52.1/data-complete`.
+The private deployment folder retains dated `update-*.json` checkpoints and rollback
+configurations. Preserve generator-cache symlinks as links when copying Linux venvs on the
+Mac. Take a fresh backup before another update, including newer jobs and user changes;
+never restore an older database over new queued work merely to roll back frontend code.
+Never run two backends against the live database. Recreate only the CLC service; do not use
+`down` or `--remove-orphans` against the partial household Compose definition.
 
-The subsequent test-printing update has a complete stopped-container backup at
-`/Users/cruv/docker/Backups/cardlistcompare/20260911T230744Z-before-2.48.2/data-complete`.
-Preserve Linux venv symlinks as links when copying the generator cache on macOS; following
-them would incorrectly resolve Linux interpreter paths against the Mac. The local
-deployment folder also retains `rollback-2.48.1-compose.yaml` and the update checkpoint.
-The v2.49.0 upgrade has another complete stopped-container backup at
-`/Users/cruv/docker/Backups/cardlistcompare/20260911T233120Z-before-2.49.0/data-complete`,
-with the preceding deployment files, private Mac configuration and stopped native ledger.
-`cardlistcompare-deployment/update-2.49.0.json` records the current image and checks.
-
-An isolated, network-disabled migration of a read-only database copy passed using the
-tested v2.48.1 image. Core row counts were preserved, SQLite integrity remained `ok`,
-and a second migration pass was idempotent. One pre-existing snapshot referencing a
-missing deck remained unchanged; this check did not delete or repair household data.
-The test never started schedulers, and its copied database was removed afterward.
-After the actual deployment, integrity and core counts still matched the backup:
-3 users, 2 tracked owners, 13 decks, 69 snapshots and 1 shared comparison. The existing
-browser sign-in remained valid. Local and public health/station checks returned HTTP 200.
-
-The native **v2.49.0 arm64 companion is installed** under
+The **v2.49.0 arm64 native companion** is installed under
 `~/Library/Application Support/CLC Print Station/app`, with private configuration in
-`~/.config/clc-print-station`. Its server origin and `EPSON_ET_8550_Series` queue are
-configured. The deployed service loads the matching station credential and
-`PRINT_ENABLED=true` from the private `cardlistcompare-deployment/runtime.env` file.
-The unused installation-only `print-station.env` was removed after verifying its copy
-in the pre-upgrade backup. No additional household user grants have been added.
+`~/.config/clc-print-station`. `~/Library/LaunchAgents/local.clc.print-station.plist` keeps
+it running at login. It uses `EPSON_ET_8550_Series`, its saved 66 Epson driver options,
+and the same server/station credential as CLC. The owner enabled it for UI testing:
+**leave it running and unpaused**. Both physical-proof flags are still false; the explicit
+local `allow_unverified_printing: true` setting permits test jobs without claiming proof.
+The accepted color/orientation recipe and remaining cutting/duplex checks are recorded in
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The installed version and queue state
+are runtime observations; new source features require an actual companion update.
 
-The Portainer agent is local, but Docker CLI deployment does not update the controller's
-saved `mtg` stack. Before its next Portainer redeploy, merge the replacement CLC service
-from `cardlistcompare-deployment/portainer-service.private.yaml` into that saved stack,
-preserving its other services and network. This private fragment contains credentials
-and an explicit environment, since the controller cannot read a Mac-local `env_file`.
-Keep it and the runtime/rollback environment files out of Git, chat and logs. The local
-deployment README has the service-only Compose command and recovery instructions;
-do not use `down` or `--remove-orphans` with this partial stack definition.
+The initial cached generator was verified at upstream
+`4d4aa73a95e93b09676c863a1861765863398c63`; normal startup still checks for a compatible newer
+version. The installed arm64 package is `~/Downloads/CLC Print Station 2.49.0`, archive
+SHA-256 `2284b655758133927bb41e274bbb4fdb4826abd69c7cb7fa000769d9636ed8f7`.
+Run bundled Python with `-B -E -s`; writing bytecode inside an installed bundle changes its
+manifest and correctly fails verification. Private receipts/configuration survive updates.
 
-Installation retained the previous manual-proof records and created a paused production
-ledger. `~/Library/LaunchAgents/local.clc.print-station.plist` is loaded, and the
-**v2.49.0 companion is running**, with KeepAlive and login startup enabled. The owner
-unpaused it through CLC for interface testing; that command was applied and acknowledged.
-Leave the station enabled as requested. Both physical-proof flags remain false, and the
-separate `allow_unverified_printing: true` local setting now permits interface test jobs
-without marking those proofs passed. The update restored Enabled before restarting the
-worker and retained companion v2.48.2 as the rollback version.
-CLC's Print Station dashboard reports **Online**, version **2.49.0**, station work
-**Enabled**, and printer health **Ready**. Earlier HTTP 404 events remain
-in its activity history from before the server upgrade; current heartbeats succeed.
-Its read-only printer check passed all 66 configured driver options and reproduced the accepted
-recipe fingerprint recorded in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
-No sheet was submitted during installation or deployment, and no print job was created.
-The dashboard also shows **Test printing enabled**. Queue test sheets using the normal
-Printing tab; the exact-packet flip/reload confirmation still applies to every DFC back.
-The real Silhouette runtime initialized successfully in the data bind mount at upstream
-revision `4d4aa73a95e93b09676c863a1861765863398c63`, including its startup PDF checks.
-Complete the v6 cutting and manual duplex proofs before enabling their respective flags,
-then turn off the local test-printing opt-in. The v2.49.0 change passed 884 app/server tests,
-119 native companion tests, 46 isolated browser checks, lint (no errors), production builds
-and clean dependency audits. Live UI checks showed the Discord connection form, a real
-Sauron snapshot #64→#68 artwork review, and the whole #68 snapshot: 100 copies, 98 ordinary
-and two double-sided copies, 14 ordinary sheets and one separate DFC packet. Generation
-remained available; no PDF job or printer submission was created. ManaSync is not connected
-for this account, so its live ownership correctly remains **Unknown**. Use Print Station's
-**Discord flip alerts** section to supply a webhook; no destination is configured yet.
+Docker CLI deployment does not update Portainer's saved controller stack. Before its next
+Portainer redeploy, merge `cardlistcompare-deployment/portainer-service.private.yaml` into
+the saved `mtg` stack, preserving the other services/network. That private fragment contains
+credentials because the controller cannot read the Mac-local `env_file`. Keep it and all
+runtime/rollback environment files out of Git, chat and logs. No Portainer login is needed
+for service-only deployment from this Mac.
 
-The arm64 download is at `~/Downloads/CLC Print Station 2.49.0`. Its archive SHA-256 is
-`2284b655758133927bb41e274bbb4fdb4826abd69c7cb7fa000769d9636ed8f7`; all 1,664 manifest
-entries verified. Use the package's installer or run its bundled Python with `-B -E -s`:
-allowing Python to write bytecode into a versioned bundle changes its manifest contents
-and correctly fails installation verification. The deployment retained all 66 driver
-options, configuration, station credentials and Enabled/test-printing state unchanged.
-
-The subsequent **v2.49.1** server-only patch accepts DeckCheck builder and shared URLs
-using the same validated deck ID parser as source tracking. The supplied public
-`/app/builder/zynmTJxDKo28` link imported 100 cards, Sauron as commander and nine Nazgûl.
-Validation passed 909 app/server tests, 119 native tests, 12 isolated browser checks,
-lint/build and both dependency audits. Public/local frontend assets match the tested build.
-The pre-patch stopped-data backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260911T235927Z-before-2.49.1/data-complete`;
-`update-2.49.1.json` records the image and preserved data counts. The installed native
-companion stays at v2.49.0, continuously running and Enabled; no printer changes or
-native installation were required. No household deck or print job was created by testing.
-
-The **v2.51.0** server update adds printing directly from captured comparisons and snapshot
-history, a three-step print workflow, and per-card Scryfall art picking with paired DFC
-previews. Exact printing IDs, row quantities and comparison texts remain frozen through
-review and retry recovery. Draft replacement preserves both the existing draft and incoming
-comparison if browser storage fails. Compact ownership review links directly to Settings
-when no ManaSync connection exists.
-
-The source is committed and pushed at `abd0595`. Validation passed 1,009 app/server tests,
-121 native tests and 101 isolated browser assertions, including desktop/mobile artwork
-review, filtered shopping, art selection, login/draft recovery and uncertain-request replay.
-Lint passed with zero errors and seven existing warnings; production/Docker builds and both
-dependency audits passed. Live Scryfall search and image preparation verified an exact DFC
-printing with both faces, and a disposable Docker instance verified authenticated comparison
-plans and art overrides. No validation created a household print job or sent a printer or
-Discord action. The branch has no matching GitHub Actions run; deployment uses the tested
-local image rather than a claimed registry build.
-
-The complete stopped-data backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T021234Z-before-2.51.0/data-complete`.
-`cardlistcompare-deployment/update-2.51.0.json` records the image, backup and checks. The
-update preserved three users, two tracked owners, 14 decks, 72 snapshots and one existing
-completed print batch. Database integrity passed and existing foreign-key findings stayed
-unchanged. Public/local health checks passed and their frontend assets exactly matched the
-tested build. The signed-in Print Station page showed **Online**, **Enabled** and **Ready**
-with the installed native v2.49.0 companion. Its configuration and ledger were retained;
-there was no companion reinstall or pause.
-
-At the v2.51.0 checkpoint, CLC had no saved outbound ManaSync inventory connection. A
-separate active CLC deck-access token does not establish the reverse connection. The
-v2.52.0 checks below use the owner's confirmed `https://manasync.net` deployment.
-Unknown ownership must not be treated as missing inventory.
-
-The **v2.50.0** server update adds standalone lists, removable suggestions and extra
-cards, default basic-land exclusion, default-off printing replacement, and view-only
-search/side/ownership filters with a Mana Pool buy list. It was committed and pushed as
-`b9b05fc`; the branch has no matching GitHub Actions run, so delivery used the local
-verified image. Validation passed 969 app/server tests, 121 native tests, 68 isolated
-browser assertions, lint (zero errors, seven existing warnings), production/Docker builds
-and both dependency audits (zero vulnerabilities). A separate disposable Docker instance
-also exercised the new authenticated routes and edited plans against live Scryfall.
-
-The stopped-data backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T005142Z-before-2.50.0/data-complete`.
-`cardlistcompare-deployment/update-2.50.0.json` records the image and backup. Migration
-preserved all three users, two tracked owners, 14 decks and 71 snapshots; there were no
-print jobs at deployment. Database integrity passed and existing foreign-key findings
-were unchanged. Local/public health checks passed and both served the exact tested
-frontend bytes. The signed-in **Print List** page showed the checked basic-land default,
-extra-card input and ready generator (`4d4aa73a`). The native v2.49.0 companion was never
-stopped or paused; it remains Online, Enabled and Ready with the same configuration,
-credentials and test-printing opt-in. No household print job or notification was sent.
-Its brief HTTP 502 during the server restart resolved on the next heartbeat.
-
-Browser proof is `/tmp/clc-standalone-review-qa-irvvFe/results.json`, with desktop/phone
-screenshots in that directory. It covers real-planner edits, per-account draft recovery,
-unknown/incoming ownership, sorted/filtered one-original shopping, stale-review guards,
-exact same-key retry after a lost response, standalone downloads/confirmation scoping and
-tracked-deck defaults. The new source/native package version is 2.50.0 for future builds;
-this server feature requires no companion installation or printer change.
-
-The **v2.52.0** server update redesigns the shared navigation and every workspace surface,
-including comparison, deck artwork/library, print review, station, account, administration
-and Guide. **Connections** now provides the guided ManaSync setup, defaults to
-`https://manasync.net`, and offers a saved-token connection check. Optional CLC deck access
-is clearly separated from the ManaSync token needed to read inventory and report proxies.
-The source is committed and pushed at `a6d9eeb`; the branch still has no matching GitHub
-Actions run. Deployment uses the locally tested Docker image.
-
-The complete stopped-data backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T025814Z-before-2.52.0/data-complete`.
-`cardlistcompare-deployment/update-2.52.0.json` records the image, backup and checks.
-The image ID is `sha256:124f257290b61c024330f5cf995471599f13999a1ac32e83d120c4ddb0949f62`.
-The update preserved three users, two tracked owners, 14 decks, 72 snapshots and one
-completed print batch. Database integrity passed; existing foreign-key findings were
-unchanged. Private runtime settings and the nullable standalone-job deck association were
-retained. Only CLC was recreated. The native **v2.49.0** companion remained running and
-Enabled with the same configuration, credentials and test-printing setting.
-
-Validation passed **1,029 app/server tests**, **121 native fake-spooler tests**, production
-and Docker builds, lint (zero errors and seven existing warnings), and both dependency
-audits (zero vulnerabilities). Isolated Chrome and WebKit suites exercised desktop/phone
-navigation, account and Connections, all Guide/Admin sections, deck overlays, print
-recovery and station/Discord controls. See [the UI inventory](UI_REDESIGN_INVENTORY.md)
-for the coverage and explicit limitations. No QA sent a household print job, station
-command, Discord message or inventory mutation.
-
-Live local/public checks served the same index and all 24 assets as the tested Docker
-frontend (`/tmp/clc-2520-live-assets.json`). The signed-in browser showed v2.52.0 and the
-new Connections screen without console errors. Print Station showed **Online**, **Enabled**,
-**Ready**, installed companion **2.49.0**, and no active batch. Read-only requests from CLC
-to ManaSync's integration-context and containers endpoints returned JSON 401: networking,
-TLS and API routing work, but this household account still needs its ManaSync personal
-app token. Connections remains correctly **Not connected** until that token is saved and
-verified. No account grant was created during QA.
-
-At the initial deployment, native iOS Simulator validation was pending: full Xcode was not installed, its App
-Store confirmation stalled, and the alternative Apple download requires account sign-in.
-On 2026-09-12 the owner requested browser verification instead of Simulator. Xcode setup
-is no longer an acceptance blocker for this UI release. Browser and responsive WebKit
-checks are documented in [the UI inventory](UI_REDESIGN_INVENTORY.md); native iOS behavior
-is not claimed. The v6 cutting and manual-duplex physical proofs remain separate.
-
-#### Browser-fix deployment — 2026-09-12
-
-**v2.52.1** is committed and pushed at `99ad625` and deployed as
-`clc-household:2.52.1-99ad625`. It fixes small-screen focus and navigation,
-modal keyboard/launcher behavior, initial offline shell loading, update/rollback cache
-retention, transient login loss, and password-reset routing. The Guide and printing
-notes now explain how Archidekt-selected printing metadata reaches the PDF.
-
-The complete stopped-data backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T044424Z-before-2.52.1/data-complete`;
-`cardlistcompare-deployment/update-2.52.1.json` records this deployment. Image ID:
-`sha256:fa3716eceb1ee942650ab45cffc607be78e223c8e4cd50accaa78a2258922b5f`. The update preserved the pre-deployment
-three users, two owners, 14 decks, **73 snapshots**, and one completed print job.
-Database integrity passed, existing foreign-key findings were unchanged, and private
-runtime settings were preserved. Only CLC was recreated; native **v2.49.0** remained
-running, unpaused and enabled with its existing printer recipe and credentials.
-
-Validation passed **1,053 app/server tests**, **121 native fake-printer checks**, lint
-(zero errors, seven existing warnings), production/Docker builds and both dependency
-audits (zero vulnerabilities). Isolated Chrome/WebKit checks include rollback/failure
-recovery and total 400 focused assertions; scope and caveats are in
-[the UI inventory](UI_REDESIGN_INVENTORY.md). The Docker smoke used a separate disposable
-data mount and verified every precached file against its integrity value.
-
-After deployment, all **34 served frontend files** matched the Docker image through
-both localhost and the public origin (68 matching responses;
-`/tmp/clc-2521-live-assets.json`). The signed-in browser showed v2.52.1 and the Connections
-screen without console errors. Print Station showed **Online**, **Enabled**, **Ready**,
-native v2.49.0, and no active batch. ManaSync still needs the owner's personal app token
-in Connections; no credential was invented or saved during QA. No real print, Discord
-message, inventory write or household deck edit was submitted during these checks.
-There is no feature-branch GitHub Actions run or registry release for this commit; the
-household stack uses the tested local image. The Portainer controller's saved definition
-still needs its private service fragment reconciled before a future Portainer redeploy.
+At the v2.52.1 checkpoint, all 34 frontend files matched the image through localhost and the
+public origin, existing sign-in survived, database integrity passed, and native v2.49.0
+remained Enabled. Browser/automated checks use disposable data and fake side effects;
+actual household prints after that checkpoint are user work, not disposable QA fixtures.
+Do not interrupt active sheets or update the native runtime while its ledger owns a job.
 
 #### Queue operation
 
-Open **Print studio** for a standalone batch, or a tracked deck's Printing tab for snapshot
+Open **Print → New print list** for a standalone batch, or a tracked deck's Print tab for snapshot
 plans. Both show artwork review, editable card selections, PDF downloads and job status.
 Standalone jobs store a null tracked-deck ID; startup migrates the old non-null column
 while retaining existing job IDs, requests, manifests and events. Set a
@@ -448,7 +261,7 @@ inspect its preview/all pages and match job, packet and sheet count before reloa
 Mac flip notifications and Glass sound default on. Configure `refeed_notifications` and
 `refeed_sound` as JSON booleans in the private mode-0600 Mac config. Optional
 `refeed_discord_webhook_url` and `refeed_discord_user_id` remain legacy local defaults.
-For daily setup, an administrator opens **Print Station → Discord flip alerts**,
+For daily setup, an administrator opens **Print → Printer → Discord printer alerts**,
 saves a webhook and optional user ID, waits for the Mac acknowledgement, then sends a test.
 Disconnect writes a managed disabled setting that overrides any legacy destination.
 Only the configured user may be mentioned. No webhook was configured or sent by this change.
@@ -465,7 +278,7 @@ Mac notification permission/Focus can suppress delivery. Alert failures are logg
 nonfatal; they leave the same explicit reload wait in place, with no silent printing or
 automatic alert retry. See [Mac flip alerts](../companion/mac/README.md#flip-alerts).
 
-The **Print Station** page centralizes health, version, event history, pause/unpause and
+The **Print → Printer** page centralizes health, version, event history, pause/unpause and
 batch-specific DFC reload controls. It requires the same household authorization as
 physical queue requests; only administrators may request version checks/changes. Install
 matching server and companion versions for the heartbeat/control protocol. A companion

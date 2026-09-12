@@ -37,7 +37,7 @@ export default function ForgotPassword({ onClose }) {
   return (
     <div className="auth-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}><div className="user-settings password-panel auth-modal" ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="forgot-password-title" tabIndex={-1}>
       <div className="user-settings-header">
-        <h2 id="forgot-password-title">Reset Password</h2>
+        <h2 id="forgot-password-title">Request a password reset</h2>
         <button className="btn btn-secondary btn-sm" onClick={onClose} type="button">Close</button>
       </div>
 

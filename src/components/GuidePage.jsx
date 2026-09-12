@@ -1,851 +1,207 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './GuidePage.css';
 
 const SECTIONS = [
-  { key: 'getting-started', label: 'Getting Started' },
-  { key: 'deck-comparison', label: 'Deck Comparison' },
-  { key: 'importing-decks', label: 'Importing Decks' },
-  { key: 'deck-library', label: 'Deck Library' },
-  { key: 'deck-analytics', label: 'Deck Analytics' },
-  { key: 'proxy-printing', label: 'Proxy Printing' },
-  { key: 'export-formats', label: 'Export Formats' },
-  { key: 'recommendations', label: 'Recommendations' },
-  { key: 'faq', label: 'FAQ' },
+  { key: 'getting-started', label: 'Start here', component: GettingStarted },
+  { key: 'compare', label: 'Compare lists', component: CompareLists },
+  { key: 'decks', label: 'Decks and changes', component: Decks },
+  { key: 'printing', label: 'Print cards', component: Printing },
+  { key: 'connections', label: 'Connect ManaSync', component: Connections },
+  { key: 'account', label: 'Account and administration', component: Account },
+  { key: 'reference', label: 'Formats and tools', component: Reference },
 ];
+const LEGACY_TOPICS = {
+  'deck-comparison': 'compare', 'importing-decks': 'reference', 'deck-library': 'decks',
+  'deck-analytics': 'decks', 'proxy-printing': 'printing', 'export-formats': 'reference',
+  recommendations: 'reference', faq: 'reference',
+};
+function topicFromHash() {
+  const requested = window.location.hash.split('/')[1];
+  const key = LEGACY_TOPICS[requested] || requested;
+  return SECTIONS.some(section => section.key === key) ? key : 'getting-started';
+}
 
 function GettingStarted() {
-  return (
-    <div className="guide-section">
-
-      <h3>Getting Started</h3>
-      <p>Use the sidebar on a computer or the bottom navigation on your phone. <strong>More</strong> opens Connections, Guide and Account settings. <strong>Print studio</strong> starts an ad-hoc batch, while tracked decks keep their own Printing tab. The header has your account, sign-out and theme controls.</p>
-      <p>
-        Card List Compare helps you compare MTG deck lists to see exactly what changed between
-        two versions of a deck. Whether you're iterating on a Commander brew, tracking changes
-        from a friend's Archidekt list, or preparing proxy prints for Tabletop Simulator, this
-        tool gives you a clear visual diff.
-      </p>
-
-      <h4>Quick Start</h4>
-      <ol className="guide-steps">
-        <li>
-          Paste your <strong>Before</strong> deck list into the left panel (or import from a URL).
-        </li>
-        <li>
-          Paste your <strong>After</strong> deck list into the right panel.
-        </li>
-        <li>
-          Click <strong>Compare Lists</strong> (or press <kbd className="guide-kbd">Ctrl+Enter</kbd>)
-          to generate a changelog.
-        </li>
-      </ol>
-      <p>
-        The result shows a grouped changelog with cards added, removed, quantity changes, and
-        printing swaps &mdash; organized by card type (Creatures, Instants, Sorceries, etc.).
-      </p>
-      <p>
-        After an online visit finishes preparing the app, Compare and this Guide can reopen
-        offline. Saved decks, imports, artwork lookups, ownership and printing need a connection.
-        A temporary connection failure keeps your saved login and print draft for when you reconnect.
-      </p>
-
-      <div className="guide-tip">
-        <div className="guide-tip-label">Tip</div>
-        <p>
-          Create an account and track your decks in the <strong>Deck Library</strong> to
-          automatically snapshot changes and compare versions over time &mdash; no need to
-          manually paste lists each time.
-        </p>
-      </div>
-
-      <h4>What You Can Do</h4>
-      <ul>
-        <li>Compare any two deck lists from any source</li>
-        <li>Import deck URLs from Archidekt, Moxfield, DeckCheck, TappedOut, Deckstats, MTGGoldfish, and TCGPlayer</li>
-        <li>Track decks with automatic snapshot history and interactive timelines</li>
-        <li>View deck analytics: mana curve, color distribution, price tracking, power level</li>
-        <li>Generate proxy print files for MakePlayingCards (MPC)</li>
-        <li>Export changelogs in multiple formats (Archidekt, Reddit, JSON, TTS, and more)</li>
-        <li>Get card recommendations based on your deck's colors and strategy</li>
-        <li>Share comparisons and tracked decks via public links</li>
-      </ul>
+  return <div className="guide-section">
+    <h2>Start here</h2>
+    <p>Choose a task. Compare works without an account; saved decks, connections and print batches require a login.</p>
+    <div className="guide-task-links">
+      <a href="#guide/compare"><strong>See what changed</strong><span>Compare two lists, copy the changes or print new copies.</span></a>
+      <a href="#guide/decks"><strong>Keep a deck up to date</strong><span>Save versions and compare your paper deck with the latest list.</span></a>
+      <a href="#guide/printing"><strong>Prepare a print batch</strong><span>Review artwork, make PDFs and follow the printer.</span></a>
+      <a href="#guide/connections"><strong>Use your collection</strong><span>Connect ManaSync for ownership and missing originals.</span></a>
     </div>
-  );
+    <h3>Find your way around</h3>
+    <p>The main navigation is <strong>Compare</strong>, <strong>Decks</strong> and <strong>Print</strong>. Print has a new-list page and <strong>Printer</strong> controls. On a phone, <strong>More</strong> opens Connections, Guide and Account. Administration appears only for admins.</p>
+    <h3>When you are offline</h3>
+    <p>After an online visit finishes preparing the app, Compare and this Guide can reopen offline. Saved decks, URL imports, artwork, ownership and printing require a connection. A temporary connection failure preserves your login credential and saved print draft so you can reconnect.</p>
+  </div>;
 }
 
-function DeckComparison() {
-  return (
-    <div className="guide-section">
-      <h3>Deck Comparison</h3>
-      <p>
-        The main comparison page has two input panels &mdash; <strong>Before</strong> and{' '}
-        <strong>After</strong>. Each panel accepts deck text in multiple formats, or you can
-        import directly from a URL.
-      </p>
-
-      <h4>Supported Text Formats</h4>
-      <ul>
-        <li><strong>Arena / MTGO export</strong> &mdash; standard export format from Magic clients</li>
-        <li><strong>Plain text</strong> &mdash; <code>4 Lightning Bolt</code> or <code>4x Lightning Bolt</code></li>
-        <li><strong>With set codes</strong> &mdash; <code>1 Lightning Bolt (M10)</code></li>
-        <li><strong>With collector numbers</strong> &mdash; <code>1 Lightning Bolt (M10) [227]</code> or <code>1 Lightning Bolt (m10) 227</code></li>
-        <li><strong>Foil markers</strong> &mdash; <code>1 Lightning Bolt (M10) [227] *F*</code></li>
-        <li><strong>Sideboard</strong> &mdash; lines after a <code>Sideboard</code> header, or prefixed with <code>SB:</code></li>
-        <li><strong>CSV</strong> &mdash; comma-separated values</li>
-      </ul>
-
-      <h4>Changelog Output</h4>
-      <p>
-        After comparing, the changelog groups results by card type: Creature, Instant, Sorcery,
-        Artifact, Enchantment, Land, Planeswalker, Battle, and more. Each section shows cards
-        that were added, removed, changed in quantity, or changed printing. Set changes with
-        the same collector number and foil-only changes are included. Separate printings keep
-        their own quantities, and full double-faced names match their front-face names.
-      </p>
-      <ul>
-        <li><strong>Summary badges</strong> &mdash; quick counts of cards in, out, changed, and reprinted</li>
-        <li><strong>Card image tooltips</strong> &mdash; hover a card name to see its Scryfall artwork; unavailable exact printings do not silently show another printing</li>
-        <li><strong>Mana cost symbols</strong> &mdash; official Scryfall SVG mana symbols displayed inline</li>
-        <li><strong>Printing badges</strong> &mdash; set code, collector number, and foil marker shown after card names</li>
-        <li><strong>Search filter</strong> &mdash; real-time card name filtering across all sections</li>
-        <li><strong>Print cards</strong> &mdash; open print review for the displayed comparison; choose new copies or the complete After list</li>
-      </ul>
-
-      <h4>Share a Comparison</h4>
-      <p>
-        Click <strong>Share</strong> in the export options to generate a permalink. Anyone with
-        the link can view the comparison without logging in.
-      </p>
-    </div>
-  );
+function CompareLists() {
+  return <div className="guide-section">
+    <h2>Compare lists</h2>
+    <ol className="guide-steps">
+      <li>Enter the older list in <strong>Before</strong> and the newer list in <strong>After</strong>. Paste text, choose <strong>Import URL</strong>, <strong>Load saved</strong> or <strong>Upload file</strong>.</li>
+      <li>Choose <strong>Compare Lists</strong>, or press <kbd className="guide-kbd">Ctrl+Enter</kbd> / <kbd className="guide-kbd">⌘+Enter</kbd>.</li>
+      <li>Review added, removed, changed quantities and printing swaps, grouped by card type. Search narrows the visible results. Hover or open a card to inspect its artwork and printing.</li>
+    </ol>
+    <p>CLC keeps the text used for the displayed comparison. Editing either input does not change its exports or print request until you compare again. Exact set, collector number and foil details are preserved when supplied; unavailable exact artwork does not silently become another printing.</p>
+    <h3>Copy, print or share the result</h3>
+    <p><strong>Copy changes</strong> copies the changelog. <strong>Print cards</strong> opens a review of new copies; you can choose the full After list instead. <strong>Export</strong> groups other copy formats, downloads and public sharing. A public comparison link can be opened without a login.</p>
+    <p>The print handoff retains both compared lists. If you already have a print draft, choose whether to keep it or use the compared lists. The previous draft stays recoverable. An unresolved batch-creation request must be recovered before another list replaces it.</p>
+    <h3>Save a version</h3>
+    <p>When signed in, use the input’s <strong>Save version</strong> panel. An unchanged URL import can use its provider name automatically. <strong>Load saved</strong> only loads a version; rename, delete, lock and paper-marker actions live in the deck’s <strong>Changes</strong> tab.</p>
+    <p>See <a href="#guide/reference">Formats and tools</a> for supported imports and printing metadata.</p>
+  </div>;
 }
 
-function ImportingDecks() {
-  return (
-    <div className="guide-section">
-      <h3>Importing Decks</h3>
-      <p>
-        Each input panel has a URL import button. Paste a deck URL and the app will fetch the
-        full deck list with as much metadata as the source provides.
-      </p>
-
-      <h4>Supported Sources</h4>
-      <ul>
-        <li>
-          <strong>Archidekt</strong> &mdash; full metadata: set codes, collector numbers, foil
-          status. Best source for preserving specific printings and artwork.
-        </li>
-        <li>
-          <strong>Moxfield</strong> &mdash; set codes, collector numbers, and foil/etched status.
-          Metadata coverage shown after import.
-        </li>
-        <li>
-          <strong>DeckCheck</strong> &mdash; card names and quantities (no printing metadata).
-          Public builder, deckview and deck links are accepted, including shared links.
-        </li>
-        <li>
-          <strong>TappedOut</strong> &mdash; card names and quantities.
-        </li>
-        <li>
-          <strong>Deckstats</strong> &mdash; card names and quantities.
-        </li>
-        <li>
-          <strong>MTGGoldfish</strong> and <strong>TCGPlayer</strong> &mdash; import handlers
-          are included, though their current live availability has not been verified.
-        </li>
-      </ul>
-      <p>
-        Third-party sites can block imports or change their export formats. If a URL import
-        fails, export the deck as text from that site and paste it into a comparison panel.
-      </p>
-
-      <h4>Blank Lines in Commander Lists</h4>
-      <p>
-        With an explicit <code>Commander</code> or <code>Command Zone</code> header,
-        blank lines can separate mainboard card groups. Mark sideboard cards with a{' '}
-        <code>Sideboard</code> header or <code>SB:</code> prefixes. Lists without a
-        Commander header still use the first blank line to separate the sideboard.
-      </p>
-
-      <h4>Metadata Coverage Feedback</h4>
-      <p>
-        After a URL import, you'll see a notification like{' '}
-        <em>"Imported 97 cards from Moxfield &mdash; 95% with printing info"</em>. This tells
-        you how many cards have full printing metadata (set code + collector number) preserved.
-      </p>
-
-      <h4>Cross-Source Carry-Forward</h4>
-      <p>
-        When comparing a metadata-rich source (like Archidekt) against a plain text source (like
-        DeckCheck), the export will automatically inherit printing metadata from the richer side.
-        This means you can compare any two sources and still get a metadata-rich export.
-      </p>
-
-      <div className="guide-tip">
-        <div className="guide-tip-label">Tip</div>
-        <p>
-          For best results, import from <strong>Archidekt</strong> or <strong>Moxfield</strong> to
-          preserve your specific artwork selections and foil choices.
-        </p>
-      </div>
-    </div>
-  );
+function Decks() {
+  return <div className="guide-section">
+    <h2>Decks and changes</h2>
+    <p>Open <a href="#library">Decks</a> to find your saved decks. Search, tags, pins and owner groups help organize them. <strong>Add decks</strong> starts with untracked decks from your configured Archidekt accounts. Choose <strong>Track deck</strong> beside a list to save it and check for future updates. Add another account inside the dialog, or use <strong>Manage sources</strong> in the library to manage existing accounts.</p>
+    <p><strong>Paste a list</strong> saves a named manual deck with its exact card text. <strong>Import URL</strong> starts ongoing source tracking for Archidekt, Moxfield and DeckCheck. Other supported sites load a one-time list for you to name and save; they do not gain automatic updates. If a linked source cannot supply its first complete list, the saved deck shows that it is waiting for the source.</p>
+    <p>Your unfinished list stays in this browser for your account. An uncertain save keeps its original request: use <strong>Retry saved import</strong> to confirm the same deck. A successful import offers <strong>Open deck</strong>. There is no Before/After comparison step when adding a deck.</p>
+    <p><strong>Shared cards</strong> compares overlap between your decks; it does not represent inventory. <strong>Alert history</strong> keeps deck-change and price alerts.</p>
+    <h3>One workspace per deck</h3>
+    <ul>
+      <li><strong>Cards</strong> opens by default and shows the latest saved list. Open <strong>Insights &amp; prices</strong> for analysis, price checks/history and card suggestions. Use <strong>Export</strong> for text, images or TTS; <strong>MPCFill artwork</strong> opens artwork selection and its XML/ZIP downloads. <strong>Ownership &amp; shopping</strong> checks ManaSync without changing the print list.</li>
+      <li><strong>Changes</strong> compares <strong>Paper to latest</strong>, the <strong>Latest update</strong>, or any Before/After versions. <strong>Version history</strong> has one row per saved version. <strong>View version</strong> opens its Cards and Changes; <strong>Options</strong> contains naming, protection, paper-marker and deletion actions. <strong>Updates to review</strong> holds provider source updates and ManaSync proposals.</li>
+      <li><strong>Print</strong> prepares a whole version or new copies between versions and keeps this deck’s batches together.</li>
+      <li><strong>Settings</strong> contains automatic source checks, deck and price alerts, and public sharing. Commander names, tags, pinning and existing notes can be edited in the deck header from any tab.</li>
+    </ul>
+    <h3>Keep a useful version history</h3>
+    <p>Use <strong>Name version</strong> for recognizable names and <strong>Protect version</strong> to keep important ones from cleanup. The <strong>paper marker</strong> identifies the list your physical deck currently matches; it protects that version from automatic pruning even when unlocked. Older unlocked versions without the paper marker can be pruned at the instance limit. Rename, remove and compare versions from Changes.</p>
+    <h3>Review source updates and proposals</h3>
+    <p>Changes from a tracked provider can be reviewed against local edits. The header’s <strong>Updates need your review</strong> link opens this section when a source or proposal needs attention. Review the source diff, keep local changes or accept/revise the candidate; do not treat a newer provider list as proof that local work should be overwritten. Source tracking shows its refresh status and any review required.</p>
+    <p>ManaSync deck tokens can allow proposed edits. Open <strong>ManaSync proposals</strong> under Updates to review, inspect the before/after list and approve, revise or reject it. Approval and revision create a reviewed version; proposal drafts and uncertain requests retain their original identity for recovery. After a conflict, refresh and review the current base before deciding again.</p>
+    <p>Shared decks are view-only and use the same <strong>Cards</strong> and <strong>Changes</strong> organization. Their history can open older saved cards; <strong>Back to latest</strong> returns to the current saved version. Printing copies the selected list into your own print workflow and does not edit the owner’s deck.</p>
+    <h3>Insights and prices</h3>
+    <p>Charts summarize mana curve, color distribution and card types; comparisons include mana and color changes. <strong>Check prices</strong> shows selected-printing prices and a budget estimate, while <strong>Price history</strong> follows saved values. Deck Settings can notify you when value changes beyond your threshold. Price controls are shown only when pricing is enabled for this instance.</p>
+    <p>Power estimates and card suggestions are aids for discussion, not a guarantee of a deck’s strength. Suggestions consider colors and strategy, with ramp, draw, removal, wipes, protection, lands and recursion. Commander ban and Game Changer badges highlight relevant cards.</p>
+  </div>;
 }
 
-function DeckLibrary() {
-  return (
-    <div className="guide-section">
-      <h3>Deck Library</h3>
-      <h4>ManaSync deck integration</h4>
-      <p>
-        Under <strong>Connections</strong>, open <strong>Let ManaSync use your CLC decks</strong> to create a revocable integration token.
-        Grant deck reads for ManaSync polling and the separate proposal permission if you want
-        to send deck edits back for review. Each deck&rsquo;s <strong>ManaSync proposals</strong>
-        panel compares the submitted base, proposed text, and current digital latest.
-        Accept or explicitly revise the text to create a new digital snapshot, or reject it.
-        Reviewed edits survive refreshing or switching proposals in this browser. When the basis
-        changes, review it again while keeping your text. If a response is lost, retry the saved
-        decision before starting another. Changed or pruned bases require review.
-        Drafts and reviewed replacements support up to 500,000 characters per list.
-        ManaSync keeps etched-card drafts locally until you explicitly choose a supported
-        finish; CLC cannot yet preserve etched finishes in its deck text.
-        Paper state changes only when you separately
-        mark the physical deck as updated; proposal decisions never change collection holdings.
-      </p>
-      <p>
-        Enable <strong>Allow immediate creation of new decks</strong> on a new integration token
-        to use ManaSync&rsquo;s <strong>Put it in CLC</strong> option. This creates a manual deck
-        with its first digital snapshot immediately. Existing tokens keep their permissions.
-        Manual decks appear in the library and do not refresh from Archidekt. Subsequent edits
-        still use the proposal review flow; paper markers and holdings stay separate.
-        If you already track the same Archidekt, Moxfield, or DeckCheck source, ManaSync reuses
-        that deck and preserves your current list instead of adding a duplicate.
-        Tracking an Archidekt source later in CLC also reuses its manual deck; a different
-        fetched list waits in source review while your current and paper versions stay intact.
-        With the creation grant, new TapTogether provider links can also start tracking in
-        CLC automatically. Archidekt, Moxfield, and DeckCheck share this source review;
-        unreadable or unsupported lists show a waiting reason and preserve saved snapshots.
-      </p>
-      <h4>Archidekt changes and your local edits</h4>
-      <p>
-        Accepting a ManaSync proposal updates your current CLC deck. It does not edit the list on
-        Archidekt. CLC remembers the last reviewed source version separately, so refreshing an
-        unchanged Archidekt list keeps your accepted edits. The deck page and library show when
-        local edits are protected or Archidekt changes need review.
-      </p>
-      <p>
-        When both versions have changed, compare the last reviewed source, your current deck,
-        and the new Archidekt list in the source review panel. Keep your current deck, use
-        Archidekt&rsquo;s version, or edit and save a merged list. Keeping your deck acknowledges
-        that source version, so repeated refreshes do not ask you about it again. A newer source
-        or local edit requires a fresh review. These choices change only the digital deck;
-        paper markers and collection quantities remain separate.
-      </p>
-      <p>
-        For older tracked decks without a confirmed source baseline, CLC preserves your current
-        deck and asks for review if the first refreshed list differs. Manual decks have no
-        Archidekt source to reconcile.
-      </p>
-      <p>
-        The Deck Library (accessible via the <strong>Decks</strong> button in the navigation bar)
-        is where you track, organize, and analyze your decks. It requires a login.
-      </p>
-
-      <h4>Tracking Decks</h4>
-      <ol className="guide-steps">
-        <li>
-          Go to the <strong>Track decks</strong> section and enter an Archidekt username.
-        </li>
-        <li>
-          Browse their public decks and click <strong>Track</strong> on any deck you want to follow.
-        </li>
-        <li>
-          The app takes a snapshot of the current deck state. Each time you refresh (or auto-refresh
-          triggers), source changes update the deck automatically while it still matches the
-          last reviewed source. If you have local edits, new source changes wait for review.
-        </li>
-      </ol>
-
-      <h4>Deck Cards Grid</h4>
-      <p>
-        Tracked decks appear as cards in a responsive grid. Each card shows the deck name,
-        commander(s), current price, tags, and when it was last updated.
-      </p>
-      <ul>
-        <li><strong>Pin</strong> important decks to sort them to the top</li>
-        <li><strong>Tags</strong> &mdash; add custom labels and filter the grid by tag</li>
-        <li><strong>Search</strong> &mdash; filter by deck name across all owner groups</li>
-        <li><strong>Owner groups</strong> &mdash; decks grouped by Archidekt username with collapsible sections</li>
-      </ul>
-
-      <h4>Individual Deck Pages</h4>
-      <p>
-        Click any deck card to open its full-page view with tabs:
-      </p>
-      <ul>
-        <li><strong>Snapshots</strong> &mdash; history of all saved versions; lock, nickname, compare, or delete snapshots</li>
-        <li><strong>Changelog</strong> &mdash; what changed between the latest two snapshots</li>
-        <li><strong>Timeline</strong> &mdash; interactive visual history; click any entry to see the changes or full deck at that point</li>
-        <li><strong>Full Deck</strong> &mdash; complete card list at the latest snapshot, grouped by type</li>
-        <li><strong>Printing</strong> &mdash; prepare home-print PDFs and send ready batches to the Mac print station</li>
-        <li><strong>Analytics</strong> &mdash; prices, mana curve, color distribution, power level, recommendations</li>
-        <li><strong>Settings</strong> &mdash; deck configuration (commanders, webhook, price alerts, auto-refresh, sharing)</li>
-      </ul>
-
-      <h4>Snapshot Management</h4>
-      <ul>
-        <li><strong>Lock</strong> &mdash; protect important snapshots from auto-pruning (configurable limit, default 5 locked per deck)</li>
-        <li><strong>Paper marker</strong> &mdash; mark a snapshot as your physical deck to compare it against the latest digital version; it remains protected from auto-pruning even if unlocked</li>
-        <li><strong>Nicknames</strong> &mdash; give snapshots custom names for easy reference</li>
-        <li><strong>Compare</strong> &mdash; select any two snapshots to see a detailed diff in an overlay</li>
-        <li><strong>Auto-pruning</strong> &mdash; oldest unlocked snapshots without the paper marker are automatically deleted when the count exceeds the limit (default 25 per deck)</li>
-      </ul>
-
-      <h4>Auto-Refresh</h4>
-      <p>
-        Set a per-deck refresh schedule (6h, 12h, 24h, 48h, or one week) to automatically check Archidekt for
-        changes. Source changes create a snapshot when your deck has no local divergence;
-        otherwise they appear for review while your current deck stays intact. Combine with notifications
-        to get alerted when your decks update.
-      </p>
-
-      <h4>Other Tabs</h4>
-      <ul>
-        <li><strong>Overlap</strong> &mdash; see how many cards are shared across all your tracked decks in a matrix view</li>
-        <li><strong>Notifications</strong> &mdash; review your deck-change and price-alert history</li>
-      </ul>
-      <p>
-        ManaSync manages your collection holdings and locations. Connect it under
-        <strong> Connections</strong> to view ownership and prepare shopping lists
-        from a deck&rsquo;s <strong>Full Deck</strong> tab or reviewed <strong>Printing</strong> list. CLC tracks deck versions and paper
-        snapshots; inventory changes require a separate physical-print confirmation.
-      </p>
-    </div>
-  );
+function Printing() {
+  return <div className="guide-section">
+    <h2>Print cards</h2>
+    <p>Print has two destinations: <a href="#print-list">New print list</a> prepares a named standalone or comparison batch, and <a href="#print-station">Printer</a> brings batch history and printer controls together. You can also start from <strong>Print cards</strong> in a comparison or a saved deck’s <strong>Print</strong> tab. In each preparation workspace, <strong>Prepare</strong> holds your draft and review; <strong>Batches</strong> holds that account’s standalone batches or that deck’s batches. Switching views preserves the draft.</p>
+    <ol className="guide-steps">
+      <li><strong>Choose cards.</strong> Paste, upload or import a list. For a comparison, choose new copies or the full After list. For a tracked deck, choose the whole version or Before/After versions. Basic lands start excluded; sideboard inclusion and replacing copies for printing changes start off.</li>
+      <li><strong>Review &amp; print.</strong> Choose Review print list. Check every quantity, printing and front/back preview. Open <strong>Edit selection</strong> to add extra cards, change options or restore removed suggestions. Use <strong>Pick art</strong> for another Scryfall edition or <strong>Use original art</strong> to undo that override.</li>
+      <li><strong>Batch status.</strong> Choose <strong>Generate PDFs</strong> for downloads or <strong>Generate &amp; print</strong> for the household station. Follow the current batch, then find it again under Batches or on Printer.</li>
+    </ol>
+    <p>Artwork can use exact Scryfall printings or saved MPC artwork. Choose <strong>Save art for home PDFs</strong> in MPCFill artwork before selecting it as the source. Missing or unusable required faces must be resolved before generation. A double-faced card needs both selected faces.</p>
+    <p><strong>Card entries</strong> and <strong>physical copies</strong> are different: one entry for 10 Plains represents 10 copies. Review shows the source counts, copies already covered by a comparison baseline, excluded basic lands and manual removals so you can explain the final total.</p>
+    <h3>Edit a selection without losing track</h3>
+    <p>Pasting or importing a replacement source list detaches an earlier comparison baseline and uses the whole replacement list. A deliberate Print cards handoff keeps the captured Before and After pair. Remove suggested copies, add extra card text and review again. Editing the source, quantities, options or artwork makes the previous review stale and disables generation and its buy list until refreshed. Search and <strong>Filters &amp; sort</strong> only change the view: hidden cards still belong to the PDF batch.</p>
+    <p>With ManaSync connected, filter by ownership to find missing originals. <strong>Buy missing originals</strong> can copy the missing cards in the current view or open a Mana Pool review. CLC asks for one original per card, regardless of the number of proxy copies. Incoming originals count as owned; unavailable ownership stays Unknown. Opening a shopping review does not place an order.</p>
+    <h3>Follow waiting and completed batches</h3>
+    <p><strong>Printer → Print batches</strong> includes saved PDFs, preparation, waiting jobs, submitted passes and finished history from both decks and standalone lists. Admins can see all owners’ batches; other signed-in users see their own. Filter by status, choose Printer order or Newest first, and load more history as needed. Viewing a summary does not grant access to another owner’s private deck or PDF downloads.</p>
+    <p><strong>Waiting in CLC</strong> means the batch is saved here and has not been sent to Epson. <strong>In the Epson queue</strong> identifies a pass already submitted to the Mac spooler. CLC keeps later batches waiting so manual double-faced packets stay in order. Spooler completed is a receipt, not approval of the physical output.</p>
+    <p>Admins can choose <strong>Cancel waiting batch</strong> only before any pass has begun submission. If pages may already have been sent, use the Mac to check and reconcile that exact submission instead. Cancellation keeps the batch record and does not automatically retry it.</p>
+    <p>You can prepare another list while earlier batches wait or print. Queued batches do not use the preparation allowance: each account can have two batches preparing PDFs, subject to shared preparation capacity and available storage. An unresolved request still needs its original receipt recovered before that draft is replaced; an uncertain printer submission needs reconciliation before further physical passes.</p>
+    <h3>Recover an interrupted request</h3>
+    <p>Generation captures a fixed plan, artwork and quantities. If creating the batch times out, choose <strong>Retry same request</strong> to recover it, including after a reload. Do not start another batch to recover the same submission. Batch details show errors and available downloads; a spooler receipt alone does not prove usable cards.</p>
+    <h3>Double-faced sheets: reload one matching packet</h3>
+    <p>The station prints the front of a packet and waits. Find the exact batch and packet named in the reload notice or flip alert. Remove unused blank paper from the rear feeder, then flip and reload <strong>only that packet’s printed sheet</strong> using your verified feed orientation. Older batches may describe a packet with more than one sheet; keep all of that matching packet together and follow its count.</p>
+    <p>Choose <strong>Confirm this paper is reloaded</strong>, check the acknowledgement and choose <strong>Confirm and print this packet’s backs</strong>. Return blank paper after the backs finish. Never confirm another packet just because other printed fronts are nearby. Drying, lamination and cutting remain household tasks.</p>
+    <h3>Printer controls and alerts</h3>
+    <p><a href="#print-station">Printer</a> shows connection, health, the active batch and reload actions. Pausing stops new submissions; existing pages can keep printing. An uncertain submission requires reconciliation before another attempt, so it cannot silently print twice.</p>
+    <p><strong>Printer settings</strong> groups Printer and recipe, Discord printer alerts and Companion updates. Admins can connect, save, explicitly test or disconnect Discord. Flip alerts identify the deck or list, batch and packet. Companion 2.53 or newer also checks the local printer queue about once a minute and alerts on reported paper, jam, offline, stopped or failed-pass conditions. New faults alert once per error episode; a healthy check permits alerts if the fault returns. Unknown status does not reset the episode. Two consecutive failed printer checks raise a separate status-unavailable alert without implying recovery. Alerts depend on what CUPS and the Epson driver report, and never pause, resume or retry printing. Discord messages use Proxy Balboa’s Rocky-inspired voice while keeping errors and paper instructions explicit. Test sends a real notification. Update controls require a compatible managed companion and an idle station.</p>
+    <p>Physical proof flags reflect tests the operator has actually approved. <strong>Test printing enabled</strong> means the Mac owner explicitly allows unverified recipes for testing; it does not mark front or duplex proofs as passed. Browser controls cannot change native printer options or those proof flags.</p>
+    <h3>Record usable copies separately</h3>
+    <p>PDF generation and printer completion do not add usable proxies to inventory. After checking the physical cards, use <strong>Confirm usable copies</strong> in CLC or ManaSync’s pending prints. Confirm the quantity that actually succeeded, including partial batches. Shared receipts prevent the same confirmation being counted twice.</p>
+    <p><strong>Record a manual print</strong> prepares inventory records for printing done through another tool. It does not generate PDFs or send paper to the printer. Its <strong>Confirm printed quantity</strong> action records the usable physical result. See <a href="#guide/connections">Connect ManaSync</a> for collection access and reconciliation.</p>
+  </div>;
 }
 
-function DeckAnalytics() {
-  return (
-    <div className="guide-section">
-      <h3>Deck Analytics</h3>
-      <p>
-        The Analytics tab on each deck page gives you insight into your deck's composition,
-        power level, and cost.
-      </p>
-
-      <h4>Price Tracking</h4>
-      <ul>
-        <li><strong>Check Prices</strong> &mdash; fetch current prices from Scryfall with a per-card breakdown and total</li>
-        <li><strong>Budget prices</strong> &mdash; see the cheapest printing total alongside your selected printing total, with the potential savings</li>
-        <li><strong>Price history chart</strong> &mdash; a smooth SVG chart showing your deck's value over time across snapshots, with high/low/change stats</li>
-        <li><strong>Price alerts</strong> &mdash; set a dollar-change threshold and get notified when your deck's value rises or falls by at least that amount from the saved baseline; choose specific or cheapest printings</li>
-        <li><strong>Price impact</strong> &mdash; changelogs show the cost impact of cards added, removed, and changed</li>
-      </ul>
-
-      <h4>Mana Curve &amp; Color Distribution</h4>
-      <ul>
-        <li><strong>Mana curve</strong> &mdash; bar chart of converted mana cost (CMC) distribution</li>
-        <li><strong>Color distribution</strong> &mdash; breakdown of your deck's color identity with official Scryfall mana symbols</li>
-        <li><strong>Card type breakdown</strong> &mdash; summary of creature, spell, land, and artifact counts</li>
-        <li><strong>Mana curve delta</strong> &mdash; see how the mana curve changed between two snapshots in changelog views</li>
-      </ul>
-
-      <h4>Power Level</h4>
-      <p>
-        An automatic heuristic estimate on a 1&ndash;10 scale based on analysis of your deck's
-        fast mana, tutors, free interaction, combo enablers, and mana curve. This is a rough
-        guide, not a definitive rating &mdash; use it as a conversation starter for your playgroup.
-      </p>
-    </div>
-  );
+function Connections() {
+  return <div className="guide-section">
+    <h2>Connect ManaSync</h2>
+    <p><a href="#connections">Connections</a> has two independent directions. ManaSync manages collections, purchases and proxy inventory; CLC manages deck versions, artwork and print preparation.</p>
+    <h3>Show your ManaSync collection in CLC</h3>
+    <ol className="guide-steps">
+      <li>Open ManaSync, then <strong>More → Integration access → Personal app tokens</strong>. Create a CLC token with collection-read and proxy-write permissions.</li>
+      <li>In CLC Connections, paste it under <strong>ManaSync collection in CLC</strong> and choose <strong>Connect ManaSync</strong>. The default server is manasync.net; Other server is available for a different instance.</li>
+      <li>Verify the displayed account. Use <strong>Check connection</strong> to check it again; <strong>Edit connection</strong> and <strong>Disconnect</strong> are beside it.</li>
+    </ol>
+    <p>One original in any printing permits any number of proxy copies. Incoming originals count too; owning only a proxy does not count as owning an original. Missing ownership is Unknown when a connection or lookup fails, so it is not automatically added to shopping.</p>
+    <p>Confirmed proxy batches have fixed account and receipt identities. Changing connections does not move old batches to a new owner. If an inventory confirmation is uncertain, retry that operation; deliberate corrections use the shared confirmation history rather than a second print record.</p>
+    <h3>Optionally show CLC decks in ManaSync</h3>
+    <p>Open <strong>CLC decks in ManaSync</strong> in Connections. Active deck tokens appear first; revoke access there or create another token. Read access is included. <strong>Allow proposed edits</strong> lets ManaSync send changes for review in CLC. <strong>Allow new decks</strong> permits immediate creation of a new deck; it does not require a proposal review.</p>
+    <p>Copy a new token when shown and enter it in ManaSync’s CLC connection. The secret is shown only once. Enabling collection access in the first direction does not grant either optional deck permission in the other direction.</p>
+    <p>Printer Discord alerts are configured separately in <a href="#print-station">Printer → Printer settings</a>.</p>
+  </div>;
 }
 
-function ProxyPrinting() {
-  return (
-    <div className="guide-section">
-      <h3>Proxy Printing</h3>
-      <p>
-        Card List Compare integrates with the MPC Autofill database to help you create
-        high-quality proxy cards for personal use via MakePlayingCards.com.
-      </p>
-
-      <h4>ManaSync ownership, shopping, and confirmed prints</h4>
-      <p>
-        In <strong>Connections</strong>, open <strong>manasync.net</strong>, go to <strong>More → Integration access → Personal app tokens</strong>, and create a CLC token with collection-read and proxy-write access. Paste that token into CLC and choose <strong>Connect ManaSync</strong>. The connected account will appear after verification.
-        Use your own domain, port, LAN address, or reverse-proxy path; no server allowlist is
-        needed. Bare domains use HTTPS. Review the connected account shown on screen. In a tracked deck&rsquo;s
-        <strong> Full Deck</strong> tab, open <strong>ManaSync ownership and Mana Pool shopping</strong>.
-        Ownership is a yes/no check for an original in any printing. One original covers
-        any number of proxy copies across all decks, including when that original is already
-        in another deck. Incoming purchases are identified separately and prevent duplicate
-        buying. Failed refreshes and unresolved card identities show unknown ownership.
-      </p>
-      <p>
-        Select cards with no original owned or incoming for the shopping list, then use
-        <strong> Review in Mana Pool</strong> or copy the list. CLC suggests one original per
-        missing card, regardless of print quantity or selected artwork. Proxy stock does not
-        count as original ownership. Shopping selections never change your print quantities.
-      </p>
-      <p>
-        Use <strong>Queue full deck for printing</strong> or an individual card&rsquo;s Queue button.
-        This prepares the inventory confirmation list. Generate PDFs or send a batch to the Mac
-        from the <strong>Printing</strong> tab, or print with the MPCFill and image tools.
-        Once physical cards are printed, enter
-        only the quantity actually printed, choose one physical destination, and press
-        <strong> Confirm printed quantity</strong>. Two of five printed records two proxies;
-        confirming the other three later creates a separate increment. Cancelling the remainder
-        leaves confirmed prints intact.
-      </p>
-      <p>
-        In <strong>Printing</strong>, click <strong>Review print list</strong> to check the exact
-        selected snapshot, change list, and sideboard choices against ManaSync. The open ownership
-        table offers <strong>Review in Mana Pool</strong> for missing originals, plus a copyable
-        shopping list of one original per missing card. Incoming originals prevent duplicate buying.
-        Deselect cards you do not want to buy. Checking ownership or opening the link leaves
-        your print quantities unchanged, and you can still print a card you already own.
-      </p>
-      <p>
-        A prepared native PDF batch automatically appears in ManaSync&rsquo;s
-        <strong> Proxy binder &rarr; Pending prints</strong>, with its exact front and back
-        artwork, including custom MPC art. Pending quantities are separate from your available
-        proxies. After printing, enter the usable quantity and physical destination, then
-        choose <strong>Confirm usable copies</strong>. You can also confirm from CLC&rsquo;s
-        <strong> Confirm usable copies</strong> panel. Either app shows the shared result.
-        Confirming eight of ten leaves two pending; dismiss the remaining two if they were bad
-        prints. Confirmed copies retain their artwork in the Proxy binder. Reopening the same
-        batch reuses its pending records; a deliberate reprint needs a new batch.
-      </p>
-      <p>
-        PDF preparation sends a plan to Pending prints. Confirming its usable physical quantity
-        adds owned proxies. A disconnected native batch waits in CLC for the connection before
-        it can be confirmed, and keeps its artwork through native PDF cleanup.
-        Separate manual confirmation-list entries can still be saved while disconnected and
-        explicitly reported after connecting.
-        Pending reports retry the original operation with bounded backoff. Inspect receipts and
-        holdings to reconcile an uncertain report after replacing a token. Reviewing a current
-        holding also lets you correct its quantity or move proxies using its displayed revision.
-      </p>
-      <h4>MPC Autofill</h4>
-      <p>
-        From <strong>Print Proxies (MPCFill)</strong> in a deck page's <strong>Full Deck</strong>
-        {' '}tab, the app searches the MPC
-        Autofill database for proxy-quality artwork for every card in your deck. You can
-        customize the search with filters:
-      </p>
-      <ul>
-        <li><strong>DPI range</strong> &mdash; minimum image quality</li>
-        <li><strong>Language</strong> &mdash; filter by card language</li>
-        <li><strong>Source priority</strong> &mdash; prefer certain art sources</li>
-        <li><strong>Tag filters</strong> &mdash; include or exclude tags (e.g., alternate art, borderless)</li>
-        <li><strong>Fuzzy search</strong> &mdash; toggle looser name matching for cards with alternate spellings</li>
-      </ul>
-
-      <h4>Art Overrides</h4>
-      <p>
-        Click any card to search for alternative artwork and select your preferred printing.
-        Your choices are saved per-deck and persist across sessions (synced to the server).
-        Saved art, including double-faced card backs, stays available when you search again
-        or view another snapshot. Use <strong>Reset Art</strong> to clear those choices.
-      </p>
-
-      <h4>Export Options</h4>
-      <ul>
-        <li><strong>Download XML</strong> &mdash; for use with the MPC Autofill desktop tool</li>
-        <li><strong>Download ZIP</strong> &mdash; unique selected MPC artwork files in a ZIP archive</li>
-        <li><strong>Cardstock selection</strong> &mdash; Standard Smooth, Superior Smooth, Smooth, Linen, or Plastic</li>
-      </ul>
-
-      <h4>Scryfall Image Downloads</h4>
-      <p>
-        Queue a ZIP of Scryfall images for a deck. Each requested card copy gets its own
-        image file, and double-faced cards get both faces. Progress counts image files,
-        including cached files. If a card or required face cannot be downloaded, the job
-        explains what failed and does not provide a partial ZIP. Images are cached to speed
-        up another attempt. Older ZIPs created before these checks must be regenerated.
-      </p>
-
-      <h4>Double-Faced Cards</h4>
-      <p>
-        Scryfall ZIPs give each physical copy a number shared by its front and back files.
-        MPC searches can find and save back-face artwork, but its XML/ZIP exports still need
-        explicit copy counts and face pairing for home printing. MPC ZIPs may contain partial
-        results when an image source fails; review them before using them elsewhere.
-      </p>
-
-      <h4>Home Printing</h4>
-      <p>
-        Choose <strong>Print cards</strong> in comparison results, a deck changelog or
-        snapshot history to print the new copies or the full After list. CLC uses the exact
-        compared versions, even if you later edit the input fields. The selection survives
-        sign-in in this tab. If you already have a print draft, choose which list to keep;
-        recover an unresolved batch request before replacing its input.
-      </p>
-      <p>
-        Open <strong>Print studio</strong> in the navigation for an ad-hoc batch. Name it,
-        paste cards, upload a list, or import a supported URL. This uses Scryfall artwork
-        without creating a tracked deck or snapshot. Your draft stays in this browser;
-        generated batches stay in your account&rsquo;s Print studio history with their PDFs
-        and proxy confirmations.
-      </p>
-      <p>
-        Open a tracked deck’s <strong>Printing</strong> tab to generate a whole snapshot or
-        the new copies needed since another version. The paper-deck marker is the default
-        baseline. Include the sideboard if needed. <strong>Replace copies when the set or printing changes</strong>
-        {' '}starts unchecked, so cards with different artwork can use existing copies.
-        <strong> Exclude basic lands</strong> starts checked; turn it off when you want basics.
-        Foil-only changes do not require a new proxy. Review the copy list before
-        generating PDFs; this comparison does not check your physical inventory.
-      </p>
-      <p>
-        The workflow has three steps: <strong>Choose cards</strong>, <strong>Review &amp; print</strong>
-        {' '}and <strong>Batch status</strong>. Review keeps the artwork, quantities and next
-        action together. Edit the source when needed; expand extra cards, removed cards,
-        detailed guidance or older batches only when you need them.
-      </p>
-      <p>
-        Archidekt imports keep your selected set and collector number, so the default artwork
-        matches that printing. Printing uses the version you reviewed. A later DeckCheck or
-        plain-text import can inherit earlier artwork but does not fetch your current Archidekt
-        selections. Use <strong>Pick art</strong> to change a card just for this batch.
-      </p>
-      <p>
-        In either workflow, remove suggested cards you already have on hand and add extra
-        cards with their quantities. These edits change only this print order. Review the
-        revised list before generating to confirm its artwork, totals and double-sided
-        packets. Basic-land exclusion also applies to extra cards. Restore removed cards
-        if you change your mind.
-      </p>
-      <p>
-        Search, filter by card sides or ownership, and sort the reviewed cards to find
-        what you need. Filters change the view, not the print order. Use the missing-card
-        buy list to copy the visible missing originals or review them together in
-        <strong> Mana Pool</strong>. It requests one original per card, even if several
-        printings or copies are in your order. Owned and incoming originals are excluded;
-        unavailable ownership remains <strong>Unknown</strong>. Opening Mana Pool does
-        not place an order.
-      </p>
-      <p>
-        Use <strong>Pick art</strong> beside a reviewed card to browse its Scryfall editions
-        and front/back previews. Choose the printing you want, or use <strong>Use original art</strong>
-        {' '}to undo that choice. Review again to refresh the artwork and double-sided sheet
-        counts before generation. This changes only the print order. In a saved-MPC order,
-        only the cards you explicitly override switch to Scryfall artwork.
-      </p>
-      <p>
-        Choose Scryfall printings or saved MPC artwork. Use <strong>Save art for home PDFs</strong>
-        {' '}in the MPC overlay to save all displayed matches and backs, including defaults.
-        <strong> Review print list</strong> shows each selected front and back, its printing,
-        artwork source and copy count before you generate anything. Double-sided cards are
-        labeled and counted separately, with the number of ordinary sheets and double-sided
-        packets. Missing art or a required face blocks generation with an explanation. Meld
-        cards need a special paired layout and are not supported yet. A changed artwork
-        selection requires a fresh review. If batch creation times out, use <strong>Retry same
-        batch request</strong>; CLC keeps that request across reloads to prevent a duplicate
-        batch. Its settings stay locked until the result is known.
-      </p>
-      <p>
-        Silhouette Card Maker generates Letter v6 PDFs at 600 PPI with three registration
-        marks, a 1 mm crop and seven cards per sheet. Each batch keeps ordinary fronts in one
-        download, followed by separate double-faced packets of up to seven copies. Each packet
-        has two pages: page 1 fronts and page 2 matching backs. Its printed front margin carries
-        a short CLC job ID and packet number, matching the packet shown in Print Station.
-        Each batch keeps its source versions, artwork and generation details. PDFs are retained
-        for seven days; active print batches are protected.
-      </p>
-      <p>
-        Authorized household accounts can generate and send a batch to the Mac, or queue a
-        ready PDF later. The Mac companion picks up queued PDFs, keeps submission history and
-        prints Letter sheets in landscape at actual size. It completes ordinary fronts first,
-        then each double-faced packet as separate one-sided front and back passes.
-        Install the self-contained Mac companion using the repository’s
-        companion/mac instructions. It includes its runtime, starts at login and initially
-        keeps printing paused. Then open <strong>Print Station</strong> from the navigation
-        or a deck’s Printing tab. It shows the Mac’s connection, printer health, current batch,
-        recipe proof status and recent activity. Pausing stops new station work; pages already
-        sent to Epson keep printing. Once a packet’s front finishes, match its printed job and
-        packet label, flip and reload only that printed sheet, then confirm the exact packet
-        shown. Keep unused paper and older output separate. The back must finish before the
-        next packet starts; other CLC batches wait. Offline or stale
-        status disables controls. Administrators can check for a companion update and install
-        the displayed version or roll back to the retained version while the station is idle.
-        Version changes preserve print history and leave the station paused until you unpause it.
-        The Mac’s Epson driver and color recipe need a physical proof
-        before unattended use. Canceling is available before submission; uncertain submissions
-        need review at the Mac. Spooler completion does not update the assembled paper deck or
-        ManaSync inventory. Record usable physical copies separately in the <strong>Full Deck</strong>
-        {' '}tab&rsquo;s confirmed-print list.
-        Drying, lamination and cutting remain outside CLC. Collection management belongs to ManaSync.
-      </p>
-      <p>
-        When Print Station shows <strong>Test printing enabled</strong>, the Mac has been
-        explicitly configured to accept queued test jobs before the physical checks are
-        finished. Queue those sheets using the normal Printing tab. The proof indicators
-        remain unverified, and every double-faced packet still waits for you to flip,
-        reload and confirm its matching sheet. Test printing does not unpause a paused
-        station or submit anything until you queue a job.
-      </p>
-      <p>
-        The Mac requests a flip notification with a Glass sound by default. Optional Discord
-        alerts can be connected by an administrator under <strong>Print Station &rarr; Discord
-        flip alerts</strong>. Enter a channel webhook and, optionally, your Discord user ID,
-        then save. Wait for the Mac to confirm the connection before sending a test notification.
-        Disconnect removes the managed destination, including any older local fallback.
-        The webhook is hidden after saving. Notifications are reminders: opening or dismissing one never resumes printing. A waiting packet stays
-        visible even while paused, and reload confirmation does not unpause the station.
-        Mac notification permissions or Focus can suppress an alert; delivery failures are
-        logged and leave the same reload wait in place.
-      </p>
-      <p>
-        Earlier PDFs stay unchanged and may contain several double-faced sheets without the
-        new job label. Preview those PDFs and check all pages, the exact waiting job/packet,
-        and its sheet count before reloading the matching stack. Software checks have verified
-        the new packet layout; physical v6 cutting and double-sided flip/alignment proof remain
-        pending for the household setup.
-      </p>
-
-      <div className="guide-tip">
-        <div className="guide-tip-label">Tip</div>
-        <p>
-          You can also use <strong>Copy for MPCFill</strong> from any changelog to quickly grab
-          just the new additions in MPC paste format.
-        </p>
-      </div>
-    </div>
-  );
+function Account() {
+  return <div className="guide-section">
+    <h2>Account and administration</h2>
+    <p><a href="#settings">Account</a> keeps your profile and email together. Save an email before verifying it; resend verification if needed. Open <strong>Security</strong> to change your password. If you cannot log in, request a reset from the login dialog.</p>
+    <p><strong>My invitations</strong> appears for admins and users with invitation permission. Create a code with a use limit, copy it or remove it. Account deletion is a separate disclosure and requires typing your username; it permanently removes associated CLC data.</p>
+    <h3>Administration</h3>
+    <p>Only admins can open Administration or use its actions. Moving a control between sections does not grant access to other users.</p>
+    <ul>
+      <li><strong>Overview</strong>: current app counts, runtime status and recent activity.</li>
+      <li><strong>Users</strong>: search, sort and export users. Open Manage for a user’s password/session controls, role and invitation access, suspension, unlock or deletion.</li>
+      <li><strong>All invitations</strong>: review and remove codes across the instance. Create personal codes in Account → My invitations.</li>
+      <li><strong>App settings</strong>: registration, price display, deck monitoring and version limits. Closed registration prevents new account registration.</li>
+      <li><strong>Shared links</strong>: review and delete public comparison links.</li>
+      <li><strong>Audit log</strong>: browse/filter activity and manage audit retention.</li>
+      <li><strong>System</strong>: download a database backup, clean up expired verification/reset tokens and review emergency lockdown.</li>
+    </ul>
+    <p>Lockdown suspends non-admin accounts and invalidates their sessions. Restore each account from Users. Destructive actions retain their confirmation steps; deleting a user requires their username.</p>
+  </div>;
 }
 
-function ExportFormats() {
-  return (
-    <div className="guide-section">
-      <h3>Export Formats</h3>
-      <p>
-        After comparing two deck lists (or from a timeline overlay), you can export the results
-        in several formats:
-      </p>
-
-      <ul>
-        <li>
-          <strong>Copy for Archidekt</strong> &mdash; Archidekt's native text format with full
-          printing metadata: <code>1x Name (set) collectorNum *F* [Commander&#123;top&#125;]</code>.
-          Paste directly into Archidekt's deck import.
-        </li>
-        <li>
-          <strong>Copy Changelog</strong> &mdash; human-readable plain text diff summary.
-        </li>
-        <li>
-          <strong>Copy for Reddit</strong> &mdash; formatted in Reddit markdown with bold headers
-          and bullet points.
-        </li>
-        <li>
-          <strong>Copy for MPCFill</strong> &mdash; MPC paste format for proxy printing the
-          new additions from a changelog.
-        </li>
-        <li>
-          <strong>Copy JSON</strong> &mdash; structured diff data as JSON for programmatic use
-          or integration.
-        </li>
-        <li>
-          <strong>Copy Deck Text</strong> &mdash; raw deck list from any snapshot, with printing
-          metadata preserved.
-        </li>
-        <li>
-          <strong>Download for TTS</strong> &mdash; Tabletop Simulator JSON import file with
-          Scryfall images. It creates one deck ordered with commanders first, then mainboard
-          and sideboard cards; arrange the zones after importing into TTS.
-        </li>
-      </ul>
-
-      <div className="guide-tip">
-        <div className="guide-tip-label">Tip</div>
-        <p>
-          The Full Deck tab in the timeline overlay also has Copy for Archidekt and Copy Deck
-          Text buttons, so you can export any historical version of your deck.
-        </p>
-      </div>
-    </div>
-  );
+function Reference() {
+  return <div className="guide-section">
+    <h2>Formats and tools</h2>
+    <h3>Deck text</h3>
+    <p>CLC accepts plain quantities, Arena/MTGO-style exports, supported CSV imports, set codes, collector numbers and foil markers. Use an explicit Sideboard header or SB: prefix; blank lines alone do not reliably identify a sideboard.</p>
+    <pre>{'1 Sol Ring (CMM) [396]\n1 Delver of Secrets // Insectile Aberration (ISD) [51]\n1 Lightning Bolt (M10) [146] *F*\n\nSideboard\n1 Negate'}</pre>
+    <p>Full double-faced names are supported. Supplying set and collector details keeps the intended printing distinct. Check metadata coverage feedback after imports. Name-only providers may need printing details carried forward from your saved version; review the result if multiple printings are possible.</p>
+    <h3>URL imports</h3>
+    <p>Archidekt and Moxfield provide printing metadata when available. DeckCheck, TappedOut and Deckstats commonly supply names and quantities. MTGGoldfish and TCGPlayer handlers are also available, but provider restrictions or login requirements may block an import. Use a text/file export when a site cannot be reached. Private provider pages require a supported accessible export.</p>
+    <h3>Exports</h3>
+    <ul>
+      <li><strong>Copy changes</strong>: a readable changelog. Export also includes Reddit formatting, structured JSON and Archidekt text.</li>
+      <li><strong>Deck text</strong>: the full saved list with printing metadata.</li>
+      <li><strong>Copy for MPCFill</strong>: additions in MPC paste format.</li>
+      <li><strong>TTS</strong>: a Tabletop Simulator deck file with resolved card images.</li>
+      <li><strong>Image ZIPs</strong>: unique image files; repeated card quantities do not duplicate image files. Required DFC faces are included. Incomplete or legacy unverified image jobs need regeneration.</li>
+    </ul>
+    <h3>MPCFill artwork</h3>
+    <p>Open MPCFill artwork from a deck’s Export menu. Browse card art with DPI, language, ordered sources, tags and fuzzy-search settings. Saved overrides preserve selected artwork; Reset Art clears those choices.</p>
+    <p><strong>Download MPCFill XML</strong> prepares the desktop MPC Autofill workflow with the selected cardstock. Download ZIP gathers selected images. <strong>Save art for home PDFs</strong> makes a selection available to CLC print review. Neither XML nor an image ZIP automatically submits a home print job.</p>
+    <h3>When a result looks wrong</h3>
+    <ul>
+      <li>Check whether both lists include quantities, sideboard markers and the intended printing details.</li>
+      <li>Compare again after editing an input; a displayed comparison stays tied to its earlier text.</li>
+      <li>Refresh the print review after changing artwork or selection. View filters never remove cards from the PDF.</li>
+      <li>Retry an uncertain saved request using its recovery action. A new request can create another batch or record.</li>
+      <li>Reconnect for private data, images and source imports. An offline shell does not cache collection or deck API responses.</li>
+    </ul>
+  </div>;
 }
-
-function Recommendations() {
-  return (
-    <div className="guide-section">
-      <h3>Card Recommendations</h3>
-      <p>
-        The <strong>Suggest Cards</strong> feature analyzes your deck and recommends staple cards
-        you might be missing, filtered by your deck's color identity.
-      </p>
-
-      <h4>Categories</h4>
-      <p>Suggestions are organized by category:</p>
-      <ul>
-        <li><strong>Ramp</strong> &mdash; mana acceleration (Sol Ring, Arcane Signet, etc.)</li>
-        <li><strong>Card Draw</strong> &mdash; card advantage engines</li>
-        <li><strong>Removal</strong> &mdash; single-target interaction</li>
-        <li><strong>Board Wipe</strong> &mdash; mass removal</li>
-        <li><strong>Protection</strong> &mdash; counterspells and defensive pieces</li>
-        <li><strong>Lands</strong> &mdash; utility and fixing lands</li>
-        <li><strong>Recursion</strong> &mdash; graveyard recovery</li>
-      </ul>
-      <p>
-        You can filter by category, search within suggestions, and see prices for each
-        recommended card.
-      </p>
-
-      <h4>EDHREC Badges</h4>
-      <ul>
-        <li>
-          <strong>BANNED</strong> (red badge) &mdash; cards on the Commander ban list. These are
-          sorted to the bottom and shown at reduced opacity.
-        </li>
-        <li>
-          <strong>Game Changer</strong> (gold badge) &mdash; high-impact staples identified by
-          EDHREC as format-defining cards.
-        </li>
-      </ul>
-    </div>
-  );
-}
-
-function FAQ() {
-  return (
-    <div className="guide-section">
-      <h3>Frequently Asked Questions</h3>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">How do I track a deck?</p>
-        <p className="guide-faq-a">
-          Go to the <strong>Decks</strong> page, enter an Archidekt username under Track decks
-          tab, and click <strong>Track</strong> on any deck. The app will take an initial snapshot
-          and track changes from that point.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">What is auto-pruning?</p>
-        <p className="guide-faq-a">
-          To prevent unlimited snapshot growth, the oldest unlocked snapshots are automatically
-          deleted when a deck exceeds the snapshot limit (default: 25 per deck). Lock important
-          snapshots to protect them from pruning. The snapshot with the paper marker is also
-          protected, even if unlocked. The limits are configurable by your admin.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">How does printing metadata work?</p>
-        <p className="guide-faq-a">
-          When you import from Archidekt or Moxfield, the app preserves set codes, collector
-          numbers, and foil status for each card. This metadata travels through the entire
-          import &rarr; diff &rarr; export pipeline, so you can export back to Archidekt without
-          losing your specific artwork selections.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">Can I compare decks from different sources?</p>
-        <p className="guide-faq-a">
-          Yes. You can compare any two deck lists regardless of source. If one side has richer
-          metadata (e.g., Archidekt with full printing info) and the other is plain text, the
-          export will inherit metadata from the richer source via cross-source carry-forward.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">What's a paper snapshot?</p>
-        <p className="guide-faq-a">
-          You can mark any snapshot as your "paper" version &mdash; the physical deck you
-          actually own. This makes it easy to compare your paper deck against the latest digital
-          changes to see what you need to buy or swap.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">How do I share a tracked deck?</p>
-        <p className="guide-faq-a">
-          On any deck page, go to the <strong>Settings</strong> tab and click{' '}
-          <strong>Share</strong>. This generates a public link that anyone can view without
-          logging in, including snapshot comparison.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">What happens if I delete a snapshot?</p>
-        <p className="guide-faq-a">
-          Snapshot deletion is permanent. Locked snapshots cannot be deleted &mdash; you must
-          unlock them first. An unlocked paper snapshot can be deleted manually; doing so clears
-          the deck's paper marker.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">How accurate are the prices?</p>
-        <p className="guide-faq-a">
-          Prices are sourced from Scryfall, which aggregates market data from TCGPlayer. They are
-          fetched on demand when you click "Check Prices" or when auto-refresh runs. Prices
-          reflect the specific printing in your deck list when its set and collector number
-          can be resolved. CLC does not infer physical ownership from a deck list.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">Can I use this without an account?</p>
-        <p className="guide-faq-a">
-          Yes. The main comparison page works without logging in &mdash; paste two lists and
-          compare. An account is only needed for the Deck Library (tracking, snapshots, analytics,
-          proxy printing) and personalized features.
-        </p>
-      </div>
-
-      <div className="guide-faq-item">
-        <p className="guide-faq-q">Is my data backed up?</p>
-        <p className="guide-faq-a">
-          All data is stored in a SQLite database in your configured data directory. Admins can
-          download database backups from the Admin Dashboard. For self-hosted instances, you
-          should also set up regular file-level backups of the data volume.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-const SECTION_COMPONENTS = {
-  'getting-started': GettingStarted,
-  'deck-comparison': DeckComparison,
-  'importing-decks': ImportingDecks,
-  'deck-library': DeckLibrary,
-  'deck-analytics': DeckAnalytics,
-  'proxy-printing': ProxyPrinting,
-  'export-formats': ExportFormats,
-  'recommendations': Recommendations,
-  'faq': FAQ,
-};
 
 export default function GuidePage() {
-  const [activeSection, setActiveSection] = useState('getting-started');
-
-  const ContentComponent = SECTION_COMPONENTS[activeSection] || GettingStarted;
-
-  return (
-    <div className="guide-page">
-      <header className="page-heading"><p className="eyebrow">A little guidance</p><h1>Make the most of CLC.</h1><p>From your first comparison to a fresh stack of cards. Find the workflow you need.</p></header>
-      <aside className="guide-sidebar">
-        <label className="guide-section-select">Jump to a topic<select value={activeSection} onChange={e => setActiveSection(e.target.value)}>{SECTIONS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}</select></label>
-        <nav className="guide-sidebar-nav" aria-label="Guide topics">
-          {SECTIONS.map((s) => (
-            <button
-              key={s.key}
-              className={`guide-nav-item${activeSection === s.key ? ' guide-nav-item--active' : ''}`}
-              aria-current={activeSection === s.key ? 'page' : undefined}
-              onClick={() => setActiveSection(s.key)}
-              type="button"
-            >
-              {s.label}
-            </button>
-          ))}
-        </nav>
-      </aside>
-      <article className="guide-content" aria-live="polite">
-        <ContentComponent />
-      </article>
-    </div>
-  );
+  const [active, setActive] = useState(topicFromHash);
+  useEffect(() => {
+    const update = () => setActive(topicFromHash());
+    window.addEventListener('hashchange', update);
+    return () => window.removeEventListener('hashchange', update);
+  }, []);
+  const Content = SECTIONS.find(section => section.key === active).component;
+  return <div className="guide-page">
+    <header className="page-heading"><h1>Guide</h1><p>Find the next step for the task you are working on.</p></header>
+    <aside className="guide-sidebar">
+      <nav className="guide-sidebar-nav" aria-label="Guide topics">
+        {SECTIONS.map(section => <a key={section.key} href={`#guide/${section.key}`} className={`guide-nav-item${active === section.key ? ' guide-nav-item--active' : ''}`} aria-current={active === section.key ? 'page' : undefined}>{section.label}</a>)}
+      </nav>
+      <label className="guide-section-select">Guide topic<select value={active} onChange={event => { window.location.hash = `guide/${event.target.value}`; }}>{SECTIONS.map(section => <option key={section.key} value={section.key}>{section.label}</option>)}</select></label>
+    </aside>
+    <article className="guide-content" aria-live="polite"><Content /></article>
+  </div>;
 }

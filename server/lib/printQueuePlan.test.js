@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../db.js', () => ({ get: vi.fn() }));
 vi.mock('./scryfallImages.js', () => ({ fetchCardImageUrls: vi.fn() }));
@@ -58,6 +59,29 @@ describe('resolved artwork review', () => {
     get.mockImplementation((sql, params) => sql.includes('tracked_decks') ? deck : params[0] === 1 && params.length === 2 ? baseline : target);
     fetchCardImageUrls.mockImplementation(async cards => cards.map(card => card.displayName.startsWith('Malakir') ? dfc(card) : resolved(card)));
   });
+
+  it('accounts for all 100 Jin Sakai copies, including foil and hyphenated printing metadata', async () => {
+    const text = readFileSync(new URL('./fixtures/jin-sakai-print-list.txt', import.meta.url), 'utf8');
+    expect(text.trim().split(/\r?\n/)).toHaveLength(95);
+    const all = await buildPrintPlan(9, null, { mode: 'adhoc', cardText: text, excludeBasicLands: false });
+    expect(all).toMatchObject({ totalCopies: 100, readyToGenerate: true });
+    expect(all.cards).toHaveLength(95);
+    expect(all.cards.find(card => card.displayName === "Sigarda's Aid")).toMatchObject({ setCode: 'sld', collectorNumber: '731', quantity: 1 });
+    expect(all.cards.find(card => card.displayName === 'Rhystic Study')).toMatchObject({ setCode: 'j18', collectorNumber: '7', quantity: 1 });
+    expect(all.cards.filter(card => card.collectorNumber.includes('-')).map(card => card.collectorNumber)).toEqual(['2XM-32', 'THB-236', 'KLD-247']);
+    const filtered = await buildPrintPlan(9, null, { mode: 'adhoc', cardText: text });
+    expect(filtered).toMatchObject({ totalCopies: 92, ordinaryCopies: 92, readyToGenerate: true });
+    expect(filtered.cards).toHaveLength(92);
+    expect(filtered.excludedBasicLands.map(card => [card.displayName, card.quantity])).toEqual([['Plains', 4], ['Island', 2], ['Swamp', 2]]);
+    expect(filtered.totalCopies + filtered.excludedBasicLands.reduce((sum, card) => sum + card.quantity, 0)).toBe(100);
+    const beforeText = '1 Arcane Signet\n1 Sol Ring\n1 Command Tower\n1 Exotic Orchard\n7 Island';
+    const changes = await buildPrintPlan(9, null, { mode: 'adhoc', cardText: text, excludeBasicLands: false, comparison: { mode: 'changes', beforeText } });
+    expect(changes).toMatchObject({ totalCopies: 94, readyToGenerate: true });
+    expect(changes.cards).toHaveLength(90);
+    expect(changes.cards.some(card => ['Arcane Signet', 'Sol Ring', 'Command Tower', 'Exotic Orchard', 'Island'].includes(card.displayName))).toBe(false);
+
+  });
+
   it('resolves a standalone list without a tracked deck and exposes only its label and text hash', async () => {
     const text = 'Commander\n1 Lightning Bolt (M10) [146]\nMainboard\n2 Malakir Rebirth // Malakir Mire (ZNR) [111]\nSideboard\n3 Sol Ring';
     const privatePlan = await buildPrintPlan(9, null, { mode: 'adhoc', listName: '  Saturday extras  ', cardText: text });

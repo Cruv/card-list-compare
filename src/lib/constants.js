@@ -5,7 +5,7 @@
 // Group 1: quantity, Group 2: card name, Group 3: set code,
 // Group 4: bracketed collector number [227] or [136p] or [DDO-20],
 // Group 5: bare collector number (only after set code) e.g. "227" or "136p",
-// Group 6: foil tag
+// Group 6: foil tag (*F* or the plain F used by some list exports)
 // Collector numbers can be alphanumeric with hyphens (e.g. 136p, DDO-20, 2022-3)
 // Bare collector numbers are nested inside the set code group to avoid
 // matching card name words when no set code is present.
@@ -14,7 +14,7 @@
 // server/lib/enrichDeckText.js. Never fork a local copy (two forks drifted
 // and corrupted data before; see docs/DECK_TEXT_FORMAT.md).
 export const CARD_LINE_PATTERN =
-  /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/i;
+  /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+(?:\*F\*|F))?\s*$/i;
 
 export const LINE_PATTERNS = [
   CARD_LINE_PATTERN,

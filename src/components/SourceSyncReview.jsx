@@ -29,13 +29,13 @@ function CardDiff({ title, before, after }) {
   </details>;
 }
 
-export default function SourceSyncReview({ deckId, manual = false, sourceProvider = 'archidekt', refreshKey, onChanged }) {
+export default function SourceSyncReview({ deckId, manual = false, sourceProvider = 'archidekt', refreshKey, onChanged, onAttentionChange }) {
   const { user } = useAuth();
   if (manual || !user) return null;
-  return <ScopedSourceSyncReview key={`${user.id}:${deckId}`} userId={user.id} deckId={deckId} sourceProvider={sourceProvider} refreshKey={refreshKey} onChanged={onChanged} />;
+  return <ScopedSourceSyncReview key={`${user.id}:${deckId}`} userId={user.id} deckId={deckId} sourceProvider={sourceProvider} refreshKey={refreshKey} onChanged={onChanged} onAttentionChange={onAttentionChange} />;
 }
 
-function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, onChanged }) {
+function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, onChanged, onAttentionChange }) {
   const mounted = useRef(false);
   const workRef = useRef(null);
   const busyRef = useRef(false);
@@ -52,6 +52,7 @@ function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, on
   const [reload, setReload] = useState(0);
   const storageKey = sourceReviewKey(userId, deckId);
   const providerName = { archidekt: 'Archidekt', moxfield: 'Moxfield', deckcheck: 'DeckCheck' }[state?.sourceProvider || sourceProvider] || 'Archidekt';
+  useEffect(() => { onAttentionChange?.(!!(state?.pending || work?.operation || work?.dirty || error)); }, [state?.pending, work?.operation, work?.dirty, error, onAttentionChange]);
   function replace(value) { workRef.current = value; setWork(value); }
 
   useEffect(() => {
@@ -160,9 +161,9 @@ function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, on
   return <section className={`source-sync-review source-sync-review--${state?.status || 'unknown'}`} aria-label={`${providerName} source review`}>
     <div className="source-sync-heading">
       <div><span className="source-sync-eyebrow">Source status</span><h2>{sourceStatusLabel(ready ? state?.status : 'unknown').replaceAll('Archidekt', providerName)}</h2></div>
-      <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => { setLoading(true); setReload(value => value + 1); }}>Reload source status</button>
+      <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => { setLoading(true); setReload(value => value + 1); }}>Reload review</button>
     </div>
-    <p>{state?.status === 'pending_review' ? `${providerName} has a different list waiting for review. Your current CLC deck, including accepted ManaSync edits, is preserved.` : state?.status === 'local_changes' ? `Your current digital deck includes local changes. Refresh checks ${providerName} while keeping these edits protected.` : state?.status === 'synced' ? `The current digital deck matches the last checked ${providerName} list.` : `Use Refresh above to check the ${providerName} source. Your saved digital deck stays available.`} Decisions here never change the deck on {providerName}.</p>
+    <p>{state?.status === 'pending_review' ? `${providerName} has a different list waiting for review. Your current CLC deck, including accepted ManaSync edits, is preserved.` : state?.status === 'local_changes' ? `Your current digital deck includes local changes. Refresh checks ${providerName} while keeping these edits protected.` : state?.status === 'synced' ? `The current digital deck matches the last checked ${providerName} list.` : `Use Check for updates to check the ${providerName} source. Your saved digital deck stays available.`} Decisions here never change the deck on {providerName}.</p>
     {state?.sourceTracking?.status === 'awaiting_source' && <p role="status" className="source-sync-warning">{state.sourceTracking.message}</p>}
     {state?.checkedAt && <p className="source-sync-checked">Last source check: {new Date(state.checkedAt).toLocaleString()}</p>}
     {loading && <p role="status">Loading source status…</p>}
@@ -171,9 +172,8 @@ function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, on
     {ready && work && (state?.pending || work.dirty || work.operation) && <div className="source-sync-work">
       {stale && !work.operation && <div className="source-sync-warning"><p>The saved deck or {providerName} candidate changed during this review. Your merged text is preserved.</p><button type="button" className="btn btn-secondary btn-sm" onClick={rebase} disabled={busy}>Review latest versions with my edits</button></div>}
       <div className="source-sync-comparisons">
-        <CardDiff title="Local changes since saved source" before={basis.baseText} after={basis.currentText} />
-        <CardDiff title={`${providerName} changes since saved source`} before={basis.baseText} after={basis.sourceText} />
         <CardDiff title={`Changes if you use ${providerName}`} before={basis.currentText} after={basis.sourceText} />
+        <details><summary>Compare with the last synced version</summary><CardDiff title="Your local changes" before={basis.baseText} after={basis.currentText} /><CardDiff title={`${providerName} changes`} before={basis.baseText} after={basis.sourceText} /></details>
       </div>
       <details className="source-sync-raw"><summary>Original deck text for all three versions</summary>
         <label>Saved source basis<textarea readOnly value={basis.baseText ?? ''} /></label>

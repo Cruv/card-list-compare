@@ -12,3 +12,12 @@
   .integration-token-list li { align-items: flex-start; flex-wrap: wrap; }
   .integration-token-result button { min-height: 42px; margin-bottom: .4rem; }
 }
+
+.integration-token-permissions { display:block; font-size:12px; color:var(--text-secondary); margin-top:6px; }
+.integration-token-create { margin-top:20px; padding-top:20px; border-top:1px solid var(--border-color); }
+.integration-token-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.integration-token-result { margin-top:20px; padding:18px; background:var(--bg-primary); border:1px solid var(--border-color); border-radius:10px; }
+.integration-access-error { color:var(--text-destructive); }
+.integration-access-help { margin-top:18px; }
+.integration-read-permission { font-size:13px; margin:0; }
+.integration-access-check { line-height:1.5; min-height:44px; }

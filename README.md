@@ -6,22 +6,31 @@ CLC generates Silhouette v6 PDFs from standalone print lists, full deck snapshot
 
 ## Find your way around
 
-CLC uses a persistent desktop sidebar and a five-item bottom bar on phones. **More**
-opens Connections, Guide, Account settings and, for administrators, Administration.
-Dark and light themes share the same layout and remember your preference.
+The desktop sidebar and phone bottom bar share three destinations: **Compare**, **Decks**,
+and **Print**. **More** on phones contains Connections, Account settings, Guide and
+Administration for administrators. Dark and light themes use the same organization.
 
 | Area | What it is for |
 | --- | --- |
-| Compare | Import Before/After lists, review changes, export or send the captured comparison to printing. |
-| Deck library | Browse commander artwork, search/filter decks, track sources and open snapshot history. |
-| Print studio | Build an ad-hoc list or review a comparison; choose artwork, edit copies and generate PDFs. |
-| Print station | Check household readiness, handle labeled paper-flip packets and connect Discord alerts. |
-| Connections | Verify your ManaSync collection account; optionally grant ManaSync access to CLC decks. |
-| Guide | Read topic-based instructions for comparison, imports, tracking, analytics, printing and exports. |
+| Compare | Load Before/After lists, inspect changes and print or export the captured comparison. Saved-version loading is read-only; save a new version through one explicit action. |
+| Decks | Browse tracked decks or add untracked decks, a pasted list or a deck link. Each deck has Cards, Changes, Print and Settings. |
+| Cards | Browse exact artwork, lists and deck insights; advanced exports stay in Export menus. |
+| Changes | Compare versions, manage one version history and review Archidekt changes or ManaSync proposals. |
+| Print → New print list | Prepare an ad-hoc or comparison list. Prepare holds selection/artwork review; Batches holds that account's standalone batch history. |
+| Deck → Print | Prepare snapshot/delta jobs and inspect that deck's batches. |
+| Print → Printer | Follow all batch statuses (all users for admins), check the Mac, handle labeled flip packets and manage printer alerts/settings. |
+| Connections | Connect ManaSync ownership to CLC; optionally authorize CLC decks in ManaSync separately. |
+| Account settings | Profile/email, security, personal invitations and account deletion. |
+| Administration | Overview, Users, All invitations, App settings, Shared links, Audit log and System maintenance. |
+| Guide | Task-based instructions with direct topic links; reference formats remain available. |
 
-The full route, tab and overlay inventory is maintained in
-[UI redesign inventory](docs/UI_REDESIGN_INVENTORY.md). Browser validation evidence and
-any remaining native-device checks are recorded there rather than inferred from screenshots.
+“Generate & print” creates real PDF jobs. “Record a manual print” records usable copies for
+ManaSync and does not generate PDFs or send anything to a printer. Printing or recording
+copies never automatically advances the deck's assembled-paper marker.
+
+[UI organization and verification](docs/UI_REDESIGN_INVENTORY.md) records the current
+capability map and browser checks. [Operations](docs/OPERATIONS.md) records the actual
+household deployment, separately from what the source implements.
 
 ## Supported Architectures
 
@@ -89,7 +98,7 @@ latest upstream main and keeps a validated installation, dependencies and wheel 
 `./data/silhouette-card-maker/`. If an update fails, it retains its last compatible version.
 Without a usable cache on an offline first boot, the web app remains available and PDF
 generation stays unavailable. Set `PRINT_ENABLED=false` to disable runtime preparation.
-Allow at least 2 GiB of memory for 600 PPI sheet generation. Open **Print studio** for an ad-hoc batch or use the Printing tab in a tracked deck; see [operations](docs/OPERATIONS.md#silhouette-runtime).
+Allow at least 2 GiB of memory for 600 PPI sheet generation. Open **Print → New print list** for an ad-hoc batch or use the Print tab in a tracked deck; see [operations](docs/OPERATIONS.md#silhouette-runtime).
 
 ### docker cli
 
@@ -190,7 +199,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 ### Deck Comparison
 
 - **Side-by-side diff** &mdash; paste, upload, or import two deck lists and instantly see cards added, removed, quantity changes, and printing swaps
-- **Multi-format parser** &mdash; Arena/MTGO exports, CSV, plain text, `SB:` prefix notation, with set codes `(M10)`, collector numbers `[227]`, and foil `*F*` markers
+- **Multi-format parser** &mdash; Arena/MTGO exports, CSV, plain text, `SB:` prefix notation, with set codes `(M10)`, collector numbers `[227]`, and foil `*F*` or trailing `F` markers
 - **URL import** &mdash; pull decks from Archidekt, Moxfield, DeckCheck, TappedOut, Deckstats, MTGGoldfish, and TCGPlayer links with metadata coverage feedback (subject to source availability and access restrictions). DeckCheck supports public builder, deckview and deck links
 - **Card type grouping** &mdash; changelogs grouped by Creature, Instant, Sorcery, Artifact, Enchantment, Land, Planeswalker, Battle
 - **Search & filter** &mdash; real-time card name filtering across all sections
@@ -201,24 +210,26 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 
 - **Whole deck or changes** — choose exact snapshots, default to the paper baseline, include sideboards optionally, and review physical copy counts. Replacing changed printings starts off; excluding basic lands starts on.
 - **Silhouette Card Maker v6** — actual upstream generation at 600 PPI, Letter, standard cards, 1 mm crop, three registration marks and seven cards per sheet.
-- **Print from a comparison** — choose **Print cards** in comparison results, a deck changelog or snapshot history. Review new copies or the full After list using the exact compared versions, even if the input fields have since changed. Sign-in preserves the selection; an existing print draft is kept until you choose to replace it.
-- **Standalone print lists** — open **Print studio**, name a batch, then paste cards, upload a list or import a supported URL. The workflow separates choosing cards, reviewing artwork and tracking a batch. Your draft stays in this browser; prepared batches and PDFs stay in your account history. No tracked deck or snapshot is created.
+- **Print from a comparison** — choose **Print cards** in comparison results, a deck’s Changes view or version history. Review new copies or the full After list using the exact compared versions, even if the input fields have since changed. Sign-in preserves the selection; an existing print draft is kept until you choose to replace it.
+- **Standalone print lists** — open **Print → New print list**, name a batch, then paste cards, upload a list or import a supported URL. Prepare separates choosing cards from reviewing artwork; Batches keeps job history and recovery available. Your draft stays in this browser; prepared batches and PDFs stay in your account history. No tracked deck or snapshot is created.
 - **Edit a print order** — remove cards you have on hand, restore them, or add extra cards and quantities. Review the updated artwork and sheet counts before generating; the source deck and snapshots stay unchanged.
 - **Artwork review and picker** — inspect compact front/back previews, exact printings, copy counts and double-sided labels. Choose **Pick art** on a card to select another Scryfall printing, or restore its original art. Overrides apply only to this print order and require a refreshed review. Ordinary sheets and DFC packets are counted separately; unresolved faces and unsupported meld layouts block generation. **Save art for home PDFs** in the MPC overlay supplies custom artwork for tracked decks.
 - **Archidekt printing choices** — URL imports and tracked Archidekt snapshots preserve the selected set and collector number, so Scryfall supplies that exact artwork. Printing uses the reviewed snapshot or imported list. A later DeckCheck/plain-text import has no art choices of its own; saved snapshots carry forward earlier printing metadata where possible and resolve new cards through Scryfall. It does not silently replace protected local content with the current Archidekt deck. **Pick art** can override a card for this batch.
 - **Filter and buy** — search and sort the reviewed artwork, filter by single/double-sided cards or ManaSync ownership, and copy or open a Mana Pool buy list of visible missing originals. Filters do not change the print order; incoming or owned originals are never added to the missing-card buy list.
 - **Complete batches** — ordinary fronts first, then DFC packets of up to seven copies. Each DFC PDF has page 1 fronts and page 2 backs, with a printed job/packet label; every required face must validate before publication.
-- **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation.
+- **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation. Printer consolidates saved PDFs, waiting jobs and completed/failed/canceled history across decks and standalone lists. Admins see all users; others see their own, with explicit waiting-in-CLC versus Epson status and links to their exact batch. Administrators can cancel a waiting job before any submission; submitted passes require Mac reconciliation.
 - **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; each DFC front pass completes before a flip alert and explicit reload confirmation. Its back pass finishes before the next packet; other CLC jobs wait.
-- **Print Station** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, and confirm a specific DFC paper reload. Administrators also see managed version controls when the station supports them.
+- **Print → Printer** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, and confirm a specific DFC paper reload. Administrators also see managed version controls when the station supports them.
 
 Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
 
-Flip alerts use a Mac notification and Glass sound by default, with optional Discord delivery
-connected through the administrator's **Print Station → Discord flip alerts** controls.
+Flip and reported printer-error alerts use a Mac notification and Glass sound by default, with optional Discord delivery
+connected through the administrator's **Print → Printer → Discord printer alerts** controls.
 Save a channel webhook and optional user ID, wait for the Mac acknowledgement, then send a
-test. The same panel can disconnect it. Dismissing an alert never resumes printing; the waiting
-packet stays visible in **Print Station**, including while paused. Earlier PDFs remain
+test. The same panel can disconnect it. Discord messages come from **Proxy Balboa**, with
+brief Rocky-inspired phrasing and precise error/flip instructions. Deck-change and price
+alerts use the same name and voice. Printer-error alerts require companion 2.53.0 or newer and use persisted per-episode duplicate suppression. Dismissing an alert never resumes printing; the waiting
+packet stays visible in **Print → Printer**, including while paused. Earlier PDFs remain
 unchanged and may contain several DFC sheets without a job label: preview all pages and
 match the exact waiting packet before reloading. See the [packet sequence and alerts](docs/PRINT_WORKFLOW.md#double-faced-packets-and-flip-alerts).
 
@@ -230,7 +241,7 @@ Letter at actual size. Its dry run prints
 nothing; normal operation requires a configured Epson
 queue and accepted color/geometry proof. DFC backs remain blocked until manual reload and
 resume. The login service runs while this Mac user is logged in; sleeping Macs leave jobs queued.
-Open **Print Station** in CLC for daily operation, including administrator-controlled
+Open **Print → Printer** in CLC for daily operation, including administrator-controlled
 updates and rollback from verified packages. Version changes require an idle ledger and
 leave printing paused. A disconnected or stale station is shown
 offline and its controls are disabled. Source checkouts report their version but do not
@@ -238,7 +249,7 @@ support managed package updates. Neither the dashboard nor remote controls can e
 physical-proof flags or change Epson driver options.
 
 For physical testing through the normal interface, the Mac can explicitly enable
-`allow_unverified_printing` in its private configuration. Print Station then shows
+`allow_unverified_printing` in its private configuration. Printer then shows
 **Test printing enabled** while unfinished proof indicators remain unverified. Queued
 jobs may print with this setting; pauses, paper-reload confirmation, hash checks and
 duplicate-submission protection still apply. The default is off, and CLC cannot turn it on
@@ -256,17 +267,18 @@ For the household's permanent Mac stack and companion installation status, see t
 - **Server-side enrichment** &mdash; plain text deck imports are enriched with printing metadata via Scryfall, with carry-forward from previous snapshots
 - **Printing badges** &mdash; set code, collector number, and foil indicator displayed inline on card entries
 
-Set changes with the same collector number and foil-only changes are included in the comparison. Exact printing lookups do not silently substitute generic artwork or prices when that printing is unavailable. The Printing tab uses a dedicated physical-copy plan that aggregates included zones, ignores finish-only swaps, and lets you keep or replace changed printings.
+Set changes with the same collector number and foil-only changes are included in the comparison. Exact printing lookups do not silently substitute generic artwork or prices when that printing is unavailable. The Print tab uses a dedicated physical-copy plan that aggregates included zones, ignores finish-only swaps, and lets you keep or replace changed printings.
 
 ### Deck Library
 
-Commander artwork leads the library and deck headers. Full Deck offers a card gallery or compact list, name search, and full-size artwork previews; analytics, exports and ownership remain available in expandable tool sections.
+Commander artwork leads the library and deck headers. Cards offers a card gallery or compact list, name search, and full-size artwork previews; analytics, exports and ownership remain available in expandable tool sections.
 
-- **Deck tracker** &mdash; track Archidekt users and decks with automatic snapshot history
-- **Deck pages** &mdash; full-page view per deck with tabs for Snapshots, Changelog, Timeline, Full Deck, Printing, Analytics, and Settings
+- **Add decks** &mdash; see untracked decks from configured accounts, paste a manual list, or track an Archidekt/Moxfield/DeckCheck link directly. Other supported links import a saved manual list once. Failed provider fetches retain their tracked source for retry; repeated import requests recover the same deck.
+- **Deck tracker** &mdash; track provider decks with automatic version history
+- **Deck pages** &mdash; full-page view per deck with Cards, Changes, Print and Settings
 - **Grid layout** &mdash; deck cards in a responsive grid showing name, commander, price, tags, and last updated date
-- **Interactive timeline** &mdash; clickable snapshot history with changes tab (what changed) and full deck tab (complete list at that point)
-- **Snapshot comparison** &mdash; compare any two snapshots of the same deck in an in-page overlay
+- **Interactive timeline** &mdash; one version history with a Cards/Changes inspector for each saved point
+- **Snapshot comparison** &mdash; compare any two versions in Changes using captured source and target IDs
 - **Paper tracking** &mdash; mark a snapshot as your physical deck, compare paper version vs latest digital changes
 - **Deck overlap matrix** &mdash; see how many cards are shared across all your decks
 - **Tags & organization** &mdash; user-defined tags, deck notes, pinning, and filter-by-tag
@@ -320,7 +332,7 @@ feature stays retired; existing legacy rows remain in backups with no automatic 
 - **Image progress** &mdash; counts image files consistently, including repeated copies and both DFC faces; cached images count toward the same total
 - **DFC image retrieval** &mdash; paired Scryfall front/back files share a copy number; household PDFs preserve the corresponding page/slot pairing
 
-These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. For household printing, use **Print studio** or a deck’s Printing tab: both generate validated Silhouette PDFs and expose the native Mac station queue. Local Epson driver/color settings still require a physical proof. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. For household printing, use **Print → New print list** or a deck’s Print tab: both generate validated Silhouette PDFs and expose the native Mac station queue. Local Epson driver/color settings still require a physical proof. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ### Card Display
 

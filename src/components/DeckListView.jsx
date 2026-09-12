@@ -339,7 +339,7 @@ function computeBudgetPrice(parsedDeck, cardMap) {
   return hasAnyPrice ? total : null;
 }
 
-export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) {
+export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, insights }) {
   // Hooks must run unconditionally — see Rules of Hooks. Guard on the derived
   // values below, never with an early return before the hooks.
   const { priceDisplayEnabled } = useAppSettings();
@@ -407,7 +407,7 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
           )}
         </div>
       )}
-      {cardMap && cardMap.size > 0 && (
+      {(insights || (cardMap && cardMap.size > 0)) && (
         <div className="deck-analytics-toggle">
           <button
             type="button"
@@ -415,16 +415,14 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery }) 
             onClick={() => setShowAnalytics(v => !v)}
             aria-expanded={showAnalytics}
           >
-            <span className={`deck-analytics-arrow${showAnalytics ? ' deck-analytics-arrow--open' : ''}`}>&#9654;</span>
-            Deck Analytics
+            <span aria-hidden="true" className={`deck-analytics-arrow${showAnalytics ? ' deck-analytics-arrow--open' : ''}`}>&#9654;</span>
+            {insights ? 'Insights & prices' : 'Deck insights'}
           </button>
         </div>
       )}
-      {showAnalytics && cardMap && cardMap.size > 0 && (
-        <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />
-      )}
+      {showAnalytics && <section className="deck-insights-panel">{insights}{cardMap && cardMap.size > 0 && <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />}</section>}
       <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />
-      {filteredMainboard.size === 0 && filteredSideboard.size === 0 && <p className="deck-list-no-results">{query ? 'No cards match this search.' : 'This snapshot has no cards.'}</p>}
+      {filteredMainboard.size === 0 && filteredSideboard.size === 0 && <p className="deck-list-no-results">{query ? 'No cards match this search.' : 'This saved version has no cards.'}</p>}
       {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />}
       {inspectedCard && <DeckCardDialog card={inspectedCard} onClose={() => setInspectedCard(null)} />}
     </div>

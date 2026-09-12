@@ -7,7 +7,7 @@ corrected companion sheet; manual duplex and v6 cutter calibration still require
 ## Print from comparison results
 
 Choose **Print cards** from Compare, a deck changelog or snapshot comparison. The action
-opens Print studio with the complete Before and After texts used for those displayed results.
+opens standalone print lists with the complete Before and After texts used for those displayed results.
 It defaults to the positive physical-copy difference; choose the full After list to print
 everything instead. Search filters in the changelog do not change this input. Even an
 identical comparison can open review and switch to the full list.
@@ -20,14 +20,14 @@ the comparison mode are frozen privately with the job; public summaries expose h
 
 ## Standalone print lists
 
-Open **Print studio** in the navigation to create an ad-hoc batch. Give it a name, then
+Open **Print → New print list** in the navigation to create an ad-hoc batch. Give it a name, then
 paste cards, upload a text/CSV list, or import a supported deck URL. Importing here copies
 the list without tracking the deck. Quantities and exact set/collector metadata use the
 same card-list format as Compare. Include the sideboard when wanted, review the Scryfall
 front/back artwork, then **Generate PDFs** or **Generate & print**.
 
 The draft is saved per signed-in account in this browser. Prepared batches are kept in
-that account’s Print studio history, including downloads and the same ManaSync pending-proxy
+that account’s print-list batch history, including downloads and the same ManaSync pending-proxy
 confirmation as deck batches. No tracked deck, snapshot or paper marker is created.
 Standalone lists use Scryfall artwork; saved MPC artwork belongs to tracked decks.
 The list name and exact reviewed text are frozen into the job. Later draft edits leave
@@ -37,16 +37,29 @@ across reloads, just like tracked-deck batches.
 Ordinary fronts and double-faced packets follow the same recipe, labels, flip alerts and
 explicit reload confirmation below. Separate batches never share a sheet.
 
-## Using the Printing tab
+## Preparing cards and following batches
 
-The workflow has three steps: **Choose cards**, **Review & print**, and **Batch status**.
-Review replaces the source form with a concise summary and an edit action. Card rows keep
-front/back previews, quantities, ownership and edit controls together. Extra cards, removed
-cards, detailed printer guidance and older batches are available in expandable sections.
-The review footer keeps totals and generation actions together; active batches surface
-their current status and next action.
+Open **Print → New print list** for an ad-hoc list or **Deck → Print** for a saved deck.
+Each has **Prepare** and **Batches** views. Prepare contains Choose cards and Review;
+switching to Batches preserves the draft and any uncertain request. Batches is scoped to
+that deck or the account's standalone print lists. **Print → Printer** consolidates all
+batch statuses across both sources: saved PDFs, jobs waiting in CLC, passes at Epson and
+completed, failed or canceled records. Administrators see every user's summaries; other
+signed-in users see their own. Downloads and private deck links remain owner-only.
 
-Open a tracked deck's **Printing** tab. Choose a whole snapshot or changes between an
+Review shows the selected whole-list/changes mode and source counts, then the copies
+removed by the baseline, basic-land exclusion and manual selection. A card entry can have
+multiple physical copies; view filters never remove copies from the order. The supplied
+Jin Sakai example has 95 entries and 100 copies. All basics excluded removes eight copies
+across three entries, leaving 92. A comparison can subtract additional shared copies.
+Pasting or importing a replacement standalone list detaches an earlier comparison baseline;
+an intentional Compare handoff retains its captured Before and After lists.
+
+Artwork appears before secondary controls. **Edit selection** contains extra cards,
+removed cards and options. One footer contains the final totals and generation actions.
+A compact current-job link remains available while preparing the next list.
+
+In a saved deck, Choose a whole snapshot or changes between an
 explicit baseline and target. The paper-deck marker is the default baseline when present;
 “latest” is resolved to a specific snapshot during review. Sideboards are optional and off
 by default. **Review print list** resolves the selected printing and displays its actual
@@ -146,7 +159,7 @@ page counts and timestamps. Station steps separately record submission and spool
 CLC does not infer available physical inventory from a snapshot difference. Real cards,
 purchases, proxy counts and deck allocations belong to
 [ManaSync](MANASYNC_BRIDGE.md). Its optional bridge checks ownership for the reviewed print list, provides a Mana Pool
-link for missing originals, and also offers ownership in Full Deck. One original of any
+link for missing originals, and also offers ownership in Cards. One original of any
 printing covers unlimited proxy copies across decks. Incoming originals prevent duplicate
 buying, proxies do not establish original ownership, and unknown lookup results remain
 unknown. Shopping requests one original per missing logical card, deduplicated across
@@ -239,7 +252,7 @@ the printed front to the waiting packet; set earlier output aside and remove unu
 paper from the rear feeder before loading the matching printed sheet.
 
 Flip and reload only that packet's printed sheet according to the physically proven feeder
-procedure, then use **Confirm paper reload** in **Print Station**. Confirmation applies
+procedure, then use **Confirm paper reload** in **Print → Printer**. Confirmation applies
 only to the shown job/packet. Page 2 then runs as a separate one-sided back pass; it must
 finish before the next packet starts. Return blank paper to the feeder after the backs
 finish so the next front pass can print. Automatic duplex is disabled. The household CLC
@@ -251,8 +264,7 @@ packet is waiting for its back.
 Local Mac notifications and their **Glass** sound default on. The private Mac configuration
 accepts JSON booleans `refeed_notifications` and `refeed_sound` (both default `true`), plus
 legacy `refeed_discord_webhook_url` and `refeed_discord_user_id` strings (both default
-empty). Administrators can now connect Discord in **Print Station → Discord flip
-alerts**, enter a canonical channel webhook and optional user ID, and save. The
+empty). Administrators can now connect Discord in **Print → Printer → Discord printer alerts**, enter a canonical channel webhook and optional user ID, and save. The
 panel shows pending delivery until the Mac acknowledges the settings. **Send test** uses
 the acknowledged revision; **Disconnect** disables delivery even if legacy local config
 contains a webhook. Both require a companion advertising Discord support.
@@ -273,6 +285,45 @@ Existing PDFs and manifests are immutable. A legacy `double-faced.pdf` may conta
 front/back page pairs and lack the job label above. Inspect its PDF preview and all pages,
 match the exact waiting job/packet ID and physical sheet count, and reload the complete
 matching stack in its tested order. A new job is required to obtain the new packet layout.
+
+## Printer errors and queue visibility
+
+Companion **2.53.0+** reads local CUPS printer attributes and the active CLC spooler pass
+approximately once per minute. Paper empty/jam, stopped queues, reported connection/filter
+failures and held/stopped/canceled/aborted passes produce a bounded Mac notification and,
+when connected, a Discord message identifying the batch and pass. Two consecutive status
+read failures produce a diagnostic alert. Low-supply warnings alone do not generate alerts;
+unrecognized vendor warnings stay unconfirmed and never clear an existing error episode.
+CLC cannot report a hardware condition the Epson driver/CUPS does not expose, or send a
+local alert while the Mac is asleep/offline.
+
+The native ledger reserves each channel's attempt before sending. Repeated observations,
+restarts and ambiguous transport results do not resend that fault during the same episode.
+A verified healthy observation rearms a later recurrence. Alert failure never changes
+printing state. Existing notification/sound/managed Discord preferences apply to both
+flip and error alerts; private webhook values never enter status or event messages.
+
+**Print → Printer** is the household queue/control page. Administrators see all batches
+across owners, deck snapshots and standalone lists, with pagination and status filtering.
+Other signed-in users see their own batch history, even without physical-printer access. Waiting in CLC means the
+PDF/job is saved and has not reached the spooler; Epson status identifies an actual pass
+already submitted. The app retains waiting batches to sequence manual DFC work safely.
+Owner links open the exact batch without overwriting a draft; summaries do not grant
+access to another user's deck text or artifact URLs.
+
+Admins can cancel a waiting batch before any pass has begun submission. If submission may
+exist, CLC refuses that cancellation: cancel/reconcile the exact Mac spooler job and clear
+paper before releasing it. Canceled jobs are retained as records; they are never retried
+automatically. Companion 2.53.0 can retire a verified cancellation before any local CUPS
+attempt, including after an interrupted authorization request. Older or ambiguous attempts
+still require reconciliation; the new proof never infers paper clearance. Preparing another batch remains available while earlier jobs wait or print.
+Only concurrent PDF preparation and storage capacity are limited; queued jobs do not
+consume the per-user preparation allowance. Unresolved submission requests keep their
+original payload locked until receipt recovery, preventing duplicates.
+
+Discord messages use **Proxy Balboa**, with brief Rocky-inspired phrasing followed by
+precise printer errors or packet/reload instructions. Native Mac messages remain plain.
+The bot name and style do not change notification permissions or paper confirmation.
 
 ## Queue, access and retention
 
@@ -341,7 +392,7 @@ are included in the durable recipe fingerprint so they cannot change during an a
 
 ### Station management in CLC
 
-The **Print Station** page (`#print-station`) shows the companion's most recent heartbeat,
+The **Print → Printer** page (`#print-station`) shows the companion's most recent heartbeat,
 printer checks, active batch, proof flags, version, recent events and control receipts.
 Only administrators and authorized household print users can view/control it. Version
 changes are administrator-only and available only for a managed installation.

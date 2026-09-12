@@ -1,0 +1,47 @@
+.print-batch-list { min-width: 0; padding: 24px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-secondary); }
+.batch-list-heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.batch-list-heading > div { flex: 1 1 260px; min-width: 0; }
+.batch-list-heading > .btn { flex-shrink: 0; }
+.print-batch-list p { font-size: var(--fs-sm); }
+.batch-list-heading h2 { margin: 0 0 6px; }
+.batch-list-filters { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; margin: 22px 0 16px; }
+.batch-list-filters label { display: grid; gap: 7px; min-width: 0; color: var(--text-secondary); font-size: var(--fs-sm); }
+.batch-list-filters select { appearance: none; max-width: 100%; min-height: 44px; padding: 9px 32px 9px 12px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-primary); background-image: linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%), linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%); background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%; background-size: 5px 5px; background-repeat: no-repeat; color: var(--text-primary); font: inherit; }
+.batch-list-filters p { flex: 1 1 230px; margin-bottom: 3px; }
+.batch-list-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-top: 16px; border-top: 1px solid var(--border-color); }
+.batch-list-summary p { font-weight: 600; }
+.batch-list-rows { list-style: none; margin: 16px 0 0; padding: 0; }
+.batch-list-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(100px, auto); align-items: start; gap: 20px; padding: 20px 0; border-top: 1px solid var(--border-color); }
+.batch-list-identity { min-width: 0; }
+.batch-list-identity > strong { display: block; overflow-wrap: anywhere; font-size: var(--fs-md); margin-bottom: 6px; }
+.batch-list-identity time { display: block; margin-top: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+.batch-list-status { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+.batch-list-badge { max-width: 100%; padding: 5px 10px; border: 1px solid var(--border-color); border-radius: 20px; font-size: var(--fs-xs); font-weight: 600; line-height: 1.4; color: var(--text-secondary); background: var(--bg-primary); overflow-wrap: anywhere; }
+.batch-list-badge--attention { color: var(--accent-yellow); border-color: color-mix(in srgb, var(--accent-yellow) 35%, transparent); }
+.batch-list-badge--done { color: var(--accent-green); border-color: color-mix(in srgb, var(--accent-green) 35%, transparent); }
+.batch-list-actions { display: flex; flex-direction: column; align-items: stretch; gap: 9px; min-width: 0; }
+.batch-list-cancel { min-height: 44px; border: 1px solid transparent; border-radius: 8px; padding: 6px 8px; background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--fs-sm); }
+.batch-list-cancel:hover { background: var(--bg-primary); color: var(--text-destructive); border-color: var(--border-destructive); }
+.print-batch-list .batch-list-details { margin-top: 3px; }
+.batch-list-details summary { font-size: var(--fs-xs); }
+.batch-list-details code { display: block; font-size: var(--fs-xs); line-height: 1.5; overflow-wrap: anywhere; }
+.batch-list-message { padding: 12px 14px; margin-top: 14px; border: 1px solid var(--border-color); border-radius: 8px; }
+.batch-list-message--error { border-color: var(--border-destructive); }
+.batch-list-message--error, .station-page .batch-list-error-detail { color: var(--text-destructive); }
+.batch-list-empty { display: grid; justify-items: center; gap: 12px; padding: 36px 12px; text-align: center; color: var(--text-muted); }
+.batch-list-more { margin: 4px 0 16px; }
+.station-page .batch-list-updated { margin-top: 12px; color: var(--text-muted); font-size: var(--fs-xs); }
+.print-batch-list select:focus-visible, .print-batch-list button:focus-visible, .print-batch-list a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 800px) {
+  .batch-list-row { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 14px; }
+  .batch-list-actions { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+}
+@media (max-width: 520px) {
+  .print-batch-list { padding: 18px; border-radius: 12px; }
+  .batch-list-filters label { flex: 1 1 100%; }
+  .batch-list-filters select { width: 100%; font-size: 16px; }
+  .batch-list-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .batch-list-status { gap: 5px; }
+  .batch-list-actions > * { flex: 1 1 120px; }
+  .batch-list-heading > .btn { width: 100%; }
+}

@@ -168,8 +168,8 @@ export async function createPrintJob(userId, deckId, request) {
   if (!plan.totalCopies) throw printError('This comparison has no copies to print');
   if (!plan.readyToGenerate) throw printError(`Review the missing or unsupported artwork before generating: ${plan.resolvedCards.filter(card => card.errors.length).map(card => `${card.displayName}: ${card.errors.join('; ')}`).join(', ')}`);
   if (request.queueOnReady) assertCanQueue(userId);
-  const pending = get("SELECT COUNT(*) AS count FROM print_jobs WHERE user_id = ? AND state IN ('preparing', 'queued')", [userId]);
-  if (pending.count >= 2) throw printError('You already have two pending print jobs', 429);
+  const pending = get("SELECT COUNT(*) AS count FROM print_jobs WHERE user_id = ? AND state = 'preparing'", [userId]);
+  if (pending.count >= 2) throw printError('Two PDFs are already being prepared for your account. Retry when one finishes generating.', 429);
   if (get("SELECT COUNT(*) AS count FROM print_jobs WHERE state = 'preparing'").count >= 10) throw printError('The PDF preparation queue is full', 429);
   cleanupPrintArtifacts();
   if (totalStorage() + PRINT_WORKING_RESERVE_BYTES > STORAGE_MAX_BYTES) throw printError('Print storage lacks the 5 GiB working allowance. Remove or expire completed artifacts before preparing more PDFs.', 507);
@@ -311,7 +311,8 @@ export function queuePrintJob(userId, deckId, id) {
 }
 export function cancelPrintJob(userId, deckId, id) {
   const row = ownerJob(userId, deckId, id);
-  if (!['preparing', 'ready', 'queued', 'claimed', 'canceled'].includes(row.state) || parse(row.steps_json).some(step => ['submitting', 'submitted', 'uncertain'].includes(step.state))) {
+  if (row.state === 'canceled') return formatPrintJob(row);
+  if (!['preparing', 'ready', 'queued', 'claimed'].includes(row.state) || parse(row.steps_json).some(step => step.state !== 'pending')) {
     throw printError('A spooler submission may exist. Reconcile or cancel it at the print station first.', 409);
   }
   controllers.get(id)?.abort();

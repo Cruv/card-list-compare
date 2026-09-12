@@ -70,6 +70,7 @@ beforeEach(async () => {
   const printRoutes = await import('./print.js');
   app.use('/api/decks', printRoutes.default);
   app.use('/api/print-lists', printRoutes.standalonePrintRouter);
+  app.use('/api/print-batches', printRoutes.printBatchesRouter);
   app.use('/api/print-station', (await import('./print-station.js')).default);
   server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   url = `http://127.0.0.1:${server.address().port}`;
@@ -110,7 +111,105 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
     }) };
 }
 
+describe('global print batch history', () => {
+  function seed(userId, state, createdAt, extra = {}) {
+    const id = crypto.randomUUID();
+    db.run(`INSERT INTO print_jobs(id, user_id, tracked_deck_id, request_key, request_hash, plan_json, state, created_at, updated_at,
+      queued_at, queue_requested, progress_json, error) VALUES(?, ?, ?, ?, 'hash', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, userId, extra.deckId ?? null, crypto.randomUUID(), JSON.stringify({ deckName: extra.name || 'Fixture batch', totalCopies: 94,
+      list: { text: 'private source' }, comparison: { beforeText: 'private comparison' }, cards: [{ secret: 'private art' }] }), state,
+    createdAt, createdAt, ['queued', 'submitted'].includes(state) ? extra.queuedAt || createdAt : null,
+    state === 'queued' ? 1 : 0, JSON.stringify({ phase: 'images', downloaded: 2, cached: 1, total: 94, token: 'private-progress-token' }),
+    'Bearer private-error-token']);
+    return id;
+  }
+
+  it('paginates every owner and source for admins, but always scopes normal users to their own batches', async () => {
+    const ids = [];
+    for (let n = 0; n < 55; n++) ids.push(seed(n % 2 + 1, 'completed', `2026-09-${String(n % 28 + 1).padStart(2, '0')}T00:00:00Z`, { deckId: n % 3 ? null : n % 2 + 1 }));
+    const collected = [];
+    let cursor = null;
+    do {
+      const response = await request(`/api/print-batches?limit=17&order=newest${cursor ? '&cursor=' + cursor : ''}`), body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('private, no-store');
+      expect(body.scope).toBe('all'); expect(body.totalCount).toBe(55);
+      collected.push(...body.jobs); cursor = body.nextCursor;
+    } while (cursor);
+    expect(collected.map(job => job.id)).toEqual(db.all('SELECT id FROM print_jobs ORDER BY created_at DESC, id DESC').map(row => row.id));
+    expect(new Set(collected.map(job => job.id)).size).toBe(ids.length);
+    const others = collected.filter(job => !job.canOpen);
+    expect(others.length).toBeGreaterThan(0);
+    expect(others.every(job => job.requesterName === 'other' && !Object.hasOwn(job, 'deckId'))).toBe(true);
+    expect(collected.some(job => job.sourceKind === 'list')).toBe(true);
+    expect(collected.some(job => job.sourceKind === 'deck')).toBe(true);
+    for (const value of ['private source', 'private comparison', 'private art', 'private-progress-token', 'private-error-token', 'downloadUrl', 'manifestSha256']) expect(JSON.stringify(collected)).not.toContain(value);
+    expect(collected[0].progress).toEqual({ phase: 'images', completed: 3, total: 94 });
+    const own = await (await request('/api/print-batches', { token: 'user-2' })).json();
+    expect(own.scope).toBe('mine'); expect(own.totalCount).toBe(27);
+    expect(own.jobs.every(job => job.canOpen && !job.canCancel && !Object.hasOwn(job, 'requesterName'))).toBe(true);
+    db.run('UPDATE users SET is_admin = 0 WHERE id = 1');
+    expect((await (await request('/api/print-batches')).json()).scope).toBe('mine');
+    db.run('UPDATE users SET suspended = 1 WHERE id = 2');
+    expect((await request('/api/print-batches', { token: 'user-2' })).status).toBe(403);
+    expect((await request('/api/print-batches', { token: null })).status).toBe(401);
+  });
+
+  it('keeps active and FIFO queued batches first across cursor pages and binds filter/order to its cursor', async () => {
+    const finished = seed(1, 'completed', '2026-09-12T00:00:00Z');
+    const ready = seed(2, 'ready', '2026-09-12T00:00:00Z');
+    const queuedLater = seed(1, 'queued', '2026-09-02T00:00:00Z', { queuedAt: '2026-09-04T00:00:00Z' });
+    const queuedFirst = seed(2, 'queued', '2026-09-03T00:00:00Z');
+    const generating = seed(1, 'preparing', '2026-09-01T00:00:00Z');
+    const active = seed(2, 'submitted', '2026-09-01T00:00:00Z');
+    let cursor = null; const ids = [];
+    do {
+      const body = await (await request(`/api/print-batches?limit=2${cursor ? '&cursor=' + cursor : ''}`)).json();
+      ids.push(...body.jobs.map(job => job.id)); cursor = body.nextCursor;
+    } while (cursor);
+    expect(ids).toEqual([active, queuedFirst, queuedLater, generating, ready, finished]);
+    const first = await (await request('/api/print-batches?limit=1&state=queued')).json();
+    expect(first.jobs[0]).toMatchObject({ id: queuedFirst, canCancel: true, canOpen: false });
+    expect(first.totalCount).toBe(2);
+    expect((await request('/api/print-batches?cursor=' + first.nextCursor)).status).toBe(400);
+    expect((await request('/api/print-batches?state=queued&order=newest&cursor=' + first.nextCursor)).status).toBe(400);
+    for (const query of ['limit=0', 'limit=101', 'limit=NaN', 'limit=1&limit=2', 'state=bogus', 'order=bad', 'cursor=bad', 'cursor=' + 'a'.repeat(513)]) {
+      expect((await request('/api/print-batches?' + query)).status).toBe(400);
+    }
+  });
+
+  it('matches the scheduler across one-row pages when queued timestamps tie but creation times and IDs differ', async () => {
+    const first = 'ffffffff-ffff-4fff-8fff-ffffffffffff', second = '00000000-0000-4000-8000-000000000001', third = '88888888-8888-4888-8888-888888888888';
+    for (const [id, createdAt] of [[first, '2026-09-01T00:00:00Z'], [second, '2026-09-02T00:00:00Z'], [third, '2026-09-02T00:00:00Z']]) {
+      const generatedId = seed(1, 'queued', createdAt, { queuedAt: '2026-09-10T00:00:00Z' });
+      db.run('UPDATE print_jobs SET id = ? WHERE id = ?', [id, generatedId]);
+    }
+    const schedulerOrder = db.all("SELECT id FROM print_jobs WHERE state = 'queued' ORDER BY queued_at, created_at, id").map(row => row.id);
+    expect(schedulerOrder).toEqual([first, second, third]);
+    const actual = [];
+    let cursor;
+    do {
+      const result = await request(`/api/print-batches?limit=1&state=queued${cursor ? '&cursor=' + cursor : ''}`);
+      expect(result.status).toBe(200);
+      const page = await result.json();
+      actual.push(...page.jobs.map(job => job.id)); cursor = page.nextCursor;
+    } while (cursor);
+    expect(actual).toEqual(schedulerOrder);
+    expect((await (await request('/api/print-batches?order=newest')).json()).jobs.map(job => job.id)).toEqual([third, second, first]);
+  });
+});
+
 describe('standalone print lists', () => {
+  it('allows new batches behind queued work while limiting simultaneous PDF preparations', async () => {
+    const queuedIds = [];
+    for (let n = 0; n < 3; n++) { const job = await ready({ queueOnReady: true }); expect(job.state).toBe('queued'); queuedIds.push(job.id); }
+    const first = await create({ mode: 'adhoc', cardText: '1 Sol Ring', queueOnReady: true }, 1, null);
+    const second = await create({ queueOnReady: true });
+    expect(first.job.state).toBe('preparing'); expect(second.job.state).toBe('preparing');
+    await expect(create({ queueOnReady: true })).rejects.toMatchObject({ status: 429 });
+    expect(db.all("SELECT id FROM print_jobs WHERE state = 'queued'").map(row => row.id).sort()).toEqual(queuedIds.sort());
+    expect(db.get("SELECT COUNT(*) n FROM print_jobs WHERE state = 'preparing'").n).toBe(2);
+  });
   it('freezes Compare inputs, exposes a redacted source summary, and replays accepted comparison jobs', async () => {
     const body = { mode: 'adhoc', cardText: '3 Sol Ring\n2 Malakir Rebirth // Malakir Mire', listName: 'Comparison changes',
       comparison: { mode: 'changes', beforeText: '2 Sol Ring\n1 Counterspell' } };
@@ -375,6 +474,28 @@ describe('standalone print lists', () => {
 });
 
 describe('station submission, manual refeed, and ambiguity', () => {
+  it('rejects owner cancellation between printed packets while preserving the same unsubmitted-cancel receipt', async () => {
+    const waiting = await ready({ queueOnReady: true });
+    const claimed = queue.claimPrintJob();
+    expect(claimed.id).toBe(waiting.id);
+    const canceled = await request(`/api/decks/1/print-jobs/${claimed.id}/cancel`, { method: 'POST' });
+    expect(canceled.status).toBe(200);
+    const persisted = db.get('SELECT * FROM print_jobs WHERE id = ?', [claimed.id]);
+    expect((await request(`/api/decks/1/print-jobs/${claimed.id}/cancel`, { method: 'POST' })).status).toBe(200);
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [claimed.id])).toEqual(persisted);
+
+    await readyLargePacketJob();
+    const partial = queue.claimPrintJob();
+    report(partial, 'submitting', ordinary({}));
+    report(partial, 'submitted', ordinary({ spoolerId: 'Epson-partial' }));
+    report(partial, 'completed', ordinary({ spoolerId: 'Epson-partial' }));
+    const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [partial.id]);
+    expect(before.state).toBe('claimed');
+    expect(JSON.parse(before.steps_json)[0].state).toBe('completed');
+    expect((await request(`/api/decks/1/print-jobs/${partial.id}/cancel`, { method: 'POST' })).status).toBe(409);
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [partial.id])).toEqual(before);
+  });
+
   async function readyLargePacketJob() {
     db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt (M10) [146]\n50 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
     services.generatePrintPdfs.mockImplementationOnce(packetPdfs);

@@ -72,7 +72,7 @@ def build(arch, output, cache, requested_version=None, smoke=True):
         bundle = root / "CLC-Print-Station"
         bundle.mkdir()
         safe_extract(archive, bundle)
-        names = ["clc_print_station.py", "clc_station_manager.py", "clc_station_alerts.py", "get-jobs.test", "config.example.json",
+        names = ["clc_print_station.py", "clc_station_manager.py", "clc_station_alerts.py", "clc_printer_health.py", "get-printer.test", "get-jobs.test", "config.example.json",
                  "epson-et8550-13.45-driver-options.example.json", "Install CLC Print Station.command"]
         # The station control module is packaged when present in this release.
         names += [path.name for path in HERE.glob("clc_station_control*.py")]

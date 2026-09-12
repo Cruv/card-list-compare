@@ -12,6 +12,7 @@ import ManaCurveDelta from './ManaCurveDelta';
 import ColorDistributionDelta from './ColorDistributionDelta';
 import DeckListView from './DeckListView';
 import CopyButton from './CopyButton';
+import ActionMenu from './ActionMenu';
 import PrintComparisonButton from './PrintComparisonButton';
 import MpcOverlay from './MpcOverlay';
 import Skeleton from './Skeleton';
@@ -31,6 +32,10 @@ function downloadFile(content, filename, mimeType = 'application/json') {
   URL.revokeObjectURL(url);
 }
 
+
+function sectionHasChanges(section) {
+  return section && [section.cardsIn, section.cardsOut, section.quantityChanges, section.printingChanges].some(rows => rows?.length);
+}
 
 function filterSection(section, query) {
   if (!query) return section;
@@ -187,14 +192,14 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
 
   function formatDate(iso) {
     if (!iso) return '';
-    return new Date(iso + 'Z').toLocaleDateString(undefined, {
+    return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: 'numeric', minute: '2-digit',
     });
   }
 
   return createPortal(
-    <div className="timeline-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Snapshot details">
+    <div className="timeline-overlay" onClick={onClose} role="dialog" aria-modal="true" aria-label="Version details">
       <div className="timeline-overlay-panel" onClick={e => e.stopPropagation()} ref={panelRef} tabIndex={-1}>
         {/* Header */}
         <div className="timeline-overlay-header">
@@ -206,13 +211,14 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
           <div className="timeline-overlay-meta">
             <span className="timeline-overlay-date">{formatDate(entry.date)}</span>
             {entry.nickname && <span className="timeline-overlay-nick">{entry.nickname}</span>}
-            {entry.locked && <span title="Locked">{'\uD83D\uDD12'}</span>}
+            {entry.locked && <span title="Protected from cleanup">{'\uD83D\uDD12'}</span>}
             <span className="timeline-overlay-count">{entry.cardCount} cards</span>
             {entry.delta && (
               <span className="timeline-overlay-delta">
                 {entry.delta.added > 0 && <span className="delta-add">+{entry.delta.added}</span>}
                 {entry.delta.removed > 0 && <span className="delta-remove">-{entry.delta.removed}</span>}
                 {entry.delta.changed > 0 && <span className="delta-change">~{entry.delta.changed}</span>}
+                {entry.delta.printingChanged > 0 && <span>{entry.delta.printingChanged} printings</span>}
               </span>
             )}
             {isBaseline && <span className="timeline-overlay-baseline">Baseline</span>}
@@ -238,7 +244,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
             onClick={() => setActiveTab('deck')}
             type="button"
           >
-            Full Deck
+            Cards
             <span className="timeline-overlay-tab-badge">{entry.cardCount}</span>
           </button>
         </div>
@@ -271,19 +277,13 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
           {/* Copy buttons for Changes tab */}
           {activeTab === 'changes' && diffForExport && !noChanges && (
             <div className="timeline-overlay-buttons">
-              {hasAdditions && (
-                <CopyButton getText={() => formatMpcFill(diffForExport)} label="Copy for MPCFill" className="copy-btn copy-btn--mpc" />
-              )}
-              <CopyButton getText={() => formatChangelog(diffForExport, diffCardMap)} label="Copy Changelog" />
-              {changelogTexts && (
-                <CopyButton
-                  getText={() => formatForArchidekt(changelogTexts.afterText, commanders || [], changelogTexts.beforeText)}
-                  label="Copy for Archidekt"
-                  className="copy-btn copy-btn--archidekt"
-                />
-              )}
-              <CopyButton getText={() => formatReddit(diffForExport, diffCardMap)} label="Copy for Reddit" className="copy-btn copy-btn--reddit" />
-              <CopyButton getText={() => formatJSON(diffForExport)} label="Copy JSON" className="copy-btn copy-btn--json" />
+              <CopyButton getText={() => formatChangelog(diffForExport, diffCardMap)} label="Copy changes" />
+              <ActionMenu label="Export" ariaLabel="Export version changes">
+                {hasAdditions && <CopyButton getText={() => formatMpcFill(diffForExport)} label="Copy for MPCFill" />}
+                {changelogTexts && <CopyButton getText={() => formatForArchidekt(changelogTexts.afterText, commanders || [], changelogTexts.beforeText)} label="Copy for Archidekt" />}
+                <CopyButton getText={() => formatReddit(diffForExport, diffCardMap)} label="Copy for Reddit" />
+                <CopyButton getText={() => formatJSON(diffForExport)} label="Copy JSON" />
+              </ActionMenu>
             </div>
           )}
 
@@ -291,6 +291,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
           {activeTab === 'deck' && deckText && (
             <div className="timeline-overlay-buttons">
               <PrintComparisonButton beforeText="" afterText={deckText} listName={deckName} mode="full" />
+              <ActionMenu label="Export" ariaLabel="Export version cards">
               <CopyButton
                 getText={() => formatForArchidekt(deckText, commanders || [])}
                 label="Copy for Archidekt"
@@ -319,9 +320,10 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
                   type="button"
                   onClick={event => { event.currentTarget.focus(); setShowMpc(true); }}
                 >
-                  Print Proxies
+                  MPCFill artwork
                 </button>
               )}
+              </ActionMenu>
             </div>
           )}
         </div>
@@ -330,31 +332,34 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
         <div className="timeline-overlay-content">
           {activeTab === 'changes' && (
             isBaseline ? (
-              <p className="timeline-overlay-empty">Baseline snapshot — no previous version to compare.</p>
+              <p className="timeline-overlay-empty">This is the first saved version. There is no earlier version to compare.</p>
             ) : diffLoading ? (
               <Skeleton lines={8} />
             ) : diffResult ? (
               noChanges ? (
-                <p className="timeline-overlay-empty">No changes detected from previous snapshot.</p>
+                <p className="timeline-overlay-empty">These versions have the same cards and printings.</p>
               ) : (
                 <>
                   <div className="timeline-overlay-summary">
                     {totalIn > 0 && <span className="summary-badge summary-badge--in">+{totalIn} in</span>}
                     {totalOut > 0 && <span className="summary-badge summary-badge--out">-{totalOut} out</span>}
                     {totalChanged > 0 && <span className="summary-badge summary-badge--changed">~{totalChanged} changed</span>}
-                    {totalPrinting > 0 && <span className="summary-badge summary-badge--printing">&#8635;{totalPrinting} reprinted</span>}
+                    {totalPrinting > 0 && <span className="summary-badge summary-badge--printing">&#8635;{totalPrinting} printing changes</span>}
                     {priceImpact && (
                       <span className={`summary-badge summary-badge--price${priceImpact.net > 0 ? ' summary-badge--price-up' : priceImpact.net < 0 ? ' summary-badge--price-down' : ''}`}>
                         {priceImpact.net >= 0 ? '+' : ''}{priceImpact.net < 0 ? '\u2212' : ''}${Math.abs(priceImpact.net).toFixed(2)}
                       </span>
                     )}
                   </div>
-                  <ManaCurveDelta diffResult={diffResult} cardMap={diffCardMap} />
-                  <ColorDistributionDelta diffResult={diffResult} cardMap={diffCardMap} />
-                  <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={diffCardMap} />
-                  {diffResult.hasSideboard && (
+                  <details className="timeline-change-insights"><summary>How the deck changed</summary>
+                    <ManaCurveDelta diffResult={diffResult} cardMap={diffCardMap} />
+                    <ColorDistributionDelta diffResult={diffResult} cardMap={diffCardMap} />
+                  </details>
+                  {sectionHasChanges(filteredMainboard) && <SectionChangelog sectionName="Mainboard" changes={filteredMainboard} cardMap={diffCardMap} />}
+                  {diffResult.hasSideboard && sectionHasChanges(filteredSideboard) && (
                     <SectionChangelog sectionName="Sideboard" changes={filteredSideboard} cardMap={diffCardMap} />
                   )}
+                  {searchQuery && !sectionHasChanges(filteredMainboard) && !sectionHasChanges(filteredSideboard) && <p className="timeline-overlay-empty">No changed cards match this search.</p>}
                 </>
               )
             ) : null
@@ -365,7 +370,8 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
               <Skeleton lines={12} />
             ) : parsedDeck ? (
               <>
-                {deckCardMap && deckCardMap.size > 0 && (() => {
+                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} searchQuery={searchQuery} insights={<>
+{deckCardMap && deckCardMap.size > 0 && (() => {
                   const pl = estimatePowerLevel(parsedDeck, deckCardMap);
                   if (pl.level === 0) return null;
                   return (
@@ -384,7 +390,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
                     </div>
                   );
                 })()}
-                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} searchQuery={searchQuery} />
+</>} />
               </>
             ) : null
           )}

@@ -78,6 +78,8 @@ class FakeClient:
         if event["eventId"] in self.replies:
             return {**copy.deepcopy(self.replies[event["eventId"]]), "replayed": True}
         state = event["state"]
+        if self.job["state"] in station.TERMINAL and state != "reconciled":
+            raise station.StationError("CLC returned HTTP 409")
         entry = next((item for item in self.job["steps"] if item["artifactId"] == event.get("artifactId")
                       and item["phase"] == event.get("phase")), None)
         if entry:
@@ -133,6 +135,9 @@ class FakeCups:
 
     def doctor(self):
         return {}
+
+    def status(self, _spooler_id=None):
+        return {"ok": True, "known": True, "reasons": [], "message": "Printer queue is ready"}
 
     def jobs(self):
         return copy.deepcopy(self.history)
@@ -293,6 +298,7 @@ class StationTests(unittest.TestCase):
             ledger = station.Ledger(self.config["state_dir"])
             try:
                 self.assertEqual(ledger.passes("job1")[0]["state"], "intent")
+                self.assertEqual(ledger.passes("job1")[0]["cups_started"], 1)
                 self.assertEqual(self.client.job["steps"][0]["state"], "submitting")
             finally:
                 ledger.db.close()
@@ -318,6 +324,117 @@ class StationTests(unittest.TestCase):
         self.assertEqual(self.cups.submissions, [])
         self.assertEqual(self.client.claims, 1)
         self.assertEqual(self.station.ledger.current()["state"], "uncertain")
+
+    def test_admin_cancel_at_authorization_boundary_retires_without_spooling_and_allows_next_job(self):
+        original_report = self.client.report
+        def cancel_before_authorization(value, event):
+            if event["state"] == "submitting":
+                self.client.job["state"] = "canceled"
+            return original_report(value, event)
+        with mock.patch.object(self.client, "report", side_effect=cancel_before_authorization):
+            self.assertEqual(self.station.poll_once(), "canceled before submission")
+        self.assertIsNone(self.station.ledger.current())
+        self.assertEqual(self.cups.submissions, [])
+        self.assertTrue(all(step["state"] == "pending" for step in self.client.job["steps"]))
+        self.assertEqual(self.station.ledger.passes("job1")[0]["cups_started"], 0)
+        self.client.job = job(job_id="job2")
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.assertEqual(len(self.cups.submissions), 1)
+
+    def test_canceled_pre_cups_intent_survives_process_exit_before_response(self):
+        original_report = self.client.report
+        def cancel_and_exit(value, event):
+            if event["state"] == "submitting":
+                self.client.job["state"] = "canceled"
+                raise KeyboardInterrupt("process stopped before reading cancellation")
+            return original_report(value, event)
+        with mock.patch.object(self.client, "report", side_effect=cancel_and_exit):
+            with self.assertRaises(KeyboardInterrupt):
+                self.station.poll_once()
+        self.assertEqual(self.station.ledger.passes("job1")[0]["state"], "intent")
+        self.station.ledger.db.close()
+        self.station = station.Station(self.config, self.client, self.cups)
+        self.assertEqual(self.station.poll_once(), "canceled before submission")
+        self.assertIsNone(self.station.ledger.current())
+        self.assertEqual(self.cups.submissions, [])
+
+    def test_cancellation_requires_successful_lookup_but_can_recover_after_restart(self):
+        original_report, original_get = self.client.report, self.client.get_job
+        def cancel_before_authorization(value, event):
+            if event["state"] == "submitting":
+                self.client.job["state"] = "canceled"
+            return original_report(value, event)
+        def unavailable_after_cancellation(identifier):
+            if self.client.job["state"] == "canceled":
+                raise station.StationError("CLC connection failed")
+            return original_get(identifier)
+        with mock.patch.object(self.client, "report", side_effect=cancel_before_authorization), \
+                mock.patch.object(self.client, "get_job", side_effect=unavailable_after_cancellation):
+            self.assertEqual(self.station.poll_once(), "uncertain")
+        self.assertIsNotNone(self.station.ledger.current())
+        self.station.ledger.db.close()
+        self.station = station.Station(self.config, self.client, self.cups)
+        self.assertEqual(self.station.poll_once(), "canceled before submission")
+        self.assertEqual(self.cups.submissions, [])
+
+    def test_cancellation_cannot_retire_mismatched_partial_or_legacy_uncertain_state(self):
+        self.client.job = job("dfc")
+        self.station.adopt(copy.deepcopy(self.client.job))
+        self.station.ledger.set_pass(self.station.ledger.passes("job1")[0], "intent")
+        canceled = {**copy.deepcopy(self.client.job), "state": "canceled"}
+        bad_replies = [
+            {**canceled, "manifestSha256": "b" * 64}, {**canceled, "id": "another"},
+            {**canceled, "claimToken": "another-claim-token"}, {**canceled, "state": "claimed"},
+            {**canceled, "steps": []}, {**canceled, "steps": [canceled["steps"][0]] * 2},
+            {**canceled, "steps": [{**step, "state": "submitting"} for step in canceled["steps"]]},
+            {**canceled, "steps": [{**step, "spoolerId": "EPSON-1"} for step in canceled["steps"]]},
+        ]
+        for bad in bad_replies:
+            with self.subTest(reply=bad):
+                self.assertFalse(self.station.retire_canceled_before_cups(self.client.job, bad))
+                self.assertIsNotNone(self.station.ledger.current())
+        self.station.ledger.write("UPDATE passes SET cups_started=NULL WHERE job_id='job1'")
+        self.assertFalse(self.station.retire_canceled_before_cups(self.client.job, canceled))
+        self.assertIsNotNone(self.station.ledger.current())
+
+    def test_cancel_report_cannot_erase_a_possible_cups_attempt_without_spooler_id(self):
+        self.cups.after_accept_error = True
+        self.assertEqual(self.station.poll_once(), "uncertain")
+        self.cups.history = []
+        # Even an inconsistent canceled response is not proof once lp was called.
+        self.client.job["state"] = "canceled"
+        for step in self.client.job["steps"]:
+            step["state"] = "pending"
+            step.pop("spoolerId", None)
+        self.assertEqual(self.station.poll_once(), "paper clearance required")
+        self.assertEqual(self.station.ledger.passes("job1")[0]["cups_started"], 1)
+        self.assertEqual(len(self.cups.submissions), 1)
+        self.assertEqual(self.client.claims, 1)
+
+    def test_successful_authorization_receipt_still_blocks_retirement_after_older_bundle_use(self):
+        original = copy.deepcopy(self.client.job)
+        self.station.adopt(original)
+        entry = self.station.ledger.passes("job1")[0]
+        self.station.ledger.set_pass(entry, "intent")
+        self.station.report(original, entry, "submitting")
+        canceled = {**original, "state": "canceled"}
+        self.assertFalse(self.station.retire_canceled_before_cups(original, canceled))
+        self.assertIsNotNone(self.station.ledger.current())
+        self.assertEqual(self.cups.submissions, [])
+
+    def test_legacy_ledger_migration_leaves_old_cups_boundary_unknown(self):
+        directory = self.directory / "legacy"
+        directory.mkdir(mode=0o700)
+        db = station.sqlite3.connect(str(directory / "station.sqlite3"))
+        db.execute("CREATE TABLE passes (job_id TEXT,artifact_id TEXT,phase TEXT,state TEXT,title TEXT,spooler_id TEXT,detail TEXT,resume_requested INTEGER DEFAULT 0)")
+        db.execute("INSERT INTO passes(job_id,artifact_id,phase,state,title) VALUES('old','ordinary','fronts','uncertain','CLC-old')")
+        db.commit()
+        db.close()
+        legacy = station.Ledger(directory)
+        try:
+            self.assertIsNone(legacy.passes("old")[0]["cups_started"])
+        finally:
+            legacy.db.close()
 
     def test_replayed_submission_authorization_does_not_spool(self):
         self.client.replay_submitting = True

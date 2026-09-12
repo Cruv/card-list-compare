@@ -782,3 +782,46 @@
   .deck-page-pin-btn { grid-column: 2; grid-row: 1; }
   .deck-page-budget-price { max-width: none; text-align: left; }
 }
+
+/* Cards, changes, printing and management each have one clear home. */
+.deck-attention-link { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 16px; padding: 12px 16px; color: var(--accent); background: var(--accent-surface, #ffcb4810); border: 1px solid var(--border-color); border-radius: 10px; text-align: left; font: inherit; font-size: 13px; cursor: pointer; }
+.deck-attention-link svg:last-child { margin-left: auto; }
+.deck-changes-heading h2, .deck-history-heading h2, .deck-reviews > h2 { margin: 0 0 8px; font-size: 19px; }
+.deck-changes-heading p, .deck-history-heading p { margin: 0 0 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
+.deck-history-heading { margin-top: 32px; }
+.deck-page-compare { align-items: flex-end; gap: 14px; }
+.deck-page-compare > label { display: flex; flex: 1; flex-direction: column; gap: 7px; min-width: 160px; color: var(--text-secondary); font-size: 12px; }
+.deck-page-compare select { width: 100%; min-width: 0; min-height: 44px; }
+.deck-page-compare > .btn { min-height: 44px; }
+.deck-page-inline-diff-header { gap: 12px; flex-wrap: wrap; }
+.deck-page-inline-diff-header h3 { line-height: 1.5; overflow-wrap: anywhere; }
+.deck-page-snap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 20px; padding: 16px; }
+.deck-page-snap-info { flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.deck-page-snap-date { color: var(--text-secondary); font-size: 11px; }
+.deck-page-snap-nick { color: var(--text-primary); }
+.deck-page-snap-actions { grid-column: 2; grid-row: 1 / span 2; gap: 8px; }
+.deck-page-snap-actions .action-menu-panel { z-index: 65; }
+.deck-page-snap-icon-btn { min-width: 0; }
+.deck-version-delta { display: flex; gap: 10px; flex-wrap: wrap; color: var(--text-muted); font-size: 11px; }
+.deck-page-snap-list { gap: 10px; }
+.deck-page-snap-edit { flex-wrap: wrap; min-width: 0; }
+.deck-page-snap-edit input { min-width: 140px; width: 140px; }
+.deck-change-insights { margin-block: 14px; border-block: 1px solid var(--border-color); }
+.deck-change-insights > summary { padding: 14px 0; cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+.deck-reviews { margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border-color); }
+.deck-reviews[hidden] { display: none; }
+.deck-reviews > h2 { margin-bottom: 18px; scroll-margin-top: 24px; }
+.deck-reviews > h2:focus { outline: none; }
+.deck-page-analytics-actions { margin-bottom: 20px; }
+@media (max-width: 640px) {
+  .deck-page-compare > label { min-width: 0; flex-basis: 100%; }
+  .deck-page-compare > .btn { width: 100%; }
+  .deck-page-snap { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+  .deck-page-snap-actions { justify-content: flex-end; }
+  .deck-page-snap-info { width: 100%; }
+  .deck-page-snap-date { white-space: normal; }
+  .deck-full-toolbar > div:first-child { flex: 1; min-width: 180px; }
+  .deck-page-topbar-actions { flex-wrap: wrap; }
+}
+.deck-page-compare select { appearance: none; flex: auto; padding-right: 32px; background-image: linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%), linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+@media (max-width: 640px) { .deck-page-compare { align-items: stretch; } .deck-page-compare > label { width: 100%; flex: auto; } }

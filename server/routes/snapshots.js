@@ -276,15 +276,16 @@ router.get('/:deckId/timeline', (req, res) => {
     if (i > 0) {
       const prevParsed = parse(snapshots[i - 1].deck_text);
       const diff = computeDiff(prevParsed, parsed);
-      let added = 0, removed = 0, changed = 0;
+      let added = 0, removed = 0, changed = 0, printingChanged = 0;
       for (const section of ['mainboard', 'sideboard']) {
         if (diff[section]) {
           added += (diff[section].cardsIn || []).length;
           removed += (diff[section].cardsOut || []).length;
           changed += (diff[section].quantityChanges || []).length;
+          printingChanged += (diff[section].printingChanges || []).length;
         }
       }
-      entry.delta = { added, removed, changed };
+      entry.delta = { added, removed, changed, printingChanged };
     }
 
     entries.push(entry);

@@ -60,6 +60,8 @@ async function apiFetch(path, options = {}) {
 }
 
 // Auth
+export const createLibraryDeck = body => apiFetch('/decks/import', { method: 'POST', body: JSON.stringify(body), timeout: 60_000 });
+
 export const register = (username, password, inviteCode) =>
   apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ username, password, inviteCode: inviteCode || undefined }) });
 
@@ -493,6 +495,7 @@ export const previewPrintPlan = (deckId, options) =>
 export const createPrintJob = (deckId, options) =>
   apiFetch(`/decks/${deckId}/print-jobs`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
 export const getPrintJobs = (deckId) => apiFetch(`/decks/${deckId}/print-jobs`);
+export const getPrintJob = (deckId, jobId) => apiFetch(`/decks/${deckId}/print-jobs/${jobId}`);
 export const queuePrintJob = (deckId, jobId) =>
   apiFetch(`/decks/${deckId}/print-jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
 export const cancelPrintJob = (deckId, jobId) =>
@@ -505,6 +508,7 @@ export const previewStandalonePrintJob = options =>
 export const createStandalonePrintJob = options =>
   apiFetch('/print-lists/jobs', { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
 export const getStandalonePrintJobs = () => apiFetch('/print-lists/jobs');
+export const getStandalonePrintJob = jobId => apiFetch(`/print-lists/jobs/${jobId}`);
 export const queueStandalonePrintJob = jobId =>
   apiFetch(`/print-lists/jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
 export const cancelStandalonePrintJob = jobId =>
@@ -569,8 +573,15 @@ export async function getPrintQueueArtwork(itemId, face, signal) {
   return res.blob();
 }
 // Household station management uses the signed-in user's account, never station credentials.
+export const getPrintBatches = ({ cursor, state = 'all', order = 'queue', limit = 50 } = {}, signal) => {
+  const query = new URLSearchParams({ state, order, limit: String(limit) });
+  if (cursor) query.set('cursor', cursor);
+  return apiFetch(`/print-batches?${query}`, { signal });
+};
 export const getPrintStationStatus = (signal) =>
   apiFetch('/print-station-management/status', { signal, timeout: 10_000 });
+export const cancelHouseholdPrintJob = jobId =>
+  apiFetch(`/print-station-management/jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
 export const sendPrintStationCommand = (command, signal) =>
   apiFetch('/print-station-management/commands', { method: 'POST', body: JSON.stringify(command), signal });
 

@@ -38,7 +38,7 @@ Printing starts **paused**. An existing private configuration is preserved, incl
 driver options and proof flags. A new configuration leaves both proof flags off and requires
 the actual local Epson recipe described below. The service can report setup health without
 being able to print. Set the server's matching `PRINT_STATION_TOKEN` and household user grants
-in the container configuration, then open **Print Station** in CLC for daily operation.
+in the container configuration, then open **Print → Printer** in CLC for daily operation.
 
 The default installation is:
 
@@ -247,7 +247,7 @@ The companion completes ordinary fronts, then handles each packet in this order:
 2. Hold the exact job/packet and show the flip alert. Match its printed label and keep
    unused paper, other decks and previously printed packets separate.
 3. Remove unused blank paper from the rear feeder. Flip/reload only that packet's printed sheet using the physically verified procedure,
-   then **Confirm paper reload** in CLC Print Station (or use the local `resume` control).
+   then **Confirm paper reload** in CLC → Print → Printer (or use the local `resume` control).
 4. Print page 2 as another one-sided pass. Its completion permits the next packet.
    Return blank paper to the rear feeder after the back pass finishes. If the feeder is
    empty, Epson waits for paper for the next front pass; CLC also identifies that front pass.
@@ -265,7 +265,7 @@ to exist on older output.
 
 The Mac requests a notification with the **Glass** sound when a DFC front pass has completed
 and its back is waiting for reload. Notifications are reminders only: opening or dismissing
-one never authorizes printing. CLC Print Station remains the persistent place to inspect
+one never authorizes printing. Print → Printer remains the persistent place to inspect
 and confirm the exact waiting packet, including while paused.
 
 These options belong in the current Mac user's private mode-0600 `config.json`:
@@ -284,12 +284,15 @@ driver or state settings. The two flags require JSON booleans and default to `tr
 omitted. Set `refeed_sound` to `false` for a silent Mac notification or
 `refeed_notifications` to `false` to disable Mac notifications.
 
-Administrators can connect Discord from **CLC → Print Station → Discord flip alerts**.
+Administrators can connect Discord from **CLC → Print → Printer → Discord printer alerts**.
 Save a channel webhook and optional user ID, wait for the Mac to acknowledge the settings,
 then use **Send test**. **Disconnect** stores an explicit disabled override so an older
 webhook in `config.json` cannot reactivate it. The Mac ledger stores managed settings
 privately; keep it in the existing protected state directory and include it in backups.
 The server only delivers fixed configuration/test commands; the Mac sends the notification.
+Discord flip, printer-error and test messages use the webhook name **Proxy Balboa** and
+brief Rocky-inspired phrasing (such as “Yo, champ!”). Packet labels, sheet counts, errors
+and reload instructions remain explicit. Native Mac notifications keep plain wording.
 An ambiguous test is not automatically replayed. A new button click is a deliberate new test.
 Older companions show setup as unavailable until updated. Rolling back below 2.49.0
 also ignores managed overrides: an older webhook still present in `config.json` would
@@ -409,7 +412,7 @@ on the configured CLC origin. [CUPS command options](https://www.cups.org/doc/op
 
 ### CLC station controls
 
-Open **Print Station** in CLC to see this Mac's heartbeat, printer check, version, proof
+Open **Print → Printer** in CLC to see this Mac's heartbeat, printer check, version, proof
 flags, active batch and recent events. Authorized household print users can pause/unpause
 and confirm the exact waiting DFC batch has been flipped and reloaded. Administrators have
 version controls when a managed installation is available; a source checkout reports those
@@ -441,3 +444,23 @@ permissions. Where `ipptool` exists, one test runs only that read-only command a
 disposable loopback IPP fixture to validate the actual native plist contract. No test sends
 anything to cupsd or a real printer. The suite also runs on Linux CI without CUPS installed;
 the native IPP test is skipped when `/usr/bin/ipptool` is unavailable or not executable.
+
+## Printer-error alerts (2.53.0+)
+
+The same Mac/Discord connection used for flips also reports printer errors from structured
+local CUPS status and the active CLC pass. Paper empty/jam, stopped/held/aborted passes,
+reported offline/filter faults and repeated status-read failures identify the batch and
+pass that needs attention. Status checks run about once a minute. Unknown Epson warning
+codes are displayed as unconfirmed status; low-supply warnings alone do not send alerts.
+Driver/CUPS visibility and an awake Mac are required.
+
+Each fault/channel is reserved in SQLite before delivery and suppressed across repeats,
+restarts and ambiguous responses. A healthy read ends the episode, allowing notification
+of a later recurrence. No alert pauses, resumes or retries a print. The new fixed
+`get-printer.test` and `clc_printer_health.py` are included and verified in new bundles;
+older version packages retain their existing validation rules for rollback.
+
+CLC's Printer page shows batches saved in CLC as well as actual Epson-spooled passes.
+Administrators see all household batches and can cancel jobs that have not begun submission.
+Multiple queued batches are allowed. Native protocol requests have a separate authenticated
+rate budget so browser traffic cannot starve heartbeats and reconciliation.

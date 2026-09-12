@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getAdminStats, getAdminAuditLog, downloadBackup, downloadUsersExport, adminBulkSuspend, adminCleanupTokens, adminCleanupAuditLog } from '../../lib/api';
-import { useConfirm } from '../ConfirmModal';
+import { getAdminStats, getAdminAuditLog } from '../../lib/api';
 import { toast } from '../Toast';
 
 function formatBytes(bytes) {
@@ -37,8 +36,6 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [recentAudit, setRecentAudit] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [cleanupDays, setCleanupDays] = useState(90);
-  const [confirm, ConfirmDialog] = useConfirm();
   const intervalRef = useRef(null);
 
   function loadData() {
@@ -62,67 +59,12 @@ export default function AdminDashboard() {
     return () => clearInterval(intervalRef.current);
   }, []);
 
-  async function handleBackup() {
-    try {
-      await downloadBackup();
-      toast.success('Backup downloaded');
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleExportUsers() {
-    try {
-      await downloadUsersExport();
-      toast.success('Users exported');
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleCleanupTokens() {
-    try {
-      const data = await adminCleanupTokens();
-      toast.success(`Cleaned up ${data.removed} expired tokens`);
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleCleanupAuditLog() {
-    try {
-      const data = await adminCleanupAuditLog(cleanupDays);
-      toast.success(`Removed ${data.removed} audit entries older than ${cleanupDays}d`);
-      loadData();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleEmergencyLockdown() {
-    const confirmed = await confirm({
-      title: 'Emergency Lockdown',
-      message: 'This will immediately suspend ALL non-admin users. They will be logged out and unable to log in until unsuspended.',
-      confirmLabel: 'Suspend All Users',
-      danger: true,
-    });
-    if (!confirmed) return;
-    try {
-      const data = await adminBulkSuspend();
-      toast.success(`Lockdown active — ${data.count} users suspended`);
-      loadData();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
   if (loading && !stats) return <p className="admin-empty">Loading...</p>;
 
   return (
     <div>
-      {ConfirmDialog}
       <div className="admin-dashboard-header">
-        <h3>Dashboard</h3>
+        <h3>Overview</h3>
         <button
           className="btn btn-secondary btn-sm admin-refresh-btn"
           onClick={loadData}
@@ -203,48 +145,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Maintenance Section */}
-      <div>
-        <h4 style={{ margin: '24px 0 12px', fontSize: 14, color: 'var(--text-secondary)', fontWeight: 600 }}>
-          Maintenance
-        </h4>
-        <div className="admin-maintenance">
-          <div className="admin-maintenance-row">
-            <button className="btn btn-secondary btn-sm" type="button" onClick={handleBackup}>
-              Download Backup
-            </button>
-            <button className="btn btn-secondary btn-sm" type="button" onClick={handleExportUsers}>
-              Export Users CSV
-            </button>
-            <button className="btn btn-secondary btn-sm" type="button" onClick={handleCleanupTokens}>
-              Cleanup Expired Tokens
-            </button>
-          </div>
-          <div className="admin-maintenance-row">
-            <div className="admin-maintenance-input-group">
-              <button className="btn btn-secondary btn-sm" type="button" onClick={handleCleanupAuditLog}>
-                Cleanup Audit Log
-              </button>
-              <input
-                type="number"
-                min="1"
-                max="365"
-                value={cleanupDays}
-                onChange={e => setCleanupDays(parseInt(e.target.value, 10) || 90)}
-                className="admin-maintenance-days-input"
-                title="Days to keep"
-              />
-              <span className="admin-maintenance-label">days</span>
-            </div>
-          </div>
-          <div className="admin-maintenance-row admin-maintenance-danger">
-            <button className="btn btn-secondary btn-sm btn-danger" type="button" onClick={handleEmergencyLockdown}>
-              Emergency Lockdown
-            </button>
-            <span className="admin-maintenance-label">Suspend all non-admin users immediately</span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

@@ -73,6 +73,62 @@ function seedJob(state = 'awaiting_refeed', steps = [
 }
 
 describe('household station access and telemetry', () => {
+  it('shows every persisted household queue entry in scheduler order without private plans or cross-owner links', async () => {
+    const first = seedJob('queued'), second = seedJob('queued'), active = seedJob('submitted'), preparing = seedJob('preparing');
+    const unrelated = [seedJob('preparing'), seedJob('ready'), seedJob('submitted')];
+    db.run('UPDATE print_jobs SET queued_at = ?, user_id = 2, tracked_deck_id = NULL WHERE id = ?', ['2026-09-10T10:00:00Z', first]);
+    db.run('UPDATE print_jobs SET queued_at = ? WHERE id = ?', ['2026-09-10T11:00:00Z', second]);
+    db.run('UPDATE print_jobs SET queue_requested = 1, station_id = NULL, queued_at = NULL WHERE id = ?', [preparing]);
+    db.run('UPDATE print_jobs SET station_id = ? WHERE id = ?', ['another-station', unrelated[2]]);
+    const privatePlan = { deckName: 'Jin Sakai', totalCopies: 100, list: { text: 'private card text' }, comparison: { beforeText: 'private baseline' }, token: 'never-expose-fixture' };
+    db.run('UPDATE print_jobs SET plan_json = ? WHERE id = ?', [JSON.stringify(privatePlan), first]);
+    const before = readFileSync(join(dir, 'db.sqlite'));
+    const result = await status(), body = await result.json();
+    expect(result.headers.get('cache-control')).toBe('private, no-store');
+    expect(body.jobs.pending.map(job => job.id)).toEqual([active, first, second, preparing]);
+    expect(body.jobs.pending[1]).toMatchObject({ id: first, deckName: 'Jin Sakai', totalCopies: 100, canOpen: false });
+    expect(body.jobs.pending[1]).not.toHaveProperty('deckId');
+    expect(body.jobs.pending[2]).toMatchObject({ canOpen: true, deckId: 1 });
+    expect(Object.keys(body.jobs.pending[1]).sort()).toEqual(['id', 'deckName', 'totalCopies', 'state', 'createdAt', 'queuedAt', 'completedAt', 'canOpen', 'canCancel'].sort());
+    for (const secret of ['private card text', 'private baseline', 'never-expose-fixture', 'manifest_json', 'claimToken', 'downloadUrl']) expect(JSON.stringify(body.jobs)).not.toContain(secret);
+    expect((await (await status(2)).json()).jobs.pending[1]).toMatchObject({ canOpen: true, deckId: null });
+    for (const user of [3, 4]) { const denied = await status(user); expect(denied.status).toBe(403); expect(await denied.json()).not.toHaveProperty('jobs'); }
+    expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(before);
+  });
+
+  it('keeps the saved queue visible when the companion disconnects or the server loses its heartbeat', async () => {
+    const queued = seedJob('queued'), active = seedJob('submitted');
+    await beat(heartbeat({ activeJob: { id: active, state: 'submitted', artifactId: 'fronts', phase: 'fronts' } }));
+    const initial = await (await status()).json();
+    expect(initial.jobs.pending.map(job => job.id)).toEqual([active, queued]);
+    vi.setSystemTime(instant + 25001);
+    expect((await (await status()).json()).station.online).toBe(false);
+    management.resetPrintStationManagement();
+    const restarted = await (await status()).json();
+    expect(restarted.station.activeJob).toBeNull();
+    expect(restarted.jobs).toEqual(initial.jobs);
+    await beat();
+    expect((await (await status()).json()).jobs).toEqual(initial.jobs);
+    expect(db.all('SELECT id, state FROM print_jobs ORDER BY id')).toEqual([{ id: active, state: 'submitted' }, { id: queued, state: 'queued' }].sort((a, b) => a.id.localeCompare(b.id)));
+  });
+
+  it('limits finished station history, includes canceled waiting batches, and excludes download-only jobs', async () => {
+    const completed = [];
+    for (let n = 0; n < 22; n += 1) {
+      const id = seedJob('completed'); completed.push(id);
+      db.run('UPDATE print_jobs SET completed_at = ? WHERE id = ?', [new Date(instant + n * 1000).toISOString(), id]);
+    }
+    const canceled = seedJob('canceled'), downloadOnly = seedJob('failed');
+    db.run('UPDATE print_jobs SET station_id = NULL, queue_requested = 0, completed_at = ? WHERE id = ?', [new Date(instant + 30000).toISOString(), canceled]);
+    db.run('UPDATE print_jobs SET station_id = NULL, queue_requested = 0, queued_at = NULL WHERE id = ?', [downloadOnly]);
+    const jobs = (await (await status()).json()).jobs;
+    expect(jobs.pending).toEqual([]);
+    expect(jobs.recent).toHaveLength(20);
+    expect(jobs.recent[0]).toMatchObject({ id: canceled, state: 'canceled' });
+    expect(jobs.recent[1].id).toBe(completed[21]);
+    expect(jobs.recent.some(job => job.id === downloadOnly)).toBe(false);
+  });
+
   it('uses real user authentication, live DB authorization and separate station credentials', async () => {
     expect((await request('/api/print-station-management/status', { token: null })).status).toBe(401);
     expect((await status(3)).status).toBe(403); expect((await status(4)).status).toBe(403);
@@ -137,6 +193,63 @@ describe('household station access and telemetry', () => {
       expect((await beat(body)).status).toBe(400);
     }
     expect((await beat(heartbeat({ events: [{ ...event, message: 'Changed' }] }))).status).toBe(409);
+  });
+});
+
+describe('administrator cancellation of waiting household batches', () => {
+  const cancel = (id, user = 1) => request(`/api/print-station-management/jobs/${id}/cancel`, { method: 'POST', body: {}, token: tokens[user] });
+
+  it('cancels only the named unsubmitted batch, keeps artifacts, and replays cancellation without another effect', async () => {
+    const untouched = seedJob('queued', []);
+    for (const state of ['preparing', 'ready', 'queued', 'claimed']) {
+      const id = seedJob(state, [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
+      db.run('UPDATE print_jobs SET user_id = 2, tracked_deck_id = NULL, queue_requested = 1 WHERE id = ?', [id]);
+      const before = db.get('SELECT plan_json, manifest_json FROM print_jobs WHERE id = ?', [id]);
+      const response = await cancel(id), body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      expect(db.get('SELECT state, station_id FROM print_jobs WHERE id = ?', [id])).toEqual({ state: 'canceled', station_id: 'household' });
+      expect(db.get('SELECT plan_json, manifest_json FROM print_jobs WHERE id = ?', [id])).toEqual(before);
+      expect(existsSync(join(dir, 'jobs', id, 'fronts.pdf'))).toBe(true);
+      expect(body.jobs.recent.find(job => job.id === id)).toMatchObject({ state: 'canceled', canCancel: false, canOpen: false });
+      expect(JSON.stringify(body.jobs)).not.toContain('downloadUrl');
+      const saved = readFileSync(join(dir, 'db.sqlite'));
+      vi.setSystemTime(Date.now() + 1000);
+      expect((await cancel(id)).status).toBe(200);
+      expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(saved);
+    }
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [untouched]).state).toBe('queued');
+    expect(db.get('SELECT COUNT(*) n FROM print_station_commands').n).toBe(0);
+    expect(db.get('SELECT COUNT(*) n FROM print_station_events').n).toBe(4);
+  });
+
+  it('requires a current administrator and does not expose or cancel another station or a download-only batch', async () => {
+    const id = seedJob('queued', []);
+    expect((await request(`/api/print-station-management/jobs/${id}/cancel`, { method: 'POST', token: null })).status).toBe(401);
+    for (const user of [2, 3, 4]) expect((await cancel(id, user)).status).toBe(403);
+    expect((await (await status(2)).json()).jobs.pending.find(job => job.id === id).canCancel).toBe(false);
+    db.run('UPDATE users SET is_admin = 0 WHERE id = 1');
+    expect((await cancel(id)).status).toBe(403);
+    db.run('UPDATE users SET is_admin = 1 WHERE id = 1');
+    const other = seedJob('queued', []); db.run('UPDATE print_jobs SET station_id = ? WHERE id = ?', ['other-station', other]);
+    expect((await cancel(other)).status).toBe(404);
+    const onlyPdf = seedJob('preparing', []); db.run('UPDATE print_jobs SET station_id = NULL, queued_at = NULL WHERE id = ?', [onlyPdf]);
+    expect((await cancel(onlyPdf)).status).toBe(404);
+    expect((await cancel('invalid')).status).toBe(400);
+    expect((await cancel(crypto.randomUUID())).status).toBe(404);
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [id]).state).toBe('queued');
+  });
+
+  it('rejects a submission race and every partially printed or uncertain batch without changing its paper state', async () => {
+    const id = seedJob('queued', [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
+    expect((await (await status()).json()).jobs.pending.find(job => job.id === id).canCancel).toBe(true);
+    for (const [state, stepState] of [['submitting', 'submitting'], ['submitted', 'submitted'], ['awaiting_refeed', 'pending'], ['uncertain', 'uncertain'], ['claimed', 'completed']]) {
+      db.run('UPDATE print_jobs SET state = ?, steps_json = ? WHERE id = ?', [state, JSON.stringify([{ artifactId: 'fronts', phase: 'fronts', state: stepState }]), id]);
+      const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [id]);
+      expect((await cancel(id)).status).toBe(409);
+      expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [id])).toEqual(before);
+    }
+    expect(db.get('SELECT COUNT(*) n FROM print_station_commands').n).toBe(0);
+    expect(db.get('SELECT COUNT(*) n FROM print_station_events').n).toBe(0);
   });
 });
 

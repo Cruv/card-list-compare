@@ -9,13 +9,12 @@
 
 **Decision.** The database is **sql.js** (SQLite compiled to WASM, held fully in memory),
 persisted to a single file. Not better-sqlite3, not a native module.
-**Why.** Zero native build step — the image is a plain `node:22-alpine` with no compiler
-toolchain, and the DB is one portable file that bind-mounts to the host for trivial backup.
+**Why.** Zero native build step — the DB needs no native addon build and is one portable file that bind-mounts to the host for trivial backup.
 **Cost.** Every write serializes the **entire** database to disk (`persist()` after each
-`run()`), so there are no partial writes and no cross-statement transactions. The whole-file
-rewrite is the accepted cost; it is made crash-safe by an atomic temp+fsync+rename with
+`run()`). `runTransaction()` groups related statements, persists once, and restores memory
+on failure. The whole-file rewrite is the accepted cost; it is made crash-safe by an atomic temp+fsync+rename with
 `.bak` recovery (v2.40.3). See INVARIANTS.md #1 — the most dangerous code in the repo.
-**Where.** `server/db.js` (`persist`, `loadDatabase`, `backupDb`, `run`); pinned by
+**Where.** `server/db.js` (`persist`, `loadDatabase`, `backupDb`, `run`, `runTransaction`); pinned by
 `server/db.persist.test.js`.
 
 ## D2 — Deck text is the product's data contract
@@ -168,7 +167,7 @@ explicit confirmation for the exact waiting job/packet permits its one-sided bac
 the next packet waits until that pass completes. The wait remains visible while paused.
 Default Mac notifications with Glass sound and optional Discord delivery are reminders,
 never print authorization. Dismissal and delivery failure cannot resume a job. Administrators
-configure Discord from Print Station using fixed configure/test commands; delivery stays
+configure Discord from Print → Printer using fixed configure/test commands; delivery stays
 on the Mac. Pending server secrets are encrypted, browser recovery stores only a UUID,
 and the private Mac ledger atomically stores settings and command receipts. Disconnect
 overrides older local config. Only the configured user ID can be mentioned. Tests bind to
@@ -308,19 +307,36 @@ ManaSync holdings. The source panel explains the distinction and exposes the thr
 The real two-server bridge harness also checks refresh after accepted ManaSync changes.
 
 
-## D12 — One responsive workspace and a guided ManaSync connection
+## D12 — Organize the workspace by task, with one home for each capability
 
-**Decision.** Use a shared desktop sidebar and mobile bottom navigation for every hash
-route, with account authentication and theme controls in the same header. Compare,
-library, print studio and station are primary destinations; Connections, Guide, Account
-and Administration are available in the mobile More drawer. Keep every existing deck
-section, export and recovery action. Commander art uses the existing batched Scryfall
-metadata/cache; full-card previews retain exact printing identity.
+**Decision (revised 2026-09-12).** The owner explicitly authorized replacing previous UI
+organization decisions. Preserve capabilities and durable recovery, rather than retaining
+every old tab. Main navigation is **Compare / Decks / Print**. Print has New print list
+and Printer destinations. A deck has **Cards / Changes / Print / Settings**. Cards includes
+insights; Changes combines the comparison and version history, Archidekt review and
+ManaSync proposals. Source status becomes a compact attention link outside that view.
 
-**Why.** Separate page-specific navigation and long settings forms made the print journey
-hard to discover. A consistent shell, focused review steps and expandable secondary tools
-make the main task visible without removing advanced workflows. The drawer unmounts when
-crossing to desktop width so a hidden modal cannot trap focus or lock scrolling.
+Library **Add decks** shows untracked decks and accepts a pasted list or link to start
+tracking. Before/After inputs belong only in Compare. Its saved-version picker is read-only;
+version management belongs in the deck and saving a new version is one explicit action.
+Secondary exports use one accessible disclosure menu rather than repeated toolbar rows.
+
+Print has **Prepare / Batches**, with Choose cards and Review inside Prepare. History is
+explicitly scoped to the current deck or standalone print lists. The current job/packet
+has one attention card on Printer; Discord, recipe and software controls are secondary
+settings. Inventory-only entries are **manual print records**, never a second print queue.
+Owned, incoming and unknown collection states retain their existing meaning.
+
+Connections separates collection access from optional deck sharing by direction. Account
+owns personal settings/invitations; Administration separates informational Overview from
+Users, All invitations, App settings, Shared links, Audit log and System maintenance.
+The Guide has seven task topics with aliases for old topic links.
+
+**Why.** Duplicate homes and inconsistent words obscured whether an action changes a deck,
+prepares paper, queues a printer or records inventory. Capabilities now sit beside the task
+they support. Public/read-only access, exact printing metadata, confirmation boundaries,
+retry identities and preserved drafts remain requirements. The desktop sidebar and mobile
+bottom navigation share this structure; drawer/modal focus safety remains unchanged.
 
 **ManaSync boundary.** Default to the actual hosted app, `https://manasync.net`, and guide
 users through its existing personal app tokens. Collection authorization is created in

@@ -1,0 +1,14 @@
+# Read-only local CUPS health. This file must never contain a printer mutation.
+{
+  NAME "CLC local printer status"
+  OPERATION Get-Printer-Attributes
+  GROUP operation-attributes-tag
+  ATTR charset attributes-charset utf-8
+  ATTR language attributes-natural-language en
+  ATTR uri printer-uri $uri
+  ATTR keyword requested-attributes printer-state,printer-state-reasons,printer-state-message,printer-is-accepting-jobs
+  STATUS successful-ok
+  EXPECT printer-state
+  EXPECT printer-state-reasons
+  EXPECT printer-is-accepting-jobs
+}

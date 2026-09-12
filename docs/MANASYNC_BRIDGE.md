@@ -120,11 +120,11 @@ OAuth/pairing flow; the guide reflects that actual contract.
 
 ## Ownership and buying originals
 
-After **Review print list** in the Printing tab or Print studio, the selected print list
+After **Review print list** in the Print tab or standalone print lists, the selected print list
 shows ManaSync ownership. Expand **Buy missing originals** to find the
 **Review missing cards in Mana Pool** link. Whole-snapshot, changes,
 and sideboard choices use the reviewed print quantities. Printing remains available whether
-you own the cards or choose to shop. The same check is available in Full Deck under
+you own the cards or choose to shop. The same check is available in Cards under
 **Ownership & shopping → ManaSync ownership and Mana Pool shopping**.
 One original in any printing covers unlimited proxy copies across all decks. CLC checks
 logical-card ownership and identifies incoming originals; it does not compare print
@@ -156,11 +156,12 @@ refreshes the result and stops requesting quantities that were resolved in ManaS
 Lost responses replay the same saved decision. Conflicting decisions from two clients require
 fresh review of the current pending revision before any further inventory mutation.
 
-### Separate manual confirmation lists
+### Manual print records
 
-Use **Queue full deck for printing** or a per-card Queue button to keep a confirmation list
-in CLC across restarts. Prepare PDFs and native Mac jobs in the separate Print panel, or use
-the image/MPCFill tools. This confirmation list does not submit a physical print job.
+Use **Record a manual print** in a deck to record copies made outside a CLC PDF batch.
+**Manual print records** retain these entries and their confirmation/retry history across
+restarts. These controls do not generate PDFs or submit a physical print job. Use the deck
+**Print** view for actual PDF jobs; its batches have their own **Confirm usable copies** action.
 Downloading images, generating XML/ZIP/PDF files, queueing jobs, and Mac spooler completion
 never acquire inventory. Confirm only usable physical copies after checking the output.
 

@@ -1,9 +1,10 @@
 /** Household station controls. No executable paths, printer options or arbitrary commands. */
 import crypto from 'node:crypto';
 import { all, get, runTransaction } from '../db.js';
-import { printCapabilities, claimPrintJob, formatPrintJob, assertStationArtifactCapacity } from './printQueue.js';
+import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, assertStationArtifactCapacity } from './printQueue.js';
 import { printError, sha256 } from './printQueuePlan.js';
 import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } from './printStationNotifications.js';
+import { canCancelHouseholdBatch } from './printBatchHistory.js';
 
 const STATION = 'household';
 export const STATION_ONLINE_MS = 20_000;
@@ -83,6 +84,37 @@ function requireControl(userId, type) {
 }
 function activeServerJob() {
   return get(`SELECT * FROM print_jobs WHERE station_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY queued_at, created_at, id LIMIT 1`, [STATION, ...ACTIVE_STATES]);
+}
+
+function unsubmittedJob(row) {
+  return ['preparing', 'ready', 'queued', 'claimed'].includes(row.state)
+    && JSON.parse(row.steps_json || '[]').every(step => step.state === 'pending');
+}
+
+function householdPrintJobs(userId, canManage = false) {
+  // This is the persisted CLC queue, separate from the Mac's latest heartbeat.
+  // Do not expose formatPrintJob here: it includes private plan/artifact data.
+  const summary = row => {
+    const plan = JSON.parse(row.plan_json);
+    const canOpen = row.user_id === userId;
+    return { id: row.id, deckName: typeof plan.deckName === 'string' ? plan.deckName.slice(0, 200) : 'Card batch',
+      totalCopies: Number.isSafeInteger(plan.totalCopies) ? plan.totalCopies : 0,
+      state: row.state, createdAt: row.created_at, queuedAt: row.queued_at,
+      completedAt: row.completed_at, canOpen, canCancel: canManage && !!canCancelHouseholdBatch(row),
+      ...(canOpen ? { deckId: row.tracked_deck_id } : {}) };
+  };
+  const activePlaceholders = ACTIVE_STATES.map(() => '?').join(',');
+  const pending = all(`SELECT * FROM print_jobs
+    WHERE (station_id = ? AND state IN (${activePlaceholders}))
+      OR (state = 'queued' AND (station_id IS NULL OR station_id = ?))
+      OR (state = 'preparing' AND queue_requested = 1 AND (station_id IS NULL OR station_id = ?))
+    ORDER BY CASE WHEN state IN (${activePlaceholders}) THEN 0 WHEN state = 'queued' THEN 1 ELSE 2 END,
+      queued_at, created_at, id`, [STATION, ...ACTIVE_STATES, STATION, STATION, ...ACTIVE_STATES]).map(summary);
+  const recent = all(`SELECT * FROM print_jobs
+    WHERE state IN ('completed', 'failed', 'canceled', 'expired')
+      AND (station_id = ? OR (station_id IS NULL AND (queue_requested = 1 OR queued_at IS NOT NULL)))
+    ORDER BY COALESCE(completed_at, updated_at) DESC, created_at DESC, id DESC LIMIT 20`, [STATION]).map(summary);
+  return { pending, recent };
 }
 function firstBack(jobId, snapshot) {
   if (!snapshot?.activeJob || snapshot.activeJob.id !== jobId || snapshot.activeJob.state !== 'awaiting_refeed') return null;
@@ -177,9 +209,29 @@ export function printStationStatus(userId) {
     recipeFingerprint: latest?.recipeFingerprint || null, activeJob: active,
     health: live ? latest.health : { ok: false, message: lastSeen === null ? 'Station has not connected since server startup' : 'Station is offline' },
     update: latest?.update || null, discord: latest?.discord || discordTelemetry(null),
-  }, permissions: access,
+  }, permissions: access, jobs: householdPrintJobs(userId, access.canUpdate),
   commands: all('SELECT * FROM print_station_commands WHERE station_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 20', [STATION]).map(publicCommand),
   events: all('SELECT id, at, level, message FROM print_station_events ORDER BY received_at DESC, rowid DESC LIMIT 50') };
+}
+
+export function cancelHouseholdPrintJob(userId, jobId) {
+  const access = requireControl(userId);
+  if (!access.canUpdate) throw printError('Only an administrator can cancel household batches here', 403);
+  if (!UUID.test(jobId)) throw printError('Invalid print batch ID');
+  const row = get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+  if (!row || (row.station_id !== STATION && !(row.station_id === null && (row.queue_requested || row.queued_at)))) {
+    throw printError('Household print batch not found', 404);
+  }
+  if (row.state === 'canceled') return printStationStatus(userId);
+  if (!unsubmittedJob(row)) throw printError('This batch may have printed pages already. Check and cancel its submission at the Mac before reconciling it.', 409);
+  // Keep the shared cancellation guard and abort any running PDF generation.
+  // This does not send a native command or attempt to cancel a CUPS submission.
+  cancelPrintJob(row.user_id, row.tracked_deck_id, row.id);
+  commit([
+    statement("UPDATE print_jobs SET station_id = ? WHERE id = ? AND state = 'canceled'", [STATION, row.id]),
+    eventStatement('info', `Administrator canceled queued batch ${row.id}`),
+  ]);
+  return printStationStatus(userId);
 }
 
 function commandInput(body) {

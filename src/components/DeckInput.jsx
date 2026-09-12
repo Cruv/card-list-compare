@@ -1,12 +1,11 @@
 import { useRef, useState, useEffect, useCallback, useId } from 'react';
 import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
-import { getTrackedDecks, getDeckSnapshots, getSnapshot, refreshDeck, deleteSnapshot as apiDeleteSnapshot, renameSnapshot, createSnapshot } from '../lib/api';
+import { getTrackedDecks, getDeckSnapshots, getSnapshot, createSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
-import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import Icon from './Icon';
 import './DeckInput.css';
-import { sourceRefreshFeedback, sourceStatusLabel } from '../lib/sourceSync';
+import { sourceStatusLabel } from '../lib/sourceSync';
 import './SourceSyncReview.css';
 
 const INITIAL_SNAP_LIMIT = 5;
@@ -31,9 +30,10 @@ function siteLabel(site) {
   return site;
 }
 
-export default function DeckInput({ label, value, onChange, user }) {
+export default function DeckInput({ label, caption, value, onChange, user }) {
   const fileRef = useRef(null);
   const textRef = useRef(null);
+  const snapshotRequest = useRef(0);
   const inputId = useId();
   const [urlInput, setUrlInput] = useState('');
   const [showUrl, setShowUrl] = useState(false);
@@ -47,16 +47,9 @@ export default function DeckInput({ label, value, onChange, user }) {
   const [expandedDeckId, setExpandedDeckId] = useState(null);
   const [deckSnapshots, setDeckSnapshots] = useState([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
-  const [refreshingDeckId, setRefreshingDeckId] = useState(null);
 
-  // Nickname editing state
-  const [editingNickname, setEditingNickname] = useState(null);
-  const [nicknameValue, setNicknameValue] = useState('');
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
-
-  // Save-to-tracked prompt state (auto-prompt after URL import)
-  const [savePrompt, setSavePrompt] = useState(null);
-  const [selectedSaveDeck, setSelectedSaveDeck] = useState(null);
+  const [importedList, setImportedList] = useState(null);
 
   // Manual save-to-tracked panel state
   const [showSavePanel, setShowSavePanel] = useState(false);
@@ -65,8 +58,6 @@ export default function DeckInput({ label, value, onChange, user }) {
   const [savePanelSaving, setSavePanelSaving] = useState(false);
   const [savePanelSelected, setSavePanelSelected] = useState(null);
   const [savePanelNickname, setSavePanelNickname] = useState('');
-
-  const [confirm, ConfirmDialog] = useConfirm();
 
   const closeAllPanels = useCallback(() => {
     setShowUrl(false);
@@ -82,7 +73,7 @@ export default function DeckInput({ label, value, onChange, user }) {
     reader.onload = (ev) => {
       onChange(ev.target.result);
       setError(null);
-      setSavePrompt(null);
+      setImportedList(null);
     };
     reader.onerror = () => {
       setError('Failed to read file. Please try again.');
@@ -108,9 +99,9 @@ export default function DeckInput({ label, value, onChange, user }) {
   async function importFromUrl(url) {
     setLoading(true);
     setError(null);
-    setSavePrompt(null);
+    setImportedList(null);
     try {
-      const { text, site, commanders, stats } = await fetchDeckFromUrl(url);
+      const { text, site, stats } = await fetchDeckFromUrl(url);
       onChange(text);
       setShowUrl(false);
       setUrlInput('');
@@ -125,19 +116,7 @@ export default function DeckInput({ label, value, onChange, user }) {
         }
       }
 
-      // Check for tracked deck commander match
-      if (user && commanders && commanders.length > 0) {
-        try {
-          const data = await getTrackedDecks();
-          const matches = findMatchingDecks(commanders, data.decks);
-          if (matches.length > 0) {
-            setSavePrompt({ text, site, commanders, matchingDecks: matches });
-            setSelectedSaveDeck(matches[0].id);
-          }
-        } catch {
-          // Non-fatal — just skip the prompt
-        }
-      }
+      setImportedList({ text, site });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -159,24 +138,11 @@ export default function DeckInput({ label, value, onChange, user }) {
     }
   }
 
-  async function handleSaveToTracked() {
-    if (!savePrompt || !selectedSaveDeck) return;
-    const deck = savePrompt.matchingDecks.find(d => d.id === selectedSaveDeck);
-    const nickname = `Imported from ${siteLabel(savePrompt.site)}`;
-    try {
-      await createSnapshot(selectedSaveDeck, savePrompt.text, nickname);
-      toast.success(`Snapshot saved to ${deck?.deck_name || 'tracked deck'}`);
-      setSavePrompt(null);
-    } catch (err) {
-      toast.error(err.message || 'Failed to save snapshot');
-    }
-  }
-
   async function handleOpenSavePanel() {
     if (!value.trim()) return;
     setShowSavePanel(true);
     setSavePanelLoading(true);
-    setSavePanelNickname('');
+    setSavePanelNickname(importedList?.text === value ? `Imported from ${siteLabel(importedList.site)}` : '');
     try {
       const data = await getTrackedDecks();
       const allDecks = data.decks || [];
@@ -244,24 +210,24 @@ export default function DeckInput({ label, value, onChange, user }) {
   }, [showTracked, loadTrackedDecks]);
 
   async function handleExpandDeck(deckId) {
+    const request = ++snapshotRequest.current;
     if (expandedDeckId === deckId) {
       setExpandedDeckId(null);
       setDeckSnapshots([]);
       setShowAllSnapshots(false);
-      setEditingNickname(null);
       return;
     }
     setExpandedDeckId(deckId);
+    setDeckSnapshots([]);
     setShowAllSnapshots(false);
-    setEditingNickname(null);
     setSnapshotsLoading(true);
     try {
       const data = await getDeckSnapshots(deckId);
-      setDeckSnapshots(data.snapshots);
+      if (request === snapshotRequest.current) setDeckSnapshots(data.snapshots);
     } catch {
-      setError('Failed to load snapshots');
+      if (request === snapshotRequest.current) setError('Failed to load versions');
     } finally {
-      setSnapshotsLoading(false);
+      if (request === snapshotRequest.current) setSnapshotsLoading(false);
     }
   }
 
@@ -272,7 +238,7 @@ export default function DeckInput({ label, value, onChange, user }) {
       onChange(data.snapshot.deck_text);
       setShowTracked(false);
       setExpandedDeckId(null);
-      setSavePrompt(null);
+      setImportedList(null);
     } catch {
       setError('Failed to load snapshot');
     } finally {
@@ -280,109 +246,50 @@ export default function DeckInput({ label, value, onChange, user }) {
     }
   }
 
-  async function handleRefreshDeck(e, deckId) {
-    e.stopPropagation();
-    setRefreshingDeckId(deckId);
-    try {
-      const result = await refreshDeck(deckId);
-      const feedback = sourceRefreshFeedback(result);
-      toast(feedback.message, feedback.tone);
-      if (expandedDeckId === deckId) {
-        const data = await getDeckSnapshots(deckId);
-        setDeckSnapshots(data.snapshots);
-      }
-      const decksData = await getTrackedDecks();
-      setTrackedDecks(decksData.decks);
-    } catch (err) {
-      toast.error(err.message || 'Failed to refresh deck');
-    } finally {
-      setRefreshingDeckId(null);
-    }
-  }
-
-  async function handleDeleteSnapshot(e, deckId, snapshotId) {
-    e.stopPropagation();
-    const confirmed = await confirm({
-      title: 'Delete snapshot?',
-      message: 'This snapshot will be permanently deleted.',
-      confirmLabel: 'Delete',
-      danger: true,
-    });
-    if (!confirmed) return;
-    try {
-      await apiDeleteSnapshot(deckId, snapshotId);
-      toast.success('Snapshot deleted');
-      const data = await getDeckSnapshots(deckId);
-      setDeckSnapshots(data.snapshots);
-      const decksData = await getTrackedDecks();
-      setTrackedDecks(decksData.decks);
-    } catch (err) {
-      toast.error(err.message || 'Failed to delete snapshot');
-    }
-  }
-
-  async function handleSaveNickname(deckId, snapshotId) {
-    try {
-      await renameSnapshot(deckId, snapshotId, nicknameValue || null);
-      setEditingNickname(null);
-      toast.success('Nickname saved');
-      const data = await getDeckSnapshots(deckId);
-      setDeckSnapshots(data.snapshots);
-    } catch (err) {
-      toast.error(err.message || 'Failed to save nickname');
-    }
-  }
-
   function formatDate(iso) {
     if (!iso) return '';
-    return new Date(iso + 'Z').toLocaleString();
+    return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : iso + 'Z').toLocaleString();
   }
 
   return (
     <div className="deck-input">
-      {ConfirmDialog}
       <div className="deck-input-header">
         <div className="deck-input-heading">
           <label className="deck-input-label" htmlFor={inputId}>{label}</label>
-          <span className="deck-input-caption">Paste a list or import your deck</span>
+          <span className="deck-input-caption">{caption || 'Paste deck text or a deck URL'}</span>
         </div>
         {user && value.trim() && (
           <button
             className={`deck-input-btn deck-input-save-toggle${showSavePanel ? ' deck-input-btn--active' : ''}`}
             onClick={() => {
               if (showSavePanel) setShowSavePanel(false);
-              else { closeAllPanels(); setSavePrompt(null); handleOpenSavePanel(); }
+              else { closeAllPanels(); handleOpenSavePanel(); }
             }}
             type="button"
             aria-expanded={showSavePanel}
-            title="Save this deck list as a snapshot to a tracked deck"
-          ><Icon name="plus" size={16} /> Save</button>
+            title="Save a version to a deck in your library"
+          ><Icon name="plus" size={16} /> Save version</button>
         )}
       </div>
       <div className="deck-input-actions" role="group" aria-label={`${label} import options`}>
-          <button className={`deck-input-btn${!showUrl && !showTracked ? ' deck-input-btn--active' : ''}`}
-            onClick={() => { closeAllPanels(); textRef.current?.focus(); }} type="button"
-            aria-pressed={!showUrl && !showTracked}>
-            <Icon name="cards" size={16} /> Paste
-          </button>
           <button
             className={`deck-input-btn${showUrl ? ' deck-input-btn--active' : ''}`}
-            onClick={() => { closeAllPanels(); setSavePrompt(null); setShowUrl(!showUrl); }}
+            onClick={() => { closeAllPanels(); setImportedList(null); setShowUrl(!showUrl); }}
             type="button"
             title="Import from URL"
             aria-expanded={showUrl}
           >
-            <Icon name="connections" size={16} /> URL
+            <Icon name="connections" size={16} /> Import URL
           </button>
           {user && (
             <button
               className={`deck-input-btn${showTracked ? ' deck-input-btn--active' : ''}`}
-              onClick={() => { closeAllPanels(); setSavePrompt(null); setShowTracked(!showTracked); }}
+              onClick={() => { closeAllPanels(); setImportedList(null); setShowTracked(!showTracked); }}
               type="button"
-              title="Load from tracked decks"
+              title="Load a saved deck version"
               aria-expanded={showTracked}
             >
-              <Icon name="library" size={16} /> Tracked
+              <Icon name="library" size={16} /> Load saved
             </button>
           )}
           <button
@@ -391,7 +298,7 @@ export default function DeckInput({ label, value, onChange, user }) {
             type="button"
             title="Upload a file"
           >
-            <Icon name="download" size={16} /> File
+            <Icon name="download" size={16} /> Upload file
           </button>
           <input
             ref={fileRef}
@@ -410,7 +317,7 @@ export default function DeckInput({ label, value, onChange, user }) {
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             onKeyDown={handleUrlKeyDown}
-            placeholder="Paste Archidekt, Moxfield, TappedOut, Deckstats, or DeckCheck URL..."
+            placeholder="https://archidekt.com/decks/…"
             aria-label={`${label} deck URL`}
             autoFocus
             disabled={loading}
@@ -426,55 +333,16 @@ export default function DeckInput({ label, value, onChange, user }) {
         </div>
       )}
 
-      {savePrompt && (
-        <div className="deck-input-save-prompt">
-          {savePrompt.matchingDecks.length === 1 ? (
-            <span className="deck-input-save-prompt-text">
-              Commanders match <strong>{savePrompt.matchingDecks[0].deck_name}</strong>. Save as snapshot?
-            </span>
-          ) : (
-            <span className="deck-input-save-prompt-text">
-              Commanders match tracked decks. Save to:{' '}
-              <select
-                className="deck-input-save-prompt-select"
-                value={selectedSaveDeck || ''}
-                onChange={(e) => setSelectedSaveDeck(Number(e.target.value))}
-              >
-                {savePrompt.matchingDecks.map(d => (
-                  <option key={d.id} value={d.id}>{d.deck_name}</option>
-                ))}
-              </select>
-            </span>
-          )}
-          <div className="deck-input-save-prompt-actions">
-            <button
-              className="deck-input-save-prompt-btn deck-input-save-prompt-btn--save"
-              onClick={handleSaveToTracked}
-              type="button"
-            >
-              Save
-            </button>
-            <button
-              className="deck-input-save-prompt-btn deck-input-save-prompt-btn--dismiss"
-              onClick={() => setSavePrompt(null)}
-              type="button"
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
       {showSavePanel && (
         <div className="deck-input-save-panel">
           {savePanelLoading ? (
-            <p className="deck-input-tracked-empty">Loading tracked decks...</p>
+            <p className="deck-input-tracked-empty">Loading your decks…</p>
           ) : savePanelDecks.length === 0 ? (
-            <p className="deck-input-tracked-empty">No tracked decks yet. <a href="#library">Add a deck in your library.</a></p>
+            <p className="deck-input-tracked-empty">No saved decks yet. <a href="#library">Add a deck in your library.</a></p>
           ) : (
             <>
               <div className="deck-input-save-panel-row">
-                <label className="deck-input-save-panel-label" htmlFor={`${inputId}-save-deck`}>Save to:</label>
+                <label className="deck-input-save-panel-label" htmlFor={`${inputId}-save-deck`}>Deck</label>
                 <select
                   id={`${inputId}-save-deck`}
                   className="deck-input-save-panel-select"
@@ -487,14 +355,14 @@ export default function DeckInput({ label, value, onChange, user }) {
                 </select>
               </div>
               <div className="deck-input-save-panel-row">
-                <label className="deck-input-save-panel-label" htmlFor={`${inputId}-nickname`}>Nickname:</label>
+                <label className="deck-input-save-panel-label" htmlFor={`${inputId}-nickname`}>Version name</label>
                 <input
                   id={`${inputId}-nickname`}
                   className="deck-input-save-panel-nick"
                   type="text"
                   value={savePanelNickname}
                   onChange={(e) => setSavePanelNickname(e.target.value)}
-                  placeholder="Optional nickname"
+                  placeholder="Optional version name"
                   maxLength={100}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSavePanelConfirm();
@@ -509,7 +377,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                   disabled={savePanelSaving || !savePanelSelected}
                   type="button"
                 >
-                  {savePanelSaving ? 'Saving...' : 'Save Snapshot'}
+                  {savePanelSaving ? 'Saving...' : 'Save version'}
                 </button>
                 <button
                   className="deck-input-save-prompt-btn deck-input-save-prompt-btn--dismiss"
@@ -527,9 +395,9 @@ export default function DeckInput({ label, value, onChange, user }) {
       {showTracked && (
         <div className="deck-input-tracked">
           {trackedLoading ? (
-            <p className="deck-input-tracked-empty">Loading tracked decks...</p>
+            <p className="deck-input-tracked-empty">Loading your decks…</p>
           ) : trackedDecks.length === 0 ? (
-            <p className="deck-input-tracked-empty">No tracked decks yet. <a href="#library">Add a deck in your library.</a></p>
+            <p className="deck-input-tracked-empty">No saved decks yet. <a href="#library">Add a deck in your library.</a></p>
           ) : (
             <ul className="deck-input-tracked-list">
               {trackedDecks.map(deck => (
@@ -545,101 +413,31 @@ export default function DeckInput({ label, value, onChange, user }) {
                         <Icon name="chevron" size={16} className={expandedDeckId === deck.id ? 'deck-input-chevron--open' : ''} /> {deck.deck_name}
                       </span>
                       <span className="deck-input-tracked-deck-meta">
-                        {deck.source_type === 'manual' ? 'Manual deck' : deck.archidekt_username} &middot; {deck.snapshot_count} snap{deck.snapshot_count !== 1 ? 's' : ''}
+                        {deck.source_type === 'manual' ? 'Manual deck' : deck.archidekt_username} &middot; {deck.snapshot_count} version{deck.snapshot_count !== 1 ? 's' : ''}
                       </span>
                       {deck.source_type !== 'manual' && ['pending_review', 'local_changes'].includes(deck.source_sync?.status) &&
                         <span className={`source-sync-badge${deck.source_sync.status === 'pending_review' ? ' source-sync-badge--pending' : ''}`}>{sourceStatusLabel(deck.source_sync.status)}</span>}
                     </button>
-                    <button
-                      className="deck-input-tracked-refresh"
-                      onClick={(e) => handleRefreshDeck(e, deck.id)}
-                      disabled={refreshingDeckId === deck.id || deck.source_type === 'manual'}
-                      type="button"
-                      title={deck.source_type === 'manual' ? 'Manual decks have no Archidekt source' : 'Refresh deck from Archidekt'}
-                    >
-                      {refreshingDeckId === deck.id ? <span className="spinner" /> : <Icon name="refresh" size={16} />}
-                    </button>
                   </div>
                   {expandedDeckId === deck.id && (
                     <div className="deck-input-tracked-snaps">
+                      <a className="deck-input-manage-link" href={`#library/${deck.id}`}>Manage versions in this deck ↗</a>
                       {snapshotsLoading ? (
                         <p className="deck-input-tracked-empty">Loading...</p>
                       ) : deckSnapshots.length === 0 ? (
-                        <p className="deck-input-tracked-empty">No snapshots yet.</p>
+                        <p className="deck-input-tracked-empty">No saved versions yet.</p>
                       ) : (
                         <ul className="deck-input-tracked-snap-list">
                           {(showAllSnapshots ? deckSnapshots : deckSnapshots.slice(0, INITIAL_SNAP_LIMIT)).map((snap, index) => (
                             <li key={snap.id} className="deck-input-tracked-snap-row">
-                              {editingNickname === snap.id ? (
-                                <div className="deck-input-tracked-snap-edit">
-                                  <span className="deck-input-tracked-snap-number">#{index + 1}</span>
-                                  <input
-                                    type="text"
-                                    className="deck-input-tracked-snap-nick-input"
-                                    value={nicknameValue}
-                                    onChange={(e) => setNicknameValue(e.target.value)}
-                                    placeholder="Nickname (optional)"
-                                    aria-label="Snapshot nickname"
-                                    maxLength={100}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') handleSaveNickname(deck.id, snap.id);
-                                      if (e.key === 'Escape') setEditingNickname(null);
-                                    }}
-                                    autoFocus
-                                  />
-                                  <button
-                                    className="deck-input-tracked-snap-save"
-                                    onClick={() => handleSaveNickname(deck.id, snap.id)}
-                                    type="button"
-                                    title="Save nickname"
-                                  >
-                                    <Icon name="check" size={16} />
-                                  </button>
-                                  <button
-                                    className="deck-input-tracked-snap-cancel"
-                                    onClick={() => setEditingNickname(null)}
-                                    type="button"
-                                    title="Cancel"
-                                  >
-                                    <Icon name="close" size={16} />
-                                  </button>
-                                </div>
-                              ) : (
-                                <>
-                                  <button
-                                    className="deck-input-tracked-snap-btn"
-                                    onClick={() => handleLoadTrackedSnapshot(deck.id, snap.id)}
-                                    disabled={loading}
-                                    type="button"
-                                  >
-                                    <span className="deck-input-tracked-snap-number">#{index + 1}</span>
-                                    <span className="deck-input-tracked-snap-date">{formatDate(snap.created_at)}</span>
-                                    {snap.nickname && (
-                                      <span className="deck-input-tracked-snap-nick">{snap.nickname}</span>
-                                    )}
-                                  </button>
-                                  <button
-                                    className="deck-input-tracked-snap-rename"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingNickname(snap.id);
-                                      setNicknameValue(snap.nickname || '');
-                                    }}
-                                    type="button"
-                                    title={snap.nickname ? 'Rename snapshot' : 'Add nickname'}
-                                  >
-                                    &#9998;
-                                  </button>
-                                  <button
-                                    className="deck-input-tracked-snap-delete"
-                                    onClick={(e) => handleDeleteSnapshot(e, deck.id, snap.id)}
-                                    type="button"
-                                    title="Delete this snapshot"
-                                  >
-                                    <Icon name="close" size={16} />
-                                  </button>
-                                </>
-                              )}
+                              <button className="deck-input-tracked-snap-btn"
+                                onClick={() => handleLoadTrackedSnapshot(deck.id, snap.id)}
+                                disabled={loading} type="button">
+                                <span className="deck-input-tracked-snap-number">{index === 0 ? 'Latest' : `#${snap.id}`}</span>
+                                <span className="deck-input-tracked-snap-date">{formatDate(snap.created_at)}</span>
+                                {snap.nickname && <span className="deck-input-tracked-snap-nick">{snap.nickname}</span>}
+                                {!!snap.is_paper && <span className="deck-input-tracked-snap-nick">Paper version</span>}
+                              </button>
                             </li>
                           ))}
                           {deckSnapshots.length > INITIAL_SNAP_LIMIT && (
@@ -651,7 +449,7 @@ export default function DeckInput({ label, value, onChange, user }) {
                               >
                                 {showAllSnapshots
                                   ? 'Show less'
-                                  : `Show all ${deckSnapshots.length} snapshots`}
+                                  : `Show all ${deckSnapshots.length} versions`}
                               </button>
                             </li>
                           )}
@@ -679,7 +477,7 @@ export default function DeckInput({ label, value, onChange, user }) {
         ref={textRef}
         className="deck-input-textarea"
         value={value}
-        onChange={(e) => { onChange(e.target.value); setError(null); setSavePrompt(null); }}
+        onChange={(e) => { onChange(e.target.value); setError(null); setImportedList(null); }}
         onPaste={handlePaste}
         placeholder={PLACEHOLDER}
         spellCheck={false}
@@ -687,7 +485,7 @@ export default function DeckInput({ label, value, onChange, user }) {
         aria-describedby={`${inputId}-hint`}
       />
       <div className="deck-input-footer" id={`${inputId}-hint`}>
-        <span>Text, CSV, or a deck link</span>
+        <a href="#guide/importing-decks">Supported list formats</a>
         <span>{value.trim() ? `${value.trim().split('\n').length} lines` : 'Ready for your list'}</span>
       </div>
     </div>

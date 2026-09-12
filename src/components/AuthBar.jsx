@@ -69,7 +69,7 @@ export default function AuthBar({ onShowForgotPassword }) {
   return <div className="auth-bar">
     <button className="auth-bar-btn auth-bar-theme-toggle" onClick={toggleTheme} type="button" title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} aria-label="Toggle theme"><Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} /></button>
     {user ? <><a className="auth-account" href="#settings" title="Account settings"><span className="auth-avatar">{user.username?.slice(0, 1).toUpperCase()}</span><span className="auth-bar-user">{user.username}</span></a><button className="auth-bar-btn auth-logout" onClick={logoutUser} type="button" aria-label="Log Out" title="Log Out"><Icon name="logout" size={18} /></button></> : <button className="auth-bar-btn auth-bar-btn--primary" onClick={event => { event.currentTarget.focus(); setShowForm(true); }} type="button">Log In</button>}
-    {showForm && !user && <AuthDialog onClose={closeForm} title={isRegister ? 'Make room for your decks.' : 'Welcome back.'}>
+    {showForm && !user && <AuthDialog onClose={closeForm} title={isRegister ? 'Create account' : 'Log in'}>
       <form className="auth-bar-form" onSubmit={handleSubmit} aria-label="Authentication">
         <input
           type="text"
@@ -102,7 +102,7 @@ export default function AuthBar({ onShowForgotPassword }) {
         )}
         {isRegister && <PasswordRequirements password={password} />}
         <button className="auth-bar-btn auth-bar-btn--primary" type="submit" disabled={submitting}>
-          {submitting ? 'Signing in…' : isRegister ? 'Create account' : 'Log In'}
+          {submitting ? isRegister ? 'Creating account…' : 'Signing in…' : isRegister ? 'Create account' : 'Log In'}
         </button>
         {registrationMode !== 'closed' && (
           <button
@@ -110,7 +110,7 @@ export default function AuthBar({ onShowForgotPassword }) {
             type="button"
             onClick={() => { setIsRegister(!isRegister); setError(null); setInviteCode(''); }}
           >
-            {isRegister ? 'Have an account?' : 'New user?'}
+            {isRegister ? 'Back to log in' : 'Create an account'}
           </button>
         )}
         <button

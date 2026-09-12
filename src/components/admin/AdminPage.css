@@ -669,3 +669,22 @@
 .admin-stat-value { font-size: clamp(22px,2.3vw,28px); overflow-wrap: anywhere; }
 @media(max-width: 1100px) { .admin-stats-grid { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media(max-width: 600px) { .admin-stats-grid { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+/* Administration actions live with their subjects; Overview is status only. */
+.admin-nav-item { text-decoration: none; }
+.admin-section-description, .admin-system-section p, .admin-maintenance-panel p { color: var(--text-secondary); line-height: 1.6; margin: 0 0 16px; }
+.admin-system-section { padding: 22px 0; border-bottom: 1px solid var(--border-color); }
+.admin-system-section h4 { margin: 0 0 8px; font-size: 16px; }
+.admin-maintenance-panel { border: 1px solid var(--border-color); border-radius: 12px; margin-top: 24px; padding: 0 16px; }
+.admin-maintenance-panel > summary { min-height: 52px; padding: 16px 0; cursor: pointer; font-weight: 600; }
+.admin-maintenance-panel[open] { padding-bottom: 16px; }
+.admin-maintenance-panel .admin-maintenance-row { flex-wrap: wrap; }
+.admin-system-danger > summary { color: var(--accent-red); }
+.admin-user-manage { width: min(100%, 310px); flex-shrink: 0; }
+.admin-user-manage > summary { cursor: pointer; min-height: 44px; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 8px; overflow-wrap: anywhere; }
+.admin-user-manage[open] > summary { margin-bottom: 12px; }
+.admin-user-manage .admin-user-actions { display: flex; flex-wrap: wrap; justify-content: flex-start; }
+.admin-user-actions h4 { flex-basis: 100%; margin: 10px 0 4px; font-size: 12px; color: var(--text-secondary); }
+.admin-user-actions .btn { min-height: 44px; }
+.admin-maintenance-days-input { min-height: 44px; }
+@media(max-width: 800px) { .admin-user-manage { width: 100%; } }

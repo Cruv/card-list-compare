@@ -7,16 +7,19 @@ import './AppShell.css';
 
 const PRIMARY = [
   { route: 'main', href: '#', label: 'Compare', icon: 'compare' },
-  { route: 'library', href: '#library', label: 'Deck library', short: 'Decks', icon: 'library' },
-  { route: 'printList', href: '#print-list', label: 'Print studio', short: 'Print', icon: 'print' },
-  { route: 'printStation', href: '#print-station', label: 'Print station', short: 'Station', icon: 'station' },
+  { route: 'library', href: '#library', label: 'Decks', icon: 'library' },
+  { route: 'printList', href: '#print-list', label: 'Print', icon: 'print' },
 ];
 const SECONDARY = [
   { route: 'connections', href: '#connections', label: 'Connections', icon: 'connections' },
-  { route: 'guide', href: '#guide', label: 'Guide', icon: 'guide' },
   { route: 'settings', href: '#settings', label: 'Account settings', icon: 'settings' },
 ];
-const TITLES = { main: 'Compare lists', share: 'Shared comparison', library: 'Deck library', libraryDeck: 'Your deck', deck: 'Shared deck', printList: 'Print studio', printStation: 'Print station', connections: 'Connections', guide: 'Guide', settings: 'Account settings', admin: 'Administration' };
+const HELP = { route: 'guide', href: '#guide', label: 'Guide', icon: 'guide' };
+const PRINT_NAV = [
+  { route: 'printList', href: '#print-list', label: 'New print list', icon: 'cards' },
+  { route: 'printStation', href: '#print-station', label: 'Printer', icon: 'station' },
+];
+const TITLES = { main: 'Compare lists', share: 'Shared comparison', library: 'Decks', libraryDeck: 'Decks', deck: 'Shared deck', printList: 'Print', printStation: 'Print', connections: 'Connections', guide: 'Guide', settings: 'Account settings', admin: 'Administration' };
 
 function keepFocusedControlVisible(event) {
   const target = event.target, workspace = event.currentTarget;
@@ -53,8 +56,8 @@ function navigateFromShell(event, onNavigate) {
   });
 }
 
-function NavItem({ item, route, compact, onNavigate }) {
-  const active = route === item.route || item.route === 'library' && route === 'libraryDeck' || item.route === 'main' && route === 'share';
+function NavItem({ item, route, compact, onNavigate, exact = false }) {
+  const active = route === item.route || !exact && item.route === 'printList' && route === 'printStation' || item.route === 'library' && route === 'libraryDeck' || item.route === 'main' && route === 'share';
   return <a href={item.href} className={`shell-nav-item${active ? ' is-active' : ''}`} aria-current={active ? 'page' : undefined} onClick={event => navigateFromShell(event, onNavigate)}><Icon name={item.icon} /><span>{compact ? item.short || item.label : item.label}</span></a>;
 }
 function MoreDrawer({ items, route, onClose, version, onWhatsNew }) {
@@ -74,9 +77,9 @@ export default function AppShell({ children, route, version, onWhatsNew, onShowF
   const secondary = user?.isAdmin ? [...SECONDARY, { route: 'admin', href: '#admin', label: 'Administration', icon: 'shield' }] : SECONDARY;
   return <div className="workspace-shell">
     <a className="sr-only sr-only-focusable" href="#workspace-main" onClick={event => { event.preventDefault(); document.getElementById('workspace-main')?.focus(); }}>Skip to content</a>
-    <aside className="shell-sidebar"><a href="#" className="shell-brand" aria-label="Card List Compare home" onClick={navigateFromShell}><span className="shell-brand-mark"><Icon name="cards" size={26} /></span><span>Card List<span className="shell-brand-second">Compare</span></span></a><div className="shell-nav-label">Workspace</div><nav aria-label="Main navigation">{PRIMARY.map(item => <NavItem key={item.route} item={item} route={route} />)}</nav><div className="shell-nav-label shell-nav-label--secondary">Manage</div><nav aria-label="Workspace settings">{secondary.map(item => <NavItem key={item.route} item={item} route={route} />)}</nav><div className="shell-sidebar-footer"><div className="shell-footer-note"><Icon name="cards" size={16} /> More time at the table.</div><button className="shell-version" onClick={onWhatsNew}>What’s new · v{version}</button></div></aside>
-    <div className="shell-workspace"><header className="shell-topbar"><span className="shell-context"><span className="shell-context-brand">CLC<span>/</span></span>{TITLES[route] || 'Compare lists'}</span><AuthBar onShowForgotPassword={onShowForgotPassword} /></header><main id="workspace-main" className={`shell-content shell-content--${route}`} tabIndex={-1} onFocusCapture={keepFocusedControlVisible} onInputCapture={keepFocusedControlVisible}>{children}</main></div>
-    <nav className="shell-mobile-nav" aria-label="Mobile navigation">{PRIMARY.map(item => <NavItem key={item.route} item={item} route={route} compact />)}<button className={`shell-nav-item${secondary.some(item => item.route === route) ? ' is-active' : ''}`} onClick={event => { event.currentTarget.focus(); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="dialog"><Icon name="more" /><span>More</span></button></nav>
-    {moreOpen && <MoreDrawer items={secondary} route={route} onClose={() => setMoreOpen(false)} version={version} onWhatsNew={onWhatsNew} />}
+    <aside className="shell-sidebar"><a href="#" className="shell-brand" aria-label="Card List Compare home" onClick={navigateFromShell}><span className="shell-brand-mark"><Icon name="cards" size={26} /></span><span>Card List<span className="shell-brand-second">Compare</span></span></a><div className="shell-nav-label">Workspace</div><nav aria-label="Main navigation">{PRIMARY.map(item => <NavItem key={item.route} item={item} route={route} />)}</nav><div className="shell-nav-label shell-nav-label--secondary">Manage</div><nav aria-label="Workspace settings">{secondary.map(item => <NavItem key={item.route} item={item} route={route} />)}</nav><div className="shell-sidebar-footer"><NavItem item={HELP} route={route} /><button className="shell-version" onClick={onWhatsNew}>What’s new · v{version}</button></div></aside>
+    <div className="shell-workspace"><header className="shell-topbar"><span className="shell-context"><span className="shell-context-brand">CLC<span>/</span></span>{TITLES[route] || 'Compare lists'}</span><AuthBar onShowForgotPassword={onShowForgotPassword} /></header><main id="workspace-main" className={`shell-content shell-content--${route}`} tabIndex={-1} onFocusCapture={keepFocusedControlVisible} onInputCapture={keepFocusedControlVisible}>{['printList', 'printStation'].includes(route) && <nav className="shell-section-nav" aria-label="Print navigation">{PRINT_NAV.map(item => <NavItem key={item.route} item={item} route={route} exact />)}</nav>}{children}</main></div>
+    <nav className="shell-mobile-nav" aria-label="Mobile navigation">{PRIMARY.map(item => <NavItem key={item.route} item={item} route={route} compact />)}<button className={`shell-nav-item${[...secondary, HELP].some(item => item.route === route) ? ' is-active' : ''}`} onClick={event => { event.currentTarget.focus(); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="dialog"><Icon name="more" /><span>More</span></button></nav>
+    {moreOpen && <MoreDrawer items={[...secondary, HELP]} route={route} onClose={() => setMoreOpen(false)} version={version} onWhatsNew={onWhatsNew} />}
   </div>;
 }

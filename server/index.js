@@ -3,7 +3,7 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { initDb, persist, backupDb } from './db.js';
 import { getJwtSecret } from './lib/jwtSecret.js';
-import { apiLimiter } from './middleware/rateLimit.js';
+import apiRateLimiter from './middleware/apiRateLimit.js';
 import { requireJsonContentType, trimBody } from './middleware/validate.js';
 import jsonBody from './middleware/jsonBody.js';
 import authRoutes from './routes/auth.js';
@@ -15,7 +15,7 @@ import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
 import mpcRoutes from './routes/mpcautofill.js';
-import printRoutes, { standalonePrintRouter } from './routes/print.js';
+import printRoutes, { standalonePrintRouter, printBatchesRouter } from './routes/print.js';
 import printStationRoutes from './routes/print-station.js';
 import integrationTokenRoutes from './routes/integrationTokens.js';
 import structuredDeckRoutes from './routes/structuredDecks.js';
@@ -66,8 +66,9 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-// Rate-limit before parsing, including the larger authenticated proposal bodies.
-app.use('/api', apiLimiter);
+// Rate-limit before parsing. Authenticated native station traffic has a separate
+// bounded budget, so browser polling cannot starve receipts or recovery actions.
+app.use('/api', apiRateLimiter);
 
 // Input sanitization on /api routes
 app.use('/api', requireJsonContentType);
@@ -96,6 +97,7 @@ app.use('/api/print-station', printStationRoutes);
 app.use('/api/print-station-management', printStationManagementRoutes);
 app.use('/api/decks', printRoutes);
 app.use('/api/print-lists', standalonePrintRouter);
+app.use('/api/print-batches', printBatchesRouter);
 app.use('/api/manasync', manasyncRouter);
 
 async function start() {

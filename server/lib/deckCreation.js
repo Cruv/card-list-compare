@@ -11,7 +11,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const fields = ['operationId', 'name', 'deckText', 'expectedInstanceId', 'expectedAccountId', 'sourceLink'];
 const fail = (status, code) => { throw new ProposalError(status, code); };
 
-export function createIntegrationDeck(userId, input) {
+export function createIntegrationDeck(userId, input, { snapshotLabel = 'Created from ManaSync' } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail(400, 'invalid_deck_creation');
   const { operationId, name, deckText, expectedInstanceId, expectedAccountId } = input;
   if (expectedInstanceId !== getInstanceId() || expectedAccountId !== String(userId)) {
@@ -61,7 +61,7 @@ export function createIntegrationDeck(userId, input) {
       run('INSERT INTO integration_deck_sources (deck_id,user_id,provider,source_deck_id,canonical_url) VALUES (?,?,?,?,?)',
         [deckId, userId, sourceLink.provider, sourceLink.deckId, sourceLink.url]);
     }
-    run("INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,'Created from ManaSync')", [deckId, deckText]);
+    run('INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,?)', [deckId, deckText, snapshotLabel]);
     const deck = serializeDeck(get('SELECT * FROM tracked_decks WHERE id = ?', [deckId]));
     return record(deck, false);
   });

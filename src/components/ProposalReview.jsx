@@ -12,13 +12,13 @@ import './ProposalReview.css';
 
 const reviewable = proposal => ['pending_review', 'needs_rebase'].includes(proposal?.status);
 
-export default function ProposalReview({ deckId, onChanged }) {
+export default function ProposalReview({ deckId, onChanged, onAttentionChange }) {
   const { user } = useAuth();
   if (!user) return null;
-  return <ScopedProposalReview key={`${user.id}:${deckId}`} userId={user.id} deckId={deckId} onChanged={onChanged} />;
+  return <ScopedProposalReview key={`${user.id}:${deckId}`} userId={user.id} deckId={deckId} onChanged={onChanged} onAttentionChange={onAttentionChange} />;
 }
 
-function ScopedProposalReview({ userId, deckId, onChanged }) {
+function ScopedProposalReview({ userId, deckId, onChanged, onAttentionChange }) {
   const [proposals, setProposals] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [drafts, setDrafts] = useState({});
@@ -36,6 +36,9 @@ function ScopedProposalReview({ userId, deckId, onChanged }) {
   const draftsRef = useRef({});
   const reloadRef = useRef(() => {});
   const storageKey = proposalReviewKey(userId, deckId);
+
+  const needsAttention = proposals.some(reviewable) || pendingReviews.length > 0 || !!error || Object.values(drafts).some(draft => draft.unsaved);
+  useEffect(() => { onAttentionChange?.(needsAttention); }, [needsAttention, onAttentionChange]);
 
   function replaceDraft(proposalId, draft) {
     draftsRef.current = { ...draftsRef.current, [proposalId]: draft };
@@ -232,7 +235,7 @@ function ScopedProposalReview({ userId, deckId, onChanged }) {
         <label className="proposal-review-check"><input type="checkbox" checked={reviewed} onChange={event => setReviewed(event.target.checked)} disabled={blocked || stale || draft.unsaved} /> I reviewed the saved base, proposal, and current digital latest.</label>
         <div className="proposal-review-actions">
           <button type="button" className="btn btn-primary btn-sm" onClick={() => decide('accept')} disabled={blocked || stale || draft.unsaved || !reviewed || selected.status !== 'pending_review'}>Accept proposed text</button>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => decide('revise')} disabled={blocked || stale || draft.unsaved || !reviewed || !draft.replacement.trim() || !!replacementError}>Commit reviewed revision</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => decide('revise')} disabled={blocked || stale || draft.unsaved || !reviewed || !draft.replacement.trim() || !!replacementError}>Save reviewed changes</button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => decide('reject')} disabled={blocked || stale || draft.unsaved || !reviewed}>Reject</button>
         </div>
       </>}
