@@ -203,7 +203,7 @@ class StationTests(unittest.TestCase):
         self.assertEqual(len(self.cups.submissions), 1)
         runner.assert_called_once()
         self.assertIn("Friday proxy replacements", runner.call_args.args[0][3])
-        self.assertIn("Batch 1/1", runner.call_args.args[0][3])
+        self.assertIn("Packet 1/1", runner.call_args.args[0][3])
         self.station.resume("job1")
         self.assertEqual(self.station.poll_once(), "submitted EPSON-2")
         self.assertEqual([entry[:2] for entry in self.cups.submissions], [

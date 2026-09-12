@@ -85,31 +85,72 @@ describe('canSendEmail rate limit (audit: dead SQL comparison)', () => {
 
 
 describe('Proxy Balboa Discord messages', () => {
+  let transport;
+
+  beforeEach(() => {
+    transport = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', transport);
+  });
   afterEach(() => vi.unstubAllGlobals());
 
-  it('keeps deck-change details with a short greeting and no implicit pings', async () => {
-    const transport = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('fetch', transport);
+  it('puts the deck and event before the voice, with complete details, a direct link and no implicit pings', async () => {
     expect(await sendDiscordWebhook('https://discord.invalid/fixture', '@everyone deck', '["Commander"]', {
-      added: ['1 Sol Ring'], removed: ['2 Island'], changed: [],
-    })).toBe(true);
+      added: ['1 Sol Ring'], removed: ['2 Island'], changed: ['Plains (+2)'],
+    }, 42)).toBe(true);
     const payload = JSON.parse(transport.mock.calls[0][1].body);
     expect(payload.username).toBe('Proxy Balboa');
-    expect(payload.content).toContain('Yo, champ!');
+    const [headline, voice] = payload.content.split('\n');
+    expect(headline).toBe('Deck updated · @\u200beveryone deck');
+    expect(voice).toContain("Figured I oughta tell ya, y'know?");
+    expect(payload.content).not.toMatch(/champ|round/i);
     expect(payload.allowed_mentions).toEqual({ parse: [] });
     expect(payload.embeds[0].title).toBe('Deck Updated: @everyone deck');
-    expect(payload.embeds[0].fields.map(field => field.value)).toEqual(['1 Sol Ring', '2 Island']);
+    expect(payload.embeds[0].description).toBe('**Commander** has a new saved version. Review the changes below or open the deck in CLC.');
+    expect(payload.embeds[0].description).not.toContain('Archidekt');
+    expect(payload.embeds[0].fields.map(field => [field.name, field.value])).toEqual([
+      ['Cards In (+1)', '1 Sol Ring'], ['Cards Out (-1)', '2 Island'], ['Qty Changed (~1)', 'Plains (+2)'],
+    ]);
+    expect(payload.embeds[0].url).toMatch(/#library\/42$/);
   });
 
-  it('keeps the exact price comparison in the same voice', async () => {
-    const transport = vi.fn().mockResolvedValue({ ok: true });
-    vi.stubGlobal('fetch', transport);
-    expect(await sendPriceAlertWebhook('https://discord.invalid/fixture', 'Sauron', '[]', 125, 100, 25, 'cheapest')).toBe(true);
+  it.each([
+    { current: 125, delta: 25, direction: 'increased', mode: 'cheapest', modeLabel: 'cheapest printings', signed: '+$25.00' },
+    { current: 75, delta: -25, direction: 'decreased', mode: 'specific', modeLabel: 'your printings', signed: '$-25.00' },
+  ])('puts the exact $direction price movement before the voice', async ({ current, delta, direction, mode, modeLabel, signed }) => {
+    expect(await sendPriceAlertWebhook('https://discord.invalid/fixture', 'Sauron', '[]', current, 100, delta, mode, 9)).toBe(true);
     const payload = JSON.parse(transport.mock.calls[0][1].body);
     expect(payload.username).toBe('Proxy Balboa');
-    expect(payload.content).toContain('Yo, champ!');
+    const [headline, voice] = payload.content.split('\n');
+    expect(headline).toBe(`Deck price ${direction} by $25.00 · Sauron`);
+    expect(voice).toBe("Hey, the numbers changed on us. I got 'em right here for ya.");
+    expect(payload.content).not.toMatch(/champ|round/i);
     expect(payload.allowed_mentions).toEqual({ parse: [] });
-    expect(payload.embeds[0].description).toContain('increased by **$25.00** (cheapest printings)');
-    expect(payload.embeds[0].fields.map(field => field.value)).toEqual(['$100.00', '$125.00', '+$25.00']);
+    expect(payload.embeds[0].description).toContain(`${direction} by **$25.00** (${modeLabel})`);
+    expect(payload.embeds[0].fields.map(field => field.value)).toEqual(['$100.00', `$${current.toFixed(2)}`, signed]);
+    expect(payload.embeds[0].url).toMatch(/#library\/9$/);
+  });
+
+  it('states when card details are unavailable and retains the library fallback', async () => {
+    expect(await sendDiscordWebhook('https://discord.invalid/fixture', 'Sauron', '[]', null)).toBe(true);
+    const payload = JSON.parse(transport.mock.calls[0][1].body);
+    expect(payload.embeds[0].description).toBe('**Sauron** has a new saved version. Card-level details are unavailable; open the deck in CLC to review it.');
+    expect(payload.embeds[0].fields).toBeUndefined();
+    expect(payload.embeds[0].url).toMatch(/#library$/);
+  });
+
+  it.each([undefined, 0, -1, 2.5, Number.MAX_SAFE_INTEGER + 1, '9', '9?redirect=https://example.invalid'])('does not interpolate invalid deck ID %s into the price alert link', async (deckId) => {
+    expect(await sendPriceAlertWebhook('https://discord.invalid/fixture', 'Sauron', '[]', 125, 100, 25, 'specific', deckId)).toBe(true);
+    const payload = JSON.parse(transport.mock.calls[0][1].body);
+    expect(payload.embeds[0].url).toMatch(/#library$/);
+  });
+
+  it('keeps unusual deck names from becoming extra push-preview lines or message markup', async () => {
+    const deckName = 'Deck\n@everyone <@123> **extra**';
+    expect(await sendDiscordWebhook('https://discord.invalid/fixture', deckName, '[]', null, 1)).toBe(true);
+    const payload = JSON.parse(transport.mock.calls[0][1].body);
+    expect(payload.content.split('\n')).toHaveLength(2);
+    expect(payload.content.split('\n')[0]).toBe('Deck updated · Deck @\u200beveryone ‹@\u200b123› \\*\\*extra\\*\\*');
+    expect(payload.allowed_mentions).toEqual({ parse: [] });
+    expect(payload.embeds[0].url).toMatch(/#library\/1$/);
   });
 });

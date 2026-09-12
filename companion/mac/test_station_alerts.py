@@ -46,7 +46,7 @@ class RefeedAlertTests(unittest.TestCase):
         self.assertEqual(command[:2], ["/usr/bin/osascript", "-"])
         self.assertIn("Sauron", command[3])
         self.assertIn("job-12345678", command[3])
-        self.assertIn("Batch 1/2", command[3])
+        self.assertIn("Packet 1/2", command[3])
         self.assertIn("only the 1 printed sheet", command[4])
         self.assertIn("Remove blank paper from the rear feeder", command[4])
         self.assertIn("confirm in CLC", command[4])
@@ -96,7 +96,7 @@ class RefeedAlertTests(unittest.TestCase):
         second = {**self.artifact, "id": "dfc-2", "packetIndex": 2}
         self.job["artifacts"].append(second)
         self.assertEqual(self.alerts.notify(self.job, second)["status"], "attempted")
-        self.assertIn("Batch 2/2", self.runner.call_args.args[0][3])
+        self.assertIn("Packet 2/2", self.runner.call_args.args[0][3])
         self.assertEqual(self.alerts.notify({**self.job, "id": "different-job"}, second)["status"], "attempted")
         self.assertEqual(self.runner.call_count, 3)
 
@@ -105,7 +105,7 @@ class RefeedAlertTests(unittest.TestCase):
         job = {**self.job, "artifacts": [legacy]}
         self.alerts.notify(job, legacy)
         command = self.runner.call_args.args[0]
-        self.assertIn("Batch 1/1", command[3])
+        self.assertIn("Packet 1/1", command[3])
         self.assertIn("the 3 printed sheets", command[4])
         self.assertNotIn("6 printed sheets", command[4])
 
@@ -114,10 +114,10 @@ class RefeedAlertTests(unittest.TestCase):
         second = {"id": "second", "kind": "dfc", "sheetCount": 2}
         job = {**self.job, "artifacts": [{"id": "fronts", "kind": "ordinary"}, first, second]}
         self.alerts.notify(job, first)
-        self.assertIn("Batch 1/2", self.runner.call_args.args[0][3])
+        self.assertIn("Packet 1/2", self.runner.call_args.args[0][3])
         self.assertIn("the 1 printed sheet", self.runner.call_args.args[0][4])
         self.alerts.notify(job, second)
-        self.assertIn("Batch 2/2", self.runner.call_args.args[0][3])
+        self.assertIn("Packet 2/2", self.runner.call_args.args[0][3])
         self.assertIn("the 2 printed sheets", self.runner.call_args.args[0][4])
 
     def test_silent_preference_omits_sound_but_keeps_visual_notification(self):
@@ -191,7 +191,7 @@ class DiscordAlertTests(unittest.TestCase):
         self.directory = Path(self.temporary.name) / "state"
         self.ledger = Ledger(self.directory)
         self.config = {"refeed_discord_webhook_url": WEBHOOK, "refeed_discord_user_id": USER_ID,
-                       "server_url": "https://clc.test"}
+                       "server_url": "https://clc.test", "queue": "EPSON_ET_8550_Series"}
         self.runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
         self.transport = mock.Mock(return_value=MESSAGE)
         self.alerts = RefeedAlerts(self.ledger, self.config, runner=self.runner, discord_transport=self.transport)
@@ -211,12 +211,19 @@ class DiscordAlertTests(unittest.TestCase):
         self.assertTrue(payload["content"].startswith("<@" + USER_ID + ">"))
         self.assertIn("Sauron", payload["content"])
         self.assertIn("job-12345678", payload["content"])
-        self.assertIn("Batch 1/2", payload["content"])
+        self.assertIn("Packet 1/2", payload["content"])
+        self.assertNotIn("Batch 1/2", payload["content"])
         self.assertIn("Packet ID: dfc-1", payload["content"])
         self.assertIn("Printed label: CLC a12b34c56d78 DFC 1/2", payload["content"])
         self.assertIn("only the 1 printed sheet", payload["content"])
         self.assertEqual(payload["username"], "Proxy Balboa")
-        self.assertIn("Yo, champ!", payload["content"])
+        self.assertIn("Yo. So, uh...", payload["content"])
+        self.assertIn("Batch ID: " + self.job["id"], payload["content"])
+        self.assertIn("Printer: EPSON\\_ET\\_8550\\_Series", payload["content"])
+        self.assertIn("Paper flip needed", payload["content"].splitlines()[0])
+        details = payload["content"].split("**Print details**\n", 1)[1]
+        self.assertIn("Remove blank paper from the rear feeder", details)
+        self.assertNotIn("y'know", details)
         self.assertIn("Remove blank paper from the rear feeder", payload["content"])
         self.assertIn("Reload only the matching printed paper, then confirm", payload["content"])
         self.assertNotIn("Yo, champ!", " ".join(self.runner.call_args.args[0]), "Mac notifications remain plain")
@@ -231,7 +238,10 @@ class DiscordAlertTests(unittest.TestCase):
         self.alerts.printer_error(health, self.job, pending)
         payload = self.transport.call_args.args[1]
         self.assertEqual(payload["username"], "Proxy Balboa")
-        for value in ("Yo, champ!", "Sauron", "job-12345678", "Printer has a paper jam", "CLC a12b34c56d78 DFC 1/2", "pass: backs", "does not pause, resume or retry printing"):
+        self.assertIn("Printer has a paper jam", payload["content"].splitlines()[0])
+        self.assertIn("**Printer details**", payload["content"])
+        self.assertIn("Printer: EPSON\\_ET\\_8550\\_Series", payload["content"])
+        for value in ("somethin' ain't right", "Sauron", "job-123456789abcdef", "Printer has a paper jam", "CLC a12b34c56d78 DFC 1/2", "pass: backs", "does not pause, resume or retry printing"):
             self.assertIn(value, payload["content"])
         self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [USER_ID], "roles": []})
         self.assertLessEqual(len(payload["content"]), 2000)
@@ -241,12 +251,37 @@ class DiscordAlertTests(unittest.TestCase):
         payload = discord_test_payload(self.config)
         self.transport(WEBHOOK, payload, timeout=5)
         self.assertEqual(payload["username"], "Proxy Balboa")
-        for text in ("Yo, champ!", "Discord test confirmed", "sheets to flip", "printer errors", "does not print or resume anything"):
+        self.assertIn("Discord delivery test · no printer action", payload["content"].splitlines()[0])
+        self.assertIn("**Test details**", payload["content"])
+        for text in ("Yo, it's me, Proxy.", "Discord test confirmed", "sheets to flip", "printer errors", "does not print or resume anything"):
             self.assertIn(text, payload["content"])
         self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [USER_ID], "roles": []})
         self.assertLessEqual(len(payload["content"]), 2000)
         self.assertFalse(payload["tts"])
         self.runner.assert_not_called()
+
+    def test_long_flip_details_keep_identifiers_sheets_and_action_inside_discord_limit(self):
+        self.job["id"] = "b" * 128
+        self.job["deckName"] = "N" * 70
+        self.artifact.update(id="p" * 96, label="L" * 180, pageCount=6, frontPages=[1, 3, 5], backPages=[2, 4, 6])
+        self.alerts.notify(self.job, self.artifact)
+        content = self.transport.call_args.args[1]["content"]
+        details = content.split("**Print details**\n", 1)[1]
+        for text in ("Batch ID: " + self.job["id"], "Packet ID: " + self.artifact["id"],
+                     "Printed label: " + self.artifact["label"], "only the 3 printed sheets",
+                     "Remove blank paper from the rear feeder", "Reload only the matching printed paper", "confirm in CLC"):
+            self.assertIn(text, details)
+        self.assertNotIn("6 printed sheets", details)
+        self.assertLessEqual(len(content), 2000)
+
+    def test_error_without_active_batch_still_has_problem_printer_and_action(self):
+        self.alerts.printer_error({"ok": False, "known": True, "reasons": ["media-empty"], "message": "Printer is out of paper"})
+        content = self.transport.call_args.args[1]["content"]
+        self.assertIn("Printer is out of paper", content.splitlines()[0])
+        details = content.split("**Printer details**\n", 1)[1]
+        self.assertIn("EPSON\\_ET\\_8550\\_Series", details)
+        self.assertIn("Check the printer and Printer in CLC", details)
+        self.assertNotIn("Batch ID:", details)
 
     def test_deck_text_cannot_add_user_role_or_everyone_mentions(self):
         self.job["deckName"] = "@everyone @here <@123456789> <@&987654321> **name**\n# fake heading"
@@ -326,7 +361,7 @@ class DiscordAlertTests(unittest.TestCase):
         self.alerts.notify(self.job, self.artifact)
         second = {**self.artifact, "id": "dfc-2", "packetIndex": 2, "label": "CLC a12b34c56d78 DFC 2/2"}
         self.alerts.notify(self.job, second)
-        self.assertIn("Batch 2/2", self.transport.call_args.args[1]["content"])
+        self.assertIn("Packet 2/2", self.transport.call_args.args[1]["content"])
         self.assertIn("Printed label: CLC a12b34c56d78 DFC 2/2", self.transport.call_args.args[1]["content"])
         self.assertEqual(self.transport.call_count, 2)
 

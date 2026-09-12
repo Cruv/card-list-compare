@@ -321,8 +321,13 @@ Only concurrent PDF preparation and storage capacity are limited; queued jobs do
 consume the per-user preparation allowance. Unresolved submission requests keep their
 original payload locked until receipt recovery, preventing duplicates.
 
-Discord messages use **Proxy Balboa**, with brief Rocky-inspired phrasing followed by
-precise printer errors or packet/reload instructions. Native Mac messages remain plain.
+Discord messages use **Proxy Balboa**. A factual headline leads the phone preview, then
+an original Rocky-inspired line and a clearly labeled plain-language details block follow.
+Flip alerts include the printer, full batch ID, packet number/ID, printed label, physical
+sheet count and exact reload action. Fault alerts retain the error and affected pass; tests
+explicitly state that no printing is requested. Deck/price alerts preserve their values and
+link to the corresponding deck. See [notification voice](NOTIFICATION_VOICE.md).
+Native Mac messages remain plain.
 The bot name and style do not change notification permissions or paper confirmation.
 
 ## Queue, access and retention

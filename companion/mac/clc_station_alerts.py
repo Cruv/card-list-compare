@@ -90,8 +90,8 @@ def display_text(value, limit):
     return re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", str(value))).strip()[:limit]
 
 
-def alert_text(job, artifact):
-    """Describe the physical front sheets, not the alternating PDF page count."""
+def flip_details(job, artifact):
+    """Physical sheet count and packet position, including legacy PDFs."""
     fronts = artifact.get("frontPages")
     count = len(fronts) if isinstance(fronts, list) and fronts else artifact.get("sheetCount")
     if type(count) is not int or count < 1:
@@ -104,12 +104,18 @@ def alert_text(job, artifact):
         packets = [item for item in job.get("artifacts", []) if item.get("kind") == "dfc"]
         position = next((i for i, item in enumerate(packets) if item.get("id") == artifact["id"]), None)
         index, total = (position + 1, len(packets)) if position is not None else (1, 1)
+    return count, index, total
+
+
+def alert_text(job, artifact):
+    """Describe the physical front sheets, not the alternating PDF page count."""
+    count, index, total = flip_details(job, artifact)
     title = "CLC: flip printed cards"
     deck = display_text(job.get("deckName") or "Deck print", 70)
-    subtitle = f"{deck} · {display_text(job['id'], 12)} · Batch {index}/{total}"
+    subtitle = f"{deck} · {display_text(job['id'], 12)} · Packet {index}/{total}"
     paper = "the 1 printed sheet" if count == 1 else f"the {count} printed sheets"
     label = display_text(artifact.get("label") or "", 180)
-    body = (f"Printed label: {label}. " if label else "") + f"Flip only {paper} from this batch. Remove blank paper from the rear feeder. Reload only the matching printed paper, then confirm in CLC Print Station."
+    body = (f"Printed label: {label}. " if label else "") + f"Flip only {paper} from this packet. Remove blank paper from the rear feeder. Reload only the matching printed paper, then confirm in CLC Print Station."
     return title, subtitle, body
 
 
@@ -121,9 +127,15 @@ def discord_text(value):
 
 def discord_payload(job, artifact, config):
     validate_alert_config(config)
-    title, subtitle, body = alert_text(job, artifact)
+    _title, _subtitle, body = alert_text(job, artifact)
+    _sheets, index, total = flip_details(job, artifact)
     mention = config.get("refeed_discord_user_id", "")
-    content = (f"<@{mention}> " if mention else "") + "Yo, champ! Time to flip the next packet.\n" + title + "\n" + discord_text(subtitle)
+    deck = discord_text(display_text(job.get("deckName") or "Deck print", 70))
+    content = (f"<@{mention}> " if mention else "") + f"**Paper flip needed · {deck} · packet {index}/{total}**\n"
+    content += "Yo. So, uh... we got the other side to do, y'know? I need a little help over here.\n\n**Print details**"
+    content += "\nPrinter: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
+    content += "\nBatch ID: " + discord_text(display_text(job["id"], 128))
+    content += f"\nPacket {index}/{total}"
     # The packet ID remains useful for legacy jobs whose PDF has no job label.
     content += "\nPacket ID: " + discord_text(display_text(artifact["id"], 96))
     content += "\n" + discord_text(body)
@@ -133,7 +145,7 @@ def discord_payload(job, artifact, config):
         if (parsed.scheme in {"https", "http"} and parsed.hostname and not parsed.username
                 and not parsed.password and not parsed.query and not parsed.fragment
                 and parsed.path in {"", "/"} and not re.search(r"[\s<>]", origin)):
-            content += "\nOpen CLC Print Station: <" + origin.rstrip("/") + "/#print-station>"
+            content += "\nOpen Printer in CLC: <" + origin.rstrip("/") + "/#print-station>"
     if len(content) > 2000:
         raise ValueError("Discord flip message exceeds its content limit")
     return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
@@ -175,7 +187,11 @@ def discord_status(ledger, config):
 def discord_test_payload(config):
     validate_alert_config(config)
     mention = config.get("refeed_discord_user_id", "")
-    content = (f"<@{mention}> " if mention else "") + "Yo, champ! Proxy Balboa is in your corner. Discord test confirmed. Future alerts identify sheets to flip and printer errors that need attention. This test does not print or resume anything."
+    content = (f"<@{mention}> " if mention else "") + "**Discord delivery test · no printer action**\n"
+    content += "Yo, it's me, Proxy. Just makin' sure you can hear me over here, y'know?\n\n**Test details**\n"
+    content += "Discord test confirmed. Future alerts identify sheets to flip and printer errors that need attention.\n"
+    content += "Printer: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
+    content += "\nPrinter action: None. This test does not print or resume anything."
     return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
 
 
@@ -341,7 +357,7 @@ class RefeedAlerts:
                             raise ValueError("Notification failed")
                     else:
                         self.discord_transport(effective["refeed_discord_webhook_url"],
-                                               printer_discord_payload(title, subtitle, body, effective), timeout=5)
+                                               printer_discord_payload(title, subtitle, body, effective, job=job, fault=health["message"]), timeout=5)
                     channels[channel] = result("attempted", name + " printer-error notification requested: " + subtitle + ". " + body, "info")
                 except Exception:
                     channels[channel] = result("failed", name + " printer-error notification was not confirmed and will not be retried automatically. Check Printer in CLC.", "warning")
@@ -355,14 +371,18 @@ class RefeedAlerts:
             return result("failed", "Printer-error alerts could not be saved safely. Check Printer in CLC; no automatic resend will be attempted.", "warning")
 
 
+def printer_text(value, limit, config):
+    value = str(value)
+    for secret in (config.get("token"), config.get("refeed_discord_webhook_url")):
+        if secret:
+            value = value.replace(secret, "[credential]")
+    value = re.sub(r"https?://[^\s]+|(?i:bearer)\s+[^\s]+", "[redacted]", value)
+    return display_text(value, limit)
+
+
 def printer_alert_text(health, job, pending, config):
     def clean(value, limit):
-        value = str(value)
-        for secret in (config.get("token"), config.get("refeed_discord_webhook_url")):
-            if secret:
-                value = value.replace(secret, "[credential]")
-        value = re.sub(r"https?://[^\s]+|(?i:bearer)\s+[^\s]+", "[redacted]", value)
-        return display_text(value, limit)
+        return printer_text(value, limit, config)
     title = "CLC: printer needs attention"
     subtitle = "Household printer"
     if job:
@@ -376,10 +396,17 @@ def printer_alert_text(health, job, pending, config):
     return title, subtitle, body
 
 
-def printer_discord_payload(title, subtitle, body, config):
+def printer_discord_payload(title, subtitle, body, config, *, job=None, fault=None):
     validate_alert_config(config)
     mention = config.get("refeed_discord_user_id", "")
-    content = (f"<@{mention}> " if mention else "") + "Yo, champ! The printer needs a little attention before the next round.\n" + title + "\n" + discord_text(subtitle) + "\n" + discord_text(body)
+    summary = discord_text(printer_text(fault or title, 120, config))
+    content = (f"<@{mention}> " if mention else "") + "**Printer needs attention · " + summary + "**\n"
+    content += "Hey, somethin' ain't right over here. Come take a look for me, all right?\n\n**Printer details**\n"
+    content += "Printer: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
+    content += "\n" + discord_text(subtitle)
+    if job:
+        content += "\nBatch ID: " + discord_text(printer_text(job.get("id", ""), 128, config))
+    content += "\n" + discord_text(body)
     origin = config.get("server_url", "")
     if isinstance(origin, str) and origin:
         parsed = urllib.parse.urlsplit(origin)

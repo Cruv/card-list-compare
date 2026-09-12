@@ -291,8 +291,12 @@ webhook in `config.json` cannot reactivate it. The Mac ledger stores managed set
 privately; keep it in the existing protected state directory and include it in backups.
 The server only delivers fixed configuration/test commands; the Mac sends the notification.
 Discord flip, printer-error and test messages use the webhook name **Proxy Balboa** and
-brief Rocky-inspired phrasing (such as “Yo, champ!”). Packet labels, sheet counts, errors
-and reload instructions remain explicit. Native Mac notifications keep plain wording.
+original Rocky-inspired phrasing: plain, slightly hesitant and encouraging, with occasional
+“Yo”, “y'know” or “ya”. A factual event headline comes first for phone previews. A separate
+plain-language details block retains the printer, full batch ID, numbered packet, printed
+label, physical sheet count, error and required action as applicable, plus a link to CLC.
+Flavor never substitutes for instructions. Native Mac notifications keep plain wording.
+See [notification voice and examples](../../docs/NOTIFICATION_VOICE.md).
 An ambiguous test is not automatically replayed. A new button click is a deliberate new test.
 Older companions show setup as unavailable until updated. Rolling back below 2.49.0
 also ignores managed overrides: an older webhook still present in `config.json` would

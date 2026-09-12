@@ -30,9 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.53.1';
+const APP_VERSION = '2.53.2';
 const WHATS_NEW = [
-  'Deck prices appear with the card list, without conflicting older values in the header',
+  'Proxy Balboa pings combine Rocky-inspired dialogue with clear status and instructions',
+  'Deck alerts link straight to the changed deck and printer alerts identify the exact packet',
 ];
 
 function getResetToken() {

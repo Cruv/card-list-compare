@@ -146,7 +146,7 @@ export async function processSingleDeck(deck) {
   }
 
   if (deck.discord_webhook_url) {
-    const sent = await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, changeSummary);
+    const sent = await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, changeSummary, deck.id);
     if (sent) {
       logNotification(deck.user_id, deck.id, 'deck_change', 'discord',
         `Deck Updated: ${deck.deck_name}`,
@@ -270,7 +270,7 @@ async function checkPriceAlert(deck, priceResult) {
 
   // Send Discord webhook alert
   if (deck.discord_webhook_url) {
-    const sent = await sendPriceAlertWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, currentPrice, prevPrice, delta, mode);
+    const sent = await sendPriceAlertWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, currentPrice, prevPrice, delta, mode, deck.id);
     if (sent) {
       logNotification(deck.user_id, deck.id, 'price_alert', 'discord', subject,
         { previousPrice: prevPrice, currentPrice, delta: Math.round(delta * 100) / 100, mode });
@@ -315,16 +315,31 @@ async function sendPriceAlertEmail(email, username, deckName, currentPrice, prev
   return sendEmail(email, `Price Alert: ${deckName} ${direction} by $${Math.abs(delta).toFixed(2)}`, html);
 }
 
-export async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, currentPrice, previousPrice, delta, mode) {
+function discordSummaryLabel(value) {
+  // Keep the factual push-preview headline on one line. allowed_mentions below
+  // remains the permission boundary; escaping also prevents misleading markup.
+  return String(value).replace(/[\p{Cc}\s]+/gu, ' ').trim().slice(0, 120)
+    .replace(/@/g, '@\u200b').replace(/</g, '‹').replace(/>/g, '›')
+    .replace(/([\\`*_~|[\]])/g, '\\$1');
+}
+
+function discordDeckUrl(deckId) {
+  const appUrl = getAppUrl();
+  if (!appUrl) return null;
+  const path = Number.isSafeInteger(deckId) && deckId > 0 ? `#library/${deckId}` : '#library';
+  return `${appUrl.split('#')[0]}${path}`;
+}
+
+export async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, currentPrice, previousPrice, delta, mode, deckId = null) {
   try {
-    const appUrl = getAppUrl();
+    const deckUrl = discordDeckUrl(deckId);
     const direction = delta > 0 ? 'increased' : 'decreased';
     const modeLabel = mode === 'cheapest' ? 'cheapest printings' : 'your printings';
     const color = delta > 0 ? 0xf44336 : 0x4caf50;
 
     const body = {
       username: 'Proxy Balboa',
-      content: 'Yo, champ! Prices moved this round. Here are the numbers.',
+      content: `Deck price ${direction} by $${Math.abs(delta).toFixed(2)} · ${discordSummaryLabel(deckName)}\nHey, the numbers changed on us. I got 'em right here for ya.`,
       allowed_mentions: { parse: [] },
       embeds: [{
         title: `Price Alert: ${deckName}`,
@@ -337,7 +352,7 @@ export async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson
         ],
         footer: { text: 'Card List Compare' },
         timestamp: new Date().toISOString(),
-        ...(appUrl ? { url: `${appUrl}#library` } : {}),
+        ...(deckUrl ? { url: deckUrl } : {}),
       }],
     };
 
@@ -359,12 +374,12 @@ export async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson
   }
 }
 
-export async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSummary) {
+export async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSummary, deckId = null) {
   try {
     let commanders = [];
     try { commanders = commandersJson ? JSON.parse(commandersJson) : []; } catch { /* ignore */ }
     const cmdLabel = commanders.length > 0 ? commanders.join(' / ') : deckName;
-    const appUrl = getAppUrl();
+    const deckUrl = discordDeckUrl(deckId);
 
     const fields = [];
     if (changeSummary) {
@@ -393,18 +408,18 @@ export async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, c
 
     const body = {
       username: 'Proxy Balboa',
-      content: 'Yo, champ! Your deck has a new lineup. Here are the changes.',
+      content: `Deck updated · ${discordSummaryLabel(deckName)}\nYo. Things look different now. Figured I oughta tell ya, y'know?`,
       allowed_mentions: { parse: [] },
       embeds: [{
         title: `Deck Updated: ${deckName}`,
         description: changeSummary
-          ? `**${cmdLabel}** has been updated on Archidekt.`
-          : `**${cmdLabel}** has been updated on Archidekt. A new snapshot has been saved.`,
+          ? `**${cmdLabel}** has a new saved version. Review the changes below or open the deck in CLC.`
+          : `**${cmdLabel}** has a new saved version. Card-level details are unavailable; open the deck in CLC to review it.`,
         color: 0x3b82f6,
         fields: fields.length > 0 ? fields : undefined,
         footer: { text: 'Card List Compare' },
         timestamp: new Date().toISOString(),
-        ...(appUrl ? { url: `${appUrl}#library` } : {}),
+        ...(deckUrl ? { url: deckUrl } : {}),
       }],
     };
 

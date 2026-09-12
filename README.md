@@ -227,8 +227,9 @@ Flip and reported printer-error alerts use a Mac notification and Glass sound by
 connected through the administrator's **Print → Printer → Discord printer alerts** controls.
 Save a channel webhook and optional user ID, wait for the Mac acknowledgement, then send a
 test. The same panel can disconnect it. Discord messages come from **Proxy Balboa**, with
-brief Rocky-inspired phrasing and precise error/flip instructions. Deck-change and price
-alerts use the same name and voice. Printer-error alerts require companion 2.53.0 or newer and use persisted per-episode duplicate suppression. Dismissing an alert never resumes printing; the waiting
+original Rocky-inspired phrasing between a factual preview headline and precise plain-language
+error/flip details. Deck-change and price alerts use the same voice, retain their exact
+changes/totals and link directly to the deck. See [notification voice](docs/NOTIFICATION_VOICE.md). Printer-error alerts require companion 2.53.0 or newer and use persisted per-episode duplicate suppression. Dismissing an alert never resumes printing; the waiting
 packet stays visible in **Print → Printer**, including while paused. Earlier PDFs remain
 unchanged and may contain several DFC sheets without a job label: preview all pages and
 match the exact waiting packet before reloading. See the [packet sequence and alerts](docs/PRINT_WORKFLOW.md#double-faced-packets-and-flip-alerts).
