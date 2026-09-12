@@ -695,14 +695,6 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
         <div className="deck-page-header-top">
           <h1 className="deck-page-name">{deck.deck_name}</h1>
           <div className="deck-page-header-badges">
-            {priceDisplayEnabled && deck.last_known_price > 0 && (
-              <div className="deck-page-prices">
-                <span className="deck-page-price-badge">${deck.last_known_price.toFixed(2)}</span>
-                {deck.last_known_budget_price != null && deck.last_known_budget_price > 0 && Math.abs(deck.last_known_budget_price - deck.last_known_price) >= 0.01 && (
-                  <span className="deck-page-budget-price">Cheapest printing: ${deck.last_known_budget_price.toFixed(2)}</span>
-                )}
-              </div>
-            )}
             <button
               className={`deck-page-pin-btn${deck.pinned ? ' deck-page-pin-btn--active' : ''}`}
               onClick={handleTogglePin}

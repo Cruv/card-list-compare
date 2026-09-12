@@ -112,3 +112,11 @@ check preserving ledger history and private configuration, with no launchd or pr
 native iOS keyboard behavior, printer color, cutter geometry or manual duplex alignment.
 The accepted household color/landscape results and remaining physical tests are maintained
 in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+
+
+The v2.53.1 follow-up removes the cached price badges from the deck header. Live browser
+verification exposed them beside a different freshly fetched Cards estimate. Cards keeps
+its current estimate and Insights tools; library cards retain saved prices. Six additional
+Chrome fixture checks cover deliberately conflicting saved/current totals, the single
+pricing display and disabled-price policy. The full 1,106-test suite and build/lint/audits
+passed again for this patch.

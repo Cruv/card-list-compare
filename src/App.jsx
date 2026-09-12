@@ -30,12 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.53.0';
+const APP_VERSION = '2.53.1';
 const WHATS_NEW = [
-  'Simpler navigation for comparing, managing decks and printing',
-  'Admins can see every batch in Printer while everyone keeps queuing new lists',
-  'Add decks directly from pasted lists or links, with clearer print copy counts',
-  'Proxy Balboa brings Discord printer alerts and flip reminders from the Mac',
+  'Deck prices appear with the card list, without conflicting older values in the header',
 ];
 
 function getResetToken() {
