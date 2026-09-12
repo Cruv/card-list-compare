@@ -22,7 +22,7 @@ A server without the new endpoints leaves prepared batches waiting with an updat
 3. When its PDFs are ready, open ManaSync's **Proxy binder → Pending prints**. The prepared
    copies and actual artwork appear there automatically. Available inventory is unchanged.
 4. For a three-copy batch, confirm one usable copy into a physical location. The Proxy binder
-   now owns one copy; two remain pending. Open **View proxy confirmation** in CLC to see
+   now owns one copy; two remain pending. Open **Confirm usable copies** on the CLC batch to see
    the same quantities, including the confirmation made in ManaSync.
 5. Dismiss the remaining two as a failed/cancelled print. CLC shows quantity review complete,
    with one confirmed and two dismissed. The existing proxy remains in its chosen location.

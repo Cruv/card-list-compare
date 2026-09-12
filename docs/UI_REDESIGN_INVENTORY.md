@@ -244,3 +244,25 @@ Native iOS Simulator is still pending. App Store installation of Xcode stalled o
 an empty confirmation sheet; the owner was asked to complete installation. The release
 must not be described as having passed native iOS checks until an actual runtime/device
 is booted and its Safari/keyboard/orientation proof is recorded.
+
+## Live deployment checkpoint
+
+The source was committed and pushed as `a6d9eeb` and deployed as **v2.52.0** to the
+household `CardListCompare` container on 2026-09-11 (local time). The source and isolated
+Docker checks preceded deployment; this is additional read-only production evidence.
+
+- The signed-in household browser displayed the new Print studio, Connections and
+  Print Station surfaces and v2.52.0 navigation. Connections had no console errors.
+- Connections correctly displayed **Not connected**, the default `manasync.net` address,
+  the personal-token setup steps and the separate optional CLC deck-access disclosure.
+  No real token was created or saved. ManaSync account authorization is still pending.
+- Print Station displayed **Online**, **Enabled**, **Ready**, native companion **2.49.0**
+  and no active batch. No live station control, print or Discord action was invoked.
+- Local/public HTTP responses matched the Docker image's index and all 24 frontend
+  assets. Hash evidence is `/tmp/clc-2520-live-assets.json`.
+- Database checks preserved three users, two owners, 14 decks, 72 snapshots and one
+  completed batch, with unchanged existing foreign-key findings. Deployment and backup
+  locations are recorded in [OPERATIONS.md](OPERATIONS.md).
+
+These checks do not establish a connected ManaSync account or native iOS Simulator
+coverage. Both remain explicitly pending user sign-in/token or Xcode setup respectively.

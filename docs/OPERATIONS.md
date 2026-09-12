@@ -179,9 +179,9 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The household server is now **v2.51.0**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `abd0595`. The local image is
-`clc-household:2.51.0-abd0595`; its saved service configuration lives at
+The household server is now **v2.52.0**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `a6d9eeb`. The local image is
+`clc-household:2.52.0-a6d9eeb`; its saved service configuration lives at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
 existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
 UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
@@ -304,11 +304,10 @@ tested build. The signed-in Print Station page showed **Online**, **Enabled** an
 with the installed native v2.49.0 companion. Its configuration and ledger were retained;
 there was no companion reinstall or pause.
 
-At this checkpoint, CLC had no saved outbound ManaSync inventory connection. A separate
-active CLC deck-access token does not establish the reverse connection. The URL and error
-from the owner are still needed to verify the actual ManaSync deployment; source contract
-inspection found no endpoint or scope mismatch. Do not substitute an assumed backend URL
-or treat unknown ownership as missing inventory.
+At the v2.51.0 checkpoint, CLC had no saved outbound ManaSync inventory connection. A
+separate active CLC deck-access token does not establish the reverse connection. The
+v2.52.0 checks below use the owner's confirmed `https://manasync.net` deployment.
+Unknown ownership must not be treated as missing inventory.
 
 The **v2.50.0** server update adds standalone lists, removable suggestions and extra
 cards, default basic-land exclusion, default-off printing replacement, and view-only
@@ -337,6 +336,47 @@ unknown/incoming ownership, sorted/filtered one-original shopping, stale-review 
 exact same-key retry after a lost response, standalone downloads/confirmation scoping and
 tracked-deck defaults. The new source/native package version is 2.50.0 for future builds;
 this server feature requires no companion installation or printer change.
+
+The **v2.52.0** server update redesigns the shared navigation and every workspace surface,
+including comparison, deck artwork/library, print review, station, account, administration
+and Guide. **Connections** now provides the guided ManaSync setup, defaults to
+`https://manasync.net`, and offers a saved-token connection check. Optional CLC deck access
+is clearly separated from the ManaSync token needed to read inventory and report proxies.
+The source is committed and pushed at `a6d9eeb`; the branch still has no matching GitHub
+Actions run. Deployment uses the locally tested Docker image.
+
+The complete stopped-data backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T025814Z-before-2.52.0/data-complete`.
+`cardlistcompare-deployment/update-2.52.0.json` records the image, backup and checks.
+The image ID is `sha256:124f257290b61c024330f5cf995471599f13999a1ac32e83d120c4ddb0949f62`.
+The update preserved three users, two tracked owners, 14 decks, 72 snapshots and one
+completed print batch. Database integrity passed; existing foreign-key findings were
+unchanged. Private runtime settings and the nullable standalone-job deck association were
+retained. Only CLC was recreated. The native **v2.49.0** companion remained running and
+Enabled with the same configuration, credentials and test-printing setting.
+
+Validation passed **1,029 app/server tests**, **121 native fake-spooler tests**, production
+and Docker builds, lint (zero errors and seven existing warnings), and both dependency
+audits (zero vulnerabilities). Isolated Chrome and WebKit suites exercised desktop/phone
+navigation, account and Connections, all Guide/Admin sections, deck overlays, print
+recovery and station/Discord controls. See [the UI inventory](UI_REDESIGN_INVENTORY.md)
+for the coverage and explicit limitations. No QA sent a household print job, station
+command, Discord message or inventory mutation.
+
+Live local/public checks served the same index and all 24 assets as the tested Docker
+frontend (`/tmp/clc-2520-live-assets.json`). The signed-in browser showed v2.52.0 and the
+new Connections screen without console errors. Print Station showed **Online**, **Enabled**,
+**Ready**, installed companion **2.49.0**, and no active batch. Read-only requests from CLC
+to ManaSync's integration-context and containers endpoints returned JSON 401: networking,
+TLS and API routing work, but this household account still needs its ManaSync personal
+app token. Connections remains correctly **Not connected** until that token is saved and
+verified. No account grant was created during QA.
+
+Native iOS Simulator validation remains pending: full Xcode is not installed, its App
+Store confirmation stalled, and the alternative Apple download requires account sign-in.
+The owner was asked to complete installation. Playwright WebKit phone checks passed but
+do not replace the requested Simulator Safari, keyboard and orientation proof. The v6
+cutting and manual-duplex physical proofs also remain separate from this UI release.
 
 #### Queue operation
 

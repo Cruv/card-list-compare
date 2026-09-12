@@ -65,8 +65,9 @@ separate `.manasync-bridge-key` beside the database. Back up the database and th
 for managed secrets, set `MANASYNC_BRIDGE_KEY` to a base64 encoded 32-byte key instead. Keep
 this key separate from ManaSync keys and JWT signing secrets.
 
-Enter the ManaSync URL reachable from the CLC server in Settings. Any HTTP(S) domain or
-port works without a server allowlist, including custom reverse-proxy paths. For example,
+In **Connections**, use the default `https://manasync.net` or enter a URL reachable from
+the CLC server under **Using another ManaSync server?**. Any HTTP(S) domain or port works
+without a server allowlist, including custom reverse-proxy paths. For example,
 `https://manasync.example.com`, `http://192.168.1.10:9090`, or
 `https://cards.example.com/manasync`. A bare domain defaults to HTTPS; include `http://`
 for an HTTP-only LAN service. Credentials, query strings, and fragments are not part of
@@ -119,18 +120,19 @@ OAuth/pairing flow; the guide reflects that actual contract.
 
 ## Ownership and buying originals
 
-After **Review print list** in the Printing tab, the selected print list shows ManaSync
-ownership and a **Review in Mana Pool** link for missing originals. Whole-snapshot, changes,
+After **Review print list** in the Printing tab or Print studio, the selected print list
+shows ManaSync ownership. Expand **Buy missing originals** to find the
+**Review missing cards in Mana Pool** link. Whole-snapshot, changes,
 and sideboard choices use the reviewed print quantities. Printing remains available whether
 you own the cards or choose to shop. The same check is available in Full Deck under
-**ManaSync ownership and Mana Pool shopping**.
+**Ownership & shopping → ManaSync ownership and Mana Pool shopping**.
 One original in any printing covers unlimited proxy copies across all decks. CLC checks
 logical-card ownership and identifies incoming originals; it does not compare print
 quantities with inventory or consume copies already allocated to another deck. There is
 no exact-printing ownership selector. A failed connection or unresolved logical card is
 shown as unknown; shopping never treats unknown as zero.
 
-Select missing cards for the shopping list and click **Review in Mana Pool**, or copy the text.
+Select missing cards for the shopping list and use the Mana Pool review link, or copy the text.
 The link uses Mana Pool's `/add-deck?deck=` UTF-8/base64 prefill. Long lists use the copy/paste
 fallback. The list requests one original per missing logical card, deduplicated across
 printings; chosen proxy artwork does not create a requirement to buy that printing.
