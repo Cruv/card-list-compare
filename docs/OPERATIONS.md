@@ -179,9 +179,9 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The household server is now **v2.49.0**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `4cebbdd`. The local image is
-`clc-household:2.49.0-4cebbdd`; its saved service configuration lives at
+The household server is now **v2.49.1**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `b406832`. The local image is
+`clc-household:2.49.1-b406832`; its saved service configuration lives at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
 existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
 UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
@@ -265,6 +265,17 @@ entries verified. Use the package's installer or run its bundled Python with `-B
 allowing Python to write bytecode into a versioned bundle changes its manifest contents
 and correctly fails installation verification. The deployment retained all 66 driver
 options, configuration, station credentials and Enabled/test-printing state unchanged.
+
+The subsequent **v2.49.1** server-only patch accepts DeckCheck builder and shared URLs
+using the same validated deck ID parser as source tracking. The supplied public
+`/app/builder/zynmTJxDKo28` link imported 100 cards, Sauron as commander and nine Nazgûl.
+Validation passed 909 app/server tests, 119 native tests, 12 isolated browser checks,
+lint/build and both dependency audits. Public/local frontend assets match the tested build.
+The pre-patch stopped-data backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20260911T235927Z-before-2.49.1/data-complete`;
+`update-2.49.1.json` records the image and preserved data counts. The installed native
+companion stays at v2.49.0, continuously running and Enabled; no printer changes or
+native installation were required. No household deck or print job was created by testing.
 
 #### Queue operation
 

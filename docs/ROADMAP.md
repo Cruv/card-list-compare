@@ -24,7 +24,7 @@ counts before generation. Missing faces block creation, and uncertain creation r
 retain the same identity across reloads.
 The self-contained Mac installer now bundles its runtime, starts paused at login, and
 supports checked version updates and rollback without replacing configuration or print history.
-The v2.49.0 companion and server are deployed on the household Mac and passed their
+The v2.49.0 companion and v2.49.1 server are deployed on the household Mac and passed their
 connection and printer checks. The dashboard reports Online, Enabled and printer Ready.
 Leave the station enabled for interface testing as requested. The local test-printing
 opt-in permits queued test jobs while both physical-proof flags remain false; DFC reload

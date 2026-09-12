@@ -110,7 +110,7 @@ The permanent CLC container and native printer companion now reside on the house
 The container's local data directory is `/Users/cruv/docker/Stacks/mtg/cardlistcompare`;
 the companion connects through `https://clc.blackbeardsvault.com/`. See the
 [installation checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11)
-for the installed companion and connected v2.49.0 household server. Test printing is
+for the installed companion and connected v2.49.1 household server. Test printing is
 enabled locally for interface testing; physical proof results remain unverified.
 
 Remaining physical checks are the matching v6 Studio cutting template, manual rear-feeder
