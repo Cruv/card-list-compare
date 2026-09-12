@@ -240,7 +240,8 @@ class ControlTests(unittest.TestCase):
         def send(url, payload, timeout):
             self.assertEqual(timeout, 5)
             self.assertEqual(self.receipt("discord-test-1")["state"], "processing")
-            self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": ["123456789"], "roles": []})
+            self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [], "roles": []})
+            self.assertNotIn("<@", payload["content"])
             self.assertIn("fixture-secret", url)
         transport = mock.Mock(side_effect=send)
         self.station.alerts.discord_transport = transport

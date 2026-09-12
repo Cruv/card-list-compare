@@ -210,6 +210,92 @@ class StationTests(unittest.TestCase):
             ("double-faced-001", "fronts"), ("double-faced-001", "backs")])
         self.assertTrue(any(event["state"] == "refeed" for event in self.client.events))
 
+    def completion_transport(self):
+        self.config.update(refeed_discord_webhook_url="https://discord.com/api/webhooks/1234567890/FIXTURE_SECRET",
+                           refeed_discord_user_id="123456789")
+        transport = mock.Mock()
+        self.station.alerts.discord_transport = transport
+        return transport
+
+    def test_new_completion_notifies_by_name_without_mention_and_never_replays_history(self):
+        self.client.job.update(deckName="Friday replacements", totalCopies=8)
+        transport = self.completion_transport()
+        self.station.poll_once()
+        transport.assert_not_called()  # Submitted is not completed.
+        self.cups.history[0]["state"] = 9
+        self.station.poll_once()
+        self.assertEqual(self.station.poll_once(), "completed")
+        transport.assert_called_once()
+        payload = transport.call_args.args[1]
+        self.assertIn("Friday replacements", payload["content"])
+        self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [], "roles": []})
+        self.assertNotIn("<@", payload["content"])
+        self.station.ledger.db.close()
+        self.station = station.Station(self.config, self.client, self.cups)
+        self.station.alerts.discord_transport = transport
+        self.assertEqual(self.station.poll_once(), "already processed")
+        transport.assert_called_once()
+        self.assertEqual(len(self.cups.submissions), 1)
+
+    def test_completion_recovered_after_lost_ack_notifies_once_even_when_paused(self):
+        transport = self.completion_transport()
+        self.station.poll_once()
+        self.cups.history[0]["state"] = 9
+        self.client.fail_state = "completed"
+        with self.assertRaises(station.StationError):
+            self.station.poll_once()
+        transport.assert_not_called()
+        self.cups.history = []
+        self.station.ledger.write("INSERT OR REPLACE INTO settings VALUES('paused','1')")
+        self.assertEqual(self.station.poll_once(allow_submit=False), "completed")
+        transport.assert_called_once()
+        self.assertTrue(self.station.ledger.paused())
+        self.assertEqual(self.station.poll_once(), "paused")
+        self.assertEqual(len(self.cups.submissions), 1)
+
+    def test_completion_waits_for_every_packet_back(self):
+        self.client.job = packet_job(2)
+        transport = self.completion_transport()
+        phases = [("ordinary", "fronts"), ("double-faced-001", "fronts"),
+                  ("double-faced-001", "backs"), ("double-faced-002", "fronts"),
+                  ("double-faced-002", "backs")]
+        for index, phase in enumerate(phases):
+            if phase[1] == "backs":
+                self.assertEqual(self.station.poll_once(), "awaiting_refeed")
+                flip = transport.call_args.args[1]
+                self.assertIn("Paper flip needed", flip["content"])
+                self.assertEqual(flip["allowed_mentions"]["users"], ["123456789"])
+                self.station.resume("job1")
+            self.assertTrue(self.station.poll_once().startswith("submitted"))
+            self.assertEqual(self.cups.submissions[-1][:2], phase)
+            self.cups.history[-1]["state"] = 9
+            self.assertEqual(self.station.poll_once(), "reconciled")
+            self.assertFalse(any("Print job complete" in call.args[1]["content"] for call in transport.call_args_list))
+        self.assertEqual(self.station.poll_once(), "completed")
+        completions = [call.args[1] for call in transport.call_args_list if "Print job complete" in call.args[1]["content"]]
+        self.assertEqual(len(completions), 1)
+        self.assertIn("Sauron", completions[0]["content"])
+        self.assertEqual(completions[0]["allowed_mentions"]["users"], [])
+
+    def test_completion_alert_exception_does_not_block_the_next_batch(self):
+        self.station.poll_once()
+        self.cups.history[0]["state"] = 9
+        self.station.poll_once()
+        with mock.patch.object(self.station.alerts, "job_completed", side_effect=RuntimeError("private transport error")):
+            self.assertEqual(self.station.poll_once(), "completed")
+        self.assertIsNone(self.station.ledger.current())
+        self.client.job = job(job_id="next-job")
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-2")
+
+    def test_failed_or_uncertain_pass_never_sends_completion_message(self):
+        transport = self.completion_transport()
+        self.station.poll_once()
+        self.cups.history[0]["state"] = 8
+        self.station.poll_once()
+        self.assertEqual(self.station.poll_once(), "paper clearance required")
+        self.assertEqual(self.station.ledger.current()["state"], "uncertain")
+        transport.assert_not_called()
+
     def test_unverified_station_does_not_claim_without_explicit_boolean_test_mode(self):
         self.config.update(recipe_verified=False, duplex_verified=False)
         for value in (None, False, "true", 1):

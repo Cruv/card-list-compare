@@ -23,16 +23,31 @@ say that they do not print or resume a job. Prices retain direction, amount, pre
 totals and selected-versus-budget mode. Deck changes use provider-neutral wording and
 preserve added, removed and quantity-changed cards.
 
+Completion messages identify the **whole job name** in the factual headline and retain
+the batch identity, printer and CLC link in the plain details. Say that all required passes
+have completed in the Mac spooler. Do not call a finished front pass or intermediate DFC
+packet a completed job, or imply that the physical cards have passed inspection or are
+ready for cutting.
+
 Example voice lines from the templates:
 
 - Flip: “Yo. So, uh... we got the other side to do, y'know? I need a little help over here.”
 - Printer fault: “Hey, somethin' ain't right over here. Come take a look for me, all right?”
 - Test: “Yo, it's me, Proxy. Just makin' sure you can hear me over here, y'know?”
 
-The voice applies to Discord only; Mac notifications remain plain. Existing mention
-permissions, secret redaction, message limits and duplicate suppression remain in force.
+The voice applies to Discord only; Mac notifications remain plain. From companion
+**2.54.0**, completion messages and explicit delivery tests never directly mention a user.
+The configured user ID is reserved for alerts that require help, such as a paper flip or
+printer fault. A completion update should inform the channel without summoning the operator.
+Role/everyone mentions remain disabled; deck names and other supplied text cannot create
+mentions. Secret redaction, message limits and duplicate suppression remain in force.
 An alert never authorizes a back pass or retry. Automated checks use fake transports;
 **Send test** in Printer settings is an explicit real notification action.
+
+Only newly completed jobs produce completion messages. Upgrading or connecting Discord
+does not replay historical completions. Delivery is best effort, with an attempt persisted
+before sending and no automatic retry after a failed or ambiguous result; notification
+failure never changes a job's print state.
 
 Routine reminders do not become printer-error pings. In companion 2.53.3+, Epson's exact
 ink-tank-check reminder appears as an informational advisory in CLC. It does not indicate

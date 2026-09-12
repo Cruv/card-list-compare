@@ -290,7 +290,7 @@ then use **Send test**. **Disconnect** stores an explicit disabled override so a
 webhook in `config.json` cannot reactivate it. The Mac ledger stores managed settings
 privately; keep it in the existing protected state directory and include it in backups.
 The server only delivers fixed configuration/test commands; the Mac sends the notification.
-Discord flip, printer-error and test messages use the webhook name **Proxy Balboa** and
+Discord completion, flip, printer-error and test messages use the webhook name **Proxy Balboa** and
 original Rocky-inspired phrasing: plain, slightly hesitant and encouraging, with occasional
 “Yo”, “y'know” or “ya”. A factual event headline comes first for phone previews. A separate
 plain-language details block retains the printer, full batch ID, numbered packet, printed
@@ -307,8 +307,10 @@ Without managed settings, Discord uses the legacy config below and is disabled w
 webhook URL is empty. A configured canonical
 `https://discord.com/api/webhooks/id/token` URL receives the waiting packet details and CLC
 link. A nonempty `refeed_discord_user_id` must be a Discord user ID; the message can mention
-only that configured user, with role/everyone mentions disabled. Omitting the user ID sends
-the message without a mention. Use a normal text-channel webhook; forum/thread query
+only that configured user, with role/everyone mentions disabled. From 2.54.0, the ID is used
+only for alerts that need operator help, such as a paper flip or printer error. Completion
+and test messages never directly mention a user, even when an ID is configured. Omitting
+the user ID sends all messages without a personal mention. Use a normal text-channel webhook; forum/thread query
 options are not supported. Keep the webhook out of environment variables, repositories and
 logs. CLC encrypts a pending setup command and never returns its URL in public status or
 receipts; the browser retains only a recovery request UUID. Active managed credentials
@@ -330,6 +332,23 @@ No paper was printed. Physical v6 cutting and manual duplex proof are still requ
 Upgrade the companion before large packet jobs. The claim request advertises its supported
 artifact count (37 in v2.48.0); older clients default to eight. A larger waiting job stays
 queued with an upgrade error before a new durable claim or print attempt is made.
+
+### Job completion messages (2.54.0+)
+
+The configured Discord connection also receives a message when the companion newly
+confirms that every required pass in a job has completed in the Mac spooler. It names the
+whole deck or standalone print job, retains the batch identity and printer details, and
+never directly mentions the configured user. A finished front pass or an intermediate
+packet does not mean the whole job is complete. Completion can still be observed while
+new submissions are paused.
+
+Completion is a spooler receipt, not proof that the cards are usable, correctly aligned,
+or ready for cutting. Check the physical sheets separately. The companion does not scan
+historical completed jobs to send a backlog after an upgrade or Discord connection.
+It records each delivery attempt before sending so a restart cannot duplicate that
+attempt. Delivery is best effort: failure or an ambiguous response is not automatically
+retried and never changes the print state. A crash between recording job completion and
+attempting the notification can leave that completion unannounced.
 
 ## Restart, reconciliation and failures
 

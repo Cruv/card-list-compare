@@ -273,8 +273,10 @@ The browser sends credentials once over the authenticated connection and keeps o
 request UUID for uncertain-request recovery. The server encrypts the pending webhook with
 a private key beside the database and removes the ciphertext after settlement or expiry.
 The Mac stores the active destination privately in its ledger; status and receipts never
-return its URL. Only the configured user may be mentioned. No real destination or test
-message is created by installing this feature. See the [Mac alert setup](../companion/mac/README.md#flip-alerts).
+return its URL. From companion 2.54.0, only alerts that need operator help may mention the
+configured user; completion and explicit test messages never directly mention anyone.
+No real destination or test message is created by installing this feature.
+See the [Mac alert setup](../companion/mac/README.md#flip-alerts).
 
 Notification permission, Focus or sound settings can suppress a Mac alert. Each configured
 channel is attempted once per waiting packet; ambiguous or failed delivery is logged
@@ -285,6 +287,25 @@ Existing PDFs and manifests are immutable. A legacy `double-faced.pdf` may conta
 front/back page pairs and lack the job label above. Inspect its PDF preview and all pages,
 match the exact waiting job/packet ID and physical sheet count, and reload the complete
 matching stack in its tested order. A new job is required to obtain the new packet layout.
+
+## Job completion messages
+
+Companion **2.54.0+** uses the configured Discord connection to announce a newly completed
+job after all its required front and back passes have confirmed completion in the Mac
+spooler. The message names the whole deck or standalone print job, includes its batch
+identity and printer details, and does not directly mention the configured user. A
+finished front pass or intermediate DFC packet is not a whole-job completion. Existing
+submitted passes can complete and be announced while new submissions are paused.
+
+Completion describes the spooler result. It does not confirm usable cards, alignment,
+drying, lamination or cutting readiness. Keep those physical checks separate. No historical
+completion scan runs after an upgrade or Discord connection, so earlier finished jobs do
+not produce a backlog of messages.
+
+Delivery is best effort. The native ledger records an attempt before sending to prevent
+duplicate attempts after a restart. Failed or ambiguous delivery is not automatically
+retried and never changes printing state; a crash between saving the completed state and
+attempting its message can leave that completion unannounced.
 
 ## Printer errors and queue visibility
 
@@ -336,8 +357,11 @@ Discord messages use **Proxy Balboa**. A factual headline leads the phone previe
 an original Rocky-inspired line and a clearly labeled plain-language details block follow.
 Flip alerts include the printer, full batch ID, packet number/ID, printed label, physical
 sheet count and exact reload action. Fault alerts retain the error and affected pass; tests
-explicitly state that no printing is requested. Deck/price alerts preserve their values and
-link to the corresponding deck. See [notification voice](NOTIFICATION_VOICE.md).
+explicitly state that no printing is requested. Completion messages name the finished job
+and report confirmed completion of all spooler passes. From companion 2.54.0, completion
+and test messages never directly mention a user; personal mentions are reserved for
+alerts that need help. Deck/price alerts preserve their values and link to the corresponding
+deck. See [notification voice](NOTIFICATION_VOICE.md).
 Native Mac messages remain plain.
 The bot name and style do not change notification permissions or paper confirmation.
 

@@ -225,10 +225,15 @@ Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for re
 
 Flip and reported printer-error alerts use a Mac notification and Glass sound by default, with optional Discord delivery
 connected through the administrator's **Print → Printer → Discord printer alerts** controls.
+Companion **2.54.0+** also sends a Discord completion message naming the whole job after all
+required print passes finish in the Mac spooler. Only newly completed jobs are announced;
+existing completed history is not replayed. Completion describes the spooler result, not
+approval of the physical cards. Completion and test messages never mention a user directly.
+The optional Discord user ID is used only when help is needed, such as a paper flip or printer error.
 Save a channel webhook and optional user ID, wait for the Mac acknowledgement, then send a
 test. The same panel can disconnect it. Discord messages come from **Proxy Balboa**, with
 original Rocky-inspired phrasing between a factual preview headline and precise plain-language
-error/flip details. Deck-change and price alerts use the same voice, retain their exact
+job, error or flip details. Deck-change and price alerts use the same voice, retain their exact
 changes/totals and link directly to the deck. See [notification voice](docs/NOTIFICATION_VOICE.md). Printer-error alerts require companion 2.53.0 or newer and use persisted per-episode duplicate suppression. Dismissing an alert never resumes printing; the waiting
 packet stays visible in **Print → Printer**, including while paused. Earlier PDFs remain
 unchanged and may contain several DFC sheets without a job label: preview all pages and

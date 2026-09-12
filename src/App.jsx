@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.53.3';
+const APP_VERSION = '2.54.0';
 const WHATS_NEW = [
-  'Printer status explains actual faults, reminders and unavailable information separately',
-  'Routine Epson ink reminders no longer look like printer failures',
+  'Proxy Balboa announces completed print jobs by name without a personal mention',
+  'Discord mentions are reserved for paper flips and printer problems that need your help',
 ];
 
 function getResetToken() {

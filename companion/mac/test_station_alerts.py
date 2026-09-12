@@ -255,7 +255,9 @@ class DiscordAlertTests(unittest.TestCase):
         self.assertIn("**Test details**", payload["content"])
         for text in ("Yo, it's me, Proxy.", "Discord test confirmed", "sheets to flip", "printer errors", "does not print or resume anything"):
             self.assertIn(text, payload["content"])
-        self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [USER_ID], "roles": []})
+        self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [], "roles": []})
+        self.assertNotIn("<@", payload["content"])
+        self.assertIn("Only alerts requiring help mention you", payload["content"])
         self.assertLessEqual(len(payload["content"]), 2000)
         self.assertFalse(payload["tts"])
         self.runner.assert_not_called()
@@ -387,6 +389,198 @@ class DiscordAlertTests(unittest.TestCase):
         self.assertEqual(response["channels"]["mac"]["status"], "attempted")
         self.assertNotIn("SECRET", json.dumps(response))
         self.transport.assert_not_called()
+
+
+class CompletionAlertTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.directory = Path(self.temporary.name) / "state"
+        self.ledger = Ledger(self.directory)
+        self.config = {"refeed_discord_webhook_url": WEBHOOK, "refeed_discord_user_id": USER_ID,
+                       "server_url": "https://clc.test", "queue": "EPSON_ET_8550_Series"}
+        self.runner = mock.Mock()
+        self.transport = mock.Mock(return_value=MESSAGE)
+        self.alerts = RefeedAlerts(self.ledger, self.config, runner=self.runner, discord_transport=self.transport)
+        self.job = {"id": "12345678-1234-4234-8234-123456789abc", "deckName": "Friday replacements",
+                    "totalCopies": 6, "artifacts": [{"id": "ordinary", "kind": "ordinary"},
+                                                  {"id": "dfc-1", "kind": "dfc"}, {"id": "dfc-2", "kind": "dfc"}]}
+        self.ledger.write("INSERT INTO jobs(id,payload,recipe_hash,state,updated) VALUES(?,?,?,?,?)",
+                          (self.job["id"], json.dumps(self.job), "recipe", "completed", 1))
+        for artifact in self.job["artifacts"]:
+            for phase in (["fronts", "backs"] if artifact["kind"] == "dfc" else ["fronts"]):
+                self.ledger.write("INSERT INTO passes(job_id,artifact_id,phase,state,title,spooler_id) VALUES(?,?,?,?,?,?)",
+                                  (self.job["id"], artifact["id"], phase, "completed", "fixture", "EPSON-42"))
+
+    def tearDown(self):
+        self.ledger.db.close()
+        self.temporary.cleanup()
+
+    def save_payload(self):
+        self.ledger.write("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(self.job), self.job["id"]))
+
+    def test_whole_job_receipt_names_job_with_useful_details_and_no_mention_or_native_alert(self):
+        before = [tuple(row) for row in self.ledger.passes(self.job["id"])]
+        response = self.alerts.job_completed(self.job)
+        self.assertEqual(response["status"], "attempted")
+        url, payload = self.transport.call_args.args
+        self.assertEqual(url, WEBHOOK)
+        self.assertEqual(self.transport.call_args.kwargs, {"timeout": 5})
+        self.assertEqual(payload["content"].splitlines()[0], "**Print job complete · Friday replacements**")
+        self.assertEqual(payload["username"], "Proxy Balboa")
+        self.assertIn("Yo, we got it done, y'know?", payload["content"])
+        details = payload["content"].split("**Print details**\n", 1)[1]
+        for text in ("Job: Friday replacements", "Batch ID: " + self.job["id"], "Printer: EPSON\\_ET\\_8550\\_Series",
+                     "Card copies: 6", "All print passes completed in the printer queue", "Action: None.",
+                     "No paper flip is needed for this job", "<https://clc.test/#print-station>"):
+            self.assertIn(text, details)
+        self.assertNotIn("y'know", details)
+        self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [], "roles": []})
+        self.assertNotIn("<@", payload["content"])
+        self.assertFalse(payload["tts"])
+        self.runner.assert_not_called()
+        self.assertEqual([tuple(row) for row in self.ledger.passes(self.job["id"])], before)
+        self.assertEqual(self.ledger.db.execute("SELECT state FROM jobs").fetchone()[0], "completed")
+
+    def test_completed_flag_cannot_bypass_pending_fronts_or_dfc_backs(self):
+        for artifact_id, phase in (("ordinary", "fronts"), ("dfc-1", "backs"), ("dfc-2", "fronts"), ("dfc-2", "backs")):
+            with self.subTest(artifact=artifact_id, phase=phase):
+                self.ledger.write("UPDATE passes SET state='pending' WHERE artifact_id=? AND phase=?", (artifact_id, phase))
+                self.assertEqual(self.alerts.job_completed(self.job)["status"], "ignored")
+                self.transport.assert_not_called()
+                self.ledger.write("UPDATE passes SET state='completed'")
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "attempted")
+
+    def test_missing_pass_or_empty_artifacts_never_looks_complete(self):
+        self.ledger.write("DELETE FROM passes WHERE artifact_id='dfc-2' AND phase='backs'")
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "ignored")
+        self.job["artifacts"] = []
+        self.save_payload()
+        self.ledger.write("DELETE FROM passes")
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "ignored")
+        self.transport.assert_not_called()
+
+    def test_active_failed_canceled_and_unknown_jobs_do_not_send_completion(self):
+        for state in ("active", "awaiting_refeed", "failed", "canceled", "uncertain"):
+            with self.subTest(state=state):
+                self.ledger.write("UPDATE jobs SET state=?", (state,))
+                self.assertEqual(self.alerts.job_completed(self.job)["status"], "ignored")
+        self.assertEqual(self.alerts.job_completed({**self.job, "id": "unknown"})["status"], "ignored")
+        self.transport.assert_not_called()
+
+    def test_uses_saved_job_identity_and_escapes_all_dynamic_mentions(self):
+        self.job["deckName"] = "@everyone <@123> <@&456> **fake title**\n# fake status"
+        self.job["totalCopies"] = "1000"
+        self.save_payload()
+        self.alerts.job_completed({**self.job, "deckName": "Different caller name", "totalCopies": 900})
+        payload = self.transport.call_args.args[1]
+        for forbidden in ("@everyone", "<@", "**fake title**", "Different caller name", "Card copies:"):
+            self.assertNotIn(forbidden, payload["content"])
+        self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [], "roles": []})
+
+    def test_disabled_or_managed_disconnected_discord_does_not_send_or_reserve(self):
+        self.config["refeed_discord_webhook_url"] = ""
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "disabled")
+        self.config["refeed_discord_webhook_url"] = WEBHOOK
+        self.ledger.write("INSERT INTO settings VALUES(?,?)", ("managed_discord_notifications", json.dumps({"enabled": False})))
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "disabled")
+        self.transport.assert_not_called()
+        self.runner.assert_not_called()
+        self.assertIsNone(self.ledger.db.execute("SELECT name FROM sqlite_master WHERE name='print_completion_alerts'").fetchone())
+
+    def test_managed_config_and_native_disabled_preferences_keep_completion_discord_only(self):
+        managed = WEBHOOK.replace(WEBHOOK_ID, "123456789012345678")
+        self.ledger.write("INSERT INTO settings VALUES(?,?)", ("managed_discord_notifications",
+                          json.dumps({"enabled": True, "webhookUrl": managed, "userId": USER_ID})))
+        self.config.update(refeed_notifications=False, refeed_sound=False)
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "attempted")
+        self.assertEqual(self.transport.call_args.args[0], managed)
+        self.assertEqual(self.transport.call_args.args[1]["allowed_mentions"]["users"], [])
+        self.runner.assert_not_called()
+
+    def test_reserves_before_send_and_restart_never_repeats_job(self):
+        def deliver(*_args, **_kwargs):
+            with sqlite3.connect(self.directory / "station.sqlite3") as observer:
+                row = observer.execute("SELECT job_id,outcome FROM print_completion_alerts").fetchone()
+            self.assertEqual(row, (self.job["id"], "attempting"))
+            return MESSAGE
+        self.transport.side_effect = deliver
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "attempted")
+        self.ledger.db.close()
+        self.ledger = Ledger(self.directory)
+        restarted = RefeedAlerts(self.ledger, self.config, runner=self.runner, discord_transport=self.transport)
+        for _ in range(3):
+            self.assertEqual(restarted.job_completed(self.job)["status"], "duplicate")
+        self.transport.assert_called_once()
+
+    def test_ambiguous_delivery_is_not_retried_and_never_changes_completed_job(self):
+        self.transport.side_effect = TimeoutError("Private error " + WEBHOOK)
+        response = self.alerts.job_completed(self.job)
+        self.assertEqual(response["status"], "failed")
+        self.assertNotIn(WEBHOOK, json.dumps(response))
+        restarted = RefeedAlerts(self.ledger, self.config, runner=self.runner, discord_transport=self.transport)
+        self.assertEqual(restarted.job_completed(self.job)["status"], "duplicate")
+        self.transport.assert_called_once()
+        self.assertEqual(self.ledger.db.execute("SELECT state FROM jobs").fetchone()[0], "completed")
+        self.assertTrue(all(row["state"] == "completed" for row in self.ledger.passes(self.job["id"])))
+
+    def test_storage_failure_never_sends_an_unreserved_notice(self):
+        with mock.patch.object(self.ledger, "write", side_effect=sqlite3.OperationalError("private disk error")):
+            response = self.alerts.job_completed(self.job)
+        self.assertEqual(response["status"], "failed")
+        self.assertNotIn("private", response["message"])
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "duplicate")
+        self.transport.assert_not_called()
+
+    def test_failed_reservation_never_sends_or_changes_the_completed_job(self):
+        self.ledger.write("CREATE TABLE print_completion_alerts (job_id TEXT PRIMARY KEY, attempted_at REAL NOT NULL, outcome TEXT NOT NULL)")
+        self.ledger.write("CREATE TRIGGER reject_completion_alert BEFORE INSERT ON print_completion_alerts BEGIN SELECT RAISE(ABORT, 'disk unavailable'); END")
+        response = self.alerts.job_completed(self.job)
+        self.assertEqual(response["status"], "failed")
+        self.transport.assert_not_called()
+        self.assertEqual(self.ledger.db.execute("SELECT COUNT(*) FROM print_completion_alerts").fetchone()[0], 0)
+        self.assertEqual(self.ledger.db.execute("SELECT state FROM jobs").fetchone()[0], "completed")
+
+    def test_one_malformed_completed_job_does_not_silence_later_jobs(self):
+        self.ledger.write("UPDATE jobs SET payload='invalid JSON'")
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "failed")
+        self.assertEqual(self.alerts.job_completed(self.job)["status"], "duplicate")
+        self.transport.assert_not_called()
+        healthy = {**self.job, "id": "another-completed-job", "deckName": "Next deck"}
+        self.ledger.write("INSERT INTO jobs(id,payload,recipe_hash,state,updated) VALUES(?,?,?,?,?)",
+                          (healthy["id"], json.dumps(healthy), "recipe", "completed", 2))
+        self.ledger.write("INSERT INTO passes(job_id,artifact_id,phase,state,title,spooler_id) SELECT ?,artifact_id,phase,state,title,spooler_id FROM passes WHERE job_id=?",
+                          (healthy["id"], self.job["id"]))
+        self.assertEqual(self.alerts.job_completed(healthy)["status"], "attempted")
+        self.assertIn("Print job complete · Next deck", self.transport.call_args.args[1]["content"])
+        self.transport.assert_called_once()
+
+    def test_result_storage_failure_keeps_reservation_and_never_resends(self):
+        original = self.ledger.write
+        def write(sql, args=()):
+            if sql.startswith("UPDATE print_completion_alerts"):
+                raise sqlite3.OperationalError("disk full")
+            return original(sql, args)
+        with mock.patch.object(self.ledger, "write", side_effect=write):
+            response = self.alerts.job_completed(self.job)
+        self.assertEqual(response["status"], "failed")
+        self.assertIn("was attempted", response["message"])
+        restarted = RefeedAlerts(self.ledger, self.config, runner=self.runner, discord_transport=self.transport)
+        self.assertEqual(restarted.job_completed(self.job)["status"], "duplicate")
+        self.assertEqual(self.ledger.db.execute("SELECT outcome FROM print_completion_alerts").fetchone()[0], "attempting")
+        self.transport.assert_called_once()
+
+    def test_known_credentials_are_redacted_and_long_names_keep_useful_details(self):
+        self.config["token"] = "LOCAL-STATION-SECRET"
+        self.job["deckName"] = self.config["token"] + " " + WEBHOOK + " " + "N" * 400
+        self.config["queue"] = "Bearer SENSITIVE-TOKEN"
+        self.save_payload()
+        self.alerts.job_completed(self.job)
+        payload = self.transport.call_args.args[1]
+        for secret in (self.config["token"], WEBHOOK, WEBHOOK.rsplit("/", 1)[1], "SENSITIVE-TOKEN"):
+            self.assertNotIn(secret, payload["content"])
+        for text in (self.job["id"], "Card copies: 6", "Action: None", "https://clc.test/#print-station"):
+            self.assertIn(text, payload["content"])
+        self.assertLessEqual(len(payload["content"]), 2000)
 
 
 class DiscordTransportTests(unittest.TestCase):

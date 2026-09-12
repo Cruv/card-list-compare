@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.53.3"
+COMPANION_VERSION = "2.54.0"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -584,6 +584,24 @@ class Station:
     def heartbeat(self, job):
         self.client.report(job, {"claimToken": job["claimToken"], "eventId": uuid.uuid4().hex, "state": "heartbeat"})
 
+    def complete_job(self, job, detail):
+        # Notify only on this durable transition, never by scanning old completed
+        # jobs on startup. The alert reserves its own attempt before delivery.
+        self.ledger.set_job(job["id"], "completed", detail)
+        try:
+            notice = self.alerts.job_completed(job)
+            if self.management and notice.get("message") and notice.get("level"):
+                self.management.event(notice["level"], notice["message"])
+        except Exception:
+            # Completion is already committed. A notification/logging failure
+            # must not block the next job or change what physically printed.
+            if self.management:
+                try:
+                    self.management.event("warning", "Completion notification unavailable. The completed batch remains in CLC.")
+                except Exception:
+                    pass
+        return "completed"
+
     def uncertain(self, job, entry, detail):
         self.ledger.set_pass(entry, "uncertain", detail)
         self.ledger.set_job(job["id"], "uncertain", detail)
@@ -655,8 +673,7 @@ class Station:
             raise StationError("Local queue/options changed during this job; restore its original recipe before continuing")
         pending = next((entry for entry in self.ledger.passes(job["id"]) if entry["state"] != "completed"), None)
         if pending is None:
-            self.ledger.set_job(job["id"], "completed", "All passes confirmed completed by CUPS")
-            return "completed"
+            return self.complete_job(job, "All passes confirmed completed by CUPS")
         self.waiting_for_refeed(job, pending)
         fresh = self.client.get_job(job["id"])
         if (not isinstance(fresh, dict) or fresh.get("id") != job["id"]
@@ -679,8 +696,7 @@ class Station:
                 self.ledger.set_job(job["id"], "active")
         pending = next((entry for entry in self.ledger.passes(job["id"]) if entry["state"] != "completed"), None)
         if pending is None:
-            self.ledger.set_job(job["id"], "completed", "Recovered durable spooler completion acknowledgements from CLC")
-            return "completed"
+            return self.complete_job(job, "Recovered durable spooler completion acknowledgements from CLC")
         if job.get("state") in TERMINAL or job.get("state") == "expired":
             if all(entry["state"] == "pending" for entry in self.ledger.passes(job["id"])):
                 self.ledger.set_job(job["id"], "canceled", "Job ended on CLC before local submission")

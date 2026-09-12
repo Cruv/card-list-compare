@@ -1,4 +1,4 @@
-"""Best-effort flip and printer-error alerts; never authorize or submit a print pass."""
+"""Best-effort print alerts; never authorize or submit a print pass."""
 
 import hashlib
 import json
@@ -186,13 +186,38 @@ def discord_status(ledger, config):
 
 def discord_test_payload(config):
     validate_alert_config(config)
-    mention = config.get("refeed_discord_user_id", "")
-    content = (f"<@{mention}> " if mention else "") + "**Discord delivery test · no printer action**\n"
+    content = "**Discord delivery test · no printer action**\n"
     content += "Yo, it's me, Proxy. Just makin' sure you can hear me over here, y'know?\n\n**Test details**\n"
-    content += "Discord test confirmed. Future alerts identify sheets to flip and printer errors that need attention.\n"
+    content += "Discord test confirmed. Future alerts report completed jobs, sheets to flip and printer errors that need attention. Only alerts requiring help mention you.\n"
     content += "Printer: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
     content += "\nPrinter action: None. This test does not print or resume anything."
-    return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
+    return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [], "roles": []}, "tts": False}
+
+
+def discord_completion_payload(job, config):
+    """Useful completion receipt, with mentions disabled regardless of preferences."""
+    validate_alert_config(config)
+    name = job.get("deckName") or "Print batch"
+    content = "**Print job complete · " + discord_text(printer_text(name, 70, config)) + "**\n"
+    content += "Yo, we got it done, y'know? That one's all finished.\n\n**Print details**"
+    content += "\nJob: " + discord_text(printer_text(name, 200, config))
+    content += "\nBatch ID: " + discord_text(printer_text(job["id"], 128, config))
+    content += "\nPrinter: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
+    copies = job.get("totalCopies")
+    if type(copies) is int and 0 < copies <= 1_000_000:
+        content += f"\nCard copies: {copies}"
+    content += "\nStatus: All print passes completed in the printer queue."
+    content += "\nAction: None. No paper flip is needed for this job."
+    origin = config.get("server_url", "")
+    if isinstance(origin, str) and origin:
+        parsed = urllib.parse.urlsplit(origin)
+        if (parsed.scheme in {"https", "http"} and parsed.hostname and not parsed.username and not parsed.password
+                and not parsed.query and not parsed.fragment and parsed.path in {"", "/"} and not re.search(r"[\s<>]", origin)):
+            content += "\nOpen Printer in CLC: <" + origin.rstrip("/") + "/#print-station>"
+    if len(content) > 2000:
+        raise ValueError("Completion alert exceeds the message limit")
+    return {"username": DISCORD_USERNAME, "content": content,
+            "allowed_mentions": {"parse": [], "users": [], "roles": []}, "tts": False}
 
 
 class RefeedAlerts:
@@ -291,6 +316,59 @@ class RefeedAlerts:
             return response
         except Exception:
             return result("failed", "Flip notifications are unavailable. Check the waiting batch in CLC Print Station.", "warning")
+
+    def job_completed(self, job):
+        """Called on a new durable whole-job completion, never for history scans.
+
+        Discord alone receives this non-actionable receipt. Reserving before the
+        request prevents duplicates across restarts and ambiguous delivery; alert
+        failures never change print-job or pass state.
+        """
+        job_id = job.get("id") if isinstance(job, dict) else None
+        if not isinstance(job_id, str) or not job_id:
+            return result("failed", "Discord completion notification could not identify this job. Check the completed job in CLC.", "warning")
+        if job_id in getattr(self, "completion_preparation_failures", set()):
+            return result("duplicate")
+        try:
+            effective, _managed = effective_alert_config(self.ledger, self.config)
+            if not effective.get("refeed_discord_webhook_url"):
+                return result("disabled")
+            self.ledger.write("""CREATE TABLE IF NOT EXISTS print_completion_alerts (
+                job_id TEXT PRIMARY KEY, attempted_at REAL NOT NULL, outcome TEXT NOT NULL)""")
+            with self.ledger.db:
+                row = self.ledger.db.execute("SELECT state,payload FROM jobs WHERE id=?", (job["id"],)).fetchone()
+                if not row or row["state"] != "completed":
+                    return result("ignored")
+                saved = json.loads(row["payload"])
+                artifacts = saved.get("artifacts", [])
+                if not artifacts or saved.get("id") != job["id"]:
+                    return result("ignored")
+                expected = {(artifact["id"], phase) for artifact in artifacts
+                            for phase in (["fronts", "backs"] if artifact["kind"] == "dfc" else ["fronts"])}
+                passes = self.ledger.passes(job["id"])
+                if (any(entry["state"] != "completed" for entry in passes)
+                        or {(entry["artifact_id"], entry["phase"]) for entry in passes} != expected):
+                    return result("ignored")
+                payload = discord_completion_payload(saved, effective)
+                reserved = self.ledger.db.execute("INSERT OR IGNORE INTO print_completion_alerts VALUES(?,?,?)",
+                                                  (job["id"], time.time(), "attempting"))
+            if reserved.rowcount != 1:
+                return result("duplicate")
+        except Exception:
+            if not hasattr(self, "completion_preparation_failures"):
+                self.completion_preparation_failures = set()
+            self.completion_preparation_failures.add(job_id)
+            return result("failed", "Discord completion notification could not be prepared safely. The completed job remains available in CLC.", "warning")
+        try:
+            self.discord_transport(effective["refeed_discord_webhook_url"], payload, timeout=5)
+            response = result("attempted", "Discord job-completion notification requested without a direct mention.", "info")
+        except Exception:
+            response = result("failed", "Discord completion notification was not confirmed and will not be retried automatically. The completed job remains available in CLC.", "warning")
+        try:
+            self.ledger.write("UPDATE print_completion_alerts SET outcome=? WHERE job_id=?", (response["status"], job["id"]))
+        except Exception:
+            return result("failed", "Discord completion notification was attempted, but its result could not be saved. The completed job remains available in CLC.", "warning")
+        return response
 
 
     def printer_error(self, health, job=None, pending=None):
