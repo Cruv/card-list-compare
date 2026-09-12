@@ -3,7 +3,7 @@ import { printError } from './printQueuePlan.js';
 import { isDeferred, canCancelRemaining, hasPendingBacks, canCancelUnstartedBacks, workflowSummary } from './printWorkflow.js';
 import { printCapabilities } from './printQueue.js';
 
-const STATES = new Set(['all', 'preparing', 'ready', 'queued', 'claimed', 'submitting', 'submitted', 'awaiting_refeed', 'backs_pending', 'awaiting_paper_reset', 'uncertain', 'completed', 'failed', 'canceled', 'expired']);
+const STATES = new Set(['all', 'preparing', 'ready', 'queued', 'claimed', 'submitting', 'submitted', 'awaiting_refeed', 'backs_pending', 'awaiting_paper_reset', 'awaiting_clearance', 'uncertain', 'completed', 'failed', 'canceled', 'expired']);
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const number = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000 ? value : 0;
 
@@ -33,7 +33,11 @@ export function listPrintBatches(userId, query = {}, { deferredBacks = false } =
   if ((query.limit !== undefined && (typeof query.limit !== 'string' || !/^\d+$/.test(query.limit))) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw printError('Batch page size must be between 1 and 100');
   const clauses = ['1 = 1'], params = [];
   if (!admin) { clauses.push('p.user_id = ?'); params.push(userId); }
-  if (state !== 'all') { clauses.push('p.state = ?'); params.push(state); }
+  // awaiting_clearance is a native-local state. The server retains the last
+  // physical state until clearance is confirmed, with durable cancellation
+  // intent identifying the same work even before its next heartbeat.
+  if (state === 'awaiting_clearance') clauses.push("p.cancel_requested IN ('all', 'backs')");
+  else if (state !== 'all') { clauses.push('p.state = ?'); params.push(state); }
   const totalCount = get(`SELECT COUNT(*) AS count FROM print_jobs p WHERE ${clauses.join(' AND ')}`, params).count;
   let cursorClause = '';
   const cursorParams = [];

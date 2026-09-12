@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, printReviewReady, printReviewSummary, rejectedPrintCreation } from './printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -238,5 +238,21 @@ describe('print copy accounting', () => {
       removedCards: [{ quantity: 3 }], excludedBasicLands: [{ quantity: 6, additionalQuantity: 2 }] }, 15);
     expect(result).toEqual({ sourceCopies: 15, suggestedCopies: 10, unchangedCopies: 5, extraCopies: 4, removedCopies: 3, basicCopies: 6, totalCopies: 5 });
     expect(result.sourceCopies - result.unchangedCopies + result.extraCopies - result.removedCopies - result.basicCopies).toBe(result.totalCopies);
+  });
+});
+
+
+describe('waiting back packet identity', () => {
+  const artifacts = [{ id: 'packet-1', kind: 'dfc', label: 'First sheet' }, { id: 'packet-2', kind: 'dfc', label: 'Second sheet' }];
+  const steps = [{ artifactId: 'packet-1', phase: 'fronts', state: 'completed' }, { artifactId: 'packet-1', phase: 'backs', state: 'pending' }, { artifactId: 'packet-2', phase: 'fronts', state: 'completed' }, { artifactId: 'packet-2', phase: 'backs', state: 'pending' }];
+  it('keeps the matching margin label for an already-claimed legacy batch', () => {
+    expect(waitingPrintArtifact({ state: 'awaiting_refeed', steps, artifacts })).toBe(artifacts[0]);
+  });
+  it('uses the selected later packet instead of the first saved back', () => {
+    expect(waitingPrintArtifact({ state: 'awaiting_refeed', backRequest: { artifactId: 'packet-2' }, steps, artifacts })).toBe(artifacts[1]);
+  });
+  it('does not describe an unselected saved back or invent a missing selected packet', () => {
+    expect(waitingPrintArtifact({ state: 'backs_pending', steps, artifacts })).toBeNull();
+    expect(waitingPrintArtifact({ state: 'awaiting_refeed', backRequest: { artifactId: 'missing' }, steps, artifacts })).toBeNull();
   });
 });

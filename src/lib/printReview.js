@@ -142,3 +142,12 @@ export function rejectedPrintCreation(error) {
   // accepted receipt. Keep that key through session or permission recovery.
   return error.status >= 400 && error.status < 500 && ![401, 403, 408, 429].includes(error.status);
 }
+export function waitingPrintArtifact(job) {
+  if (job?.state !== 'awaiting_refeed') return null;
+  const steps = job.steps || [];
+  const next = job.backRequest?.artifactId
+    ? steps.find(step => step.artifactId === job.backRequest.artifactId && step.phase === 'backs')
+    : steps.find(step => !['completed', 'canceled'].includes(step.state));
+  if (!next || next.phase !== 'backs' || next.state !== 'pending') return null;
+  return job.artifacts?.find(artifact => artifact.id === next.artifactId && artifact.kind === 'dfc') || null;
+}

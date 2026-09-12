@@ -5,7 +5,7 @@ import DeckInput from './DeckInput';
 import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, rejectedPrintCreation } from '../lib/printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -28,8 +28,7 @@ function WaitingPrintPacket({ job }) {
   if (job.state === 'backs_pending') return <section className="print-panel-confirmation" aria-label="Backs saved for later"><strong>Fronts are printed. Backs are saved for later.</strong><p>Other front jobs can continue. Keep the labeled double-sided sheets, then choose their matching packets in <a href="#print-station">Printer → Backs for later</a> whenever you are ready. Select a packet before reloading paper.</p></section>;
   if (['awaiting_clearance', 'awaiting_paper_reset'].includes(job.state)) return <section className="print-panel-confirmation"><strong>{job.state === 'awaiting_clearance' ? 'Canceled-job paper needs clearing' : 'Backs finished — restore blank paper'}</strong><p>Remove printed or flipped paper, leave only blank paper in the rear feeder and confirm in <a href="#print-station">Printer</a> before other front jobs continue.</p></section>;
   if (job.state !== 'awaiting_refeed') return null;
-  const next = job.steps?.find(step => step.artifactId === job.backRequest?.artifactId && step.phase === 'backs') || job.steps?.find(step => step.state === 'awaiting_refeed');
-  const artifact = job.artifacts?.find(item => item.id === next?.artifactId);
+  const artifact = waitingPrintArtifact(job);
   return <section className="print-panel-confirmation" aria-label="Waiting for paper reload">
     <strong>{artifact ? `Flip and reload ${artifactName(artifact)}` : 'Paper reload is waiting'}</strong>
     {artifact?.label && <p>Match the printed margin label: <strong>{artifact.label}</strong></p>}

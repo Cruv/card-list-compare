@@ -175,6 +175,29 @@ describe('global print batch history', () => {
     expect((await request('/api/print-batches', { token: null })).status).toBe(401);
   });
 
+  it('filters paper-clearance requests durably across native states, owner scope and cursor pages', async () => {
+    const firstId = seed(1, 'claimed', '2026-09-01T00:00:00Z');
+    const secondId = seed(2, 'submitted', '2026-09-02T00:00:00Z');
+    seed(1, 'claimed', '2026-09-03T00:00:00Z');
+    seed(1, 'canceled', '2026-09-04T00:00:00Z');
+    db.run("UPDATE print_jobs SET cancel_requested = 'all' WHERE id = ?", [firstId]);
+    db.run("UPDATE print_jobs SET cancel_requested = 'backs' WHERE id = ?", [secondId]);
+    const page = await request('/api/print-batches?state=awaiting_clearance&limit=1');
+    expect(page.status).toBe(200);
+    const firstPage = await page.json();
+    expect(firstPage).toMatchObject({ scope: 'all', totalCount: 2, jobs: [{ id: firstId, state: 'claimed', cancelRequested: 'all' }] });
+    expect(firstPage.nextCursor).toBeTruthy();
+    const secondPage = await (await request('/api/print-batches?state=awaiting_clearance&limit=1&cursor=' + firstPage.nextCursor)).json();
+    expect(secondPage).toMatchObject({ totalCount: 2, nextCursor: null, jobs: [{ id: secondId, state: 'submitted', cancelRequested: 'backs' }] });
+    expect((await request('/api/print-batches?state=claimed&cursor=' + firstPage.nextCursor)).status).toBe(400);
+    const owner = await (await request('/api/print-batches?state=awaiting_clearance', { token: 'user-2' })).json();
+    expect(owner).toMatchObject({ scope: 'mine', totalCount: 1, jobs: [{ id: secondId }] });
+    db.run('UPDATE print_jobs SET cancel_requested = NULL WHERE id = ?', [firstId]);
+    const cleared = await (await request('/api/print-batches?state=awaiting_clearance')).json();
+    expect(cleared.totalCount).toBe(1);
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [firstId]).state).toBe('claimed');
+  });
+
   it('keeps active and FIFO queued batches first across cursor pages and binds filter/order to its cursor', async () => {
     const finished = seed(1, 'completed', '2026-09-12T00:00:00Z');
     const ready = seed(2, 'ready', '2026-09-12T00:00:00Z');
