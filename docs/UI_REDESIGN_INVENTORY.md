@@ -299,3 +299,17 @@ origin, or a backend configured with household data or credentials.
 
 Do not replace these statuses with browser-emulation results. Any unsupported fixture
 state must be stated explicitly and supplied before claiming that native case passed.
+
+The temporary native preview is prepared at `/tmp/clc-native-ios-qa/server.mjs`, with
+instructions in that directory's `README.md`. It serves the built UI and in-memory
+account, Connections, deck, artwork-review and station fixtures on loopback port 18120.
+Ten HTTP smoke checks passed, including rejected external Host/Origin requests, traversal,
+unknown APIs and attempted PDF/station submissions. Results are `http-smoke.json` and
+`preparation-result.json` in that directory. The server was stopped after these checks.
+
+Chrome blocked the preview URL with `ERR_BLOCKED_BY_CLIENT` before page load; this
+attempt provides no browser rendering proof. Native Simulator is still unavailable.
+The fixture deliberately blocks generation, real queue/deck writes and remote artwork;
+trusted-host art-picker thumbnails therefore show their unavailable state. It also disables
+service-worker installation. Do not claim native printing recovery, loaded picker images,
+PWA offline behavior or unsupported overlays from this limited fixture alone.
