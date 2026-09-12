@@ -178,9 +178,9 @@ project, publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistc
 at `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The repository's
 `./data` is not the household deployment path.
 
-The deployed server is **v2.53.1**, source `7789eb1`, local image
-`clc-household:2.53.1-7789eb1` with image ID
-`sha256:afc6dc78c59fb08e1ec6d96c5003b8239f009deb6fc5fc37a451b7b477a93d6b`.
+The deployed server is **v2.53.2**, source `0851393`, local image
+`clc-household:2.53.2-0851393` with image ID
+`sha256:c667b207b10c852406ace2733b5941e27c92fc1b3af9ae4fffd8aad2fdd0fa61`.
 Source changes after this checkpoint are not a deployment claim. Private configuration is
 in `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and `runtime.env`.
 It preserves the container name, external `mtg_default` network, UID/GID, timezone, signing
@@ -190,11 +190,15 @@ for CLC. The registry's `latest` does not contain this feature branch. Do not pr
 Deployment preserved all six print jobs and their immutable plans/manifests, including
 Rendmaw in Epson and the replacement 100-copy Jin Sakai batch waiting in CLC. All 38
 frontend files match the image through localhost and the household HTTPS origin.
-The signed-in browser verified all six household batches, untracked Archidekt deck choices
-and the reorganized deck workspace without creating a job or changing deck data.
+The preceding signed-in browser check verified all six household batches, untracked
+Archidekt deck choices and the reorganized deck workspace without creating a job or
+changing deck data. Release checks passed 1,116 JavaScript tests, 152 native tests,
+the production build and both dependency audits. Notification tests used mocked delivery;
+no Discord test ping or physical print was sent. This feature-branch push does not trigger
+the main/PR/tag CI workflow, so local validation is not a claim of a passing GitHub run.
 
 The latest complete stopped-container backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T060720Z-before-2.53.1/data-complete`.
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T062600Z-before-2.53.2/data-complete`.
 The private deployment folder retains dated `update-*.json` checkpoints and rollback
 configurations. Preserve generator-cache symlinks as links when copying Linux venvs on the
 Mac. Take a fresh backup before another update, including newer jobs and user changes;
@@ -213,12 +217,16 @@ The accepted color/orientation recipe and remaining cutting/duplex checks are re
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The installed version and queue state
 are runtime observations; new source features require an actual companion update.
 
-The v2.53.1 arm64 companion package is prepared at
-`~/Downloads/CLC Print Station 2.53.1`, archive SHA-256
-`e020bf3430ed88f04817f0d0c7ec0ec62f3fd2513599f2e85111572165c8c989`.
+The v2.53.2 arm64 companion package is prepared at
+`~/Downloads/CLC Print Station 2.53.2`, archive SHA-256
+`29b3f0a9c30098c57ad85c85a40d86a72b92babef0fea240dcaa15638f90331c`.
 It passed isolated self-check and repeat installation with history/configuration preserved.
-The native upgrade is waiting for an idle point; do not replace an active print process
-or describe the packaged version as installed until the native checkpoint is recorded.
+The guarded upgrade attempt declined installation while Rendmaw was active, leaving the
+companion enabled and unpaused. No background upgrade watcher is installed; retry the
+guarded installation at an idle point. Do not replace an active print process or describe
+the packaged version as installed until the native checkpoint is recorded. Server deck
+and price alerts use the new Proxy Balboa wording; native flip and printer-error wording
+requires this pending upgrade. See [NOTIFICATION_VOICE.md](NOTIFICATION_VOICE.md).
 
 The initial cached generator was verified at upstream
 `4d4aa73a95e93b09676c863a1861765863398c63`; normal startup still checks for a compatible newer
