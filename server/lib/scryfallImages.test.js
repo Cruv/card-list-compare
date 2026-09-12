@@ -35,6 +35,26 @@ function metadata(data, not_found = []) {
 }
 
 describe('Scryfall lookup completeness', () => {
+  it('resolves an explicit selected ID without falling back to the original printing', async () => {
+    const requestedScryfallId = 'a1111111-1111-4111-8111-111111111111';
+    metadata([dataCard({ id: requestedScryfallId, set: 'lea', collector_number: '161' })]);
+    const { value } = await settle(fetchCardImageUrls([card({ requestedScryfallId, selectionKey: 'original-key', baseQuantity: 1 })]));
+    expect(JSON.parse(fetch.mock.calls[0][1].body).identifiers).toEqual([{ id: requestedScryfallId }]);
+    expect(value[0]).toMatchObject({ selectionKey: 'original-key', baseQuantity: 1, requestedScryfallId, scryfallId: requestedScryfallId, setCode: 'lea', collectorNumber: '161' });
+    metadata([dataCard({ id: 'b2222222-2222-4222-8222-222222222222' })]);
+    const wrongId = await settle(fetchCardImageUrls([card({ requestedScryfallId })]));
+    expect(wrongId.error.failures[0].reason).toContain('Selected printing');
+    metadata([dataCard({ id: requestedScryfallId, name: 'Giant Growth' })]);
+    const wrongCard = await settle(fetchCardImageUrls([card({ requestedScryfallId })]));
+    expect(wrongCard.error.failures[0].reason).toContain('does not match');
+  });
+  it('resolves both faces of a selected ID requested through its back-face alias', async () => {
+    const requestedScryfallId = 'a1111111-1111-4111-8111-111111111111';
+    metadata([dataCard({ id: requestedScryfallId, name: 'Malakir Rebirth // Malakir Mire', set: 'znr', collector_number: '111', image_uris: undefined,
+      card_faces: [{ name: 'Malakir Rebirth', image_uris: { png: 'front.png' } }, { name: 'Malakir Mire', image_uris: { png: 'back.png' } }] })]);
+    const { value } = await settle(fetchCardImageUrls([card({ displayName: 'Malakir Mire', requestedScryfallId })]));
+    expect(value[0]).toMatchObject({ requestedScryfallId, isDFC: true, imageUrls: { front: 'front.png', back: 'back.png' } });
+  });
   it('fails the whole lookup with specific missing printing and copy count', async () => {
     metadata([dataCard()], [{ set: 'lea', collector_number: '999' }]);
     const { error } = await settle(fetchCardImageUrls([card(), card({ setCode: 'lea', collectorNumber: '999', quantity: 3 })]));
@@ -262,5 +282,19 @@ describe('physical image and face completeness', () => {
     expect(value).toMatchObject({ downloadedImages: 4, cachedImages: 4, downloadedCards: 2, cachedCards: 2, failures: [] });
     expect(fetch).not.toHaveBeenCalled();
     expect(cache.getCachedImage.mock.calls.map(args => args[2])).toEqual([null, 'back']);
+  });
+  it('never substitutes a set/collector cache entry for an explicitly selected printing ID', async () => {
+    cache.getCachedImage.mockReturnValue(PNG);
+    fetch.mockImplementation(async () => image());
+    const requestedScryfallId = 'a1111111-1111-4111-8111-111111111111';
+    const selected = resolved({ requestedScryfallId, quantity: 2 });
+    const { value } = await settle(downloadCardImagesWithCache([resolved(), selected]));
+    expect(value).toMatchObject({ totalCards: 3, failures: [], downloadedImages: 3, cachedImages: 2 });
+    // The first row's ambiguous persistent hit must not poison the selected ID's
+    // session cache either, even when its resolved image URL is identical.
+    expect(cache.getCachedImage).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toBe(selected.imageUrls.front);
+    expect(cache.cacheImage).not.toHaveBeenCalled();
   });
 });

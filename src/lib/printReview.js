@@ -53,6 +53,7 @@ export function loadPrintCreationIntent(storage, key) {
         || typeof request.listName !== 'string' || request.listName.length > 120
         || typeof request.cardText !== 'string' || !request.cardText.trim() || request.cardText.length > 100000))
       || !validSelectionOptions(request)
+      || !validComparison(request.comparison)
       || typeof request.queueOnReady !== 'boolean' || typeof request.includeSideboard !== 'boolean' || typeof request.replacePrintings !== 'boolean'
       || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash || '') || !/^[a-f0-9]{48}$/.test(request.idempotencyKey || '')) return null;
     // Old requests predate basic-land filtering. A retry must retain that old
@@ -65,7 +66,16 @@ function validSelectionOptions(value) {
   return (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000
-      && value.excludedCards.every(key => typeof key === 'string' && key.length > 0 && key.length <= 1000)));
+      && value.excludedCards.every(key => typeof key === 'string' && key.length > 0 && key.length <= 1000)))
+    && (value.printingOverrides === undefined || (Array.isArray(value.printingOverrides) && value.printingOverrides.length <= 250
+      && value.printingOverrides.every(item => item && typeof item.selectionKey === 'string' && item.selectionKey.length > 0 && item.selectionKey.length <= 1000
+        && typeof item.scryfallId === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(item.scryfallId))));
+}
+
+function validComparison(value) {
+  return value === undefined || value === null || (typeof value === 'object'
+    && ['changes', 'full'].includes(value.mode) && typeof value.beforeText === 'string'
+    && value.beforeText.length <= 100000);
 }
 
 /** Browser drafts are convenience copies; a saved creation intent takes priority. */
@@ -74,13 +84,30 @@ export function loadStandalonePrintDraft(storage, key) {
     const value = JSON.parse(storage.getItem(key));
     if (!value || typeof value.listName !== 'string' || value.listName.length > 120
       || typeof value.cardText !== 'string' || value.cardText.length > 100000
-      || typeof value.includeSideboard !== 'boolean' || !validSelectionOptions(value)) return null;
+      || typeof value.includeSideboard !== 'boolean' || !validSelectionOptions(value) || !validComparison(value.comparison)) return null;
     const removedCards = Array.isArray(value.removedCards) ? value.removedCards.filter(card => card
       && typeof card.key === 'string' && typeof card.name === 'string' && Number.isSafeInteger(card.quantity) && card.quantity > 0) : [];
     return { listName: value.listName, cardText: value.cardText, includeSideboard: value.includeSideboard,
       excludeBasicLands: value.excludeBasicLands ?? true, additionalCardText: value.additionalCardText ?? '',
-      excludedCards: value.excludedCards ?? [], removedCards };
+      excludedCards: value.excludedCards ?? [], removedCards,
+      ...(value.printingOverrides ? { printingOverrides: value.printingOverrides } : {}),
+      ...(value.comparison ? { comparison: value.comparison } : {}),
+      ...(typeof value.replacePrintings === 'boolean' ? { replacePrintings: value.replacePrintings } : {}) };
   } catch { return null; }
+}
+
+/** Save both drafts before consuming a comparison handoff or updating the UI. */
+export function saveStandaloneDraftReplacement(storage, draftKey, recoveryKey, currentDraft, nextDraft) {
+  const previousRecovery = storage.getItem(recoveryKey);
+  storage.setItem(recoveryKey, JSON.stringify(currentDraft));
+  try { storage.setItem(draftKey, JSON.stringify(nextDraft)); }
+  catch (error) {
+    try {
+      if (previousRecovery === null) storage.removeItem(recoveryKey);
+      else storage.setItem(recoveryKey, previousRecovery);
+    } catch { /* The current draft and incoming handoff still remain intact. */ }
+    throw error;
+  }
 }
 
 export function rejectedPrintCreation(error) {

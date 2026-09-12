@@ -1,8 +1,22 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.50.0 includes print planning, PDF generation, artifact downloads, the household
+Status: CLC v2.51.0 includes comparison-to-print handoff, editable artwork review, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
+
+## Print from comparison results
+
+Choose **Print cards** from Compare, a deck changelog or snapshot comparison. The action
+opens Print List with the complete Before and After texts used for those displayed results.
+It defaults to the positive physical-copy difference; choose the full After list to print
+everything instead. Search filters in the changelog do not change this input. Even an
+identical comparison can open review and switch to the full list.
+
+The handoff survives sign-in in the same browser tab and is isolated from other signed-in
+accounts. If a saved draft exists, choose whether to use the compared lists or keep the
+draft; an unresolved batch request must be recovered before replacing its input. The
+comparison becomes a standalone batch, with no new deck or snapshot. Both raw texts and
+the comparison mode are frozen privately with the job; public summaries expose hashes.
 
 ## Standalone print lists
 
@@ -10,7 +24,7 @@ Open **Print List** in the navigation to create an ad-hoc batch. Give it a name,
 paste cards, upload a text/CSV list, or import a supported deck URL. Importing here copies
 the list without tracking the deck. Quantities and exact set/collector metadata use the
 same card-list format as Compare. Include the sideboard when wanted, review the Scryfall
-front/back artwork, then **Generate PDFs** or **Generate and send to Mac**.
+front/back artwork, then **Generate PDFs** or **Generate & print**.
 
 The draft is saved per signed-in account in this browser. Prepared batches are kept in
 that account’s Print List history, including downloads and the same ManaSync pending-proxy
@@ -25,6 +39,13 @@ explicit reload confirmation below. Separate batches never share a sheet.
 
 ## Using the Printing tab
 
+The workflow has three steps: **Choose cards**, **Review & print**, and **Batch status**.
+Review replaces the source form with a concise summary and an edit action. Card rows keep
+front/back previews, quantities, ownership and edit controls together. Extra cards, removed
+cards, detailed printer guidance and older batches are available in expandable sections.
+The review footer keeps totals and generation actions together; active batches surface
+their current status and next action.
+
 Open a tracked deck's **Printing** tab. Choose a whole snapshot or changes between an
 explicit baseline and target. The paper-deck marker is the default baseline when present;
 “latest” is resolved to a specific snapshot during review. Sideboards are optional and off
@@ -33,7 +54,7 @@ front/back thumbnails, source, copy count and double-sided status. The summary s
 ordinary sheets from one-sheet double-faced packets. Missing faces, unresolved printings
 and unsupported meld layouts block generation before a job is created. Then choose
 **Generate PDFs** or, for an authorized household
-account, **Generate and send to Mac**. Ready PDFs can also be queued later.
+account, **Generate & print**. Ready PDFs can also be queued later.
 
 Each job produces `fronts.pdf` for ordinary cards, followed by one-sheet double-faced
 packets: `double-faced-001.pdf`, `double-faced-002.pdf`, and so on. A packet holds at most
@@ -48,7 +69,7 @@ handles drying, lamination and cutting outside CLC; drying tracking is explicitl
 
 ## Editing the proposed list
 
-**Replace changed printings** defaults off: a printing swap does not automatically
+**Replace copies when the set or printing changes** defaults off: a printing swap does not automatically
 request another copy. **Exclude basic lands** defaults on in both workflows. Uncheck it
 to print basics, including basic lands entered as extra cards.
 
@@ -69,6 +90,18 @@ ownership lookup stays unknown and cannot produce a missing-card claim. Shopping
 submits a purchase or changes physical print quantities.
 
 ## Physical copies and artwork
+
+Use **Pick art** on a reviewed card to browse its Scryfall printings, including both faces
+when applicable. Select an edition and collector number, then refresh the review before
+generation; **Use original art** removes that row's override. The choice changes only the
+print order, not the source list, snapshots or saved MPC selection. Each override preserves
+the original row's quantity and removal identity. In a saved-MPC plan, only explicitly
+overridden cards switch to Scryfall; all other cards retain their saved custom artwork.
+
+The server accepts a Scryfall ID, verifies that it belongs to the requested logical card,
+and resolves its required faces itself. Client image URLs are never authoritative. The
+exact chosen ID and both face URLs are included in the plan hash and immutable manifest.
+Double-sided grouping and sheet counts are calculated from the refreshed selections.
 
 The planner aggregates included zones before calculating positive quantity differences.
 A two-to-five increase prints three copies; removals print none. Commanders are already in
@@ -110,7 +143,7 @@ the user's selection; inventory never silently removes copies or prevents a deli
 reprint. Once the immutable PDFs are prepared, CLC automatically sends their planned copies
 and exact front/back artwork to **ManaSync → Proxy binder → Pending prints**. These plans are
 excluded from available inventory. Confirm usable quantities or dismiss failed/cancelled
-copies in ManaSync or CLC's **View proxy confirmation** panel. A partial confirmation leaves
+copies in ManaSync or CLC's **Confirm usable copies** panel. A partial confirmation leaves
 the remainder pending; each decision updates both apps. Simultaneous decisions check the
 same server revision before changing inventory. Disconnected batches retain their artwork
 and wait for the connection. The native spooler state remains separate from this quantity review.
@@ -262,8 +295,11 @@ Standalone routes under `/api/print-lists` provide `POST /plan`, `GET/POST /jobs
 same actions under `/jobs/:jobId`. Standalone requests carry `mode: "adhoc"`, `listName`
 and `cardText`; their frozen `list` stores the name, full text and text hash, while public
 previews omit the full text. Standalone jobs have a null `deckId`, `source` and `target`.
-Both modes accept `excludeBasicLands`, `excludedCards` and `additionalCardText` alongside
-their existing options. Station endpoints
+Comparison-backed standalone requests also carry `comparison: { beforeText, mode }`,
+where mode is `changes` or `full`. Omit `comparison` for ordinary standalone lists.
+Both modes accept `excludeBasicLands`, `excludedCards`, `additionalCardText` and
+`printingOverrides: [{ selectionKey, scryfallId }]` alongside their existing options.
+Overrides use stable original row keys and verified exact card IDs. Station endpoints
 under `/api/print-station` are `/status`, `/claim`, and job status, reports and artifacts.
 All are authenticated; PDF bytes are streamed without nginx disk buffering. See
 [OPERATIONS.md](OPERATIONS.md) and [SECURITY.md](../SECURITY.md) for deployment details.

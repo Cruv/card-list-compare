@@ -129,6 +129,7 @@ function readStandalonePrintInputs(userId, options) {
   if (options.artSource !== undefined && options.artSource !== 'scryfall') throw printError('Standalone print lists use Scryfall artwork');
   if (options.targetSnapshotId != null || options.baselineSnapshotId != null) throw printError('Standalone print lists do not use deck snapshots');
   const includeSideboard = flag(options.includeSideboard, false, 'includeSideboard');
+  const replacePrintings = flag(options.replacePrintings, false, 'replacePrintings');
   const text = options.cardText;
   if (typeof text !== 'string' || !text.trim()) throw printError('Add cards to the print list first');
   if (text.length > MAX_PRINT_LIST_TEXT_LENGTH) throw printError(`Print lists support at most ${MAX_PRINT_LIST_TEXT_LENGTH.toLocaleString('en-US')} characters`);
@@ -137,17 +138,31 @@ function readStandalonePrintInputs(userId, options) {
   const name = options.listName?.trim() || 'Print list';
   if (name.length > MAX_PRINT_LIST_NAME_LENGTH || containsControls(name)) throw printError(`Print-list names must be at most ${MAX_PRINT_LIST_NAME_LENGTH} characters on one line`);
   validateStandalonePrintText(text);
-  const cards = planPhysicalCopies(text, '', { includeSideboard, replacePrintings: true, maxCopies: Infinity });
-  if (!cards.length) throw printError('No cards are selected for printing. Add cards or include the sideboard.');
+  let comparison;
+  if (options.comparison !== undefined) {
+    const input = options.comparison;
+    if (!input || typeof input !== 'object' || Array.isArray(input) || !['changes', 'full'].includes(input.mode)) {
+      throw printError('comparison must specify mode changes or full');
+    }
+    if (typeof input.beforeText !== 'string' || input.beforeText.length > MAX_PRINT_LIST_TEXT_LENGTH) {
+      throw printError(`Comparison before-list must be text of at most ${MAX_PRINT_LIST_TEXT_LENGTH.toLocaleString('en-US')} characters`);
+    }
+    if (containsControls(input.beforeText, true)) throw printError('The comparison before-list contains unsupported control characters');
+    if (input.beforeText.trim()) validateStandalonePrintText(input.beforeText, 'Comparison before-list');
+    comparison = { mode: input.mode, beforeText: input.beforeText, beforeTextHash: sha256(input.beforeText) };
+  }
+  const cards = planPhysicalCopies(text, comparison?.mode === 'changes' ? comparison.beforeText : '', { includeSideboard, replacePrintings, maxCopies: Infinity });
+  if (!cards.length && !comparison) throw printError('No cards are selected for printing. Add cards or include the sideboard.');
   return {
     version: 2, deckId: null, deckName: name, requesterId: userId, mode: 'adhoc',
-    includeSideboard, replacePrintings: true, finishChangesRequireReprint: false,
+    includeSideboard, replacePrintings, finishChangesRequireReprint: false,
     artSource: 'scryfall', source: null, target: null, list: { name, text, textHash: sha256(text) },
+    ...(comparison ? { comparison } : {}),
     cards, totalCopies: cards.reduce((sum, card) => sum + card.quantity, 0), savedArtwork: [],
   };
 }
 
-function validateStandalonePrintText(text) {
+function validateStandalonePrintText(text, label = 'Print-list') {
   const lines = text.trim().split(/\r?\n/);
   // Reuse the parser for CSV rows as well as plain card lines. The ordinary
   // parser tolerates invalid rows; a print request must never silently omit one.
@@ -161,10 +176,10 @@ function validateStandalonePrintText(text) {
     if (!line) continue;
     if (csv) {
       const row = parse(`${lines[0]}\n${line}`);
-      if (!row.mainboard.size && !row.sideboard.size) throw printError(`Print-list line ${index + 1} is invalid or excluded by its CSV section. Remove it or correct its card name and positive whole-number quantity.`);
+      if (!row.mainboard.size && !row.sideboard.size) throw printError(`${label} line ${index + 1} is invalid or excluded by its CSV section. Remove it or correct its card name and positive whole-number quantity.`);
     } else if (!COMMENT_LINE.test(line) && !MAINBOARD_HEADER.test(line) && !SIDEBOARD_HEADER.test(line)
       && !COMMANDER_HEADER.test(line) && !parseLine(line)) {
-      throw printError(`Print-list line ${index + 1} is invalid. Use a card name and a positive whole-number quantity.`);
+      throw printError(`${label} line ${index + 1} is invalid. Use a card name and a positive whole-number quantity.`);
     }
   }
 }
@@ -183,6 +198,23 @@ function selectPrintInputs(inputs, options) {
       || printCardKey({ displayName: tuple[0], setCode: tuple[1], collectorNumber: tuple[2] }) !== key) throw printError('Invalid excluded card selection key');
   }
   const excludedCards = [...new Set(excluded)].sort();
+  const overrides = options.printingOverrides ?? [];
+  if (!Array.isArray(overrides) || overrides.length > MAX_PRINT_COPIES) throw printError(`printingOverrides must contain at most ${MAX_PRINT_COPIES} selected printings`);
+  const selectedPrintings = new Map();
+  for (const override of overrides) {
+    if (!override || typeof override !== 'object' || Array.isArray(override)
+      || typeof override.selectionKey !== 'string' || override.selectionKey.length > 1000
+      || typeof override.scryfallId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(override.scryfallId)) {
+      throw printError('Every selected printing needs a card selection key and a valid Scryfall ID');
+    }
+    let tuple;
+    try { tuple = JSON.parse(override.selectionKey); } catch { throw printError('Invalid printing selection key'); }
+    if (!Array.isArray(tuple) || tuple.length !== 3 || tuple.some(value => typeof value !== 'string')
+      || printCardKey({ displayName: tuple[0], setCode: tuple[1], collectorNumber: tuple[2] }) !== override.selectionKey) throw printError('Invalid printing selection key');
+    if (selectedPrintings.has(override.selectionKey)) throw printError('A card can have only one selected printing');
+    selectedPrintings.set(override.selectionKey, override.scryfallId.toLowerCase());
+  }
+  const printingOverrides = [...selectedPrintings].sort(([a], [b]) => a.localeCompare(b)).map(([selectionKey, scryfallId]) => ({ selectionKey, scryfallId }));
   const additionalCardText = options.additionalCardText ?? '';
   if (typeof additionalCardText !== 'string' || additionalCardText.length > MAX_PRINT_LIST_TEXT_LENGTH) throw printError(`Extra cards must be text of at most ${MAX_PRINT_LIST_TEXT_LENGTH.toLocaleString('en-US')} characters`);
   if (containsControls(additionalCardText, true)) throw printError('Extra cards contain unsupported control characters');
@@ -200,9 +232,11 @@ function selectPrintInputs(inputs, options) {
   };
   inputs.cards.forEach(card => add(card, 'base'));
   extras.forEach(card => add(card, 'additional'));
-  const cards = [...selected.values()], totalCopies = cards.reduce((sum, card) => sum + card.quantity, 0);
+  const cards = [...selected.values()].map(card => selectedPrintings.has(card.selectionKey)
+    ? { ...card, requestedScryfallId: selectedPrintings.get(card.selectionKey), artSource: 'scryfall' } : card);
+  const totalCopies = cards.reduce((sum, card) => sum + card.quantity, 0);
   if (!Number.isSafeInteger(totalCopies) || totalCopies > MAX_PRINT_COPIES) throw printError(`PDF jobs support at most ${MAX_PRINT_COPIES} physical copies. This request needs ${totalCopies}.`);
-  return { ...inputs, excludeBasicLands, excludedCards, additionalCardText,
+  return { ...inputs, excludeBasicLands, excludedCards, printingOverrides, additionalCardText,
     additionalTextHash: sha256(additionalCardText), removedCards, excludedBasicLands, cards, totalCopies };
 }
 
@@ -232,30 +266,31 @@ export async function buildPrintPlan(userId, deckId, options = {}) {
     return true;
   });
   const resolvedCards = selectedResolved.map(card => {
+    const artSource = card.requestedScryfallId ? 'scryfall' : inputs.artSource;
     const identityKnown = !!card.scryfallId;
     const unsupported = card.layout === 'meld'
       ? 'Meld cards need a special paired back layout and cannot be generated yet'
       : card.isDFC && card.faceNames?.length !== 2 ? 'This multi-sided layout is not supported for printing' : null;
     // MPC provides its own pixels, but still requires a resolved physical layout.
-    const lookupFailures = (card.lookupFailures || []).filter(item => inputs.artSource === 'scryfall' || item.face === 'card');
+    const lookupFailures = (card.lookupFailures || []).filter(item => artSource === 'scryfall' || item.face === 'card');
     const errors = lookupFailures.map(item => item.reason);
     if (!identityKnown && !errors.length) errors.push('Card/printing could not be resolved');
     if (unsupported) errors.push(unsupported);
     const faces = (card.isDFC ? ['front', 'back'] : ['front']).map(face => {
       const name = card.faceNames?.[face === 'front' ? 0 : 1] || (face === 'front' ? card.displayName : 'Unknown back face');
-      const art = inputs.artSource === 'saved-mpc' ? savedPrintArt(inputs.savedArtwork, card, face) : null;
-      const identifier = inputs.artSource === 'saved-mpc' ? art?.identifier || null : card.scryfallId || null;
-      const selected = inputs.artSource === 'saved-mpc' ? /^[a-zA-Z0-9_-]{10,120}$/.test(identifier || '') : !!card.imageUrls?.[face];
+      const art = artSource === 'saved-mpc' ? savedPrintArt(inputs.savedArtwork, card, face) : null;
+      const identifier = artSource === 'saved-mpc' ? art?.identifier || null : card.scryfallId || null;
+      const selected = artSource === 'saved-mpc' ? /^[a-zA-Z0-9_-]{10,120}$/.test(identifier || '') : !!card.imageUrls?.[face];
       const error = !identityKnown ? errors[0] : unsupported || (!selected
-        ? inputs.artSource === 'saved-mpc' ? `No saved ${face} artwork selection for ${name}` : `No ${face} image URL available`
+        ? artSource === 'saved-mpc' ? `No saved ${face} artwork selection for ${name}` : `No ${face} image URL available`
         : lookupFailures.find(item => item.face === face)?.reason || null);
       if (error && !errors.includes(error)) errors.push(error);
-      return { face, name, source: inputs.artSource, identifier,
-        thumbnailUrl: selected ? inputs.artSource === 'saved-mpc' ? `/api/mpc/thumbnail/${identifier}` : card.thumbnailUrls?.[face] || card.imageUrls?.[face] : null,
+      return { face, name, source: artSource, identifier,
+        thumbnailUrl: selected ? artSource === 'saved-mpc' ? `/api/mpc/thumbnail/${identifier}` : card.thumbnailUrls?.[face] || card.imageUrls?.[face] : null,
         sourceName: art?.sourceName || null, extension: art?.extension || null,
         status: error ? selected ? 'error' : 'missing' : 'ready', error };
     });
-    return { ...card, layout: card.layout || null, isDFC: identityKnown && !unsupported ? !!card.isDFC : null,
+    return { ...card, artSource, layout: card.layout || null, isDFC: identityKnown && !unsupported ? !!card.isDFC : null,
       faceNames: card.faceNames || [], scryfallId: card.scryfallId || null, faces, errors };
   });
   // Resolution may take seconds. Do not accept artwork/snapshot edits made while it ran.
@@ -282,5 +317,6 @@ export function publicPrintPlan(plan) {
   const version = snapshot => snapshot && ({ id: snapshot.id, createdAt: snapshot.createdAt, textHash: snapshot.textHash });
   const { savedArtwork: _saved, additionalCardText: _extraText, ...publicPlan } = plan;
   return { ...publicPlan, source: version(plan.source), target: version(plan.target),
-    ...(plan.list ? { list: { name: plan.list.name, textHash: plan.list.textHash } } : {}) };
+    ...(plan.list ? { list: { name: plan.list.name, textHash: plan.list.textHash } } : {}),
+    ...(plan.comparison ? { comparison: { mode: plan.comparison.mode, beforeTextHash: plan.comparison.beforeTextHash } } : {}) };
 }

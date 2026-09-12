@@ -12,6 +12,7 @@ import ManaCurveDelta from './ManaCurveDelta';
 import ColorDistributionDelta from './ColorDistributionDelta';
 import DeckListView from './DeckListView';
 import CopyButton from './CopyButton';
+import PrintComparisonButton from './PrintComparisonButton';
 import MpcOverlay from './MpcOverlay';
 import Skeleton from './Skeleton';
 import { toast } from './Toast';
@@ -265,6 +266,8 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
             )}
           </div>
 
+          {activeTab === 'changes' && diffResult && changelogTexts && <PrintComparisonButton {...changelogTexts} listName={`${deckName} comparison`} />}
+
           {/* Copy buttons for Changes tab */}
           {activeTab === 'changes' && diffForExport && !noChanges && (
             <div className="timeline-overlay-buttons">
@@ -287,6 +290,7 @@ export default function TimelineOverlay({ deckId, entry, prevSnapshotId, deckNam
           {/* Copy buttons for Full Deck tab */}
           {activeTab === 'deck' && deckText && (
             <div className="timeline-overlay-buttons">
+              <PrintComparisonButton beforeText="" afterText={deckText} listName={deckName} mode="full" />
               <CopyButton
                 getText={() => formatForArchidekt(deckText, commanders || [])}
                 label="Copy for Archidekt"

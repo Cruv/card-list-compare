@@ -111,6 +111,34 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
 }
 
 describe('standalone print lists', () => {
+  it('freezes Compare inputs, exposes a redacted source summary, and replays accepted comparison jobs', async () => {
+    const body = { mode: 'adhoc', cardText: '3 Sol Ring\n2 Malakir Rebirth // Malakir Mire', listName: 'Comparison changes',
+      comparison: { mode: 'changes', beforeText: '2 Sol Ring\n1 Counterspell' } };
+    const { plan } = await (await request('/api/print-lists/plan', { method: 'POST', body })).json();
+    expect(plan).toMatchObject({ totalCopies: 3, ordinaryCopies: 1, doubleFacedCopies: 2,
+      comparison: { mode: 'changes', beforeTextHash: hash(body.comparison.beforeText) } });
+    expect(plan.comparison.beforeText).toBeUndefined();
+    const createBody = { ...body, idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash };
+    const created = await request('/api/print-lists/jobs', { method: 'POST', body: createBody });
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    expect(job.comparison).toEqual(plan.comparison);
+    const stale = await request('/api/print-lists/jobs', { method: 'POST', body: { ...createBody, idempotencyKey: crypto.randomUUID(), comparison: { ...body.comparison, beforeText: '1 Sol Ring' } } });
+    expect(stale.status).toBe(409);
+    await queue.processNextPrintJob();
+    const manifest = await (await request(`/api/print-lists/jobs/${job.id}/manifest`)).json();
+    expect(manifest.plan.comparison.beforeText).toBe(body.comparison.beforeText);
+    expect(manifest.plan.list.text).toBe(body.cardText);
+    expect(manifest.copies).toHaveLength(3);
+    expect(manifest.copies.filter(card => card.displayName === 'Sol Ring')).toHaveLength(1);
+    expect((await (await request('/api/print-lists/jobs')).json()).jobs[0].comparison).toEqual(plan.comparison);
+    services.fetchCardImageUrls.mockRejectedValue(new Error('Metadata offline'));
+    const repeated = await request('/api/print-lists/jobs', { method: 'POST', body: createBody });
+    expect(repeated.status).toBe(200);
+    expect((await repeated.json()).job.id).toBe(job.id);
+    expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks').count).toBe(2);
+    expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(2);
+  });
   it('reviews, freezes and generates the edited order without creating a deck or snapshot', async () => {
     const body = { mode: 'adhoc', listName: 'Saturday extras', cardText: '3 Sol Ring\n30 Island\n8 Malakir Rebirth // Malakir Mire',
       excludedCards: [printCardKey({ displayName: 'Sol Ring' })], additionalCardText: '2 Sol Ring\n1 Counterspell' };

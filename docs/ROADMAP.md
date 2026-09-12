@@ -7,7 +7,7 @@ which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 
 ## Next — household printer and cutter proof
 
-CLC now implements [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): standalone print lists,
+CLC now implements [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): printing directly from comparisons, standalone print lists,
 full-snapshot and physical-copy delta plans, frozen artwork/face manifests, the actual cached upstream v6
 runtime, downloadable PDFs and an authenticated station protocol. The
 [native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
@@ -25,6 +25,9 @@ retain the same identity across reloads. Print orders can remove suggestions and
 cards; printing swaps default to keeping existing copies and basic lands default to
 excluded. Search, side/ownership filters and sorting change the review view only. Visible
 missing originals can be copied or opened together in Mana Pool, one per logical card.
+The three-step workflow separates choosing cards, review and batch status. Per-card art
+picking selects verified Scryfall printings, preserves custom art on other rows and requires
+a refreshed review. Comparison handoffs freeze both input lists and protect saved drafts.
 The self-contained Mac installer now bundles its runtime, starts paused at login, and
 supports checked version updates and rollback without replacing configuration or print history.
 The v2.49.0 companion and v2.50.0 server are deployed on the household Mac and passed their

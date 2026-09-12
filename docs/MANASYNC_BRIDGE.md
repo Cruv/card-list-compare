@@ -122,7 +122,7 @@ they do not establish original ownership, satisfy deck allocations, or count as 
 CLC retains the images and publishes the plan when its connected ManaSync account is reachable.
 
 After printing, confirm usable copies and a physical destination in ManaSync, or open the
-batch's **View proxy confirmation** panel in CLC. Both apps use the same pending record.
+batch's **Confirm usable copies** panel in CLC. Both apps use the same pending record.
 Confirming eight of ten adds eight proxies and leaves two pending. **Dismiss remaining**
 closes those two as failed/cancelled without removing the eight already confirmed. CLC
 refreshes the result and stops requesting quantities that were resolved in ManaSync.
@@ -164,7 +164,7 @@ The Proxy binder remains a virtual view across these physical locations.
 ## Keep the actual proxy artwork
 
 When a native batch's immutable PDFs are ready, CLC retains verified copies of the exact
-front/back images and publishes its pending plan automatically. **View proxy confirmation**
+front/back images and publishes its pending plan automatically. **Confirm usable copies**
 opens the shared review and retries staging if required. Confirming usable quantities adds
 those images to the new proxy holdings; a deliberate reprint uses a new native print batch.
 

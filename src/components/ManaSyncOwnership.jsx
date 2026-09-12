@@ -6,7 +6,7 @@ import CopyButton from './CopyButton';
 import PrintQueue from './PrintQueue';
 import './ManaSync.css';
 
-export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,cards:selectionCards,showConfirmations=true,initiallyOpen=false,onRowsChange,visibleKeys,shoppingDisabled=false}) {
+export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,cards:selectionCards,showConfirmations=true,initiallyOpen=false,onRowsChange,visibleKeys,shoppingDisabled=false,compact=false}) {
   const refreshSequence = useRef(0);
   const [data,setData] = useState(null);
   const [loading,setLoading] = useState(false);
@@ -49,6 +49,24 @@ export default function ManaSyncOwnership({deckId,parsedDeck,cardMap,deckText,ca
       localStorage.setItem(key,JSON.stringify(request));
       await queuePrintBatch(request);localStorage.removeItem(key);setQueueRevision(value => value+1);
     } catch(e) {if (e.status >= 400 && e.status < 500) localStorage.removeItem(key);setError(e.message);} finally {setQueueing(null);}
+  }
+  if (compact) {
+    const missing = [...new Map(displayedRows.filter(row => row.ownership?.hasOriginal === false).map(row => [row.shoppingKey, row])).values()];
+    return <section className="print-ownership-compact" aria-label="ManaSync ownership and shopping">
+      <div className="print-panel-heading"><p className="print-panel-meta">{loading ? 'Refreshing ownership…' : data?.known ? 'Ownership checked with ManaSync' : <>Ownership unknown · <a href="#settings">connect ManaSync in Settings</a></>}</p><button className="print-text-button" type="button" onClick={refresh} disabled={loading}>Refresh ownership</button></div>
+      {error && <p role="alert" className="print-panel-meta">{error}</p>}{data?.error && <p role="status" className="print-panel-meta">{data.error}</p>}
+      <details className="print-buy-list"><summary>Buy missing originals{missing.length ? ` (${missing.length})` : ''}</summary>
+        <p className="print-panel-meta">One original in any printing covers unlimited proxies. This buy list uses only missing cards in your current view; owned, incoming and unknown cards are excluded.</p>
+        <p className="print-panel-meta">Last successful ownership refresh: {data?.connection?.lastOwnership ? new Date(data.connection.lastOwnership).toLocaleString() : 'Never'}</p>
+        {shoppingDisabled ? <p role="status">Review the updated list to build its buy list.</p> : <>
+          {!missing.length && <p>No missing originals in this view.</p>}
+          <ul className="print-buy-cards">{missing.map(row => <li key={row.shoppingKey}><label><input type="checkbox" aria-label={`Include one ${row.card.name} original in the Mana Pool list`} checked={selected[row.shoppingKey] !== false} onChange={event => setSelected(previous => ({ ...previous, [row.shoppingKey]: event.target.checked }))} /><span>1 {row.card.name}</span></label></li>)}</ul>
+          {shopping && <div className="print-panel-actions"><CopyButton getText={() => shopping} label="Copy missing cards in this view" />{shoppingUrl?.length < 7500 && <a className="btn btn-primary btn-sm" href={shoppingUrl} target="_blank" rel="noreferrer">Review missing cards in Mana Pool</a>}</div>}
+          {shoppingUrl?.length >= 7500 && <p>Copy this list and paste it into <a href="https://manapool.com/add-deck" target="_blank" rel="noreferrer">Mana Pool Add Deck</a>.</p>}
+          {shopping && <details><summary>View buy list text</summary><textarea className="mana-sync-list" aria-label="Selected original-card shopping list" readOnly rows={Math.min(8, shopping.split('\n').length + 1)} value={shopping} /></details>}
+        </>}
+      </details>
+    </section>;
   }
   return <section className="mana-sync">
     {showConfirmations && <>

@@ -1,61 +1,102 @@
 .print-panel { display: grid; gap: var(--space-lg); }
 .print-list-page { width: min(1100px, 100%); margin: 0 auto; padding: var(--space-lg); }
 .print-list-nav { display: flex; flex-wrap: wrap; gap: var(--space-md); margin-bottom: var(--space-lg); font-size: var(--fs-sm); }
-.print-list-nav a { color: var(--accent-blue); }
+.print-list-nav a, .print-panel a:not(.btn) { color: var(--accent-blue); }
 .print-list-header { margin-bottom: var(--space-lg); }
 .print-list-header h1 { margin: 0 0 var(--space-sm); }
-.print-list-header p { color: var(--text-secondary); line-height: 1.6; }
-.print-list-inputs { border: 0; min-width: 0; margin: var(--space-md) 0; padding: 0; }
-.print-list-name { display: grid; gap: 6px; color: var(--text-secondary); margin-bottom: var(--space-md); }
-.print-list-name input { width: 100%; min-width: 0; padding: 9px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
-.print-list-extras { margin-top: var(--space-md); }
-.print-list-extras textarea { width: 100%; min-width: 0; padding: 9px; resize: vertical; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
-.print-list-removed { padding: var(--space-md); border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: var(--space-md); }
-.print-list-removed ul { display: grid; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
-.print-list-removed li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm); }
-.print-list-removed li span { overflow-wrap: anywhere; }
-.print-list-inputs .deck-input { margin-bottom: var(--space-md); }
-.print-list-inputs:disabled { opacity: .75; }
-.print-list-inputs code { overflow-wrap: anywhere; }
+.print-list-header p, .print-panel p { color: var(--text-secondary); line-height: 1.5; }
+.print-panel p { margin: 0 0 var(--space-sm); }
 .print-panel h3, .print-panel h4 { margin: 0 0 var(--space-sm); }
-.print-panel p { color: var(--text-secondary); line-height: 1.6; margin: 0 0 var(--space-sm); }
+.print-steps { display: flex; gap: var(--space-lg); list-style: none; margin: 0; padding: 0 0 var(--space-md); border-bottom: 1px solid var(--border-color); }
+.print-steps li { display: flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: var(--fs-sm); }
+.print-steps li span { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--border-color); border-radius: 50%; flex-shrink: 0; }
+.print-steps .is-current { color: var(--text-primary); font-weight: 700; }
+.print-steps .is-current span { background: var(--accent-blue); border-color: var(--accent-blue); color: var(--bg-primary); }
 .print-panel-card { min-width: 0; border: 1px solid var(--border-color); border-radius: 10px; padding: var(--space-lg); background: var(--bg-surface); }
+.print-list-inputs { border: 0; min-width: 0; margin: var(--space-md) 0; padding: 0; }
+.print-list-inputs .deck-input { margin-bottom: var(--space-md); }
+.print-list-name { display: grid; gap: 6px; color: var(--text-secondary); margin-bottom: var(--space-md); }
+.print-list-name .print-panel-meta { display: inline; font-weight: 400; }
+.print-list-name input, .print-list-name select, .print-list-name textarea, .print-comparison-source textarea, .print-panel-fields select, .print-review-filters input, .print-review-filters select { width: 100%; min-width: 0; padding: 9px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.print-list-name textarea, .print-comparison-source textarea { resize: vertical; }
+.print-comparison-source { border-left: 3px solid var(--accent-blue); padding-left: var(--space-md); margin-bottom: var(--space-md); }
+.print-comparison-source .print-panel-status { margin-bottom: var(--space-sm); }
 .print-panel-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin: var(--space-md) 0; }
 .print-panel-fields label { display: grid; gap: 6px; color: var(--text-secondary); font-size: var(--fs-sm); }
-.print-panel-fields select { width: 100%; min-width: 0; padding: 9px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.print-choice-options { display: flex; flex-wrap: wrap; gap: 0 var(--space-lg); }
 .print-panel-check { display: flex; align-items: flex-start; gap: 8px; margin: var(--space-sm) 0; font-size: var(--fs-sm); }
 .print-panel-check input { margin-top: 3px; }
 .print-panel-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); margin-top: var(--space-md); }
 .print-panel-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-sm); }
+.print-panel-heading > div { min-width: 0; }
 .print-panel-error { padding: var(--space-md); border: 1px solid var(--accent-red, #e66); border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; }
-.print-panel-cards { max-height: 290px; overflow: auto; margin: var(--space-md) 0; padding-left: 24px; color: var(--text-secondary); font-size: var(--fs-sm); }
-.print-panel-cards li { padding: 3px 0; }
 .print-panel-meta { font-size: var(--fs-sm); overflow-wrap: anywhere; }
 .print-panel-jobs { display: grid; gap: var(--space-md); }
-.print-panel-status { display: inline-block; padding: 3px 9px; border-radius: 999px; background: var(--bg-elevated, var(--bg-primary)); font-size: var(--fs-sm); }
-.print-panel details { margin-top: var(--space-sm); }
+.print-panel-status { display: inline-block; padding: 3px 8px; border-radius: 999px; background: var(--bg-elevated, var(--bg-primary)); font-size: var(--fs-sm); }
+.print-panel details { margin-top: var(--space-sm); min-width: 0; }
+.print-panel details[open] > summary { margin-bottom: var(--space-md); }
 .print-panel summary { cursor: pointer; color: var(--accent-blue); font-size: var(--fs-sm); }
-.print-panel a:not(.btn) { color: var(--accent-blue); }
-@media (max-width: 560px) { .print-panel-fields { grid-template-columns: 1fr; } .print-panel-card { padding: var(--space-md); } }
-.print-panel-confirmation { margin-top: .8rem; padding: .8rem; border: 1px solid var(--border-color); border-radius: 8px; }
+.print-panel-confirmation { padding: var(--space-md); border: 1px solid var(--border-color); border-radius: 8px; }
 .print-panel-confirmation p { margin: .35rem 0 0; overflow-wrap: anywhere; }
+.print-review-dirty { margin: var(--space-md) 0; }
+.print-review-tools { display: flex; flex-wrap: wrap; gap: var(--space-sm) var(--space-lg); margin: var(--space-md) 0; }
+.print-review-tools > details { flex: 1 1 180px; margin: 0; padding: 10px 12px; background: var(--bg-primary); border-radius: 6px; }
+.print-review-tools > details[open] { flex-basis: 100%; }
+.print-list-removed ul, .print-buy-cards { display: grid; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
+.print-list-removed li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm); }
+.print-list-removed li span { overflow-wrap: anywhere; }
+.print-review-filters { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(120px, 1fr)); gap: var(--space-sm); margin: var(--space-md) 0 var(--space-sm); }
+.print-review-filters label { display: grid; gap: 5px; color: var(--text-secondary); font-size: var(--fs-sm); }
 .print-review { margin: var(--space-md) 0; }
-.print-review-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin: var(--space-md) 0; }
-.print-review-filters label { display: grid; gap: 6px; color: var(--text-secondary); font-size: var(--fs-sm); }
-.print-review-filters input, .print-review-filters select { width: 100%; min-width: 0; padding: 9px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
-@media (max-width: 560px) { .print-review-filters { grid-template-columns: 1fr; } }
-.print-review-counts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-sm); margin-bottom: var(--space-md); }
-.print-review-counts > div { padding: var(--space-sm); background: var(--bg-primary); border-radius: 6px; }
-.print-review-counts dt { color: var(--text-secondary); font-size: var(--fs-sm); }
-.print-review-counts dd { font-size: var(--fs-lg); font-weight: 700; margin-top: 6px; }
-.print-review-cards { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: var(--space-md); padding: 0; margin: var(--space-md) 0; }
-.print-review-card { min-width: 0; align-self: start; border: 1px solid var(--border-color); border-radius: 8px; padding: var(--space-md); }
-.print-review-card h4 { font-size: var(--fs-base); overflow-wrap: anywhere; }
+.print-review-cards { list-style: none; padding: 0; margin: 0; }
+.print-review-card { display: grid; grid-template-columns: 146px minmax(0, 1fr) auto; align-items: center; gap: var(--space-md); padding: var(--space-md) 0; border-top: 1px solid var(--border-color); }
+.print-review-card:last-child { border-bottom: 1px solid var(--border-color); }
+.print-review-card--removed { opacity: .55; }
+.print-review-card h4 { font-size: var(--fs-base); overflow-wrap: anywhere; margin-bottom: 6px; }
+.print-review-identity { min-width: 0; }
+.print-review-identity p { margin-bottom: 6px; }
+.print-card-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.print-card-badges .print-panel-status { font-size: 12px; }
 .print-review-dfc { color: var(--accent-blue); border: 1px solid var(--accent-blue); }
-.print-review-faces { display: flex; align-items: flex-start; justify-content: center; gap: var(--space-sm); margin-top: var(--space-sm); }
-.print-review-face { min-width: 0; flex: 1 1 0; max-width: 220px; margin: 0; }
-.print-review-face img { display: block; width: 100%; height: auto; aspect-ratio: 5 / 7; object-fit: contain; border-radius: 8px; background: var(--bg-primary); }
-.print-review-face figcaption { font-size: var(--fs-sm); overflow-wrap: anywhere; margin-top: 7px; line-height: 1.5; }
-.print-review-face figcaption span { display: block; color: var(--text-secondary); }
-.print-review-image-missing { display: grid; align-content: center; min-height: 160px; padding: 8px; background: var(--bg-primary); border-radius: 8px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
-@media (max-width: 600px) { .print-review-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.print-review-faces { display: flex; align-items: flex-start; gap: 6px; }
+.print-review-face { width: 70px; min-width: 0; margin: 0; }
+.print-review-face img { display: block; width: 70px; height: 98px; object-fit: contain; border-radius: 5px; background: var(--bg-primary); }
+.print-review-face figcaption { font-size: 11px; color: var(--text-secondary); text-align: center; margin-top: 3px; }
+.print-review-image-missing { display: grid; align-content: center; width: 70px; min-height: 98px; padding: 3px; background: var(--bg-primary); border-radius: 5px; font-size: 10px; overflow-wrap: anywhere; }
+.print-review-image-missing .btn { font-size: 10px; padding: 2px; }
+.print-review-row-actions { display: grid; justify-items: end; gap: 8px; }
+.print-copy-count { font-size: var(--fs-lg); }
+.print-text-button { border: 0; padding: 3px 0; color: var(--accent-blue); background: none; cursor: pointer; font: inherit; font-size: var(--fs-sm); }
+.print-text-button:disabled { color: var(--text-secondary); cursor: default; opacity: .6; }
+.print-ownership-compact { margin: var(--space-md) 0; padding: var(--space-md); border: 1px solid var(--border-color); border-radius: 8px; }
+.print-ownership-compact .print-panel-heading p { margin: 0; }
+.print-buy-list { border-top: 1px solid var(--border-color); padding-top: var(--space-sm); }
+.print-buy-cards label { display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-size: var(--fs-sm); }
+.print-dfc-note { border-left: 3px solid var(--accent-blue); padding-left: var(--space-md); font-size: var(--fs-sm); }
+.print-review-footer { position: sticky; bottom: 12px; z-index: 5; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-md); background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 8px; padding: var(--space-md); box-shadow: 0 4px 20px #0003; margin-top: var(--space-lg); }
+.print-review-footer > div:first-child { display: grid; gap: 4px; }
+.print-review-footer span { color: var(--text-secondary); font-size: var(--fs-sm); }
+.print-review-footer .print-panel-actions { margin: 0; }
+.print-batch-status--awaiting_refeed, .print-batch-status--uncertain { color: var(--accent-blue); border: 1px solid var(--accent-blue); }
+.print-batch-details { border-top: 1px solid var(--border-color); padding-top: var(--space-sm); }
+.print-batch-details .print-panel-confirmation { margin: var(--space-sm) 0; }
+.print-history, .print-help { border-top: 1px solid var(--border-color); padding-top: var(--space-md); }
+.print-help p { font-size: var(--fs-sm); }
+@media (max-width: 760px) { .print-review-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) {
+  .print-list-page { padding: var(--space-md); }
+  .print-panel-card { padding: var(--space-md); }
+  .print-steps { gap: var(--space-sm); }
+  .print-steps li { flex: 1 1 0; gap: 5px; font-size: 11px; }
+  .print-steps li span { width: 20px; height: 20px; }
+  .print-panel-fields { grid-template-columns: 1fr; }
+  .print-review-card { grid-template-columns: 106px minmax(0, 1fr); gap: var(--space-sm); }
+  .print-review-row-actions { grid-column: 2; display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: var(--space-sm); }
+  .print-review-faces { grid-row: span 2; }
+  .print-review-face { width: 50px; }
+  .print-review-face img { width: 50px; height: 70px; }
+  .print-review-image-missing { width: 50px; min-height: 70px; }
+  .print-review-footer { bottom: 5px; }
+  .print-review-footer .print-panel-actions { width: 100%; }
+  .print-review-footer .print-panel-actions .btn { flex: 1 1 auto; }
+}

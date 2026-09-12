@@ -144,6 +144,17 @@ Changed-printing replacement defaults off and basic-land exclusion defaults on. 
 review hash and durable creation request cover these choices; ownership does not silently
 remove or limit any copies.
 
+**Comparison handoff and art selection (2026-09-11).** Comparison results carry their
+captured Before/After texts into the standalone workflow, defaulting to positive physical
+changes with a full-After option. Session handoffs survive sign-in and never silently
+replace a saved print draft or unresolved creation request. The three-step print surface
+keeps artwork review central and moves historical batches and detailed guidance into
+expandable sections. Per-row overrides select verified Scryfall IDs for the same logical
+card, preserving original selection keys and quantities. Only explicitly selected rows
+switch away from saved MPC art. Chosen IDs, resolved faces and both comparison texts enter
+the immutable plan/hash; changing them requires a new review. Explicit-ID image downloads
+must not use a set/collector-only cache that could return another language or art variant.
+
 **One-sheet DFC packets (2026-09-10).** Keep each batch isolated and print its ordinary fronts
 first. Each subsequent DFC artifact contains at most seven copies on exactly two pages:
 front, then back. Partial sheets are intentional; easier paper handling takes priority over

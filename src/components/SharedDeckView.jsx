@@ -1,8 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getSharedDeck, getSharedDeckChangelog, getSharedDeckSnapshot } from '../lib/api';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import CopyButton from './CopyButton';
+import PrintComparisonButton from './PrintComparisonButton';
+import SectionChangelog from './SectionChangelog';
+import { parse } from '../lib/parser';
+import { computeDiff } from '../lib/differ';
 import { formatChangelog, formatReddit, formatJSON } from '../lib/formatter';
 import './SharedDeckView.css';
 
@@ -13,6 +17,9 @@ export default function SharedDeckView({ shareId }) {
 
   // Changelog state
   const [changelog, setChangelog] = useState(null);
+  const [changelogLoading, setChangelogLoading] = useState(false);
+  const changelogSequence = useRef(0);
+  const invalidateChangelog = useCallback(() => { ++changelogSequence.current; }, []);
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
 
@@ -22,31 +29,54 @@ export default function SharedDeckView({ shareId }) {
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
   useEffect(() => {
+    let active = true;
+    invalidateChangelog();
+    setChangelog(null);
+    setChangelogLoading(false);
+    setCompareA('');
+    setCompareB('');
+    setViewingSnapshot(null);
+    setSnapshotText('');
     setLoading(true);
     setError(null);
     getSharedDeck(shareId)
-      .then(setDeckData)
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [shareId]);
+      .then(data => { if (active) setDeckData(data); })
+      .catch(err => { if (active) setError(err.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; invalidateChangelog(); };
+  }, [shareId, invalidateChangelog]);
 
-  async function handleViewChangelog() {
+  async function loadChangelog(a, b) {
+    const sequence = ++changelogSequence.current;
+    setChangelogLoading(true);
     try {
-      const data = await getSharedDeckChangelog(shareId);
-      setChangelog(data);
+      const data = await getSharedDeckChangelog(shareId, a, b);
+      // Public changelogs identify their exact snapshots but omit the raw text.
+      // Capture that returned pair, never the potentially edited selectors.
+      const [before, after] = await Promise.all([
+        getSharedDeckSnapshot(shareId, data.before.id),
+        getSharedDeckSnapshot(shareId, data.after.id),
+      ]);
+      const beforeText = before.snapshot.deck_text, afterText = after.snapshot.deck_text;
+      if (sequence !== changelogSequence.current) return;
+      // Display and print the same fetched text even if a snapshot changed
+      // between the metadata response and these two snapshot reads.
+      setChangelog({ ...data, beforeText, afterText,
+        diff: computeDiff(parse(beforeText), parse(afterText)) });
     } catch (err) {
-      toast.error(err.message);
+      if (sequence === changelogSequence.current) toast.error(err.message);
+    } finally {
+      if (sequence === changelogSequence.current) setChangelogLoading(false);
     }
+  }
+
+  function handleViewChangelog() {
+    return loadChangelog();
   }
 
   async function handleCompare() {
     if (!compareA || !compareB) return;
-    try {
-      const data = await getSharedDeckChangelog(shareId, compareA, compareB);
-      setChangelog(data);
-    } catch (err) {
-      toast.error(err.message);
-    }
+    await loadChangelog(compareA, compareB);
   }
 
   async function handleViewSnapshot(snapshotId) {
@@ -125,7 +155,7 @@ export default function SharedDeckView({ shareId }) {
         </div>
 
         <div className="shared-deck-actions">
-          <button className="btn btn-primary btn-sm" onClick={handleViewChangelog} type="button">
+          <button className="btn btn-primary btn-sm" onClick={handleViewChangelog} disabled={changelogLoading} type="button">
             View Latest Changelog
           </button>
           <button className="btn btn-secondary btn-sm" onClick={handleCopyLink} type="button">
@@ -157,14 +187,15 @@ export default function SharedDeckView({ shareId }) {
                 </option>
               ))}
             </select>
-            <button className="btn btn-primary btn-sm" onClick={handleCompare} disabled={!compareA || !compareB} type="button">
+            <button className="btn btn-primary btn-sm" onClick={handleCompare} disabled={!compareA || !compareB || changelogLoading} type="button">
               Compare
             </button>
           </div>
         )}
 
         {/* Changelog display */}
-        {changelog && <SharedChangelogDisplay changelog={changelog} />}
+        {changelogLoading && <p role="status">Loading comparison and print details…</p>}
+        {changelog && <SharedChangelogDisplay changelog={changelog} deckName={deckName} />}
 
         {/* Snapshot list */}
         <h3 className="shared-deck-section-title">Snapshots ({snapshots.length})</h3>
@@ -208,7 +239,7 @@ export default function SharedDeckView({ shareId }) {
   );
 }
 
-function SharedChangelogDisplay({ changelog }) {
+function SharedChangelogDisplay({ changelog, deckName }) {
   const { diff } = changelog;
   const { mainboard, sideboard, hasSideboard } = diff;
 
@@ -216,22 +247,20 @@ function SharedChangelogDisplay({ changelog }) {
     const hasMain =
       mainboard.cardsIn.length > 0 ||
       mainboard.cardsOut.length > 0 ||
-      mainboard.quantityChanges.length > 0;
+      mainboard.quantityChanges.length > 0 ||
+      (mainboard.printingChanges || []).length > 0;
 
     const hasSide = hasSideboard && (
       sideboard.cardsIn.length > 0 ||
       sideboard.cardsOut.length > 0 ||
-      sideboard.quantityChanges.length > 0
+      sideboard.quantityChanges.length > 0 ||
+      (sideboard.printingChanges || []).length > 0
     );
 
     return { hasMainChanges: hasMain, hasSideChanges: hasSide, noChanges: !hasMain && !hasSide };
   }, [mainboard, sideboard, hasSideboard]);
 
-  if (noChanges) {
-    return <p className="shared-deck-empty">No changes detected.</p>;
-  }
-
-  const diffResult = { mainboard, sideboard, hasSideboard, commanders: [] };
+  const diffResult = { mainboard, sideboard, hasSideboard, commanders: diff.commanders || [] };
 
   function formatSnapLabel(snap) {
     const d = snap.created_at ? new Date(snap.created_at + 'Z').toLocaleString() : '';
@@ -244,48 +273,18 @@ function SharedChangelogDisplay({ changelog }) {
         <strong>Changelog:</strong> {formatSnapLabel(changelog.before)} &rarr; {formatSnapLabel(changelog.after)}
       </div>
       <div className="shared-deck-changelog-copy">
-        <CopyButton getText={() => formatChangelog(diffResult)} />
-        <CopyButton getText={() => formatReddit(diffResult)} label="Copy for Reddit" className="copy-btn copy-btn--reddit" />
-        <CopyButton getText={() => formatJSON(diffResult)} label="Copy JSON" className="copy-btn copy-btn--json" />
+        <PrintComparisonButton beforeText={changelog.beforeText} afterText={changelog.afterText} listName={`${deckName} comparison`} />
+        {!noChanges && <>
+          <CopyButton getText={() => formatChangelog(diffResult)} />
+          <CopyButton getText={() => formatReddit(diffResult)} label="Copy for Reddit" className="copy-btn copy-btn--reddit" />
+          <CopyButton getText={() => formatJSON(diffResult)} label="Copy JSON" className="copy-btn copy-btn--json" />
+        </>}
       </div>
+      {noChanges && <p className="shared-deck-empty">No changes detected.</p>}
       <div className="changelog-inline">
-        {hasMainChanges && <SharedChangelogSection title="Mainboard" section={mainboard} />}
-        {hasSideChanges && <SharedChangelogSection title="Sideboard" section={sideboard} />}
+        {hasMainChanges && <SectionChangelog sectionName="Mainboard" changes={mainboard} />}
+        {hasSideChanges && <SectionChangelog sectionName="Sideboard" changes={sideboard} />}
       </div>
-    </div>
-  );
-}
-
-function SharedChangelogSection({ title, section }) {
-  return (
-    <div className="changelog-section">
-      <div className="changelog-section-title">=== {title} ===</div>
-      {section.cardsIn.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Cards In ---</div>
-          {section.cardsIn.map(c => (
-            <div key={c.name} className="changelog-line changelog-in">+ {c.quantity} {c.name}</div>
-          ))}
-        </div>
-      )}
-      {section.cardsOut.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Cards Out ---</div>
-          {section.cardsOut.map(c => (
-            <div key={c.name} className="changelog-line changelog-out">- {c.quantity} {c.name}</div>
-          ))}
-        </div>
-      )}
-      {section.quantityChanges.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Quantity Changes ---</div>
-          {section.quantityChanges.map(c => (
-            <div key={c.name} className="changelog-line changelog-qty">
-              ~ {c.name} ({c.oldQty} &rarr; {c.newQty}, {c.delta > 0 ? '+' : ''}{c.delta})
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

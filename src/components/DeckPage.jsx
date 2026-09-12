@@ -33,6 +33,7 @@ import SourceSyncReview from './SourceSyncReview';
 import { sourceRefreshFeedback } from '../lib/sourceSync';
 import PriceHistoryOverlay from './PriceHistoryOverlay';
 import PrintPanel from './PrintPanel';
+import PrintComparisonButton from './PrintComparisonButton';
 import './DeckPage.css';
 
 function formatDate(dateStr) {
@@ -962,6 +963,7 @@ export default function DeckPage({ deckId }) {
               <div className="deck-page-inline-diff">
                 <div className="deck-page-inline-diff-header">
                   <h3>Snapshot Comparison</h3>
+                  {comparisonTexts && <PrintComparisonButton {...comparisonTexts} listName={`${deck.deck_name} comparison`} />}
                   <button className="btn btn-secondary btn-sm" onClick={() => setComparisonDiff(null)} type="button">&times;</button>
                 </div>
                 {!comparisonStats.noChanges && (
@@ -1084,6 +1086,9 @@ export default function DeckPage({ deckId }) {
         {/* ── Changelog Tab ── */}
         {activeTab === 'changelog' && (
           <div className="deck-page-tab-panel">
+            {!changelogLoading && changelogData && changelogTexts && <div className="deck-page-diff-buttons">
+              <PrintComparisonButton {...changelogTexts} listName={`${deck.deck_name} changelog`} />
+            </div>}
             {changelogLoading ? (
               <Skeleton lines={8} />
             ) : !changelogData ? (

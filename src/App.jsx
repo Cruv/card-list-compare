@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import DeckInput from './components/DeckInput';
 import ChangelogOutput from './components/ChangelogOutput';
 import AuthBar from './components/AuthBar';
@@ -24,13 +24,14 @@ import { createShare, getShare, verifyEmail } from './lib/api';
 import { toast } from './components/Toast';
 import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
+import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.50.0';
+const APP_VERSION = '2.51.0';
 const WHATS_NEW = [
-  'Create standalone print lists without tracking a deck',
-  'Remove cards, add extras and exclude basic lands from print orders',
-  'Filter artwork by sides or ownership and send missing cards to Mana Pool',
+  'Print cards directly from comparison results and snapshot history',
+  'A simpler print workflow with compact artwork review and clear next steps',
+  'Pick a different printing for each card before generating PDFs',
 ];
 
 function getResetToken() {
@@ -58,11 +59,30 @@ export default function App() {
   const { route, shareId, deckShareId, deckId } = useHashRoute();
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
-  const [diffResult, setDiffResult] = useState(null);
+  const [comparedLists, setComparedLists] = useState(null);
+  const diffResult = comparedLists?.diff || null;
+  const comparisonRevision = useRef(0);
+  const [handoffRevision, setHandoffRevision] = useState(0);
   const [cardMap, setCardMap] = useState(null);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+
+  useEffect(() => {
+    const refresh = () => setHandoffRevision(value => value + 1);
+    window.addEventListener(PRINT_COMPARISON_EVENT, refresh);
+    return () => window.removeEventListener(PRINT_COMPARISON_EVENT, refresh);
+  }, []);
+  const printComparison = useMemo(() => {
+    // The event also refreshes a handoff while this App instance is still mounted.
+    void handoffRevision;
+    if (route !== 'printList' || !user) return null;
+    try { return loadPrintComparison(window.sessionStorage, user.id); } catch { return null; }
+  }, [route, user, handoffRevision]);
+  const onComparisonConsumed = useCallback(id => {
+    consumePrintComparison(window.sessionStorage, id);
+    setHandoffRevision(value => value + 1);
+  }, []);
 
   // Show "what's new" toast once per version
   // Prefetch common mana symbol SVGs at idle priority
@@ -116,11 +136,12 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [user]);
 
-  function handleCompare() {
+  const showComparison = useCallback((beforeText, afterText) => {
+    const revision = ++comparisonRevision.current;
     const before = parse(beforeText);
     const after = parse(afterText);
     const diff = computeDiff(before, after);
-    setDiffResult(diff);
+    setComparedLists({ diff, beforeText, afterText });
     setCardMap(null);
 
     // Fetch card data in the background (non-blocking)
@@ -128,22 +149,29 @@ export default function App() {
     const identifiers = collectCardIdentifiers(diff);
     if (identifiers.size > 0) {
       fetchCardData(identifiers)
-        .then(setCardMap)
+        .then(data => { if (revision === comparisonRevision.current) setCardMap(data); })
         .catch(() => {}); // Silent fail — cards just won't be grouped by type
     }
+  }, []);
+
+  function handleCompare() {
+    showComparison(beforeText, afterText);
   }
 
   function handleClear() {
     setBeforeText('');
     setAfterText('');
-    setDiffResult(null);
+    comparisonRevision.current++;
+    setComparedLists(null);
     setCardMap(null);
   }
 
   function handleSwap() {
     setBeforeText(afterText);
     setAfterText(beforeText);
-    setDiffResult(null);
+    comparisonRevision.current++;
+    setComparedLists(null);
+    setCardMap(null);
   }
 
   const canCompare = useMemo(
@@ -154,35 +182,27 @@ export default function App() {
   // Load shared comparison from URL hash (e.g. #share/abc123)
   useEffect(() => {
     if (route !== 'share' || !shareId) return;
+    let active = true;
+    const revision = ++comparisonRevision.current;
     async function loadShare() {
       try {
         const data = await getShare(shareId);
+        if (!active || revision !== comparisonRevision.current) return;
         setBeforeText(data.beforeText || '');
         setAfterText(data.afterText || '');
-        // Auto-compare
-        const before = parse(data.beforeText || '');
-        const after = parse(data.afterText || '');
-        const diff = computeDiff(before, after);
-        setDiffResult(diff);
-
-        // Fetch card data in the background (with exact printing identifiers)
-        const identifiers = collectCardIdentifiers(diff);
-        if (identifiers.size > 0) {
-          fetchCardData(identifiers)
-            .then(setCardMap)
-            .catch(() => {});
-        }
+        showComparison(data.beforeText || '', data.afterText || '');
       } catch {
-        toast.error('Failed to load shared comparison. The link may be invalid or expired.');
+        if (active && revision === comparisonRevision.current) toast.error('Failed to load shared comparison. The link may be invalid or expired.');
       }
     }
     loadShare();
-  }, [route, shareId]);
+    return () => { active = false; };
+  }, [route, shareId, showComparison]);
 
   async function handleShare() {
     const commanders = diffResult?.commanders || [];
     const title = commanders.length > 0 ? commanders.join(' / ') + ' Changelog' : null;
-    const data = await createShare(beforeText, afterText, title);
+    const data = await createShare(comparedLists.beforeText, comparedLists.afterText, title);
     const url = `${window.location.origin}${window.location.pathname}#share/${data.id}`;
     window.history.replaceState(null, '', `#share/${data.id}`);
     return url;
@@ -293,7 +313,7 @@ export default function App() {
     return (
       <ErrorBoundary>
         <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <PrintListPage key={user.id} />
+          <PrintListPage key={user.id} initialComparison={printComparison} onComparisonConsumed={onComparisonConsumed} />
         </Suspense>
       </ErrorBoundary>
     );
@@ -326,7 +346,7 @@ export default function App() {
     return (
       <ErrorBoundary>
         <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <DeckPage deckId={deckId} />
+          <DeckPage key={`${user.id}:${deckId}`} deckId={deckId} />
         </Suspense>
       </ErrorBoundary>
     );
@@ -397,7 +417,11 @@ export default function App() {
       </div>
 
       <ErrorBoundary>
-        {diffResult && <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={afterText} beforeText={beforeText} />}
+        {diffResult && <>
+          {(beforeText !== comparedLists.beforeText || afterText !== comparedLists.afterText) &&
+            <p role="status">These results use your last comparison. Compare again to use the edited lists for printing or export.</p>}
+          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
+        </>}
       </ErrorBoundary>
 
       {!diffResult && (

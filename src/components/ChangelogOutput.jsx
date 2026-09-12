@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
+import PrintComparisonButton from './PrintComparisonButton';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS } from '../lib/formatter';
 import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
 import { toast } from './Toast';
@@ -95,6 +96,8 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
           </div>
         )}
         <div className="changelog-output-buttons">
+          <PrintComparisonButton beforeText={beforeText} afterText={afterText}
+            listName={commanderLabel ? `${commanderLabel} comparison` : 'Compared lists'} />
           {hasAdditions && (
             <CopyButton
               getText={() => formatMpcFill(diffResult)}
@@ -260,4 +263,3 @@ function ShareMenuItem({ onShare, onDone }) {
     </button>
   );
 }
-

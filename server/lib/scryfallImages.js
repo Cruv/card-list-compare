@@ -72,6 +72,7 @@ async function request(url, options, readResponse, signal) {
 }
 
 function matches(identifier, card, requestedName) {
+  if (identifier.id && String(card.id).toLowerCase() !== identifier.id) return false;
   if (identifier.set && identifier.set !== card.set?.toLowerCase()) return false;
   if (identifier.collector_number !== undefined) {
     if (String(identifier.collector_number).toLowerCase() !== String(card.collector_number).toLowerCase()) return false;
@@ -94,10 +95,10 @@ export async function fetchCardImageUrls(cards, { allowIncomplete = false, signa
   for (const card of cards) {
     const setCode = (card.setCode || '').toLowerCase();
     const collectorNumber = String(card.collectorNumber || '');
-    if (collectorNumber && !setCode && !allowIncomplete) {
+    if (collectorNumber && !setCode && !card.requestedScryfallId && !allowIncomplete) {
       throw new ImageCompletenessError([failure(card, 'card', 'Collector number requires a set code; add the set to preserve the requested printing')]);
     }
-    const key = JSON.stringify([normalizeName(card.displayName), setCode, collectorNumber.toLowerCase()]);
+    const key = JSON.stringify([normalizeName(card.displayName), setCode, collectorNumber.toLowerCase(), card.requestedScryfallId || '']);
     if (entriesByKey.has(key)) {
       entriesByKey.get(key).quantity += card.quantity;
     } else {
@@ -107,6 +108,10 @@ export async function fetchCardImageUrls(cards, { allowIncomplete = false, signa
   const entries = [...entriesByKey.values()];
   const queries = [];
   for (const entry of entries) {
+    if (entry.requestedScryfallId) {
+      queries.push({ entry, identifier: { id: entry.requestedScryfallId } });
+      continue;
+    }
     if (entry.collectorNumber && !entry.setCode) continue;
     if (entry.setCode && entry.collectorNumber) {
       // Scryfall's collection lookup can require canonical collector casing
@@ -168,7 +173,9 @@ export async function fetchCardImageUrls(cards, { allowIncomplete = false, signa
   for (const entry of entries) {
     const entryFailures = [];
     if (!entry.imageUrls) {
-      entryFailures.push(failure(entry, 'card', entry.collectorNumber && !entry.setCode
+      entryFailures.push(failure(entry, 'card', entry.requestedScryfallId
+        ? lookupErrors.get(entry) || 'Selected printing was not found or does not match this card'
+        : entry.collectorNumber && !entry.setCode
         ? 'Collector number requires a set code; add the set to preserve the requested printing'
         : lookupErrors.get(entry) || 'Card/printing not found on Scryfall'));
     } else {
@@ -276,23 +283,27 @@ async function downloadImages(cards, cache, progressCallback) {
   let uniqueBytes = 0;
 
   for (const card of cards) {
+    // A selected Scryfall ID can distinguish language/art variants sharing one
+    // set/collector key. Old persistent cache keys cannot prove that identity.
+    const cardCache = card.requestedScryfallId ? null : cache;
     const buffers = {};
     const formats = {};
     let allCached = true;
     for (const face of card.isDFC ? ['front', 'back'] : ['front']) {
       const cacheFace = face === 'back' ? 'back' : null;
       const url = card.imageUrls?.[face];
+      const sessionKey = card.requestedScryfallId ? `${card.requestedScryfallId}:${url}` : url;
       try {
         if (!url) throw new Error('No image URL available');
         const availableBytes = MAX_JOB_IMAGE_BYTES - uniqueBytes;
-        if (availableBytes <= 0 && !sessionCache.has(url)) throw resourceLimitError('Image data exceeds 256 MiB per job; download a smaller batch');
-        let buffer = sessionCache.get(url);
+        if (availableBytes <= 0 && !sessionCache.has(sessionKey)) throw resourceLimitError('Image data exceeds 256 MiB per job; download a smaller batch');
+        let buffer = sessionCache.get(sessionKey);
         const inSession = !!buffer;
-        if (!buffer && cache) buffer = card.setCode && card.collectorNumber
-          ? cache.getCachedImage(card.setCode, card.collectorNumber, cacheFace, availableBytes)
-          : cache.getCachedImageByName(card.displayName, cacheFace, availableBytes);
+        if (!buffer && cardCache) buffer = card.setCode && card.collectorNumber
+          ? cardCache.getCachedImage(card.setCode, card.collectorNumber, cacheFace, availableBytes)
+          : cardCache.getCachedImageByName(card.displayName, cacheFace, availableBytes);
         // Old caches could contain successful HTTP error pages. Treat them as misses.
-        let format = inSession ? sessionFormats.get(url) : imageFormat(buffer);
+        let format = inSession ? sessionFormats.get(sessionKey) : imageFormat(buffer);
         if (!format) buffer = null;
 
         const wasCached = !!buffer;
@@ -300,16 +311,16 @@ async function downloadImages(cards, cache, progressCallback) {
           allCached = false;
           buffer = await fetchSingleImage(url, availableBytes);
           format = imageFormat(buffer);
-          if (cache) {
-            if (card.setCode && card.collectorNumber) cache.cacheImage(card.setCode, card.collectorNumber, cacheFace, buffer);
-            else cache.cacheImageByName(card.displayName, cacheFace, buffer);
+          if (cardCache) {
+            if (card.setCode && card.collectorNumber) cardCache.cacheImage(card.setCode, card.collectorNumber, cacheFace, buffer);
+            else cardCache.cacheImageByName(card.displayName, cacheFace, buffer);
           }
         }
         if (!inSession) {
           if (buffer.length > availableBytes) throw resourceLimitError('Image data exceeds 256 MiB per job; download a smaller batch');
           uniqueBytes += buffer.length;
-          sessionCache.set(url, buffer);
-          sessionFormats.set(url, format);
+          sessionCache.set(sessionKey, buffer);
+          sessionFormats.set(sessionKey, format);
         }
         buffers[face] = buffer;
         formats[face] = format;

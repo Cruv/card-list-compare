@@ -124,11 +124,14 @@ function artifactRecord(row, artifact, station) {
 }
 export function formatPrintJob(row, station = false) {
   const plan = parse(row.plan_json), manifest = parse(row.manifest_json);
+  const publicPlan = publicPrintPlan(plan);
   const value = {
     id: row.id, state: row.state, mode: plan.mode, deckId: row.tracked_deck_id, deckName: plan.deckName,
     requesterId: row.user_id, totalCopies: plan.totalCopies, artSource: plan.artSource,
-    source: publicPrintPlan(plan).source, target: publicPrintPlan(plan).target,
-    ...(plan.list ? { list: publicPrintPlan(plan).list } : {}),
+    printingOverrideCount: (plan.resolvedCards || []).filter(card => card.requestedScryfallId).length,
+    source: publicPlan.source, target: publicPlan.target,
+    ...(plan.list ? { list: publicPlan.list } : {}),
+    ...(plan.comparison ? { comparison: publicPlan.comparison } : {}),
     createdAt: row.created_at, updatedAt: row.updated_at, expiresAt: row.expires_at,
     queueOnReady: !!row.queue_requested, error: row.error, proxyStagingError: row.proxy_staging_error || null, progress: parse(row.progress_json),
     recipeId: manifest?.recipe?.id || 'household-letter-v6', manifestSha256: row.manifest_sha256,

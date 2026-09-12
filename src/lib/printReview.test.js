@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, printReviewIndexes, printReviewReady, printReviewSummary, rejectedPrintCreation } from './printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printReviewReady, printReviewSummary, rejectedPrintCreation } from './printReview';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -87,6 +87,21 @@ describe('durable print creation recovery', () => {
     expect(recovered.expectedPlanHash).toBe(request.expectedPlanHash);
     expect(recovered.idempotencyKey).toBe(request.idempotencyKey);
   });
+  it('replays the frozen comparison and selected artwork after a lost creation response', () => {
+    const comparison = { mode: 'changes', beforeText: '1 Lightning Bolt' };
+    const printingOverrides = [{ selectionKey: '["lightning bolt","",""]', scryfallId: '12345678-1234-1234-1234-123456789abc' }];
+    const value = { ...request, mode: 'adhoc', artSource: 'scryfall', listName: 'Compared lists', cardText: '3 Lightning Bolt', comparison, printingOverrides };
+    delete value.targetSnapshotId; delete value.baselineSnapshotId;
+    const recovered = loadPrintCreationIntent({ getItem: () => JSON.stringify(value) }, 'key');
+    expect(recovered.comparison).toEqual(comparison);
+    expect(recovered.printingOverrides).toEqual(printingOverrides);
+    expect(recovered.cardText).toBe('3 Lightning Bolt');
+    for (const invalid of [{ comparison: { mode: 'remove', beforeText: '' } }, { comparison: { mode: 'changes', beforeText: 'x'.repeat(100001) } },
+      { printingOverrides: [{ selectionKey: 'key', scryfallId: 'not-an-id' }] }, { printingOverrides: Array(251).fill(printingOverrides[0]) },
+      { printingOverrides: [{ scryfallId: printingOverrides[0].scryfallId }] }]) {
+      expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...value, ...invalid }) }, 'key')).toBeNull();
+    }
+  });
   it('retains intent when transport or authorization can prevent an accepted receipt from being read', () => {
     for (const error of [new Error('offline'), { status: 401 }, { status: 403 }, { status: 408 }, { status: 429 }, { status: 500 }, { status: 503 }]) {
       expect(rejectedPrintCreation(error)).toBe(false);
@@ -116,6 +131,28 @@ describe('standalone print drafts', () => {
   it('drops malformed removed-card labels while retaining validated selection keys', () => {
     const recovered = loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...draft, removedCards: [null, { name: 'oops' }, ...draft.removedCards] }) }, 'key');
     expect(recovered.removedCards).toEqual(draft.removedCards);
+  });
+  it('preserves comparison mode and art selections in a draft or recovery copy', () => {
+    const value = { ...draft, comparison: { mode: 'full', beforeText: '1 Sol Ring' }, replacePrintings: true,
+      printingOverrides: [{ selectionKey: 'sol ring', scryfallId: '12345678-1234-1234-1234-123456789abc' }] };
+    expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key')).toEqual(value);
+    expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...value, comparison: { mode: 'full', beforeText: null } }) }, 'key')).toBeNull();
+  });
+  it('preserves the current draft and prior recovery when comparison persistence fails', () => {
+    const data = new Map([['draft', JSON.stringify(draft)], ['recovery', '{"older":true}']]);
+    const storage = { getItem: key => data.get(key) ?? null, removeItem: key => data.delete(key),
+      setItem(key, value) { if (key === 'draft') throw new Error('Quota exceeded'); data.set(key, value); } };
+    expect(() => saveStandaloneDraftReplacement(storage, 'draft', 'recovery', draft, { ...draft, cardText: '1 Sol Ring' })).toThrow('Quota exceeded');
+    expect(JSON.parse(data.get('draft'))).toEqual(draft);
+    expect(data.get('recovery')).toBe('{"older":true}');
+  });
+  it('saves a recoverable old draft before accepting the next one', () => {
+    const data = new Map([['draft', JSON.stringify(draft)]]);
+    const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value), removeItem: key => data.delete(key) };
+    const next = { ...draft, listName: 'Compared lists', comparison: { mode: 'changes', beforeText: '1 Sol Ring' } };
+    saveStandaloneDraftReplacement(storage, 'draft', 'recovery', draft, next);
+    expect(JSON.parse(data.get('draft'))).toEqual(next);
+    expect(JSON.parse(data.get('recovery'))).toEqual(draft);
   });
 });
 

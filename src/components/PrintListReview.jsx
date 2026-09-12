@@ -3,7 +3,7 @@ import PrintPlanArtwork from './PrintPlanArtwork';
 import PrintPlanOwnership from './PrintPlanOwnership';
 import { printReviewIndexes } from '../lib/printReview';
 
-export default function PrintListReview({ plan, onRemove, excludedCards, disabled, shoppingDisabled = false }) {
+export default function PrintListReview({ plan, onRemove, excludedCards, disabled, shoppingDisabled = false, onPickArt, onResetArt, printingOverrides }) {
   const [filters, setFilters] = useState({ query: '', sides: 'all', ownership: 'all', sort: 'original' });
   const [ownershipRows, setOwnershipRows] = useState([]);
   const receiveOwnership = useCallback(rows => setOwnershipRows(rows), []);
@@ -18,9 +18,9 @@ export default function PrintListReview({ plan, onRemove, excludedCards, disable
       <label>Ownership<select value={filters.ownership} onChange={event => change('ownership', event.target.value)}><option value="all">All ownership</option><option value="owned">Owned original</option><option value="incoming">Incoming original</option><option value="missing">Not owned</option><option value="unknown">Unknown</option></select></label>
       <label>Sort cards<select value={filters.sort} onChange={event => change('sort', event.target.value)}><option value="original">List order</option><option value="name">Name A–Z</option><option value="name-desc">Name Z–A</option><option value="quantity-desc">Most copies first</option><option value="quantity-asc">Fewest copies first</option><option value="double-first">Double-sided first</option></select></label>
     </div>
-    <p className="print-panel-meta" role="status">Showing {indexes.length} of {plan.cards.length} card entries ({visibleCopies} of {plan.totalCopies} copies). Filters and sorting only change this view. PDF generation still includes all {plan.totalCopies} reviewed copies.</p>
+    <p className="print-panel-meta" role="status">Showing {indexes.length} of {plan.cards.length} cards · {visibleCopies} of {plan.totalCopies} copies. Filters change the view, not the print batch.</p>
     {!indexes.length && <p>No cards match these filters.</p>}
-    <PrintPlanArtwork plan={plan} onRemove={onRemove} excludedCards={excludedCards} disabled={disabled} visibleIndexes={indexes} ownershipRows={ownershipRows} />
-    <PrintPlanOwnership plan={plan} onRowsChange={receiveOwnership} visibleKeys={visibleKeys} shoppingDisabled={shoppingDisabled} />
+    <PrintPlanArtwork plan={plan} onRemove={onRemove} excludedCards={excludedCards} disabled={disabled} visibleIndexes={indexes} ownershipRows={ownershipRows} onPickArt={onPickArt} onResetArt={onResetArt} printingOverrides={printingOverrides} />
+    <PrintPlanOwnership plan={plan} onRowsChange={receiveOwnership} visibleKeys={visibleKeys} shoppingDisabled={shoppingDisabled} compact />
   </div>;
 }

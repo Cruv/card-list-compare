@@ -101,6 +101,7 @@ function DeckComparison() {
         <li><strong>Mana cost symbols</strong> &mdash; official Scryfall SVG mana symbols displayed inline</li>
         <li><strong>Printing badges</strong> &mdash; set code, collector number, and foil marker shown after card names</li>
         <li><strong>Search filter</strong> &mdash; real-time card name filtering across all sections</li>
+        <li><strong>Print cards</strong> &mdash; open print review for the displayed comparison; choose new copies or the complete After list</li>
       </ul>
 
       <h4>Share a Comparison</h4>
@@ -403,7 +404,7 @@ function ProxyPrinting() {
         artwork, including custom MPC art. Pending quantities are separate from your available
         proxies. After printing, enter the usable quantity and physical destination, then
         choose <strong>Confirm usable copies</strong>. You can also confirm from CLC&rsquo;s
-        <strong> View proxy confirmation</strong> panel. Either app shows the shared result.
+        <strong> Confirm usable copies</strong> panel. Either app shows the shared result.
         Confirming eight of ten leaves two pending; dismiss the remaining two if they were bad
         prints. Confirmed copies retain their artwork in the Proxy binder. Reopening the same
         batch reuses its pending records; a deliberate reprint needs a new batch.
@@ -467,6 +468,13 @@ function ProxyPrinting() {
 
       <h4>Home Printing</h4>
       <p>
+        Choose <strong>Print cards</strong> in comparison results, a deck changelog or
+        snapshot history to print the new copies or the full After list. CLC uses the exact
+        compared versions, even if you later edit the input fields. The selection survives
+        sign-in in this tab. If you already have a print draft, choose which list to keep;
+        recover an unresolved batch request before replacing its input.
+      </p>
+      <p>
         Open <strong>Print List</strong> in the navigation for an ad-hoc batch. Name it,
         paste cards, upload a list, or import a supported URL. This uses Scryfall artwork
         without creating a tracked deck or snapshot. Your draft stays in this browser;
@@ -476,11 +484,17 @@ function ProxyPrinting() {
       <p>
         Open a tracked deck’s <strong>Printing</strong> tab to generate a whole snapshot or
         the new copies needed since another version. The paper-deck marker is the default
-        baseline. Include the sideboard if needed. <strong>Replace changed printings</strong>
+        baseline. Include the sideboard if needed. <strong>Replace copies when the set or printing changes</strong>
         {' '}starts unchecked, so cards with different artwork can use existing copies.
         <strong> Exclude basic lands</strong> starts checked; turn it off when you want basics.
         Foil-only changes do not require a new proxy. Review the copy list before
         generating PDFs; this comparison does not check your physical inventory.
+      </p>
+      <p>
+        The workflow has three steps: <strong>Choose cards</strong>, <strong>Review &amp; print</strong>
+        {' '}and <strong>Batch status</strong>. Review keeps the artwork, quantities and next
+        action together. Edit the source when needed; expand extra cards, removed cards,
+        detailed guidance or older batches only when you need them.
       </p>
       <p>
         In either workflow, remove suggested cards you already have on hand and add extra
@@ -497,6 +511,13 @@ function ProxyPrinting() {
         printings or copies are in your order. Owned and incoming originals are excluded;
         unavailable ownership remains <strong>Unknown</strong>. Opening Mana Pool does
         not place an order.
+      </p>
+      <p>
+        Use <strong>Pick art</strong> beside a reviewed card to browse its Scryfall editions
+        and front/back previews. Choose the printing you want, or use <strong>Use original art</strong>
+        {' '}to undo that choice. Review again to refresh the artwork and double-sided sheet
+        counts before generation. This changes only the print order. In a saved-MPC order,
+        only the cards you explicitly override switch to Scryfall artwork.
       </p>
       <p>
         Choose Scryfall printings or saved MPC artwork. Use <strong>Save art for home PDFs</strong>

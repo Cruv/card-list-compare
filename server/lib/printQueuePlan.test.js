@@ -71,6 +71,96 @@ describe('resolved artwork review', () => {
     expect((await buildPrintPlan(9, null, { cardText: '1 Sol Ring' })).deckName).toBe('Print list');
     expect((await buildPrintPlan(9, null, { cardText: text, listName: 'Different batch' })).planHash).not.toBe(privatePlan.planHash);
   });
+  it('pins selected Scryfall printings by original row key without changing copy counts or unselected MPC faces', async () => {
+    const selectedId = 'a1111111-1111-4111-8111-111111111111';
+    const selectionKey = printCardKey({ displayName: 'Malakir Rebirth // Malakir Mire' });
+    deck.mpc_art_overrides = JSON.stringify([['Lightning Bolt', { identifier: 'keep-bolt-front-art' }]]);
+    fetchCardImageUrls.mockImplementation(async cards => cards.map(card => card.requestedScryfallId
+      ? { ...dfc(card), scryfallId: card.requestedScryfallId, setCode: 'newset', collectorNumber: '99' } : resolved(card)));
+    const options = { artSource: 'saved-mpc', printingOverrides: [{ selectionKey, scryfallId: selectedId.toUpperCase() }], additionalCardText: '2 Malakir Rebirth // Malakir Mire' };
+    const plan = await buildPrintPlan(1, 1, options);
+    expect(plan).toMatchObject({ artSource: 'saved-mpc', totalCopies: 5, ordinaryCopies: 2, doubleFacedCopies: 3, readyToGenerate: true,
+      printingOverrides: [{ selectionKey, scryfallId: selectedId }] });
+    expect(plan.resolvedCards[0]).toMatchObject({ artSource: 'saved-mpc', faces: [{ source: 'saved-mpc', identifier: 'keep-bolt-front-art' }] });
+    expect(plan.resolvedCards[1]).toMatchObject({ selectionKey, requestedScryfallId: selectedId, quantity: 3, baseQuantity: 1, additionalQuantity: 2,
+      artSource: 'scryfall', setCode: 'newset', collectorNumber: '99', faces: [
+        { face: 'front', source: 'scryfall', identifier: selectedId }, { face: 'back', source: 'scryfall', identifier: selectedId },
+      ] });
+    expect(plan.cards[1].selectionKey).toBe(selectionKey);
+    expect(plan.target.text).toBe(target.deck_text);
+    const otherId = 'b2222222-2222-4222-8222-222222222222';
+    expect((await buildPrintPlan(1, 1, { ...options, printingOverrides: [{ selectionKey, scryfallId: otherId }] })).planHash).not.toBe(plan.planHash);
+    const without = await buildPrintPlan(1, 1, { ...options, printingOverrides: [] });
+    expect(without.planHash).not.toBe(plan.planHash);
+    expect(without.readyToGenerate).toBe(false); // Restoring the default restores its missing MPC selection.
+    const removed = await buildPrintPlan(1, 1, { ...options, excludedCards: [selectionKey] });
+    expect(removed.resolvedCards[1]).toMatchObject({ quantity: 2, baseQuantity: 0, additionalQuantity: 2, requestedScryfallId: selectedId });
+  });
+  it.each([
+    'invalid', Array(251).fill({}), [null], [{ selectionKey: 'invalid', scryfallId: 'a1111111-1111-4111-8111-111111111111' }],
+    [{ selectionKey: '["sol ring","",""]', scryfallId: 'not-an-id' }],
+    [{ selectionKey: '["sol ring","",""]', scryfallId: 'a1111111-1111-4111-8111-111111111111' }, { selectionKey: '["sol ring","",""]', scryfallId: 'b2222222-2222-4222-8222-222222222222' }],
+  ])('rejects invalid or duplicate per-card printing choices before lookup: %j', async printingOverrides => {
+    await expect(buildPrintPlan(1, null, { cardText: '1 Sol Ring', printingOverrides })).rejects.toThrow();
+    expect(fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+  it('keeps a missing selected printing visible and blocks generation instead of restoring earlier art', async () => {
+    const selectionKey = printCardKey({ displayName: 'Lightning Bolt' });
+    fetchCardImageUrls.mockImplementation(async cards => cards.map(card => ({ ...card, imageUrls: null,
+      lookupFailures: [{ face: 'card', reason: 'Selected printing was not found or does not match this card' }] })));
+    const plan = await buildPrintPlan(1, null, { cardText: '2 Lightning Bolt', printingOverrides: [{ selectionKey, scryfallId: 'a1111111-1111-4111-8111-111111111111' }] });
+    expect(plan).toMatchObject({ readyToGenerate: false, totalCopies: 2, ordinaryCopies: null, doubleFacedCopies: null });
+    expect(plan.resolvedCards[0]).toMatchObject({ selectionKey, scryfallId: null, errors: ['Selected printing was not found or does not match this card'] });
+  });
+  it('plans Compare changes from frozen before/after lists with the same zones, removals and extras', async () => {
+    const beforeText = 'Commander\n1 Sol Ring\nMainboard\n2 Lightning Bolt (M10) [146]\n5 Island\nSideboard\n1 Counterspell';
+    const cardText = 'Commander\n1 Sol Ring\nMainboard\n3 Lightning Bolt (M10) [146]\n2 Malakir Rebirth // Malakir Mire\n6 Island\nSideboard\n3 Counterspell';
+    const comparison = { mode: 'changes', beforeText };
+    const plan = await buildPrintPlan(1, null, { cardText, comparison });
+    expect(plan).toMatchObject({ mode: 'adhoc', deckId: null, source: null, target: null, replacePrintings: false,
+      totalCopies: 3, ordinaryCopies: 1, doubleFacedCopies: 2, readyToGenerate: true,
+      list: { text: cardText }, comparison: { mode: 'changes', beforeText, beforeTextHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(plan.cards.map(card => [card.displayName, card.quantity])).toEqual([['Lightning Bolt', 1], ['Malakir Rebirth // Malakir Mire', 2]]);
+    expect(plan.excludedBasicLands[0]).toMatchObject({ displayName: 'Island', quantity: 1 });
+    expect(publicPrintPlan(plan).comparison).toEqual({ mode: 'changes', beforeTextHash: plan.comparison.beforeTextHash });
+    expect((await buildPrintPlan(1, null, { cardText, comparison, includeSideboard: true })).totalCopies).toBe(5);
+    const edited = await buildPrintPlan(1, null, { cardText, comparison,
+      excludedCards: [printCardKey({ displayName: 'Lightning Bolt', setCode: 'M10', collectorNumber: '146' })], additionalCardText: '2 Sol Ring' });
+    expect(edited).toMatchObject({ totalCopies: 4, ordinaryCopies: 2, doubleFacedCopies: 2 });
+    expect(edited.cards.find(card => card.displayName === 'Sol Ring')).toMatchObject({ baseQuantity: 0, additionalQuantity: 2, quantity: 2 });
+    expect(get).not.toHaveBeenCalled();
+  });
+  it('can print the full after list or replace changed printings while keeping comparison hashes distinct', async () => {
+    const cardText = '1 Sol Ring (LTC) [284]';
+    const comparison = { mode: 'changes', beforeText: '1 Sol Ring (C21) [263]' };
+    const unchanged = await buildPrintPlan(1, null, { cardText, comparison });
+    expect(unchanged).toMatchObject({ totalCopies: 0, readyToGenerate: false, replacePrintings: false });
+    const replace = await buildPrintPlan(1, null, { cardText, comparison, replacePrintings: true });
+    expect(replace.cards).toEqual([expect.objectContaining({ setCode: 'LTC', collectorNumber: '284', quantity: 1 })]);
+    const full = await buildPrintPlan(1, null, { cardText, comparison: { ...comparison, mode: 'full' } });
+    expect(full.totalCopies).toBe(1);
+    expect(new Set([unchanged.planHash, replace.planHash, full.planHash]).size).toBe(3);
+    const otherBaseline = await buildPrintPlan(1, null, { cardText, comparison: { mode: 'full', beforeText: '1 Counterspell' } });
+    expect(otherBaseline.planHash).not.toBe(full.planHash);
+    expect((await buildPrintPlan(1, null, { cardText, comparison: { mode: 'changes', beforeText: '' } })).totalCopies).toBe(1);
+    expect((await buildPrintPlan(1, null, { cardText: '1000 Sol Ring', comparison: { mode: 'changes', beforeText: '999 Sol Ring' } })).totalCopies).toBe(1);
+    const same = await buildPrintPlan(1, null, { cardText: '1 Sol Ring', comparison: { mode: 'changes', beforeText: '1 Sol Ring' } });
+    expect(same).toMatchObject({ totalCopies: 0, readyToGenerate: false, cards: [], resolvedCards: [] });
+  });
+  it.each([
+    null, [], {}, { mode: 'invalid', beforeText: '' }, { mode: 'changes' },
+    { mode: 'full', beforeText: 4 }, { mode: 'changes', beforeText: 'x'.repeat(100001) },
+    { mode: 'changes', beforeText: '1 Sol Ring\u0000' }, { mode: 'changes', beforeText: '1 Sol Ring\n0 Counterspell' },
+    { mode: 'full', beforeText: 'Quantity,Name\n1,Sol Ring\n-2,Counterspell' },
+  ])('rejects malformed comparison inputs before resolving artwork: %j', async comparison => {
+    await expect(buildPrintPlan(1, null, { cardText: '2 Sol Ring', comparison })).rejects.toThrow();
+    expect(fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+  it('validates standalone printing-replacement flags and still rejects an empty after list', async () => {
+    await expect(buildPrintPlan(1, null, { cardText: '1 Sol Ring', replacePrintings: 'true' })).rejects.toThrow('replacePrintings must be true or false');
+    await expect(buildPrintPlan(1, null, { cardText: '', comparison: { mode: 'changes', beforeText: '1 Sol Ring' } })).rejects.toThrow('Add cards');
+    expect(fetchCardImageUrls).not.toHaveBeenCalled();
+  });
   it.each([
     [{ cardText: '' }, 'Add cards'], [{ cardText: [] }, 'Add cards'], [{ cardText: '1 Sol Ring\u0000' }, 'control characters'],
     [{ cardText: '1 Sol Ring\n0 Island' }, 'line 2'], [{ cardText: '1 Sol Ring\n-2 Island' }, 'line 2'],

@@ -71,6 +71,32 @@ describe('immutable print image preparation', () => {
     expect(scryfall.downloadCardImagesWithCache.mock.calls[0][0]).toEqual([selected]);
     expect(scryfall.fetchCardImageUrls).not.toHaveBeenCalled();
   });
+  it('keeps unselected MPC art and original card order around a selected Scryfall DFC', async () => {
+    const selectedId = 'a1111111-1111-4111-8111-111111111111';
+    const mpc = { ...card, displayName: 'Lightning Bolt', quantity: 1, isDFC: false, faceNames: ['Lightning Bolt'], artSource: 'saved-mpc',
+      errors: [], faces: [{ face: 'front', identifier: 'keep-bolt-front-art', source: 'saved-mpc', status: 'ready' }] };
+    const selected = { ...card, requestedScryfallId: selectedId, scryfallId: selectedId, artSource: 'scryfall', errors: [],
+      imageUrls: { front: 'chosen-front.png', back: 'chosen-back.png' },
+      faces: [{ face: 'front', identifier: selectedId, source: 'scryfall', status: 'ready' }, { face: 'back', identifier: selectedId, source: 'scryfall', status: 'ready' }] };
+    const last = { ...mpc, displayName: 'Counterspell', faces: [{ ...mpc.faces[0], identifier: 'keep-counter-front-art' }] };
+    scryfall.downloadCardImagesWithCache.mockResolvedValue({ failures: [], images: [
+      '0001_Card_1_front.png', '0001_Card_2_back.png', '0002_Card_1_front.png', '0002_Card_2_back.png',
+    ].map(filename => ({ filename, buffer: PNG })) });
+    const frozen = plan({ version: 2, totalCopies: 4, readyToGenerate: true, resolvedCards: [mpc, selected, last] });
+    const { value, error } = await settle(preparePrintImages(frozen, dir));
+    expect(error).toBeUndefined();
+    expect(value.map(copy => [copy.id, copy.displayName, copy.front.source])).toEqual([
+      ['0001', 'Lightning Bolt', 'saved-mpc'], ['0002', 'Malakir Rebirth', 'scryfall'],
+      ['0003', 'Malakir Rebirth', 'scryfall'], ['0004', 'Counterspell', 'saved-mpc'],
+    ]);
+    expect(value[0].front.identifier).toBe('keep-bolt-front-art');
+    expect(value[1].front.identifier).toBe(selectedId);
+    expect(value[1].back.identifier).toBe(selectedId);
+    expect(value[3].front.identifier).toBe('keep-counter-front-art');
+    expect(scryfall.downloadCardImagesWithCache.mock.calls[0][0]).toEqual([selected]);
+    expect(scryfall.fetchCardImageUrls).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get('id'))).toEqual(['keep-bolt-front-art', 'keep-counter-front-art']);
+  });
   it('refuses an incomplete reviewed plan before downloading any artwork', async () => {
     const { error } = await settle(preparePrintImages(plan({ version: 2, readyToGenerate: false, resolvedCards: [{ ...card }] }), dir));
     expect(error.message).toContain('Reviewed artwork is incomplete');

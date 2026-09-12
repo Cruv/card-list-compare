@@ -83,8 +83,12 @@ export async function preparePrintImages(plan, jobDir, onProgress) {
     imageMetadata.set(buffer, metadata);
     return { ...metadata, source, identifier, face };
   };
-  if (plan.artSource === 'scryfall') {
-    const result = await downloadCardImagesWithCache(resolved, (downloaded, cached, total) => onProgress?.({ phase: 'images', downloaded, cached, total }));
+  const cardSource = card => card.artSource || card.faces?.[0]?.source || plan.artSource;
+  if (resolved.some(card => !['scryfall', 'saved-mpc'].includes(cardSource(card)))) throw printError('Unsupported reviewed artwork source');
+  const scryfallCards = resolved.filter(card => cardSource(card) === 'scryfall');
+  const preparedScryfall = new Map();
+  if (scryfallCards.length) {
+    const result = await downloadCardImagesWithCache(scryfallCards, (downloaded, cached, total) => onProgress?.({ phase: 'images', downloaded, cached, total }));
     if (result.failures.length) throw new ImageCompletenessError(result.failures);
     const images = new Map();
     for (const image of result.images) {
@@ -93,21 +97,26 @@ export async function preparePrintImages(plan, jobDir, onProgress) {
       images.set(`${index}:${face}`, image.buffer);
     }
     let index = 1;
-    for (const card of resolved) {
+    for (const card of scryfallCards) {
+      const prepared = [];
       for (let quantity = 0; quantity < card.quantity; quantity++, index++) {
         const front = images.get(`${index}:front`), back = images.get(`${index}:back`);
         if (!front || (card.isDFC && !back)) throw printError(`Missing physical-copy face for ${card.displayName}`);
-        copies.push({ id: String(index).padStart(4, '0'), displayName: card.displayName, setCode: card.setCode, collectorNumber: card.collectorNumber,
+        prepared.push({ displayName: card.displayName, setCode: card.setCode, collectorNumber: card.collectorNumber,
           scryfallId: card.scryfallId || null, oracleId: card.oracleId || null,
           front: storeImage(front, 'scryfall', card.scryfallId || `${card.setCode}/${card.collectorNumber}`, 'front'),
           ...(card.isDFC ? { back: storeImage(back, 'scryfall', card.scryfallId || `${card.setCode}/${card.collectorNumber}`, 'back') } : {}),
         });
       }
+      preparedScryfall.set(card, prepared);
     }
-  } else {
-    const artCache = new Map();
-    const failures = [];
-    for (const card of resolved) {
+  }
+  const artCache = new Map();
+  const failures = [];
+  for (const card of resolved) {
+    if (cardSource(card) === 'scryfall') {
+      for (const copy of preparedScryfall.get(card)) copies.push({ ...copy, id: String(copies.length + 1).padStart(4, '0') });
+    } else {
       const faces = {};
       for (const face of card.isDFC ? ['front', 'back'] : ['front']) {
         const name = card.faceNames?.[face === 'front' ? 0 : 1];
@@ -130,10 +139,10 @@ export async function preparePrintImages(plan, jobDir, onProgress) {
         for (let quantity = 0; quantity < card.quantity; quantity++) copies.push({ id: String(copies.length + 1).padStart(4, '0'), displayName: card.displayName, setCode: card.setCode, collectorNumber: card.collectorNumber,
           scryfallId: card.scryfallId || null, oracleId: card.oracleId || null, ...faces });
       }
-      onProgress?.({ phase: 'images', downloaded: copies.length, total: plan.totalCopies });
     }
-    if (failures.length) throw new ImageCompletenessError(failures);
+    onProgress?.({ phase: 'images', downloaded: copies.length, total: plan.totalCopies });
   }
+  if (failures.length) throw new ImageCompletenessError(failures);
   if (copies.length !== plan.totalCopies) throw printError(`Image copy count mismatch: expected ${plan.totalCopies}, received ${copies.length}`);
   return copies;
 }
