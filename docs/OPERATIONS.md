@@ -171,24 +171,28 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 ### Household print jobs
 
-#### Household installation checkpoint — 2026-09-11
+#### Household installation checkpoint — 2026-09-12
 
 Updated 2026-09-12. The permanent `CardListCompare` container belongs to the `mtg` Compose
 project, publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistcompare`
 at `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The repository's
 `./data` is not the household deployment path.
 
-The deployed server is **v2.52.1**, source `99ad625`, local image
-`clc-household:2.52.1-99ad625` with image ID
-`sha256:fa3716eceb1ee942650ab45cffc607be78e223c8e4cd50accaa78a2258922b5f`.
+The deployed server is **v2.53.0**, source `28410a1`, local image
+`clc-household:2.53.0-28410a1` with image ID
+`sha256:d14dc0b4d3a358c7f102f815d1be830882219fe394c21dd1fcb102e4232e715e`.
 Source changes after this checkpoint are not a deployment claim. Private configuration is
 in `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and `runtime.env`.
 It preserves the container name, external `mtg_default` network, UID/GID, timezone, signing
 secret and data mount. `pull_policy: never` selects the local image; Watchtower is disabled
 for CLC. The registry's `latest` does not contain this feature branch. Do not prune its image.
 
+Deployment preserved all six print jobs and their immutable plans/manifests, including
+Rendmaw in Epson and the replacement 100-copy Jin Sakai batch waiting in CLC. All 38
+frontend files match the image through localhost and the household HTTPS origin.
+
 The latest complete stopped-container backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T044424Z-before-2.52.1/data-complete`.
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T055901Z-before-2.53.0/data-complete`.
 The private deployment folder retains dated `update-*.json` checkpoints and rollback
 configurations. Preserve generator-cache symlinks as links when copying Linux venvs on the
 Mac. Take a fresh backup before another update, including newer jobs and user changes;
@@ -206,6 +210,13 @@ local `allow_unverified_printing: true` setting permits test jobs without claimi
 The accepted color/orientation recipe and remaining cutting/duplex checks are recorded in
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The installed version and queue state
 are runtime observations; new source features require an actual companion update.
+
+The v2.53.0 arm64 companion package is prepared at
+`~/Downloads/CLC Print Station 2.53.0`, archive SHA-256
+`d36685ab146f88fef22f2af7f463ad8dfb9aaa7a9ee92c267220a42bd865c4c9`.
+It passed isolated self-check and repeat installation with history/configuration preserved.
+The native upgrade is waiting for an idle point; do not replace an active print process
+or describe the packaged version as installed until the native checkpoint is recorded.
 
 The initial cached generator was verified at upstream
 `4d4aa73a95e93b09676c863a1861765863398c63`; normal startup still checks for a compatible newer
