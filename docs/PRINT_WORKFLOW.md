@@ -297,6 +297,17 @@ unrecognized vendor warnings stay unconfirmed and never clear an existing error 
 CLC cannot report a hardware condition the Epson driver/CUPS does not expose, or send a
 local alert while the Mac is asleep/offline.
 
+Companion **2.53.3+** separates known status from unrecognized/unavailable status and
+reports informational advisories separately. The Printer overview shows the current
+reason and any reminders beside the status; physical proof checks remain in Printer
+settings. The exact Epson `com.epson.INKCHECKALERT_005-warning` code means to check the
+physical ink tanks regularly, as documented in the installed ET-8550 driver's
+`cupsIPPReason` mapping. It is an informational reminder, not an empty-ink report. A
+simultaneous jam, stopped pass or other actual fault still takes priority. Other unknown
+vendor codes remain unconfirmed; no broad Epson-warning exemption is applied. Older
+companions' exact unknown-status summary also displays as unavailable, while their
+existing fault reports remain actionable.
+
 The native ledger reserves each channel's attempt before sending. Repeated observations,
 restarts and ambiguous transport results do not resend that fault during the same episode.
 A verified healthy observation rearms a later recurrence. Alert failure never changes

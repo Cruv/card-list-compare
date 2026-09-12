@@ -16,6 +16,14 @@
 .station-page h3 { font-size: var(--fs-md); margin: 8px 0; overflow-wrap: anywhere; }
 .station-card { min-width: 0; padding: 24px; border: 1px solid var(--border-color); border-radius: 16px; background: var(--bg-secondary); }
 .station-overview { background: var(--bg-secondary); }
+.station-printer-health { padding: 12px 14px; border-left: 3px solid var(--border-color); background: var(--bg-primary); border-radius: 0 8px 8px 0; }
+.station-printer-health strong, .station-printer-advisories strong { font-size: var(--fs-sm); }
+.station-printer-health p { margin: 4px 0 0; }
+.station-printer-health--good { border-left-color: var(--accent-green); }
+.station-printer-health--warning { border-left-color: var(--accent-yellow); }
+.station-printer-advisories { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-primary); overflow-wrap: anywhere; }
+.station-printer-advisories > strong { color: var(--text-secondary); }
+.station-printer-advisories ul { margin: 6px 0 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.65; }
 .station-device { display: flex; align-items: center; gap: 13px; }
 .station-device-icon { width: 52px; height: 52px; display: grid; place-items: center; flex-shrink: 0; color: var(--accent); background: var(--accent-soft); border-radius: 13px; }
 .station-device strong { font-size: 14px; }

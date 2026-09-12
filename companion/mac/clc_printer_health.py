@@ -26,6 +26,12 @@ REASONS = {
 }
 BENIGN = {"none", "moving-to-paused", "cups-waiting-for-job-completed", "processing-to-stop-point"}
 LOW_SUPPLY = {"toner-low", "marker-supply-low", "marker-waste-almost-full", "media-low", "ink-low"}
+# Epson's ET-8550 PPD and English driver localization identify this exact warning
+# as a routine visual ink-level reminder. Do not extend this to similarly named
+# vendor keywords or error suffixes: those may describe a different condition.
+ADVISORIES = {
+    "com.epson.inkcheckalert_005-warning": "Regularly check ink levels in the actual ink tanks.",
+}
 # Match only known diagnostic phrases, never forward arbitrary printer text,
 # device addresses, document titles or credentials into a notification.
 MESSAGES = [
@@ -69,8 +75,13 @@ def parse_printer_health(data, active_job_state=None):
             raise ValueError()
     except (ValueError, KeyError, TypeError, plistlib.InvalidFileException):
         raise ValueError("Cannot read authoritative CUPS printer status") from None
-    faults, unknown = {}, False
+    faults, unknown, advisories = {}, False, []
     for raw_reason in reasons:
+        advisory = ADVISORIES.get(raw_reason.lower())
+        if advisory:
+            if advisory not in advisories:
+                advisories.append(advisory)
+            continue
         reason = raw_reason.lower().replace(".", "-").replace("_", "-")
         suffix = next((suffix for suffix in ("-error", "-warning", "-report") if reason.endswith(suffix)), "")
         key = reason if reason in REASONS else reason[:-len(suffix)] if suffix else reason
@@ -99,7 +110,7 @@ def parse_printer_health(data, active_job_state=None):
                      8: ("job-aborted", "Active CLC print pass was aborted")}[active_job_state]
         faults[key] = text
     if faults:
-        return {"ok": False, "known": True, "reasons": sorted(faults), "message": "; ".join(dict.fromkeys(faults.values()))[:450]}
+        return {"ok": False, "known": True, "reasons": sorted(faults), "message": "; ".join(dict.fromkeys(faults.values()))[:450], "advisories": advisories}
     if unknown:
-        return {"ok": False, "known": False, "reasons": [], "message": "Printer reports an unrecognized status; check the Mac printer queue"}
-    return {"ok": True, "known": True, "reasons": [], "message": "Printer queue is ready" if state == 3 else "Printer queue is processing"}
+        return {"ok": False, "known": False, "reasons": [], "message": "Printer reports an unrecognized status; check the Mac printer queue", "advisories": advisories}
+    return {"ok": True, "known": True, "reasons": [], "message": "Printer queue is ready" if state == 3 else "Printer queue is processing", "advisories": advisories}

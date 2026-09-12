@@ -51,10 +51,46 @@ class PrinterHealthTests(unittest.TestCase):
         for reasons in (["unknown"], ["vendor-mystery"], ["vendor-status-report"], ["connecting-to-device"]):
             self.assertFalse(parse_printer_health(reply(reasons))["known"])
 
-    def test_real_epson_vendor_keyword_form_is_safe_but_not_assumed_healthy(self):
+    def test_epson_ink_check_reminder_is_informational_while_printing(self):
         health = parse_printer_health(reply(["com.epson.INKCHECKALERT_005-warning"], state=4, message="Printing..."))
-        self.assertFalse(health["known"])
-        self.assertFalse(health["ok"])
+        self.assertTrue(health["known"])
+        self.assertTrue(health["ok"])
+        self.assertEqual(health["message"], "Printer queue is processing")
+        self.assertEqual(health["reasons"], [])
+        self.assertEqual(health["advisories"], ["Regularly check ink levels in the actual ink tanks."])
+
+    def test_epson_reminder_never_masks_a_simultaneous_fault_or_unknown_status(self):
+        reminder = "com.epson.INKCHECKALERT_005-warning"
+        for response, job_state, expected in (
+                (reply([reminder, "media-empty-error"]), None, "media-empty"),
+                (reply([reminder], state=5), None, "queue-stopped"),
+                (reply([reminder], accepting=False), None, "not-accepting-jobs"),
+                (reply([reminder], message="Out of ink"), None, "ink-empty"),
+                (reply([reminder]), 6, "job-stopped")):
+            with self.subTest(reason=expected):
+                health = parse_printer_health(response, job_state)
+                self.assertFalse(health["ok"])
+                self.assertTrue(health["known"])
+                self.assertIn(expected, health["reasons"])
+                self.assertEqual(health["advisories"], ["Regularly check ink levels in the actual ink tanks."])
+        unknown = parse_printer_health(reply([reminder, "vendor-unknown-warning"]))
+        self.assertFalse(unknown["ok"])
+        self.assertFalse(unknown["known"])
+        self.assertTrue(unknown["advisories"])
+
+    def test_similar_epson_keywords_remain_unknown_or_faults(self):
+        for reason in ("com.epson.INKCHECKALERT_006-warning", "com.epson.INKCHECKALERT_005-report",
+                       "com.epson.INKCHECKALERT_005", "com-epson-INKCHECKALERT-005-warning"):
+            with self.subTest(reason=reason):
+                health = parse_printer_health(reply([reason]))
+                self.assertFalse(health["known"])
+                self.assertFalse(health["ok"])
+                self.assertEqual(health["advisories"], [])
+        error = parse_printer_health(reply(["com.epson.INKCHECKALERT_005-error"]))
+        self.assertFalse(error["ok"])
+        self.assertTrue(error["known"])
+        self.assertTrue(error["reasons"])
+        self.assertEqual(error["advisories"], [])
         generic = parse_printer_health(reply(["com.epson.FILTER_001-error"]))
         self.assertTrue(generic["known"])
         self.assertIn("com epson filter 001", generic["message"])
@@ -158,6 +194,21 @@ class PrinterAlertTests(unittest.TestCase):
         self.alerts.printer_error(fault())
         self.assertEqual(self.runner.call_count, 3)
 
+    def test_ink_check_advisory_is_silent_and_clears_only_a_resolved_fault(self):
+        reminder = "com.epson.INKCHECKALERT_005-warning"
+        healthy = parse_printer_health(reply([reminder], state=4))
+        self.alerts.printer_error(healthy)
+        self.runner.assert_not_called()
+        self.transport.assert_not_called()
+        self.alerts.printer_error(fault())
+        self.alerts.printer_error(parse_printer_health(reply([reminder, "media-empty"])))
+        self.assertEqual(self.runner.call_count, 1, "An advisory alongside the same fault must not resend")
+        self.alerts.printer_error(healthy)
+        self.assertEqual(self.runner.call_count, 1, "Recovery with an advisory needs no alert")
+        self.alerts.printer_error(fault())
+        self.assertEqual(self.runner.call_count, 2, "A new fault after real recovery should alert")
+        self.assertEqual(self.transport.call_count, 2)
+
     def test_timeout_or_ambiguous_transport_is_not_retried_and_does_not_block_other_channel(self):
         self.runner.side_effect = subprocess.TimeoutExpired("osascript", 5)
         self.transport.side_effect = ValueError("https://discord.com/api/webhooks/123/PRIVATE")
@@ -243,15 +294,44 @@ class PrinterControlTests(unittest.TestCase):
             station = native.Station(cfg, ManagedClient(job()), cups)
             try:
                 station.ledger.write("INSERT OR REPLACE INTO settings VALUES('paused','0')")
-                cups.status = mock.Mock(return_value=parse_printer_health(reply(["com.epson.INKCHECKALERT_005-warning"])))
+                cups.status = mock.Mock(return_value=parse_printer_health(reply(["com.epson.UNKNOWN_005-warning"])))
                 control = StationControl(station, "2.53.0", manager=mock.Mock(managed_status=lambda _config: {"supported": False}))
                 station.management = control
                 control.check_printer()
                 self.assertFalse(control.health["ok"])
+                self.assertFalse(control.snapshot()["health"]["known"])
+                self.assertEqual(control.snapshot()["health"]["advisories"], [])
+                event = station.ledger.db.execute("SELECT level FROM station_log WHERE message=? ORDER BY rowid DESC LIMIT 1",
+                                                  (control.health["message"],)).fetchone()
+                self.assertEqual(event["level"], "warning", "Uncertain telemetry is not a confirmed printer error")
                 self.assertFalse(station.ledger.paused())
                 self.assertEqual(station.poll_once(), "submitted EPSON-1")
                 self.assertEqual(len(cups.submissions), 1)
                 self.assertFalse(station.ledger.paused())
+            finally:
+                station.ledger.db.close()
+
+    def test_ink_check_reminder_reaches_telemetry_without_attention_or_control_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cfg = config(Path(temp)); cfg["refeed_notifications"] = True
+            cups = FakeCups()
+            station = native.Station(cfg, FakeClient(job()), cups)
+            try:
+                station.ledger.write("INSERT OR REPLACE INTO settings VALUES('paused','0')")
+                station.alerts.runner = mock.Mock()
+                cups.status = mock.Mock(return_value=parse_printer_health(reply(["com.epson.INKCHECKALERT_005-warning"], state=4)))
+                control = StationControl(station, "2.53.0", manager=mock.Mock(managed_status=lambda _config: {"supported": False}))
+                self.assertFalse(control.snapshot()["health"]["known"], "Initial pending check is not a known fault")
+                control.check_printer()
+                self.assertEqual(control.snapshot()["health"], {
+                    "ok": True, "known": True, "message": "Printer queue is processing",
+                    "advisories": ["Regularly check ink levels in the actual ink tanks."]})
+                event = station.ledger.db.execute("SELECT level FROM station_log WHERE message=? ORDER BY rowid DESC LIMIT 1",
+                                                  (control.health["message"],)).fetchone()
+                self.assertEqual(event["level"], "info")
+                station.alerts.runner.assert_not_called()
+                self.assertFalse(station.ledger.paused())
+                self.assertEqual(cups.submissions, [])
             finally:
                 station.ledger.db.close()
 
@@ -266,8 +346,11 @@ class PrinterControlTests(unittest.TestCase):
                 cups.status = mock.Mock(side_effect=native.StationError("unreachable local CUPS"))
                 control.check_printer()
                 station.alerts.runner.assert_not_called()
+                self.assertFalse(control.snapshot()["health"]["known"])
                 control.last_doctor = None
                 control.check_printer()
+                self.assertTrue(control.snapshot()["health"]["known"])
+                self.assertEqual(control.snapshot()["health"]["advisories"], [])
                 self.assertEqual(station.alerts.runner.call_count, 1)
                 control.last_doctor = None
                 control.check_printer()

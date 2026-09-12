@@ -181,6 +181,56 @@ describe('household station access and telemetry', () => {
     expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
   });
 
+  it('preserves printer faults, uncertainty and separate reminders without changing station controls', async () => {
+    const advisory = 'Regularly check ink levels in the actual ink tanks.';
+    for (const health of [
+      { ok: true, known: true, message: 'Printer queue is processing', advisories: [advisory] },
+      { ok: false, known: false, message: 'Printer reports an unrecognized status; check the Mac printer queue', advisories: [] },
+      { ok: false, known: true, message: 'Printer is out of paper', advisories: [advisory] },
+    ]) {
+      expect((await beat(heartbeat({ health }))).status).toBe(200);
+      const view = await (await status()).json();
+      expect(view.station.health).toEqual(health);
+      expect(view.station.paused).toBe(false);
+      expect(view.commands).toEqual([]);
+    }
+    vi.setSystemTime(instant + 25001);
+    expect((await (await status()).json()).station.health).toEqual({ ok: false, known: false, message: 'Station is offline', advisories: [] });
+  });
+
+  it('classifies exact legacy unknown summaries without suppressing old printer faults', async () => {
+    for (const [message, known] of [
+      ['Printer reports an unrecognized status; check the Mac printer queue', false],
+      ['Printer check pending', false],
+      ['Active print pass is not visible in CUPS; reconcile its receipt in CLC', false],
+      ['Printer is out of paper', true],
+      ['Cannot verify local printer status. Check the Mac printer queue.', true],
+      ['Printer reports an unrecognized status; paper jam', true],
+    ]) {
+      await beat(heartbeat({ health: { ok: false, message } }));
+      expect((await (await status()).json()).station.health).toEqual({ ok: false, known, message, advisories: [] });
+    }
+    await beat();
+    expect((await (await status()).json()).station.health).toEqual({ ok: true, known: true, message: 'Station ready', advisories: [] });
+  });
+
+  it('bounds and redacts new health fields and rejects inconsistent or malformed telemetry', async () => {
+    const health = { ok: true, known: true, message: 'Printer queue is ready', advisories: [`Bearer ${credential}`, 'password=private-value'] };
+    await beat(heartbeat({ health }));
+    const accepted = (await (await status()).json()).station.health;
+    expect(JSON.stringify(accepted)).not.toContain(credential);
+    expect(JSON.stringify(accepted)).not.toContain('private-value');
+    expect(accepted.advisories.every(item => item.includes('redacted'))).toBe(true);
+    for (const change of [
+      { known: 'false' }, { known: null }, { known: false },
+      { advisories: 'paper' }, { advisories: null }, { advisories: Array(9).fill('reminder') },
+      { advisories: [null] }, { advisories: [''] }, { advisories: ['x'.repeat(1001)] },
+    ]) {
+      expect((await beat(heartbeat({ health: { ...health, ...change } }))).status).toBe(400);
+      expect((await (await status()).json()).station.health).toEqual(accepted);
+    }
+  });
+
   it('bounds heartbeat fields and redacts credentials from persisted summaries and browser output', async () => {
     const event = { id: crypto.randomUUID(), at: new Date().toISOString(), level: 'error', message: `Bearer ${credential} password=hello secret=${process.env.JWT_SECRET}` };
     await beat(heartbeat({ health: { ok: false, message: event.message }, events: [event] }));

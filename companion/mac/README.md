@@ -458,6 +458,13 @@ pass that needs attention. Status checks run about once a minute. Unknown Epson 
 codes are displayed as unconfirmed status; low-supply warnings alone do not send alerts.
 Driver/CUPS visibility and an awake Mac are required.
 
+From 2.53.3, health telemetry includes `known` and a separate `advisories` array. The exact
+`com.epson.INKCHECKALERT_005-warning` code is a routine ink-tank reminder, verified against
+the installed ET-8550 PPD's `cupsIPPReason` entry. It does not raise an error alert or hide
+a simultaneous real fault. The UI shows the health explanation and informational reminders
+in the main overview; unknown status is distinct from a confirmed fault. Other unknown
+Epson codes stay unconfirmed and cannot clear an active fault episode.
+
 Each fault/channel is reserved in SQLite before delivery and suppressed across repeats,
 restarts and ambiguous responses. A healthy read ends the episode, allowing notification
 of a later recurrence. No alert pauses, resumes or retries a print. The new fixed

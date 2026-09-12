@@ -804,6 +804,24 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaises(station.StationError):
             station.parse_ipp_jobs(plistlib.dumps(body), "EPSON")
 
+    def test_missing_active_spooler_receipt_stays_unknown_and_preserves_ink_reminder(self):
+        response = plistlib.dumps({"Tests": [{"Successful": True, "ResponseAttributes": [{
+            "printer-state": 4, "printer-is-accepting-jobs": True,
+            "printer-state-reasons": ["com.epson.INKCHECKALERT_005-warning"],
+            "printer-state-message": "Printing...",
+        }]}]})
+        runner = mock.Mock(return_value=response)
+        cups = station.Cups(self.config, runner)
+        cups.jobs = mock.Mock(return_value=[])
+        self.assertEqual(cups.status("EPSON-42"), {
+            "ok": False, "known": False, "reasons": [],
+            "message": "Active print pass is not visible in CUPS; reconcile its receipt in CLC",
+            "advisories": ["Regularly check ink levels in the actual ink tanks."],
+        })
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(runner.call_args.args[0][0], "/usr/bin/ipptool")
+        cups.jobs.assert_called_once_with()
+
     def test_doctor_rejects_an_option_not_exposed_by_installed_driver(self):
         def runner(args):
             if "-e" in args:

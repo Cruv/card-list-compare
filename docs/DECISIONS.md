@@ -327,6 +327,12 @@ has one attention card on Printer; Discord, recipe and software controls are sec
 settings. Inventory-only entries are **manual print records**, never a second print queue.
 Owned, incoming and unknown collection states retain their existing meaning.
 
+Printer status distinguishes confirmed faults, unknown/unavailable status and informational
+advisories. The overview shows the current explanation directly; a routine ink-tank
+reminder must not look like an empty-ink fault. Recognize only vendor codes whose meanings
+have been verified, and retain simultaneous faults. Physical proof flags describe testing,
+not printer health, and remain in their separate settings section.
+
 Connections separates collection access from optional deck sharing by direction. Account
 owns personal settings/invitations; Administration separates informational Overview from
 Users, All invitations, App settings, Shared links, Audit log and System maintenance.

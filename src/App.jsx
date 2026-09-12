@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.53.2';
+const APP_VERSION = '2.53.3';
 const WHATS_NEW = [
-  'Proxy Balboa pings combine Rocky-inspired dialogue with clear status and instructions',
-  'Deck alerts link straight to the changed deck and printer alerts identify the exact packet',
+  'Printer status explains actual faults, reminders and unavailable information separately',
+  'Routine Epson ink reminders no longer look like printer failures',
 ];
 
 function getResetToken() {

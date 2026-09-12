@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.53.2"
+COMPANION_VERSION = "2.53.3"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -436,7 +436,7 @@ class Cups:
                 state = match["state"]
         health = parse_printer_health(data, state)
         if spooler_id and state is None and health["ok"]:
-            return {"ok": False, "known": False, "reasons": [], "message": "Active print pass is not visible in CUPS; reconcile its receipt in CLC"}
+            return {**health, "ok": False, "known": False, "reasons": [], "message": "Active print pass is not visible in CUPS; reconcile its receipt in CLC"}
         return health
 
     def jobs(self):

@@ -72,6 +72,25 @@ function message(value, nullable = false) {
     .replace(/\s+/g, ' ').slice(0, 240);
 }
 
+// Older companions send only ok/message. Recognize their exact uncertainty
+// summaries without guessing what an unknown vendor warning actually means.
+const LEGACY_UNKNOWN_HEALTH = new Set([
+  'Printer check pending',
+  'Printer status is unavailable',
+  'Printer reports an unrecognized status; check the Mac printer queue',
+  'Active print pass is not visible in CUPS; reconcile its receipt in CLC',
+]);
+function healthInput(value) {
+  const health = object(value, 'health');
+  const ok = bool(health.ok, 'health.ok');
+  const summary = message(health.message);
+  const known = health.known === undefined ? !LEGACY_UNKNOWN_HEALTH.has(summary) : bool(health.known, 'health.known');
+  if (ok && !known) throw printError('Healthy printer status must be known');
+  const advisories = health.advisories === undefined ? [] : health.advisories;
+  if (!Array.isArray(advisories) || advisories.length > 8) throw printError('Health supports at most 8 advisories');
+  return { ok, known, message: summary, advisories: [...new Set(advisories.map(item => message(item)))] };
+}
+
 function permissions(userId) {
   const user = get('SELECT is_admin, suspended FROM users WHERE id = ?', [userId]);
   const canControl = !!(user && !user.suspended && (user.is_admin || printCapabilities(userId).canQueue));
@@ -207,7 +226,7 @@ export function printStationStatus(userId) {
     queue: latest?.queue || null, recipeVerified: latest?.recipeVerified || false, duplexVerified: latest?.duplexVerified || false,
     testPrintingEnabled: latest?.testPrintingEnabled || false,
     recipeFingerprint: latest?.recipeFingerprint || null, activeJob: active,
-    health: live ? latest.health : { ok: false, message: lastSeen === null ? 'Station has not connected since server startup' : 'Station is offline' },
+    health: live ? latest.health : { ok: false, known: false, advisories: [], message: lastSeen === null ? 'Station has not connected since server startup' : 'Station is offline' },
     update: latest?.update || null, discord: latest?.discord || discordTelemetry(null),
   }, permissions: access, jobs: householdPrintJobs(userId, access.canUpdate),
   commands: all('SELECT * FROM print_station_commands WHERE station_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 20', [STATION]).map(publicCommand),
@@ -320,7 +339,7 @@ function heartbeatInput(body) {
   const queue = text(body.queue, 'queue', 96);
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(queue)) throw printError('Invalid queue name');
   if (typeof body.recipeFingerprint !== 'string' || !/^[a-f0-9]{64}$/i.test(body.recipeFingerprint)) throw printError('Invalid recipe fingerprint');
-  const health = object(body.health, 'health');
+  const health = healthInput(body.health);
   let activeJob = null;
   if (body.activeJob !== null && body.activeJob !== undefined) {
     object(body.activeJob, 'activeJob');
@@ -347,7 +366,7 @@ function heartbeatInput(body) {
     recipeVerified: bool(body.recipeVerified, 'recipeVerified'), duplexVerified: bool(body.duplexVerified, 'duplexVerified'),
     testPrintingEnabled: body.testPrintingEnabled === undefined ? false : bool(body.testPrintingEnabled, 'testPrintingEnabled'),
     recipeFingerprint: body.recipeFingerprint.toLowerCase(), activeJob,
-    health: { ok: bool(health.ok, 'health.ok'), message: message(health.message) }, update, discord: discordTelemetry(body.discord) },
+    health, update, discord: discordTelemetry(body.discord) },
   events: events.map(event => {
     object(event, 'event'); const eventId = id(event.id, 'event ID');
     if (eventIds.has(eventId)) throw printError('Duplicate heartbeat event ID'); eventIds.add(eventId);

@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import Icon from './Icon';
 import PrintBatchList from './PrintBatchList';
 import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand } from '../lib/api';
+import { PRINT_JOB_STATES as JOB_STATES, printerHealthPresentation, printStationSummary } from '../lib/printStationStatus';
 import './PrintStationPage.css';
 
 const COMMAND_NAMES = {
@@ -11,13 +12,6 @@ const COMMAND_NAMES = {
   check_update: 'Check for updates', update: 'Update companion', rollback: 'Roll back companion',
 };
 const isDiscordCommand = type => ['configure_discord', 'test_discord'].includes(type);
-const JOB_STATES = {
-  active: 'Preparing on the Mac',
-  claimed: 'Preparing on the Mac', submitting: 'Submitting to Epson',
-  submitted: 'In the Epson queue', awaiting_refeed: 'Waiting for flip and reload',
-  uncertain: 'Needs review at the Mac', completed: 'Spooler completed',
-  preparing: 'Generating PDFs in CLC', queued: 'Waiting in CLC', failed: 'Failed', canceled: 'Canceled', expired: 'PDFs expired',
-};
 const COMMAND_STATES = { pending: 'Pending', applied: 'Applied', rejected: 'Rejected', expired: 'Expired' };
 const UPDATE_STATES = {
   unsupported: 'Managed updates unavailable', idle: 'Idle', checking: 'Checking for updates',
@@ -186,15 +180,8 @@ export default function PrintStationPage() {
   const discordPending = commands.some(item => isDiscordCommand(item.type) && item.status === 'pending');
   const canRetryDiscord = online && data?.permissions.canUpdate && discord?.supported && !busy && !commandWaiting;
   const connectionLabel = loading && !data ? 'Connecting' : !fresh ? 'Status unavailable' : station.online ? 'Online' : 'Offline';
-  const stationSummary = !fresh ? loading ? 'Checking in with your Mac' : 'Waiting for a fresh status'
-    : !online ? 'The Mac is offline' : station.paused ? 'Printing is paused'
-      : activeJob?.state === 'awaiting_refeed' ? 'Your paper needs flipping'
-        : activeJob?.state === 'uncertain' ? 'Review this batch on the Mac'
-          : station.health?.ok === false ? 'The printer needs attention'
-            : activeJob ? JOB_STATES[activeJob.state] || 'A batch is in progress'
-              : station.testPrintingEnabled ? 'Ready for a test batch'
-                : !station.recipeVerified ? 'Verify your print recipe on the Mac'
-                  : station.health?.ok === true ? 'Ready for your next batch' : 'Waiting for printer status';
+  const health = printerHealthPresentation(station?.health, online);
+  const stationSummary = printStationSummary(station, { fresh, online, loading });
 
   async function submit(command) {
     if (commandControllerRef.current) return;
@@ -318,6 +305,14 @@ export default function PrintStationPage() {
         <section className="station-card station-overview" aria-label="Station connection">
           <div className="station-card-heading"><div className="station-device"><span className="station-device-icon"><Icon name="station" size={27} /></span><div><strong>{station?.stationId || 'Household Mac'}</strong><p className="station-small">Last seen: {timestamp(station?.lastSeenAt)}</p></div></div><Badge tone={online ? 'good' : fresh ? 'warning' : 'neutral'}>{connectionLabel}</Badge></div>
           <h2 className="station-readiness">{stationSummary}</h2>
+          <div className={`station-printer-health station-printer-health--${health.tone}`} aria-label="Printer status">
+            <strong>{health.label}</strong>
+            <p>{health.message}</p>
+          </div>
+          {health.advisories.length > 0 && <section className="station-printer-advisories" aria-label="Printer information">
+            <strong>Printer information</strong>
+            <ul>{health.advisories.map(message => <li key={message}>{message}</li>)}</ul>
+          </section>}
           {!loading && !station?.lastSeenAt && fresh && <p>The Mac has not checked in yet. Start the configured companion on the Mac to connect it.</p>}
           {!fresh && data && <p className="station-small">Showing the last received details. Connection and controls will return after a successful refresh.</p>}
           {fresh && !station.online && station.lastSeenAt && <p>The Mac is not checking in. It may be asleep, disconnected, or the companion may be stopped.</p>}
@@ -356,9 +351,8 @@ export default function PrintStationPage() {
       {!restricted && <>
 
         <section className="station-settings" aria-label="Printer settings"><h2>Printer settings</h2>
-          <details className="station-card station-management" aria-label="Printer health and recipe">
-            <summary><span className="station-disclosure-title"><Icon name="settings" size={22} /><span>Printer and recipe<small>Health and physical print checks</small></span></span><Badge tone={fresh && station?.health?.ok === true ? 'good' : fresh && station?.health?.ok === false ? 'warning' : 'neutral'}>{!fresh ? 'Unknown' : station?.health?.ok === true ? station.recipeVerified && station.duplexVerified ? 'Verified' : 'Checks pending' : station?.health?.ok === false ? 'Needs attention' : 'Not reported'}</Badge></summary><div className="station-disclosure-content">
-            <p>{station?.health?.message || 'Printer health has not been reported.'}</p>
+          <details className="station-card station-management" aria-label="Print recipe and physical checks">
+            <summary><span className="station-disclosure-title"><Icon name="settings" size={22} /><span>Print recipe<small>Color, layout and manual flip checks</small></span></span><Badge tone={online && station?.recipeVerified && station?.duplexVerified ? 'good' : 'neutral'}>{!online ? 'Not confirmed' : station.recipeVerified && station.duplexVerified ? 'Checks verified' : 'Checks pending'}</Badge></summary><div className="station-disclosure-content">
             <details className="station-proof-details"><summary>Physical print checks <span>{station?.recipeVerified === true && station?.duplexVerified === true ? '2 verified' : 'Review verification'}</span></summary><ul className="station-proofs"><ProofFlag verified={station?.recipeVerified === true}>Color and front layout</ProofFlag><ProofFlag verified={station?.duplexVerified === true}>Manual double-faced layout</ProofFlag></ul></details>
             {online && station?.duplexVerified === false && <p className="station-message station-message--warning">{station.testPrintingEnabled ? 'Use a small double-faced test batch to verify the manual flip direction, page order and alignment. Test printing still stops for your explicit paper reload confirmation.' : 'Verify the manual flip direction, page order and alignment on the Mac before sending a batch with double-faced cards. A mixed batch can otherwise stop after its ordinary fronts.'}</p>}
             <p className="station-small">Proofs are recorded on the Mac after physical testing. They cannot be changed here.</p>

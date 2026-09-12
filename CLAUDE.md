@@ -132,6 +132,10 @@ Check DECISIONS.md before changing an approach; amend it in the same commit.
 
 ## Concurrent sessions (the owner may run parallel Claude sessions here)
 
+When an improvement is discovered outside the authorized task, propose a concrete plan
+and ask the owner whether to implement it. Do not leave it as a passive observation or
+silently expand the scope. Continue work already explicitly authorized.
+
 Version any user-visible ship from `APP_VERSION` at HEAD, never from memory. Re-run
 `git status` + `git log --oneline -3` immediately before every commit; stage explicit paths
 (no blind `git add -A`) — unexpected dirty files may be another session's WIP: inspect, don't

@@ -27,7 +27,7 @@ class StationControl:
     def __init__(self, station, version, manager=None):
         self.station, self.config, self.ledger = station, station.config, station.ledger
         self.version, self.restart_needed = version, False
-        self.health = {"ok": False, "message": "Printer check pending"}
+        self.health = {"ok": False, "known": False, "message": "Printer check pending", "advisories": []}
         self.last_doctor = None
         self.printer_read_failures = 0
         self.update = {"supported": False, "currentVersion": version, "previousVersion": None,
@@ -90,7 +90,7 @@ class StationControl:
             return
         previous = self.health
         job, pending = None, None
-        observed = {"ok": False, "known": False, "reasons": [], "message": "Printer status is unavailable"}
+        observed = {"ok": False, "known": False, "reasons": [], "message": "Printer status is unavailable", "advisories": []}
         try:
             current = self.ledger.current()
             if current:
@@ -100,17 +100,19 @@ class StationControl:
             if observed["ok"]:
                 # A healthy device must still pass the original local driver checks.
                 self.station.cups.doctor()
-            self.health = {"ok": observed["ok"], "message": self.safe_message(observed["message"])}
+            self.health = {"ok": observed["ok"], "known": observed.get("known") is True,
+                           "message": self.safe_message(observed["message"]),
+                           "advisories": [self.safe_message(value) for value in observed.get("advisories", [])[:8]]}
             self.printer_read_failures = 0
         except (StationError, OSError, ValueError, subprocess.TimeoutExpired):
             self.printer_read_failures += 1
             persistent = self.printer_read_failures >= 2
             observed = {"ok": False, "known": persistent, "reasons": ["status-unavailable"] if persistent else [],
-                        "message": "Cannot verify local printer status. Check the Mac printer queue."}
-            self.health = {"ok": False, "message": observed["message"]}
+                        "message": "Cannot verify local printer status. Check the Mac printer queue.", "advisories": []}
+            self.health = {"ok": False, "known": persistent, "message": observed["message"], "advisories": []}
         self.last_doctor = time.monotonic()
         if previous != self.health:
-            self.event("info" if self.health["ok"] else "error", self.health["message"])
+            self.event("info" if self.health["ok"] else "error" if self.health["known"] else "warning", self.health["message"])
         # Notification failures never change pause, spool or paper-handling state.
         try:
             alert = self.station.alerts.printer_error(observed, job, pending)

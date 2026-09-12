@@ -34,6 +34,11 @@ permissions, secret redaction, message limits and duplicate suppression remain i
 An alert never authorizes a back pass or retry. Automated checks use fake transports;
 **Send test** in Printer settings is an explicit real notification action.
 
+Routine reminders do not become printer-error pings. In companion 2.53.3+, Epson's exact
+ink-tank-check reminder appears as an informational advisory in CLC. It does not indicate
+empty ink. Unknown vendor warnings remain unconfirmed, while simultaneous confirmed
+faults still produce their normal useful alerts.
+
 Implementation: [native alerts](../companion/mac/clc_station_alerts.py) and
 [deck/price alerts](../server/lib/notificationScheduler.js). Operating instructions:
 [printing workflow](PRINT_WORKFLOW.md).
