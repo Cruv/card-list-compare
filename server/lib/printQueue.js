@@ -54,7 +54,7 @@ function assertCanQueue(userId) {
   if (!printCapabilities(userId).canQueue) throw printError('Printing is restricted to authorized household users and requires a configured station', 403);
 }
 function ownerJob(userId, deckId, id) {
-  const row = get('SELECT * FROM print_jobs WHERE id = ? AND user_id = ? AND tracked_deck_id = ?', [id, userId, deckId]);
+  const row = get('SELECT * FROM print_jobs WHERE id = ? AND user_id = ? AND tracked_deck_id IS ?', [id, userId, deckId]);
   if (!row) throw printError('Print job not found', 404);
   return row;
 }
@@ -118,7 +118,8 @@ function artifactRecord(row, artifact, station) {
     backPages: artifact.kind === 'dfc' ? Array.from({ length: artifact.sheetCount }, (_, n) => n * 2 + 2) : [],
     downloadUrl: station
       ? `/api/print-station/jobs/${row.id}/artifacts/${artifact.id}`
-      : `/api/decks/${row.tracked_deck_id}/print-jobs/${row.id}/artifacts/${artifact.id}`,
+      : row.tracked_deck_id === null ? `/api/print-lists/jobs/${row.id}/artifacts/${artifact.id}`
+        : `/api/decks/${row.tracked_deck_id}/print-jobs/${row.id}/artifacts/${artifact.id}`,
   };
 }
 export function formatPrintJob(row, station = false) {
@@ -127,6 +128,7 @@ export function formatPrintJob(row, station = false) {
     id: row.id, state: row.state, mode: plan.mode, deckId: row.tracked_deck_id, deckName: plan.deckName,
     requesterId: row.user_id, totalCopies: plan.totalCopies, artSource: plan.artSource,
     source: publicPrintPlan(plan).source, target: publicPrintPlan(plan).target,
+    ...(plan.list ? { list: publicPrintPlan(plan).list } : {}),
     createdAt: row.created_at, updatedAt: row.updated_at, expiresAt: row.expires_at,
     queueOnReady: !!row.queue_requested, error: row.error, proxyStagingError: row.proxy_staging_error || null, progress: parse(row.progress_json),
     recipeId: manifest?.recipe?.id || 'household-letter-v6', manifestSha256: row.manifest_sha256,
@@ -138,7 +140,7 @@ export function formatPrintJob(row, station = false) {
 }
 export const getOwnedPrintJob = (userId, deckId, id) => formatPrintJob(ownerJob(userId, deckId, id));
 export function listPrintJobs(userId, deckId) {
-  return all('SELECT * FROM print_jobs WHERE user_id = ? AND tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 50', [userId, deckId]).map(row => formatPrintJob(row));
+  return all('SELECT * FROM print_jobs WHERE user_id = ? AND tracked_deck_id IS ? ORDER BY created_at DESC, id DESC LIMIT 50', [userId, deckId]).map(row => formatPrintJob(row));
 }
 
 export async function createPrintJob(userId, deckId, request) {

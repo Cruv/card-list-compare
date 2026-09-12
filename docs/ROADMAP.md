@@ -7,12 +7,12 @@ which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 
 ## Next — household printer and cutter proof
 
-CLC now implements [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): full-snapshot
-and physical-copy delta plans, frozen artwork/face manifests, the actual cached upstream v6
+CLC now implements [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md): standalone print lists,
+full-snapshot and physical-copy delta plans, frozen artwork/face manifests, the actual cached upstream v6
 runtime, downloadable PDFs and an authenticated station protocol. The
 [native Mac companion](../companion/mac/README.md) streams verified artifacts to a locally
 configured Epson queue, retains durable submission receipts and handles manual DFC refeed.
-New jobs keep each deck's ordinary fronts first, then numbered DFC packets of up to seven
+New jobs keep each batch's ordinary fronts first, then numbered DFC packets of up to seven
 copies on one front/back sheet. Printed job/packet labels match explicit reload waits;
 Mac notifications with Glass sound default on, and administrators connect optional Discord alerts
 through Print Station; the Mac sends them. The queue holds until the exact waiting packet is reloaded and its
@@ -21,7 +21,10 @@ CLC's Print Station page now reports live station health and controls pause/refe
 durable commands; managed version controls are restricted to administrators and idle stations.
 Print review now shows selected front/back art, resolved printings and separate DFC packet
 counts before generation. Missing faces block creation, and uncertain creation requests
-retain the same identity across reloads.
+retain the same identity across reloads. Print orders can remove suggestions and add extra
+cards; printing swaps default to keeping existing copies and basic lands default to
+excluded. Search, side/ownership filters and sorting change the review view only. Visible
+missing originals can be copied or opened together in Mana Pool, one per logical card.
 The self-contained Mac installer now bundles its runtime, starts paused at login, and
 supports checked version updates and rollback without replacing configuration or print history.
 The v2.49.0 companion and v2.49.1 server are deployed on the household Mac and passed their

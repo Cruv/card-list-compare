@@ -105,6 +105,79 @@ const confirm = (quantity=1,operationId=randomUUID(),revision=first().pendingPro
 const publish = async () => { await connect(); await plans.processPendingProxyPlans(); return first(); };
 
 describe('native pending proxy plans',() => {
+  it('publishes and confirms a standalone batch with its frozen label and no fabricated deck',async () => {
+    const label = 'Friday proxy replacements 🐉';
+    const listText = '3 Sol Ring (C21) 263';
+    const row = db.get('SELECT manifest_json FROM print_jobs WHERE id=?',[jobId]);
+    const manifest = JSON.parse(row.manifest_json);
+    manifest.plan = { ...manifest.plan, mode:'adhoc', deckId:null, deckName:label, source:null, target:null,
+      list:{name:label,text:listText,textHash:hash(listText)} };
+    const frozen = JSON.stringify(manifest);
+    db.run('UPDATE print_jobs SET tracked_deck_id=NULL,plan_json=?,manifest_json=?,manifest_sha256=? WHERE id=?',
+      [JSON.stringify(manifest.plan),frozen,hash(frozen),jobId]);
+    db.run('DELETE FROM tracked_decks'); db.run('DELETE FROM tracked_owners');
+    await plans.processPendingProxyPlans();
+    const staged = first();
+    expect(staged).toMatchObject({deckId:null,printJobId:jobId,confirmed:0,remaining:3});
+    expect(bridge.listQueue(2)).toEqual([]);
+    await connect(); failure = 'create-lost'; await plans.refreshPendingProxyPlans(1);
+    const original = db.get('SELECT create_payload FROM manasync_pending_proxy_plans WHERE item_id=?',[staged.id]).create_payload;
+    expect(JSON.parse(original)).toMatchObject({label,source:'clc',sourceRef:jobId,quantity:3});
+    expect(original).not.toContain(listText); expect(original).not.toContain('textHash');
+    expect(receipts.size).toBe(0);
+    // A restarted publisher reconciles the same remote plan, not another batch.
+    vi.resetModules(); db = await import('../db.js'); await db.initDb();
+    bridge = await import('./manasyncBridge.js'); bridge.initBridgeSchema(); plans = await import('./pendingProxyPlans.js');
+    await plans.refreshPendingProxyPlans(1);
+    expect(first().id).toBe(staged.id);
+    expect(db.get('SELECT create_payload FROM manasync_pending_proxy_plans WHERE item_id=?',[staged.id]).create_payload).toBe(original);
+    const operationId = randomUUID();
+    expect((await confirm(2,operationId,1)).status).toBe('reported');
+    expect((await confirm(2,operationId,1)).status).toBe('reported');
+    expect(first()).toMatchObject({deckId:null,confirmed:2,remaining:1});
+    expect(receipts.size).toBe(1);
+    await bridge.cancelItem(1,first().id);
+    expect(first()).toMatchObject({confirmed:2,remaining:0,pendingProxy:{status:'dismissed',dismissedQuantity:1}});
+    expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks').count).toBe(0);
+    expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(0);
+    expect(requests.filter(request => request.url.endsWith('/pending-proxies/'+staged.id) && request.method === 'PUT')).toHaveLength(1);
+  });
+
+  it('stages only final edited quantities and added cards, excluding removed rows and basic lands',async () => {
+    const text = '2 Sol Ring (C21) 263\n4 Swamp\n1 Lightning Bolt';
+    const manifest = JSON.parse(db.get('SELECT manifest_json FROM print_jobs WHERE id=?',[jobId]).manifest_json);
+    manifest.copies[2] = {...manifest.copies[2],displayName:'Skullclamp',setCode:'cmm',collectorNumber:'396'};
+    manifest.plan = {...manifest.plan,mode:'adhoc',deckId:null,deckName:'Edited standalone list',source:null,target:null,
+      list:{name:'Edited standalone list',text,textHash:hash(text)},excludeBasicLands:true,
+      additionalCardText:'1 Skullclamp (CMM) 396',
+      cards:[{displayName:'Sol Ring',quantity:2},{displayName:'Skullclamp',quantity:1}],
+      removedCards:[{displayName:'Lightning Bolt',quantity:1}],excludedBasicLands:[{displayName:'Swamp',quantity:4}]};
+    const frozen = JSON.stringify(manifest);
+    db.run('UPDATE print_jobs SET tracked_deck_id=NULL,plan_json=?,manifest_json=?,manifest_sha256=? WHERE id=?',
+      [JSON.stringify(manifest.plan),frozen,hash(frozen),jobId]);
+    await connect(); await plans.processPendingProxyPlans();
+    const items = bridge.listQueue(1);
+    expect(items.map(item => [item.card.name,item.quantity]).sort()).toEqual([['Skullclamp',1],['Sol Ring',2]]);
+    expect(items.every(item => item.deckId === null && item.confirmed === 0 && item.printJobId === jobId)).toBe(true);
+    expect([...pending.values()].map(item => [item.card.name,item.quantity]).sort()).toEqual([['Skullclamp',1],['Sol Ring',2]]);
+    expect([...pending.values()].every(item => item.label === 'Edited standalone list')).toBe(true);
+    expect(receipts.size).toBe(0);
+    const deliveries = requests.filter(request => request.url.includes('/pending-proxies/') && request.method === 'PUT');
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries.every(request => !request.body.includes('Swamp') && !request.body.includes('Lightning Bolt') && !request.body.includes('additionalCardText'))).toBe(true);
+  });
+
+  it('uses the print-time label instead of a renamed deck and leaves old frozen payloads unchanged',async () => {
+    db.run('UPDATE print_jobs SET plan_json=? WHERE id=?',[JSON.stringify({totalCopies:3,deckName:'Original print label'}),jobId]);
+    await publish();
+    expect(pending.get(first().id).label).toBe('Original print label');
+    const original = db.get('SELECT create_payload FROM manasync_pending_proxy_plans').create_payload;
+    db.run("UPDATE tracked_decks SET deck_name='Renamed later'");
+    db.run('UPDATE print_jobs SET plan_json=? WHERE id=?',[JSON.stringify({totalCopies:3,deckName:'Changed label'}),jobId]);
+    await plans.refreshPendingProxyPlans(1);
+    expect(db.get('SELECT create_payload FROM manasync_pending_proxy_plans').create_payload).toBe(original);
+  });
+
   it('automatically stages ready PDFs disconnected, then publishes actual art without acquiring stock',async () => {
     await plans.processPendingProxyPlans();
     const item = first();

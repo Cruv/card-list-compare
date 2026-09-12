@@ -4,6 +4,7 @@ vi.mock('./scryfallImages.js', () => ({ fetchCardImageUrls: vi.fn() }));
 import { get } from '../db.js';
 import { fetchCardImageUrls } from './scryfallImages.js';
 import { buildPrintPlan, publicPrintPlan, planPhysicalCopies } from './printQueuePlan.js';
+import { printCardKey } from '../../src/lib/printSelection.js';
 
 describe('physical print copy planning', () => {
   it('plans positive increases, never removed or already-present copies', () => {
@@ -56,6 +57,90 @@ describe('resolved artwork review', () => {
     target = { id: 2, created_at: '2026-01-02', deck_text: '2 Lightning Bolt\n1 Malakir Rebirth // Malakir Mire' };
     get.mockImplementation((sql, params) => sql.includes('tracked_decks') ? deck : params[0] === 1 && params.length === 2 ? baseline : target);
     fetchCardImageUrls.mockImplementation(async cards => cards.map(card => card.displayName.startsWith('Malakir') ? dfc(card) : resolved(card)));
+  });
+  it('resolves a standalone list without a tracked deck and exposes only its label and text hash', async () => {
+    const text = 'Commander\n1 Lightning Bolt (M10) [146]\nMainboard\n2 Malakir Rebirth // Malakir Mire (ZNR) [111]\nSideboard\n3 Sol Ring';
+    const privatePlan = await buildPrintPlan(9, null, { mode: 'adhoc', listName: '  Saturday extras  ', cardText: text });
+    expect(privatePlan).toMatchObject({ deckId: null, deckName: 'Saturday extras', requesterId: 9, mode: 'adhoc',
+      source: null, target: null, totalCopies: 3, ordinaryCopies: 1, doubleFacedCopies: 2,
+      readyToGenerate: true, list: { name: 'Saturday extras', text, textHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(get).not.toHaveBeenCalled();
+    const publicPlan = publicPrintPlan(privatePlan);
+    expect(publicPlan.list).toEqual({ name: 'Saturday extras', textHash: privatePlan.list.textHash });
+    expect((await buildPrintPlan(9, null, { cardText: text, includeSideboard: true })).totalCopies).toBe(6);
+    expect((await buildPrintPlan(9, null, { cardText: '1 Sol Ring' })).deckName).toBe('Print list');
+    expect((await buildPrintPlan(9, null, { cardText: text, listName: 'Different batch' })).planHash).not.toBe(privatePlan.planHash);
+  });
+  it.each([
+    [{ cardText: '' }, 'Add cards'], [{ cardText: [] }, 'Add cards'], [{ cardText: '1 Sol Ring\u0000' }, 'control characters'],
+    [{ cardText: '1 Sol Ring\n0 Island' }, 'line 2'], [{ cardText: '1 Sol Ring\n-2 Island' }, 'line 2'],
+    [{ cardText: '1 Sol Ring\n1.5 Island' }, 'line 2'], [{ cardText: '1 Sol Ring\n9007199254740992 Island' }, 'line 2'],
+    [{ cardText: '1 Sol Ring\n42' }, 'line 2'], [{ cardText: 'Sideboard\n1 Island' }, 'No cards'],
+    [{ cardText: '251 Island', excludeBasicLands: false }, 'at most 250'], [{ cardText: '1 Island', listName: 42 }, 'listName'],
+    [{ cardText: '1 Island', listName: 'a'.repeat(121) }, '120'], [{ cardText: '1 Island', listName: 'Two\nlines' }, 'one line'],
+    [{ cardText: '1 Island', mode: 'changes' }, 'mode adhoc'], [{ cardText: '1 Island', artSource: 'saved-mpc' }, 'Scryfall'],
+    [{ cardText: '1 Island', targetSnapshotId: 1 }, 'snapshots'], [{ cardText: '1 Island', includeSideboard: 'yes' }, 'true or false'],
+    [{ cardText: 'a'.repeat(100001) }, '100,000'],
+  ])('rejects malformed standalone input before artwork lookup: %j', async (input, message) => {
+    await expect(buildPrintPlan(1, null, input)).rejects.toThrow(message);
+    expect(fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+  it('retains valid CSV rows and refuses a partially invalid CSV print list', async () => {
+    const csv = 'Quantity,Name,Set,Collector Number\n2,"Atraxa, Praetors Voice",ONE,196\n1,Sol Ring,C21,263';
+    const plan = await buildPrintPlan(1, null, { cardText: csv });
+    expect(plan.totalCopies).toBe(3);
+    expect(plan.cards[0]).toMatchObject({ displayName: 'Atraxa, Praetors Voice', setCode: 'ONE', collectorNumber: '196' });
+    await expect(buildPrintPlan(1, null, { cardText: `${csv}\n0,Island` })).rejects.toThrow('line 4');
+    await expect(buildPrintPlan(1, null, { cardText: 'quantity,misspelled\n1,Island' })).rejects.toThrow('Name or Card column');
+  });
+  it('defaults to keeping existing art and excludes known basic lands before copy-limit checks', async () => {
+    baseline.deck_text = '1 Sol Ring (C21) [263]'; target.deck_text = '1 Sol Ring (LTC) [284]';
+    expect(await buildPrintPlan(1, 1, { mode: 'changes' })).toMatchObject({ replacePrintings: false, totalCopies: 0 });
+    expect((await buildPrintPlan(1, 1, { mode: 'changes', replacePrintings: true })).totalCopies).toBe(1);
+    const cardText = '240 Lightning Bolt\n30 Island\n20 Snow-Covered Forest\n1 Wastes';
+    const plan = await buildPrintPlan(1, null, { cardText });
+    expect(plan.totalCopies).toBe(240);
+    expect(plan.excludedBasicLands.reduce((count, card) => count + card.quantity, 0)).toBe(51);
+    expect(servicesCards()).not.toContain('Island');
+    await expect(buildPrintPlan(1, null, { cardText, excludeBasicLands: false })).rejects.toThrow('at most 250');
+    function servicesCards() { return fetchCardImageUrls.mock.calls.at(-1)[0].map(card => card.displayName); }
+  });
+  it('removes suggested rows before adding extras, freezes quantities, and preserves snapshot text', async () => {
+    target.deck_text = '3 Lightning Bolt (M10) [146]\n2 Sol Ring\n30 Island';
+    const key = printCardKey({ displayName: 'Lightning Bolt', setCode: 'M10', collectorNumber: '146' });
+    const options = { excludedCards: [key], additionalCardText: '1 Lightning Bolt (M10) [146]\n2 Malakir Rebirth // Malakir Mire\n4 Sol Ring\n10 Plains' };
+    const plan = await buildPrintPlan(1, 1, options);
+    expect(plan).toMatchObject({ totalCopies: 9, ordinaryCopies: 7, doubleFacedCopies: 2,
+      removedCards: [expect.objectContaining({ selectionKey: key, quantity: 3 })],
+      additionalCardText: options.additionalCardText, additionalTextHash: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    expect(plan.cards).toEqual(expect.arrayContaining([
+      expect.objectContaining({ displayName: 'Sol Ring', quantity: 6, baseQuantity: 2, additionalQuantity: 4 }),
+      expect.objectContaining({ displayName: 'Lightning Bolt', quantity: 1, baseQuantity: 0, additionalQuantity: 1 }),
+      expect.objectContaining({ displayName: 'Malakir Rebirth // Malakir Mire', quantity: 2, baseQuantity: 0, additionalQuantity: 2 }),
+    ]));
+    expect(plan.target.text).toBe(target.deck_text);
+    expect(publicPrintPlan(plan).additionalCardText).toBeUndefined();
+    expect((await buildPrintPlan(1, 1, { ...options, excludedCards: [] })).planHash).not.toBe(plan.planHash);
+    expect((await buildPrintPlan(1, 1, { ...options, additionalCardText: '1 Sol Ring' })).planHash).not.toBe(plan.planHash);
+    expect((await buildPrintPlan(1, 1, { ...options, excludeBasicLands: false })).planHash).not.toBe(plan.planHash);
+  });
+  it('keeps request selection identities when metadata fills printing details and recognizes Basic Land types', async () => {
+    fetchCardImageUrls.mockImplementation(async cards => cards.map(card => ({ ...resolved(card), setCode: 'resolved', collectorNumber: '42',
+      typeLine: card.displayName === 'New basic' ? 'Basic Snow Land — Plains' : 'Land' })));
+    const plan = await buildPrintPlan(1, null, { cardText: '1 New basic\n1 Academy Ruins\n1 Malakir Mire' });
+    expect(plan.totalCopies).toBe(2);
+    expect(plan.excludedBasicLands[0]).toMatchObject({ displayName: 'New basic', quantity: 1 });
+    expect(plan.resolvedCards[0].selectionKey).toBe(printCardKey({ displayName: 'Academy Ruins' }));
+    expect(plan.resolvedCards[0]).toMatchObject({ setCode: 'resolved', collectorNumber: '42', baseQuantity: 1 });
+  });
+  it.each([
+    { excludedCards: 'not-array' }, { excludedCards: ['bad-key'] }, { excludedCards: ['["Island","",""]'] },
+    { excludedCards: Array(1001).fill('["island","",""]') }, { additionalCardText: [] },
+    { additionalCardText: '1 Sol Ring\n-1 Counterspell' }, { additionalCardText: 'x'.repeat(100001) },
+    { additionalCardText: '251 Sol Ring' }, { excludeBasicLands: 'yes' },
+  ])('rejects invalid edit options before image resolution: %j', async options => {
+    await expect(buildPrintPlan(1, null, { cardText: '1 Lightning Bolt', ...options })).rejects.toThrow();
+    expect(fetchCardImageUrls).not.toHaveBeenCalled();
   });
   it('shows exact selected faces and positive diff quantities without downloading images', async () => {
     const plan = publicPrintPlan(await buildPrintPlan(1, 1, { mode: 'changes' }));

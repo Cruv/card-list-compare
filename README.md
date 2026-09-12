@@ -2,7 +2,7 @@
 
 Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, and proxy image exports.
 
-CLC generates Silhouette v6 PDFs from full deck snapshots or version differences, with ordinary fronts followed by separate, one-sheet double-faced packets for that deck. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+CLC generates Silhouette v6 PDFs from standalone print lists, full deck snapshots or version differences, with ordinary fronts followed by separate, one-sheet double-faced packets for that batch. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ## Supported Architectures
 
@@ -70,7 +70,7 @@ latest upstream main and keeps a validated installation, dependencies and wheel 
 `./data/silhouette-card-maker/`. If an update fails, it retains its last compatible version.
 Without a usable cache on an offline first boot, the web app remains available and PDF
 generation stays unavailable. Set `PRINT_ENABLED=false` to disable runtime preparation.
-Allow at least 2 GiB of memory for 600 PPI sheet generation. Use the Printing tab in a tracked deck; see [operations](docs/OPERATIONS.md#silhouette-runtime).
+Allow at least 2 GiB of memory for 600 PPI sheet generation. Open **Print List** for an ad-hoc batch or use the Printing tab in a tracked deck; see [operations](docs/OPERATIONS.md#silhouette-runtime).
 
 ### docker cli
 
@@ -180,9 +180,12 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 
 ### Household PDFs
 
-- **Whole deck or changes** — choose exact snapshots, default to the paper baseline, include sideboards optionally, and review physical copy counts.
+- **Whole deck or changes** — choose exact snapshots, default to the paper baseline, include sideboards optionally, and review physical copy counts. Replacing changed printings starts off; excluding basic lands starts on.
 - **Silhouette Card Maker v6** — actual upstream generation at 600 PPI, Letter, standard cards, 1 mm crop, three registration marks and seven cards per sheet.
+- **Standalone print lists** — open **Print List**, name a batch, then paste cards, upload a list or import a supported URL. Review Scryfall artwork and double-sided packets without creating a tracked deck or snapshot. Your draft stays in this browser; prepared batches and PDFs stay in your account history.
+- **Edit a print order** — remove cards you have on hand, restore them, or add extra cards and quantities. Review the updated artwork and sheet counts before generating; the source deck and snapshots stay unchanged.
 - **Artwork review** — inspect selected Scryfall or saved MPC front/back thumbnails, exact printings, copy counts and double-sided labels before generation. Review shows ordinary sheets and separate DFC packets; unresolved faces and unsupported meld layouts block generation. Use **Save art for home PDFs** in the MPC overlay to freeze displayed matches.
+- **Filter and buy** — search and sort the reviewed artwork, filter by single/double-sided cards or ManaSync ownership, and copy or open a Mana Pool buy list of visible missing originals. Filters do not change the print order; incoming or owned originals are never added to the missing-card buy list.
 - **Complete batches** — ordinary fronts first, then DFC packets of up to seven copies. Each DFC PDF has page 1 fronts and page 2 backs, with a printed job/packet label; every required face must validate before publication.
 - **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation.
 - **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; each DFC front pass completes before a flip alert and explicit reload confirmation. Its back pass finishes before the next packet; other CLC jobs wait.
@@ -292,7 +295,7 @@ feature stays retired; existing legacy rows remain in backups with no automatic 
 - **Image progress** &mdash; counts image files consistently, including repeated copies and both DFC faces; cached images count toward the same total
 - **DFC image retrieval** &mdash; paired Scryfall front/back files share a copy number; household PDFs preserve the corresponding page/slot pairing
 
-These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. For household printing, use the dedicated Printing tab: it generates validated Silhouette PDFs and exposes the native Mac station queue. Local Epson driver/color settings still require a physical proof. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+These exports prepare assets for the next printing step. Scryfall ZIPs created before completeness checks must be regenerated. MPC ZIPs still contain unique selected images rather than one image per physical copy and may be partial when an image source fails; MPC XML/ZIP exports still need an explicit copy-and-face adapter. For household printing, use **Print List** or a deck’s Printing tab: both generate validated Silhouette PDFs and expose the native Mac station queue. Local Epson driver/color settings still require a physical proof. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ### Card Display
 

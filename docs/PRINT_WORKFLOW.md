@@ -1,8 +1,27 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.49.0 includes print planning, PDF generation, artifact downloads, the household
+Status: CLC v2.50.0 includes print planning, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
+
+## Standalone print lists
+
+Open **Print List** in the navigation to create an ad-hoc batch. Give it a name, then
+paste cards, upload a text/CSV list, or import a supported deck URL. Importing here copies
+the list without tracking the deck. Quantities and exact set/collector metadata use the
+same card-list format as Compare. Include the sideboard when wanted, review the Scryfall
+front/back artwork, then **Generate PDFs** or **Generate and send to Mac**.
+
+The draft is saved per signed-in account in this browser. Prepared batches are kept in
+that account’s Print List history, including downloads and the same ManaSync pending-proxy
+confirmation as deck batches. No tracked deck, snapshot or paper marker is created.
+Standalone lists use Scryfall artwork; saved MPC artwork belongs to tracked decks.
+The list name and exact reviewed text are frozen into the job. Later draft edits leave
+existing batches unchanged. Uncertain creation requests retain the same key and exact list
+across reloads, just like tracked-deck batches.
+
+Ordinary fronts and double-faced packets follow the same recipe, labels, flip alerts and
+explicit reload confirmation below. Separate batches never share a sheet.
 
 ## Using the Printing tab
 
@@ -16,16 +35,38 @@ and unsupported meld layouts block generation before a job is created. Then choo
 **Generate PDFs** or, for an authorized household
 account, **Generate and send to Mac**. Ready PDFs can also be queued later.
 
-Each deck job produces `fronts.pdf` for ordinary cards, followed by one-sheet double-faced
+Each job produces `fronts.pdf` for ordinary cards, followed by one-sheet double-faced
 packets: `double-faced-001.pdf`, `double-faced-002.pdf`, and so on. A packet holds at most
 seven copies and exactly two pages: page 1 fronts, page 2 matching backs. It reports its
 packet number/count, printed label, sheets, pages and copies. A job
-fails if required artwork or a face is missing; it never publishes a partial deck PDF.
+fails if required artwork or a face is missing; it never publishes a partial batch PDF.
 Errors and previous batches remain visible after reloading. Downloads include the exact
 batch manifest. **Remove PDFs** releases storage while retaining the batch record.
 
 Printing does not advance the paper-deck marker or declare cards assembled. The household
 handles drying, lamination and cutting outside CLC; drying tracking is explicitly excluded.
+
+## Editing the proposed list
+
+**Replace changed printings** defaults off: a printing swap does not automatically
+request another copy. **Exclude basic lands** defaults on in both workflows. Uncheck it
+to print basics, including basic lands entered as extra cards.
+
+After review, remove any proposed card you already have on hand, restore removed cards,
+or add extra card-list lines with quantities. Review the revised selection before creating
+the batch so artwork, copy counts and DFC packet totals reflect the final order. The edits
+are part of the frozen plan and its hash; they never edit the source deck or snapshot.
+The final selection still has the 250-copy limit, complete artwork validation, ownership
+checks and ManaSync pending-proxy review. An unresolved creation locks these edits until
+the original request is recovered.
+
+Search, side/ownership filters and sorting operate on the reviewed artwork view. They
+do not remove cards from the print order; use the explicit removal control for that.
+The visible missing-card shopping list requests one original per logical card, deduplicated
+across printings. Copy it or open the prepared list in Mana Pool to choose printings and
+review pricing. Originals already owned or incoming are excluded. A disconnected or failed
+ownership lookup stays unknown and cannot produce a missing-card claim. Shopping never
+submits a purchase or changes physical print quantities.
 
 ## Physical copies and artwork
 
@@ -126,7 +167,7 @@ uses Debian for ARM64/AMD64 binary-wheel compatibility. The inspected upstream r
 was `4d4aa73a95e93b09676c863a1861765863398c63`; it is not a permanent source pin.
 
 A single worker invokes upstream once per seven-card sheet, merging ordinary sheets into
-one PDF and retaining each DFC sheet as its own two-page packet. Decks are never combined
+one PDF and retaining each DFC sheet as its own two-page packet. Separate jobs are never combined
 to fill a packet; a partly filled final sheet is intentional.
 Limits are 250 physical copies, 20 MiB per source image, 1 GiB per PDF and 2 GiB per retained
 job, including staged sources. Saved MPC images are downloaded sequentially to disk with
@@ -145,7 +186,7 @@ was printed, and it does not complete the physical cutting or duplex proof.
 
 ## Double-faced packets and flip alerts
 
-The companion finishes the deck's ordinary fronts first. For each DFC packet it submits
+The companion finishes the batch’s ordinary fronts first. For each DFC packet it submits
 page 1 as one one-sided front pass, waits for confirmed spooler completion, then holds on
 that exact job and packet ID. The Mac requests a flip alert and CLC shows the waiting
 packet's printed label, copy count and sheet count. Match `CLC <job-short-ID> DFC x/y` on
@@ -216,7 +257,13 @@ and event history remain after artifact expiry. Account deletion purges its jobs
 but requires active physical submissions to be reconciled first.
 
 User endpoints under `/api/decks/:deckId` include `POST print-plan`, `POST/GET print-jobs`,
-job status, `/queue`, `/cancel`, `/manifest` and `/artifacts/:artifactId`. Station endpoints
+job status, `/queue`, `/cancel`, `/manifest` and `/artifacts/:artifactId`.
+Standalone routes under `/api/print-lists` provide `POST /plan`, `GET/POST /jobs`, and the
+same actions under `/jobs/:jobId`. Standalone requests carry `mode: "adhoc"`, `listName`
+and `cardText`; their frozen `list` stores the name, full text and text hash, while public
+previews omit the full text. Standalone jobs have a null `deckId`, `source` and `target`.
+Both modes accept `excludeBasicLands`, `excludedCards` and `additionalCardText` alongside
+their existing options. Station endpoints
 under `/api/print-station` are `/status`, `/claim`, and job status, reports and artifacts.
 All are authenticated; PDF bytes are streamed without nginx disk buffering. See
 [OPERATIONS.md](OPERATIONS.md) and [SECURITY.md](../SECURITY.md) for deployment details.

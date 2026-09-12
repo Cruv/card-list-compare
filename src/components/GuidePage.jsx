@@ -467,11 +467,36 @@ function ProxyPrinting() {
 
       <h4>Home Printing</h4>
       <p>
+        Open <strong>Print List</strong> in the navigation for an ad-hoc batch. Name it,
+        paste cards, upload a list, or import a supported URL. This uses Scryfall artwork
+        without creating a tracked deck or snapshot. Your draft stays in this browser;
+        generated batches stay in your account&rsquo;s Print List history with their PDFs
+        and proxy confirmations.
+      </p>
+      <p>
         Open a tracked deck’s <strong>Printing</strong> tab to generate a whole snapshot or
         the new copies needed since another version. The paper-deck marker is the default
-        baseline. Include the sideboard if needed, and choose whether to replace changed
-        printings. Foil-only changes do not require a new proxy. Review the copy list before
+        baseline. Include the sideboard if needed. <strong>Replace changed printings</strong>
+        {' '}starts unchecked, so cards with different artwork can use existing copies.
+        <strong> Exclude basic lands</strong> starts checked; turn it off when you want basics.
+        Foil-only changes do not require a new proxy. Review the copy list before
         generating PDFs; this comparison does not check your physical inventory.
+      </p>
+      <p>
+        In either workflow, remove suggested cards you already have on hand and add extra
+        cards with their quantities. These edits change only this print order. Review the
+        revised list before generating to confirm its artwork, totals and double-sided
+        packets. Basic-land exclusion also applies to extra cards. Restore removed cards
+        if you change your mind.
+      </p>
+      <p>
+        Search, filter by card sides or ownership, and sort the reviewed cards to find
+        what you need. Filters change the view, not the print order. Use the missing-card
+        buy list to copy the visible missing originals or review them together in
+        <strong> Mana Pool</strong>. It requests one original per card, even if several
+        printings or copies are in your order. Owned and incoming originals are excluded;
+        unavailable ownership remains <strong>Unknown</strong>. Opening Mana Pool does
+        not place an order.
       </p>
       <p>
         Choose Scryfall printings or saved MPC artwork. Use <strong>Save art for home PDFs</strong>
@@ -487,7 +512,7 @@ function ProxyPrinting() {
       </p>
       <p>
         Silhouette Card Maker generates Letter v6 PDFs at 600 PPI with three registration
-        marks, a 1 mm crop and seven cards per sheet. Each deck keeps ordinary fronts in one
+        marks, a 1 mm crop and seven cards per sheet. Each batch keeps ordinary fronts in one
         download, followed by separate double-faced packets of up to seven copies. Each packet
         has two pages: page 1 fronts and page 2 matching backs. Its printed front margin carries
         a short CLC job ID and packet number, matching the packet shown in Print Station.

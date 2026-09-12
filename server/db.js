@@ -561,7 +561,7 @@ export async function initDb() {
   // Print jobs retain their own immutable snapshot texts/art selections. No
   // snapshot/deck foreign keys: pruning or untracking must not mutate a print.
   db.run(`CREATE TABLE IF NOT EXISTS print_jobs (
-    id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, tracked_deck_id INTEGER NOT NULL,
+    id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, tracked_deck_id INTEGER,
     request_key TEXT NOT NULL, request_hash TEXT NOT NULL, plan_json TEXT NOT NULL,
     state TEXT NOT NULL DEFAULT 'preparing', queue_requested INTEGER NOT NULL DEFAULT 0,
     manifest_json TEXT, manifest_sha256 TEXT, steps_json TEXT NOT NULL DEFAULT '[]',
@@ -569,6 +569,29 @@ export async function initDb() {
     queued_at TEXT, completed_at TEXT, expires_at TEXT, station_id TEXT,
     claim_nonce TEXT, lease_expires_at TEXT, UNIQUE(user_id, request_key)
   )`);
+  // Standalone lists have no tracked deck. Rebuild only the old NOT NULL schema,
+  // keeping every extension column, index, trigger and immutable job byte intact.
+  // Nothing references this table through foreign keys; job history deliberately
+  // survives untracking. Commit atomically and persist once with the other setup.
+  if (all('PRAGMA table_info(print_jobs)').find(column => column.name === 'tracked_deck_id')?.notnull) {
+    const original = get("SELECT sql FROM sqlite_master WHERE type='table' AND name='print_jobs'").sql;
+    const nullable = original.replace(/tracked_deck_id\s+INTEGER\s+NOT\s+NULL/i, 'tracked_deck_id INTEGER')
+      .replace(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`]?print_jobs["`]?/i, 'CREATE TABLE print_jobs_nullable');
+    if (nullable === original || /tracked_deck_id\s+INTEGER\s+NOT\s+NULL/i.test(nullable)) throw new Error('Could not migrate standalone print-job storage');
+    const definitions = all("SELECT sql FROM sqlite_master WHERE tbl_name='print_jobs' AND type IN ('index','trigger') AND sql IS NOT NULL");
+    db.run('BEGIN IMMEDIATE');
+    try {
+      db.run(nullable);
+      db.run('INSERT INTO print_jobs_nullable SELECT * FROM print_jobs');
+      db.run('DROP TABLE print_jobs');
+      db.run('ALTER TABLE print_jobs_nullable RENAME TO print_jobs');
+      for (const definition of definitions) db.run(definition.sql);
+      db.run('COMMIT');
+    } catch (error) {
+      db.run('ROLLBACK');
+      throw error;
+    }
+  }
   db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_user_deck ON print_jobs(user_id, tracked_deck_id, created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_state ON print_jobs(state, queued_at, created_at)');
   db.run(`CREATE TABLE IF NOT EXISTS print_job_events (

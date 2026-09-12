@@ -279,7 +279,7 @@ native installation were required. No household deck or print job was created by
 
 #### Queue operation
 
-Open a tracked deck's Printing tab for plan review, PDF downloads and job status. Set a
+Open **Print List** for a standalone batch, or a tracked deck's Printing tab for snapshot plans. Both show artwork review, editable card selections, PDF downloads and job status. Standalone jobs store a null tracked-deck ID; startup migrates the old non-null column while retaining existing job IDs, requests, manifests and events. Set a
 separate random `PRINT_STATION_TOKEN` to enable physical queue requests; administrators
 can queue by default, and `PRINT_ALLOWED_USER_IDS` grants access to other household accounts.
 These environment variables are forwarded by the supplied Compose file. Keep the same

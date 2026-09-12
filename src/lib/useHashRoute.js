@@ -27,6 +27,9 @@ export function useHashRoute() {
   if (hash === '#print-station') {
     return { route: 'printStation' };
   }
+  if (hash === '#print-list') {
+    return { route: 'printList' };
+  }
   if (hash === '#guide') {
     return { route: 'guide' };
   }

@@ -132,7 +132,19 @@ physical validation remains. The production runtime uses
 Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
 The adapter keeps 600 PPI while generating one sheet at a time and merging ordinary fronts.
 
-**One-sheet DFC packets (2026-09-10).** Keep each deck isolated and print its ordinary fronts
+**Standalone lists (2026-09-11).** Ad-hoc jobs reuse the print planner, artifact worker,
+station protocol and ManaSync pending-proxy review. They store a named immutable card list
+and a null tracked-deck ID; no placeholder deck or snapshot is created. Their authenticated
+API and batch history are scoped to the owner. The nullable job-column migration preserves
+existing jobs and request identities. Saved MPC artwork remains a tracked-deck feature;
+standalone lists resolve Scryfall faces before review. Physical copy limits, separate DFC
+packets, uncertain-request recovery and queue permissions apply unchanged. A reviewed
+order can exclude suggested cards and add explicit copies without rewriting its source.
+Changed-printing replacement defaults off and basic-land exclusion defaults on. The
+review hash and durable creation request cover these choices; ownership does not silently
+remove or limit any copies.
+
+**One-sheet DFC packets (2026-09-10).** Keep each batch isolated and print its ordinary fronts
 first. Each subsequent DFC artifact contains at most seven copies on exactly two pages:
 front, then back. Partial sheets are intentional; easier paper handling takes priority over
 filling every position. Numbered packet IDs and the printed `CLC <job-short-ID> DFC x/y`

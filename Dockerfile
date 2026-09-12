@@ -46,7 +46,7 @@ COPY --from=backend-build /app/node_modules ./server/node_modules
 COPY server/ ./server/
 
 # Copy shared lib files (used by server for parsing/diffing)
-COPY src/lib/cardIdentity.js src/lib/parser.js src/lib/constants.js src/lib/differ.js src/lib/formatter.js src/lib/deckcheck.js ./src/lib/
+COPY src/lib/cardIdentity.js src/lib/parser.js src/lib/constants.js src/lib/differ.js src/lib/formatter.js src/lib/deckcheck.js src/lib/printSelection.js ./src/lib/
 
 # Data directory is mounted as a volume — DO NOT bake data into image
 # DB_PATH defaults to /app/data/cardlistcompare.db (outside server/ to keep image clean)

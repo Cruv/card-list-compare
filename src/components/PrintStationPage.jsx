@@ -285,7 +285,7 @@ export default function PrintStationPage() {
 
   return (
     <main className="station-page">
-      <nav className="station-nav" aria-label="Print station navigation"><a href="#">← Compare</a><a href="#library">Deck library</a><a href="#guide">Guide</a></nav>
+      <nav className="station-nav" aria-label="Print station navigation"><a href="#">← Compare</a><a href="#print-list">Create print list</a><a href="#library">Deck library</a><a href="#guide">Guide</a></nav>
       <header className="station-header">
         <div><p className="station-eyebrow">Household printing</p><h1>Print Station</h1><p>Your Mac, Epson printer and the next batch of cards.</p></div>
         <button className="btn btn-secondary" type="button" onClick={() => refreshRef.current()}>Refresh status</button>

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import crypto from 'node:crypto';
 import { once } from 'node:events';
 import express from 'express';
+import { printCardKey } from '../../src/lib/printSelection.js';
 
 const services = vi.hoisted(() => ({ fetchCardImageUrls: vi.fn(), preparePrintImages: vi.fn(), generatePrintPdfs: vi.fn(), getPrintGeneratorStatus: vi.fn(() => ({ available: true, revision: 'fixture' })), prunePrintGenerator: vi.fn(async () => {}) }));
 vi.mock('../lib/scryfallImages.js', () => ({ fetchCardImageUrls: services.fetchCardImageUrls }));
@@ -66,7 +67,9 @@ beforeEach(async () => {
     return { revision: 'immutable-generator-revision', runtimeVersion: 'immutable-runtime-version', recipe: { id: 'household-letter-v6' }, artifacts, slots: [], images: [] };
   });
   const app = express(); app.use(express.json());
-  app.use('/api/decks', (await import('./print.js')).default);
+  const printRoutes = await import('./print.js');
+  app.use('/api/decks', printRoutes.default);
+  app.use('/api/print-lists', printRoutes.standalonePrintRouter);
   app.use('/api/print-station', (await import('./print-station.js')).default);
   server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   url = `http://127.0.0.1:${server.address().port}`;
@@ -106,6 +109,82 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
       return { ...group, path, size: bytes.length, sha256: hash(bytes), slotMap: [] };
     }) };
 }
+
+describe('standalone print lists', () => {
+  it('reviews, freezes and generates the edited order without creating a deck or snapshot', async () => {
+    const body = { mode: 'adhoc', listName: 'Saturday extras', cardText: '3 Sol Ring\n30 Island\n8 Malakir Rebirth // Malakir Mire',
+      excludedCards: [printCardKey({ displayName: 'Sol Ring' })], additionalCardText: '2 Sol Ring\n1 Counterspell' };
+    expect((await request('/api/print-lists/plan', { method: 'POST', body, token: null })).status).toBe(401);
+    const before = { decks: db.get('SELECT COUNT(*) AS count FROM tracked_decks').count, snapshots: db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count };
+    const response = await request('/api/print-lists/plan', { method: 'POST', body });
+    expect(response.status).toBe(200);
+    const { plan } = await response.json();
+    expect(plan).toMatchObject({ mode: 'adhoc', deckId: null, deckName: 'Saturday extras', source: null, target: null,
+      totalCopies: 11, ordinaryCopies: 3, doubleFacedCopies: 8, excludeBasicLands: true });
+    expect(plan.list).toEqual({ name: 'Saturday extras', textHash: hash(body.cardText) });
+    expect(plan.additionalCardText).toBeUndefined();
+    const createBody = { ...body, expectedPlanHash: plan.planHash, idempotencyKey: crypto.randomUUID() };
+    const created = await request('/api/print-lists/jobs', { method: 'POST', body: createBody });
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    expect((await request('/api/print-lists/jobs', { method: 'POST', body: createBody })).status).toBe(200);
+    expect((await request('/api/print-lists/jobs', { method: 'POST', body: { ...createBody, idempotencyKey: crypto.randomUUID(), additionalCardText: '7 Sol Ring' } })).status).toBe(409);
+    services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
+    await queue.processNextPrintJob();
+    const ready = queue.getOwnedPrintJob(1, null, job.id);
+    expect(ready).toMatchObject({ state: 'ready', mode: 'adhoc', deckId: null, totalCopies: 11 });
+    expect(ready.artifacts.map(item => item.id)).toEqual(['fronts', 'double-faced-001', 'double-faced-002']);
+    expect(ready.artifacts[1]).toMatchObject({ label: `CLC ${job.id.slice(0,8)} DFC 1/2`, frontPages: [1], backPages: [2], cardCount: 7 });
+    expect(ready.artifacts[2].cardCount).toBe(1);
+    const manifest = await (await request(`/api/print-lists/jobs/${job.id}/manifest`)).json();
+    expect(manifest.plan.list.text).toBe(body.cardText);
+    expect(manifest.plan.additionalCardText).toBe(body.additionalCardText);
+    expect(manifest.copies).toHaveLength(11);
+    expect(manifest.copies.filter(card => card.displayName === 'Sol Ring')).toHaveLength(2);
+    expect(manifest.copies.some(card => card.displayName === 'Island')).toBe(false);
+    const artifact = ready.artifacts[0];
+    expect(artifact.downloadUrl).toBe(`/api/print-lists/jobs/${job.id}/artifacts/fronts`);
+    const download = await request(artifact.downloadUrl);
+    expect(download.status).toBe(200);
+    expect(hash(Buffer.from(await download.arrayBuffer()))).toBe(artifact.sha256);
+    expect((await (await request('/api/print-lists/jobs')).json()).jobs.map(item => item.id)).toEqual([job.id]);
+    expect({ decks: db.get('SELECT COUNT(*) AS count FROM tracked_decks').count, snapshots: db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count }).toEqual(before);
+  });
+  it('isolates standalone owner access and enforces the same household printing authorization', async () => {
+    const { job } = await create({ mode: 'adhoc', cardText: '1 Sol Ring' }, 2, null);
+    await queue.processNextPrintJob();
+    for (const suffix of ['', '/manifest', '/artifacts/fronts']) {
+      expect((await request(`/api/print-lists/jobs/${job.id}${suffix}`)).status).toBe(404);
+      expect((await request(`/api/decks/2/print-jobs/${job.id}${suffix}`, { token: 'user-2' })).status).toBe(404);
+    }
+    expect((await (await request('/api/print-lists/jobs')).json()).jobs).toEqual([]);
+    expect((await request(`/api/print-lists/jobs/${job.id}/queue`, { method: 'POST', token: 'user-2' })).status).toBe(403);
+    expect((await request(`/api/print-lists/jobs/${job.id}/cancel`, { method: 'POST' })).status).toBe(404);
+    const canceled = await request(`/api/print-lists/jobs/${job.id}/cancel`, { method: 'POST', token: 'user-2' });
+    expect((await canceled.json()).job.state).toBe('canceled');
+    const expired = await request(`/api/print-lists/jobs/${job.id}/artifacts`, { method: 'DELETE', token: 'user-2' });
+    expect((await expired.json()).job.state).toBe('expired');
+    const tracked = await ready();
+    expect((await request(`/api/print-lists/jobs/${tracked.id}`)).status).toBe(404);
+  });
+  it('uses the existing exact-sheet refeed state machine and generic station download path', async () => {
+    services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
+    const { job } = await create({ mode: 'adhoc', cardText: '1 Malakir Rebirth // Malakir Mire', queueOnReady: true }, 1, null);
+    await queue.processNextPrintJob();
+    const claimed = queue.claimPrintJob();
+    expect(claimed).toMatchObject({ id: job.id, mode: 'adhoc', deckId: null, deckName: 'Print list' });
+    expect(claimed.artifacts[0].downloadUrl).toBe(`/api/print-station/jobs/${job.id}/artifacts/double-faced-001`);
+    const front = { artifactId: 'double-faced-001', phase: 'fronts' }, back = { artifactId: 'double-faced-001', phase: 'backs' };
+    report(claimed, 'submitting', front); report(claimed, 'submitted', { ...front, spoolerId: 'fixture-1' });
+    report(claimed, 'completed', { ...front, spoolerId: 'fixture-1' });
+    expect(queue.getOwnedPrintJob(1, null, job.id).state).toBe('awaiting_refeed');
+    expect(() => report(claimed, 'submitting', back)).toThrow();
+    report(claimed, 'refeed', back);
+    report(claimed, 'submitting', back); report(claimed, 'submitted', { ...back, spoolerId: 'fixture-2' });
+    report(claimed, 'completed', { ...back, spoolerId: 'fixture-2' });
+    expect(queue.getOwnedPrintJob(1, null, job.id).state).toBe('completed');
+  });
+});
 
  describe('immutable PDF jobs and owner access', () => {
   it('publishes exact packet labels and local front/back page ranges to owner and station', async () => {

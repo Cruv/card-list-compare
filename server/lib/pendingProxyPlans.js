@@ -82,9 +82,14 @@ export async function syncPendingProxy(userId,id,manual=false) {
   try {
     const item = itemFor(userId,id);
     if (!plan.create_payload) {
-      const deck = item.deck_id && get('SELECT deck_name FROM tracked_decks WHERE id=?',[item.deck_id]);
+      // The job label is frozen with its print plan and also exists for standalone
+      // lists. Legacy jobs without a label retain the tracked-deck fallback.
+      const job = item.print_job_id && get('SELECT plan_json FROM print_jobs WHERE id=? AND user_id=?',[item.print_job_id,userId]);
+      const jobName = job && JSON.parse(job.plan_json).deckName;
+      const deck = !jobName && item.deck_id && get('SELECT deck_name FROM tracked_decks WHERE id=? AND user_id=?',[item.deck_id,userId]);
+      const label = typeof jobName === 'string' && jobName.trim() ? jobName : deck?.deck_name;
       const payload = JSON.stringify({ source:'clc',sourceRef:item.print_job_id,card:artworkCard(item,connection.account_id),quantity:item.quantity,
-        ...(deck?.deck_name ? {label:deck.deck_name.slice(0,200)} : {}) });
+        ...(label ? {label:Array.from(label).slice(0,200).join('')} : {}) });
       // Pin before the first upload or create request; an uncertain write cannot be redirected.
       run("UPDATE manasync_pending_proxy_plans SET create_payload=?,base_url=?,account_id=?,status='publishing' WHERE item_id=? AND create_payload IS NULL",
         [payload,connection.base_url,connection.account_id,id]);

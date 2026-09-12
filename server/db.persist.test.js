@@ -27,6 +27,43 @@ const transactionHelpers = {
   runTransaction: (db, statements) => db.runTransaction(statements),
 };
 
+describe('standalone print storage migration', () => {
+  it('preserves legacy job bytes, extension columns, indexes and events while allowing a null deck', async () => {
+    let db = await import('./db.js');
+    await db.initDb();
+    db.run('ALTER TABLE print_jobs ADD COLUMN proxy_staging_error TEXT');
+    db.run('ALTER TABLE print_jobs ADD COLUMN proxy_staging_next_attempt INTEGER NOT NULL DEFAULT 0');
+    db.run(`INSERT INTO print_jobs(id,user_id,tracked_deck_id,request_key,request_hash,plan_json,created_at,updated_at,proxy_staging_error,proxy_staging_next_attempt)
+      VALUES ('historical-print',1,42,'historical-key','request-hash','{"immutable":"original snapshot bytes"}','2026-01-01','2026-01-02','retry later',123)`);
+    db.run("INSERT INTO print_job_events VALUES ('historical-print','event','hash','{\"state\":\"completed\"}','2026-01-02')");
+    const original = db.get("SELECT sql FROM sqlite_master WHERE name='print_jobs'").sql;
+    db.runTransaction([
+      { sql: original.replace('CREATE TABLE print_jobs', 'CREATE TABLE legacy_print_jobs').replace('tracked_deck_id INTEGER,', 'tracked_deck_id INTEGER NOT NULL,') },
+      { sql: 'INSERT INTO legacy_print_jobs SELECT * FROM print_jobs' },
+      { sql: 'DROP TABLE print_jobs' },
+      { sql: 'ALTER TABLE legacy_print_jobs RENAME TO print_jobs' },
+      { sql: 'CREATE INDEX idx_print_jobs_custom ON print_jobs(proxy_staging_next_attempt)' },
+      { sql: "CREATE TRIGGER print_jobs_test_trigger AFTER UPDATE OF state ON print_jobs BEGIN INSERT OR REPLACE INTO server_settings(key,value) VALUES ('print-trigger',new.state); END" },
+    ]);
+    expect(db.all('PRAGMA table_info(print_jobs)').find(column => column.name === 'tracked_deck_id').notnull).toBe(1);
+    const previous = db.get("SELECT * FROM print_jobs WHERE id='historical-print'");
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.get("SELECT * FROM print_jobs WHERE id='historical-print'")).toEqual(previous);
+    expect(db.get('SELECT COUNT(*) AS count FROM print_job_events').count).toBe(1);
+    expect(db.all('PRAGMA table_info(print_jobs)').find(column => column.name === 'tracked_deck_id').notnull).toBe(0);
+    expect(db.all('PRAGMA index_list(print_jobs)').map(index => index.name)).toEqual(expect.arrayContaining(['idx_print_jobs_custom', 'idx_print_jobs_user_deck', 'idx_print_jobs_state']));
+    db.run("UPDATE print_jobs SET state='ready' WHERE id='historical-print'");
+    expect(db.get("SELECT value FROM server_settings WHERE key='print-trigger'").value).toBe('ready');
+    db.run("INSERT INTO print_jobs(id,user_id,tracked_deck_id,request_key,request_hash,plan_json,created_at,updated_at) VALUES ('standalone-print',1,NULL,'standalone-key','hash','{}','2026-01-03','2026-01-03')");
+    expect(db.get("SELECT tracked_deck_id FROM print_jobs WHERE id='standalone-print'").tracked_deck_id).toBeNull();
+    expect(() => db.run("INSERT INTO print_jobs(id,user_id,tracked_deck_id,request_key,request_hash,plan_json,created_at,updated_at) VALUES ('duplicate',1,NULL,'standalone-key','hash','{}','2026-01-03','2026-01-03')")).toThrow(/UNIQUE/);
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    expect(db.get('PRAGMA integrity_check').integrity_check).toBe('ok');
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.get('SELECT COUNT(*) AS count FROM print_jobs').count).toBe(2);
+  });
+});
+
 describe.each(Object.entries(transactionHelpers))('%s durable transactions', (_name, transact) => {
   it('enforces foreign keys throughout the transaction and rolls back all statements on failure', async () => {
     const db = await import('./db.js');

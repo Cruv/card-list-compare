@@ -15,7 +15,7 @@ import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
 import mpcRoutes from './routes/mpcautofill.js';
-import printRoutes from './routes/print.js';
+import printRoutes, { standalonePrintRouter } from './routes/print.js';
 import printStationRoutes from './routes/print-station.js';
 import integrationTokenRoutes from './routes/integrationTokens.js';
 import structuredDeckRoutes from './routes/structuredDecks.js';
@@ -95,6 +95,7 @@ app.use('/api/mpc', mpcRoutes);
 app.use('/api/print-station', printStationRoutes);
 app.use('/api/print-station-management', printStationManagementRoutes);
 app.use('/api/decks', printRoutes);
+app.use('/api/print-lists', standalonePrintRouter);
 app.use('/api/manasync', manasyncRouter);
 
 async function start() {

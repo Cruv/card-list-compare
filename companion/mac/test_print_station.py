@@ -165,6 +165,46 @@ class StationTests(unittest.TestCase):
         self.station.ledger.db.close()
         self.temp.cleanup()
 
+    def test_standalone_list_fronts_recover_with_no_deck_or_snapshot(self):
+        self.client.job.update(deckId=None, mode="adhoc", deckName="Friday proxy replacements", source=None, target=None,
+                               list={"name": "Friday proxy replacements", "textHash": "f" * 64})
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.station.ledger.db.close()
+        self.station = station.Station(self.config, self.client, self.cups)
+        self.cups.history[0]["state"] = 9
+        self.station.poll_once()
+        self.assertEqual(self.station.poll_once(), "completed")
+        self.station.poll_once()
+        self.assertEqual(len(self.cups.submissions), 1)
+        saved = json.loads(self.station.ledger.db.execute("SELECT payload FROM jobs WHERE id='job1'").fetchone()[0])
+        self.assertIsNone(saved["deckId"])
+        self.assertIsNone(saved["source"])
+        self.assertIsNone(saved["target"])
+        self.assertEqual(saved["mode"], "adhoc")
+
+    def test_standalone_dfc_keeps_manual_refeed_and_batch_alert_identity(self):
+        self.client.job = packet_job(1)
+        self.client.job["artifacts"] = self.client.job["artifacts"][1:]
+        self.client.job["steps"] = self.client.job["steps"][1:]
+        self.client.job.update(deckId=None, mode="adhoc", deckName="Friday proxy replacements", source=None, target=None,
+                               list={"name": "Friday proxy replacements", "textHash": "f" * 64})
+        runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0))
+        self.config["refeed_notifications"] = True
+        self.station.alerts = station.RefeedAlerts(self.station.ledger, self.config, runner=runner)
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.cups.history[0]["state"] = 9
+        self.station.poll_once()
+        self.assertEqual(self.station.poll_once(), "awaiting_refeed")
+        self.assertEqual(len(self.cups.submissions), 1)
+        runner.assert_called_once()
+        self.assertIn("Friday proxy replacements", runner.call_args.args[0][3])
+        self.assertIn("Batch 1/1", runner.call_args.args[0][3])
+        self.station.resume("job1")
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-2")
+        self.assertEqual([entry[:2] for entry in self.cups.submissions], [
+            ("double-faced-001", "fronts"), ("double-faced-001", "backs")])
+        self.assertTrue(any(event["state"] == "refeed" for event in self.client.events))
+
     def test_unverified_station_does_not_claim_without_explicit_boolean_test_mode(self):
         self.config.update(recipe_verified=False, duplex_verified=False)
         for value in (None, False, "true", 1):

@@ -125,6 +125,12 @@ decks or act as a JWT. Use a separate random value of at least 32 characters, pr
 Mac token file, and rotate it on both ends together. Keep the station API behind HTTPS or
 a trusted local network; do not place the token in URLs or source control.
 
+Standalone `/api/print-lists` routes require the same authenticated session and household
+queue grant as tracked-deck printing. Jobs with no deck are isolated by owner and null deck
+scope; they cannot be accessed through another user's job ID or a tracked-deck route.
+Standalone lists accept card text and a bounded label, not image URLs, commands or printer
+settings. Their drafts remain in account-scoped browser storage; frozen jobs remain private.
+
 Print manifests freeze input text, artwork and file hashes. Source images are size-limited
 and decoded before generation. Upstream code is fetched from the fixed Silhouette repository,
 installed as the unprivileged service user, and activated only after validation. Generation

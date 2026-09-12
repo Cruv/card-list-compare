@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations } from '../lib/api';
-import PrintPlanOwnership from './PrintPlanOwnership';
-import PrintPlanArtwork from './PrintPlanArtwork';
+import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
+  getStandalonePrintJobs, previewStandalonePrintJob, createStandalonePrintJob, queueStandalonePrintJob, cancelStandalonePrintJob, expireStandalonePrintArtifacts } from '../lib/api';
+import DeckInput from './DeckInput';
+import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
-import { loadPrintCreationIntent, printReviewReady, rejectedPrintCreation } from '../lib/printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, printReviewReady, rejectedPrintCreation } from '../lib/printReview';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -59,17 +60,28 @@ function requestId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export default function PrintPanel({ deck, snapshots }) {
+export default function PrintPanel({ deck, snapshots = [], standalone = false }) {
   const { user } = useAuth();
-  const requestStorageKey = `clc-print-job-request:${user.id}:${deck.id}`;
+  const deckId = deck?.id;
+  const requestStorageKey = `clc-print-job-request:${user.id}:${standalone ? 'adhoc' : deckId}`;
+  const draftStorageKey = `clc-print-list-draft:${user.id}`;
   const [storedRequest] = useState(() => loadPrintCreationIntent(localStorage, requestStorageKey));
-  const [mode, setMode] = useState(deck.paper_snapshot_id ? 'changes' : 'full');
+  const [storedDraft] = useState(() => standalone ? loadStandalonePrintDraft(localStorage, draftStorageKey) : null);
+  const [listName, setListName] = useState(storedRequest?.listName ?? storedDraft?.listName ?? '');
+  const [cardText, setCardText] = useState(storedRequest?.cardText ?? storedDraft?.cardText ?? '');
+  const [draftError, setDraftError] = useState('');
+  const [mode, setMode] = useState(standalone ? 'adhoc' : deck.paper_snapshot_id ? 'changes' : 'full');
   const [target, setTarget] = useState('latest');
-  const [baseline, setBaseline] = useState(String(deck.paper_snapshot_id || snapshots[1]?.id || ''));
+  const [baseline, setBaseline] = useState(String(deck?.paper_snapshot_id || snapshots[1]?.id || ''));
   const [artSource, setArtSource] = useState('scryfall');
-  const [includeSideboard, setIncludeSideboard] = useState(false);
-  const [replacePrintings, setReplacePrintings] = useState(true);
+  const [includeSideboard, setIncludeSideboard] = useState(standalone ? storedRequest?.includeSideboard ?? storedDraft?.includeSideboard ?? false : false);
+  const [replacePrintings, setReplacePrintings] = useState(false);
+  const [excludeBasicLands, setExcludeBasicLands] = useState(storedRequest ? storedRequest.excludeBasicLands ?? false : storedDraft?.excludeBasicLands ?? true);
+  const [additionalCardText, setAdditionalCardText] = useState(storedRequest?.additionalCardText ?? storedDraft?.additionalCardText ?? '');
+  const [excludedCards, setExcludedCards] = useState(storedRequest?.excludedCards ?? storedDraft?.excludedCards ?? []);
+  const [removedCards, setRemovedCards] = useState(storedDraft?.removedCards ?? []);
   const [plan, setPlan] = useState(null);
+  const [reviewDirty, setReviewDirty] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [confirmationItems, setConfirmationItems] = useState([]);
   const [capabilities, setCapabilities] = useState({});
@@ -89,12 +101,20 @@ export default function PrintPanel({ deck, snapshots }) {
   const pendingAction = pendingRequest?.queueOnReady ?? null;
 
   useEffect(() => {
+    if (!standalone) return;
+    try {
+      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards }));
+      setDraftError('');
+    } catch { setDraftError('This browser could not save your draft. Keep a copy of your card list before leaving this page.'); }
+  }, [standalone, draftStorageKey, listName, cardText, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards]);
+
+  useEffect(() => {
     let active = true;
     let timer;
     let pollCount = 0;
     async function poll() {
       try {
-        const [data, queue] = await Promise.all([getPrintJobs(deck.id),pollCount++ % 4 === 0 ? getPrintQueue(deck.id) : null]);
+        const [data, queue] = await Promise.all([standalone ? getStandalonePrintJobs() : getPrintJobs(deckId),pollCount++ % 4 === 0 ? getPrintQueue(deckId) : null]);
         if (!active) return;
         setJobs(data.jobs);
         if (queue) setConfirmationItems(queue.items);
@@ -116,17 +136,35 @@ export default function PrintPanel({ deck, snapshots }) {
     }
     poll();
     return () => { active = false; clearTimeout(timer); };
-  }, [deck.id]);
+  }, [deckId, standalone]);
 
-  function change(setter, value) {
+  function change(setter, value, keepReview = false) {
     if (requestRef.current) return;
     revisionRef.current += 1;
     setter(value);
-    setPlan(null);
+    setReviewDirty(true);
+    if (!keepReview) setPlan(null);
+    if (!keepReview) {
+      setExcludedCards([]);
+      setRemovedCards([]);
+    }
     setError('');
     setNotice('');
     requestRef.current = null;
     setPendingRequest(null);
+  }
+
+  function removeCard(card) {
+    if (requestRef.current || !card.selectionKey) return;
+    change(setExcludedCards, [...new Set([...excludedCards, card.selectionKey])], true);
+    setRemovedCards(previous => previous.some(item => item.key === card.selectionKey) ? previous
+      : [...previous, { key: card.selectionKey, name: card.displayName, quantity: card.baseQuantity ?? card.quantity }]);
+  }
+
+  function restoreCard(key) {
+    if (requestRef.current) return;
+    change(setExcludedCards, excludedCards.filter(item => item !== key), true);
+    setRemovedCards(previous => previous.filter(item => item.key !== key));
   }
 
   async function preview(event) {
@@ -135,16 +173,20 @@ export default function PrintPanel({ deck, snapshots }) {
     setBusy(true);
     setError('');
     setNotice('');
-    setPlan(null);
     const revision = revisionRef.current;
     try {
-      const data = await previewPrintPlan(deck.id, {
+      const data = standalone ? await previewStandalonePrintJob({
+        mode: 'adhoc', listName, cardText, artSource: 'scryfall', includeSideboard, replacePrintings: false,
+        excludeBasicLands, additionalCardText, excludedCards,
+      }) : await previewPrintPlan(deckId, {
         mode, targetSnapshotId: target === 'latest' ? undefined : Number(target),
         baselineSnapshotId: mode === 'changes' ? Number(baseline) : undefined,
-        artSource, includeSideboard, replacePrintings,
+        artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards,
       });
       if (revision !== revisionRef.current) return;
       setPlan(data.plan);
+      setRemovedCards((data.plan.removedCards || []).map(card => ({ key: card.selectionKey, name: card.displayName, quantity: card.quantity })));
+      setReviewDirty(false);
       setCapabilities(data.capabilities);
       setGenerator(data.generator);
       requestRef.current = null;
@@ -155,7 +197,7 @@ export default function PrintPanel({ deck, snapshots }) {
   }
 
   async function generate(queueOnReady) {
-    if (!requestRef.current && !printReviewReady(plan)) return;
+    if (!requestRef.current && (reviewDirty || !printReviewReady(plan))) return;
     setBusy(true);
     setError('');
     try {
@@ -168,9 +210,13 @@ export default function PrintPanel({ deck, snapshots }) {
         }
       }
       if (!requestRef.current) {
-        const request = {
+        const request = standalone ? {
+          mode: 'adhoc', listName, cardText, artSource: 'scryfall', includeSideboard, replacePrintings: false,
+          excludeBasicLands, additionalCardText, excludedCards,
+          expectedPlanHash: plan.planHash, queueOnReady, idempotencyKey: requestId(),
+        } : {
           mode, targetSnapshotId: plan.target.id, baselineSnapshotId: plan.source?.id,
-          artSource, includeSideboard, replacePrintings, expectedPlanHash: plan.planHash,
+          artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, expectedPlanHash: plan.planHash,
           queueOnReady, idempotencyKey: requestId(),
         };
         // Save before POST: a reload or lost response must recover this exact
@@ -181,7 +227,7 @@ export default function PrintPanel({ deck, snapshots }) {
         setPendingRequest(request);
       }
       const submitted = requestRef.current;
-      const data = await createPrintJob(deck.id, submitted);
+      const data = standalone ? await createStandalonePrintJob(submitted) : await createPrintJob(deckId, submitted);
       setJobs(old => [data.job, ...old.filter(job => job.id !== data.job.id)]);
       setPlan(null);
       try { localStorage.removeItem(requestStorageKey); } catch { /* A retained key safely replays the known batch after reload. */ }
@@ -193,6 +239,7 @@ export default function PrintPanel({ deck, snapshots }) {
         try { localStorage.removeItem(requestStorageKey); } catch { /* A retry remains the same rejected request. */ }
         requestRef.current = null;
         setPendingRequest(null);
+        setReviewDirty(true);
       }
       setError(err.message);
     }
@@ -203,7 +250,7 @@ export default function PrintPanel({ deck, snapshots }) {
     setBusy(true);
     setError('');
     try {
-      const result = await action(deck.id, job.id);
+      const result = standalone ? await action(job.id) : await action(deckId, job.id);
       setJobs(old => old.map(item => item.id === job.id ? result.job : item));
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -213,13 +260,14 @@ export default function PrintPanel({ deck, snapshots }) {
     setError('');
     try {
       const name = artifact.packetIndex && artifact.packetCount ? `double-faced-packet-${artifact.packetIndex}-of-${artifact.packetCount}` : artifact.id;
-      await downloadPrintArtifact(artifact.downloadUrl, `${deck.deck_name}-${job.id.slice(0, 8)}-${name}.pdf`);
+      await downloadPrintArtifact(artifact.downloadUrl, `${job.deckName || deck?.deck_name || 'Print-list'}-${job.id.slice(0, 8)}-${name}.pdf`);
     } catch (err) { setError(err.message); }
   }
 
   async function downloadManifest(job) {
     try {
-      await downloadPrintArtifact(`/api/decks/${deck.id}/print-jobs/${job.id}/manifest`, `clc-${job.id}-manifest.json`);
+      const path = standalone ? `/api/print-lists/jobs/${job.id}/manifest` : `/api/decks/${deckId}/print-jobs/${job.id}/manifest`;
+      await downloadPrintArtifact(path, `clc-${job.id}-manifest.json`);
     } catch (err) { setError(err.message); }
   }
 
@@ -241,9 +289,18 @@ export default function PrintPanel({ deck, snapshots }) {
   return (
     <div className="print-panel">
       <form className="print-panel-card" onSubmit={preview}>
-        <h3>Prepare cards for your next game</h3>
-        <p>Print a whole snapshot or just the copies needed since another version. Ordinary fronts stay together. New double-faced packets each use one separate sheet, with a pause to match, flip and reload that sheet before its back prints.</p>
-        <div className="print-panel-fields">
+        <h3>{standalone ? 'Make a print list' : 'Prepare cards for your next game'}</h3>
+        <p>{standalone ? 'Paste card names and quantities, upload a list, or import a supported deck URL. This creates an independent print batch.' : 'Print a whole snapshot or just the copies needed since another version.'} Ordinary fronts stay together. New double-faced packets each use one separate sheet, with a pause to match, flip and reload that sheet before its back prints.</p>
+        {standalone ? <fieldset className="print-list-inputs" disabled={busy || creationPending}>
+          <label className="print-list-name">List name <span className="print-panel-meta">Optional · helps identify your PDFs and paper packets</span>
+            <input type="text" value={listName} maxLength={120} placeholder="For example, Friday extras" onChange={event => change(setListName, event.target.value, true)} />
+          </label>
+          <DeckInput label="Cards to print" value={cardText} onChange={value => change(setCardText, value)} />
+          <p className="print-panel-meta">Use one card per line, such as <code>2 Lightning Bolt</code>. Set and collector details, such as <code>1 Sol Ring (CMM) 410</code>, select that printing. Artwork comes from Scryfall. Up to 250 copies per batch.</p>
+          <p className="print-panel-meta">Your draft stays in this browser for your account. Generated batches are saved below.</p>
+          {cardText.length > 100000 && <p role="alert">This list is too large. Use fewer than 100,000 characters.</p>}
+          {draftError && <p role="status">{draftError}</p>}
+        </fieldset> : <div className="print-panel-fields">
           <label>What to print
             <select value={mode} disabled={busy || creationPending} onChange={e => change(setMode, e.target.value)}>
               <option value="full">Whole snapshot</option><option value="changes">Changes between snapshots</option>
@@ -262,17 +319,25 @@ export default function PrintPanel({ deck, snapshots }) {
             </select>
           </label>}
           <label>Artwork
-            <select value={artSource} disabled={busy || creationPending} onChange={e => change(setArtSource, e.target.value)}>
+            <select value={artSource} disabled={busy || creationPending} onChange={e => change(setArtSource, e.target.value, true)}>
               <option value="scryfall">Scryfall — snapshot printings</option>
               <option value="saved-mpc">Saved MPC artwork</option>
             </select>
           </label>
-        </div>
-        <label className="print-panel-check"><input type="checkbox" checked={includeSideboard} disabled={busy || creationPending} onChange={e => change(setIncludeSideboard, e.target.checked)} />Include sideboard</label>
-        {mode === 'changes' && <label className="print-panel-check"><input type="checkbox" checked={replacePrintings} disabled={busy || creationPending} onChange={e => change(setReplacePrintings, e.target.checked)} />Replace copies when the set or printing changes</label>}
+        </div>}
+        <label className="print-panel-check"><input type="checkbox" checked={includeSideboard} disabled={busy || creationPending} onChange={e => change(setIncludeSideboard, e.target.checked, true)} />Include sideboard</label>
+        <label className="print-panel-check"><input type="checkbox" checked={excludeBasicLands} disabled={busy || creationPending} onChange={e => change(setExcludeBasicLands, e.target.checked, true)} />Exclude basic lands</label>
+        {mode === 'changes' && <label className="print-panel-check"><input type="checkbox" checked={replacePrintings} disabled={busy || creationPending} onChange={e => change(setReplacePrintings, e.target.checked, true)} />Replace copies when the set or printing changes</label>}
+        <label className="print-list-name print-list-extras">Add extra cards <span className="print-panel-meta">Optional · added to this batch without changing your {standalone ? 'base list' : 'deck or snapshots'}</span>
+          <textarea aria-label="Extra cards to print" value={additionalCardText} maxLength={100000} rows={4} placeholder={'1 Lightning Bolt\n2 Sol Ring'} disabled={busy || creationPending} onChange={event => change(setAdditionalCardText, event.target.value, true)} />
+        </label>
+        <p className="print-panel-meta">Extra lines add copies to the suggested list. Edit those lines to change or remove extra copies. Basic-land and sideboard options also apply to extras.</p>
+        {removedCards.length > 0 && <section className="print-list-removed" aria-label="Removed cards">
+          <h4>Removed from this batch</h4><ul>{removedCards.map(card => <li key={card.key}><span>{card.quantity}× {card.name}</span><button type="button" className="btn btn-secondary btn-sm" disabled={busy || creationPending} onClick={() => restoreCard(card.key)}>Include again</button></li>)}</ul>
+        </section>}
         <p className="print-panel-meta">Review the selected front and back artwork, then check whether you own an original in ManaSync. One original in any printing covers unlimited proxies; the shopping list offers one original only for cards you do not own or have incoming. Buying selections never change print quantities. When the PDFs are ready, the batch and its artwork appear in ManaSync&rsquo;s Proxy binder under Pending prints. After printing, confirm usable copies in either app or dismiss failed copies. Foil-only changes do not need a new proxy.</p>
-        {artSource === 'saved-mpc' && <p className="print-panel-meta">Save your selections in Proxy Printing first. Every required face must have saved art; missing choices stop the batch.</p>}
-        <button className="btn btn-primary" type="submit" disabled={busy || creationPending || !snapshots.length || (mode === 'changes' && !baseline)}>{busy ? 'Working…' : 'Review print list'}</button>
+        {artSource === 'saved-mpc' && <p className="print-panel-meta">Save your selections in Proxy Printing first. Every required face, including extra cards, must have saved art; missing choices stop the batch. Switch Artwork to Scryfall to use its printings for the whole batch.</p>}
+        <button className="btn btn-primary" type="submit" disabled={busy || creationPending || (standalone ? !cardText.trim() || cardText.length > 100000 : !snapshots.length) || (mode === 'changes' && !baseline)}>{busy ? 'Working…' : 'Review print list'}</button>
       </form>
 
       {error && <div className="print-panel-error" role="alert">{error}</div>}
@@ -280,7 +345,7 @@ export default function PrintPanel({ deck, snapshots }) {
       {notice && <p role="status">{notice}</p>}
       {creationPending && <section className="print-panel-confirmation" aria-label="Recover print batch request">
         <strong>{busy ? 'Creating your batch…' : 'The batch creation result is not confirmed.'}</strong>
-        <p>{pendingRequest?.mode === 'changes' ? 'Changes ending at' : 'Whole'} snapshot #{pendingRequest?.targetSnapshotId} · {pendingAction ? 'Generate and send to Mac' : 'Generate PDFs only'}. Settings stay locked until this request is resolved, including after a page reload.</p>
+        <p>{pendingRequest?.mode === 'adhoc' ? pendingRequest.listName.trim() || 'Ad hoc print list' : <>{pendingRequest?.mode === 'changes' ? 'Changes ending at' : 'Whole'} snapshot #{pendingRequest?.targetSnapshotId}</>} · {pendingAction ? 'Generate and send to Mac' : 'Generate PDFs only'}. Settings stay locked until this request is resolved, including after a page reload.</p>
         <p>Retrying uses the same saved request and cannot create a second copy of that batch.</p>
         <button className="btn btn-primary" type="button" disabled={busy} onClick={() => generate(pendingAction)}>Retry same batch request</button>
       </section>}
@@ -288,14 +353,15 @@ export default function PrintPanel({ deck, snapshots }) {
 
       {plan && <section className="print-panel-card" aria-label="Print list review">
         <h3>{plan.totalCopies} {plan.totalCopies === 1 ? 'card' : 'cards'} to prepare</h3>
-        <p>{plan.source ? `Snapshot #${plan.source.id} → ` : ''}Snapshot #{plan.target.id}{plan.includeSideboard ? ' · Mainboard and sideboard' : ' · Mainboard'}</p>
+        {reviewDirty && <div className="print-panel-confirmation" role="status"><strong>Your print list has changed.</strong><p>The artwork and counts below are from the previous review. Review the updated list before generating PDFs.</p><button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>Review updated list</button></div>}
+        <p>{standalone ? plan.list?.name || plan.deckName : <>{plan.source ? `Snapshot #${plan.source.id} → ` : ''}Snapshot #{plan.target.id}</>}{plan.includeSideboard ? ' · Mainboard and sideboard' : ' · Mainboard'}</p>
         <p className="print-panel-meta">Letter · v6 · 600 PPI · 1 mm crop · 7 cards per sheet.</p>
-        {plan.totalCopies > 0 && <PrintPlanArtwork key={plan.planHash} plan={plan} />}
-        {plan.totalCopies > 0 && <PrintPlanOwnership key={plan.planHash} plan={plan} />}
+        {!!plan.excludedBasicLands?.length && <p className="print-panel-meta">{plan.excludedBasicLands.reduce((sum, card) => sum + card.quantity, 0)} basic-land copies excluded. Uncheck &ldquo;Exclude basic lands&rdquo; and review again to include them.</p>}
+        {plan.totalCopies > 0 && <PrintListReview key={plan.planHash} plan={plan} onRemove={removeCard} excludedCards={excludedCards} disabled={busy || creationPending} shoppingDisabled={reviewDirty} />}
         {plan.missingArtwork?.length > 0 && <div className="print-panel-error" role="alert">Save artwork for these cards before generating:{'\n'}{plan.missingArtwork.map(card => `${card.quantity}× ${card.displayName} (${card.face})`).join('\n')}</div>}
-        {plan.totalCopies === 0 ? <p>There are no new copies to print for these options.</p> : <div className="print-panel-actions">
-          <button className="btn btn-primary" disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>
-          {capabilities.canQueue && <button className="btn btn-secondary" disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate and send to Mac</button>}
+        {plan.totalCopies === 0 ? <p>No copies remain in this selection. Include removed cards again, add extra cards, or change the basic-land and sideboard options.</p> : <div className="print-panel-actions">
+          <button className="btn btn-primary" disabled={busy || reviewDirty || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>
+          {capabilities.canQueue && <button className="btn btn-secondary" disabled={busy || reviewDirty || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate and send to Mac</button>}
         </div>}
       </section>}
 
@@ -312,27 +378,27 @@ export default function PrintPanel({ deck, snapshots }) {
         <h3>Print batches</h3>
         {jobs.length === 0 && <p>Your prepared batches will appear here, with PDFs and print status.</p>}
         {jobs.map(job => <article className="print-panel-card" key={job.id}>
-          <div className="print-panel-heading"><h4>{job.totalCopies} cards · {job.mode === 'changes' ? 'Changes' : 'Whole snapshot'}</h4><span className="print-panel-status">{STATES[job.state] || job.state}</span></div>
+          <div className="print-panel-heading"><h4>{job.totalCopies} cards · {job.mode === 'adhoc' ? job.deckName : job.mode === 'changes' ? 'Changes' : 'Whole snapshot'}</h4><span className="print-panel-status">{STATES[job.state] || job.state}</span></div>
           <p className="print-panel-meta">Batch {job.id.slice(0, 8)} · {new Date(job.createdAt).toLocaleString()}</p>
-          <p className="print-panel-meta">{job.source ? `Snapshot #${job.source.id} → ` : ''}Snapshot #{job.target?.id} · {job.artSource === 'saved-mpc' ? 'Saved MPC artwork' : 'Scryfall printings'}{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets generated` : ''}</p>
+          <p className="print-panel-meta">{job.mode === 'adhoc' ? 'Independent print list' : <>{job.source ? `Snapshot #${job.source.id} → ` : ''}Snapshot #{job.target?.id}</>} · {job.artSource === 'saved-mpc' ? 'Saved MPC artwork' : 'Scryfall printings'}{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets generated` : ''}</p>
           {job.error && <div className="print-panel-error" role="alert">{job.error}</div>}
           {job.proxyStagingError && <p className="print-panel-error" role="alert">Pending proxy review: {job.proxyStagingError}</p>}
           <WaitingPrintPacket job={job} />
           {job.state === 'uncertain' && <p>The Mac needs to reconcile this batch with Epson’s queue. Check the companion before creating another batch.</p>}
-          {job.state === 'completed' && <p className="print-panel-meta">The spooler reports completion. Check the sheets before laminating; update your paper-deck marker after assembly.</p>}
+          {job.state === 'completed' && <p className="print-panel-meta">The spooler reports completion. Check the sheets before laminating{standalone ? '.' : '; update your paper-deck marker after assembly.'}</p>}
           <div className="print-panel-actions">
             {(job.artifacts || []).filter(a => a.downloadUrl).map(artifact => <button className="btn btn-secondary btn-sm" type="button" key={artifact.id} title={artifact.label || undefined} onClick={() => download(artifact, job)}>Download {artifactName(artifact)} PDF{artifact.sheetCount ? ` · ${artifact.sheetCount} ${artifact.sheetCount === 1 ? 'sheet' : 'sheets'}` : ''}{artifact.kind === 'dfc' ? ' · fronts + backs' : ''}</button>)}
-            {job.state === 'ready' && capabilities.canQueue && <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => jobAction(queuePrintJob, job)}>Send to Mac</button>}
-            {CANCELABLE.has(job.state) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(cancelPrintJob, job)}>Cancel batch</button>}
+            {job.state === 'ready' && capabilities.canQueue && <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => jobAction(standalone ? queueStandalonePrintJob : queuePrintJob, job)}>Send to Mac</button>}
+            {CANCELABLE.has(job.state) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(standalone ? cancelStandalonePrintJob : cancelPrintJob, job)}>Cancel batch</button>}
             {job.manifestSha256 && <button className="btn btn-secondary btn-sm" type="button" onClick={() => downloadManifest(job)}>Download batch details</button>}
             {job.manifestSha256 && <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => recordPrintedProxies(job)}>View proxy confirmation</button>}
-            {['ready', 'completed', 'failed', 'canceled'].includes(job.state) && job.artifacts?.length > 0 && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(expirePrintArtifacts, job)}>Remove PDFs</button>}
+            {['ready', 'completed', 'failed', 'canceled'].includes(job.state) && job.artifacts?.length > 0 && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(standalone ? expireStandalonePrintArtifacts : expirePrintArtifacts, job)}>Remove PDFs</button>}
           </div>
           {job.manifestSha256 && <ProxyConfirmationStatus items={confirmationItems.filter(item => item.printJobId === job.id)} />}
           {recordError?.jobId === job.id && <p className="print-panel-error" role="alert">{recordError.message}</p>}
           {recordingJobId === job.id && <section className="mana-sync" aria-label={`Printed proxies for batch ${job.id}`}>
             <p>This is the same pending batch shown in ManaSync&rsquo;s Proxy binder. A quantity confirmed or dismissed in either app updates both. Its saved artwork stays attached to the copies you keep.</p>
-            <PrintQueue key={job.id} deckId={deck.id} printJobId={job.id} />
+            <PrintQueue key={job.id} deckId={deckId} printJobId={job.id} />
             <button className="btn btn-secondary btn-sm" type="button" onClick={() => setRecordingJobId(null)}>Close proxy confirmation</button>
           </section>}
           {job.state === 'ready' && <p className="print-panel-meta">PDFs are kept for seven days. Removing PDFs keeps the batch record; create a new batch to generate them again.</p>}

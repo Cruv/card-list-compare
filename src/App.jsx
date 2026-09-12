@@ -14,6 +14,7 @@ const DeckPage = lazy(() => import('./components/DeckPage'));
 const SharedDeckView = lazy(() => import('./components/SharedDeckView'));
 const GuidePage = lazy(() => import('./components/GuidePage'));
 const PrintStationPage = lazy(() => import('./components/PrintStationPage'));
+const PrintListPage = lazy(() => import('./components/PrintListPage'));
 import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
@@ -25,9 +26,11 @@ import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
 import './App.css';
 
-const APP_VERSION = '2.49.1';
+const APP_VERSION = '2.50.0';
 const WHATS_NEW = [
-  'Import DeckCheck builder and shared deck links correctly',
+  'Create standalone print lists without tracking a deck',
+  'Remove cards, add extras and exclude basic lands from print orders',
+  'Filter artwork by sides or ownership and send missing cards to Mana Pool',
 ];
 
 function getResetToken() {
@@ -47,6 +50,7 @@ const AUTH_ROUTES = {
   libraryDeck: 'This deck',
   admin: 'The admin panel',
   printStation: 'The print station',
+  printList: 'Print lists',
 };
 
 export default function App() {
@@ -280,6 +284,16 @@ export default function App() {
       <ErrorBoundary>
         <Suspense fallback={<div className="app-loading">Loading...</div>}>
           <UserSettings />
+        </Suspense>
+      </ErrorBoundary>
+    );
+  }
+
+  if (route === 'printList' && user) {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<div className="app-loading">Loading...</div>}>
+          <PrintListPage key={user.id} />
         </Suspense>
       </ErrorBoundary>
     );

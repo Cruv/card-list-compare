@@ -17,7 +17,7 @@ function ArtworkFace({ cardName, face }) {
   </figure>;
 }
 
-export default function PrintPlanArtwork({ plan }) {
+export default function PrintPlanArtwork({ plan, onRemove, excludedCards = [], disabled = false, visibleIndexes, ownershipRows }) {
   const summary = printReviewSummary(plan);
   const rows = Array.isArray(plan.resolvedCards) && plan.resolvedCards.length === plan.cards.length
     ? plan.resolvedCards : plan.cards.map(card => ({ ...card, isDFC: null, errors: ['Review the print list again to resolve its artwork.'], faces: [] }));
@@ -33,11 +33,14 @@ export default function PrintPlanArtwork({ plan }) {
       {summary.doubleFaced > 0 && <p>Double-sided cards use {summary.packets} separate {summary.packets === 1 ? 'packet' : 'packets'}, one sheet each. Each packet prints its fronts, waits for you to match, flip and reload that sheet, then prints its backs. Unused slots stay empty.</p>}
     </> : <p role="status">Sheet and packet counts are not confirmed until every card’s faces are resolved.</p>}
     <p className="print-panel-meta">These thumbnails show the selected artwork before PDF generation. Open a face to enlarge it. The PDF applies the household crop and page layout; inspect it before printing.</p>
-    <ul className="print-review-cards">{rows.map((card, index) => <li className="print-review-card" key={`${index}:${card.scryfallId || card.displayName}`}>
+    <ul className="print-review-cards">{(visibleIndexes ?? rows.map((_, index) => index)).map(index => { const card = rows[index], ownership = ownershipRows?.[index]?.ownership; return <li className="print-review-card" key={`${index}:${card.scryfallId || card.displayName}`}>
       <div className="print-panel-heading"><h4>{card.quantity}× {card.displayName}</h4><span className={`print-panel-status${card.isDFC ? ' print-review-dfc' : ''}`}>{card.isDFC === true ? 'Double-sided' : card.isDFC === false ? 'Single-sided' : 'Faces unresolved'}</span></div>
-      <p className="print-panel-meta">{card.setCode ? `${card.setCode.toUpperCase()} ${card.collectorNumber || ''}` : 'Printing unresolved'} · {plan.artSource === 'saved-mpc' ? 'Saved MPC artwork' : 'Scryfall snapshot printing'}</p>
+      <p className="print-panel-meta">{card.setCode ? `${card.setCode.toUpperCase()} ${card.collectorNumber || ''}` : 'Printing unresolved'} · {plan.artSource === 'saved-mpc' ? 'Saved MPC artwork' : 'Scryfall printing'}</p>
+      {ownershipRows && <p className="print-panel-meta">{!ownership ? 'Ownership unknown' : !ownership.hasOriginal ? 'No original owned' : ownership.incomingOnly ? 'Original incoming' : 'Original owned'}</p>}
+      {card.additionalQuantity > 0 && <p className="print-panel-meta">{card.additionalQuantity} {card.additionalQuantity === 1 ? 'copy added' : 'copies added'} in Extra cards. Edit those lines to change them.</p>}
+      {onRemove && card.selectionKey && card.baseQuantity > 0 && <button type="button" className="btn btn-secondary btn-sm" disabled={disabled || excludedCards.includes(card.selectionKey)} onClick={() => onRemove(card)}>{excludedCards.includes(card.selectionKey) ? 'Removed · review to apply' : `Remove ${card.baseQuantity} suggested ${card.baseQuantity === 1 ? 'copy' : 'copies'}`}</button>}
       {!!card.errors?.length && <p className="print-panel-error" role="alert">{card.errors.join('\n')}</p>}
       <div className="print-review-faces">{(card.faces || []).map(face => <ArtworkFace key={`${face.face}:${face.identifier || face.status}`} cardName={card.displayName} face={face} />)}</div>
-    </li>)}</ul>
+    </li>; })}</ul>
   </section>;
 }

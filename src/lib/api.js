@@ -500,9 +500,21 @@ export const cancelPrintJob = (deckId, jobId) =>
 export const expirePrintArtifacts = (deckId, jobId) =>
   apiFetch(`/decks/${deckId}/print-jobs/${jobId}/artifacts`, { method: 'DELETE' });
 
+export const previewStandalonePrintJob = options =>
+  apiFetch('/print-lists/plan', { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
+export const createStandalonePrintJob = options =>
+  apiFetch('/print-lists/jobs', { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
+export const getStandalonePrintJobs = () => apiFetch('/print-lists/jobs');
+export const queueStandalonePrintJob = jobId =>
+  apiFetch(`/print-lists/jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
+export const cancelStandalonePrintJob = jobId =>
+  apiFetch(`/print-lists/jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
+export const expireStandalonePrintArtifacts = jobId =>
+  apiFetch(`/print-lists/jobs/${jobId}/artifacts`, { method: 'DELETE' });
+
 export async function downloadPrintArtifact(downloadUrl, filename) {
   // URLs come from the authenticated job response, and must stay on this origin.
-  if (!/^\/api\/decks\/\d+\/print-jobs\/[a-zA-Z0-9-]+\//.test(downloadUrl)) {
+  if (!/^\/api\/(?:decks\/\d+\/print-jobs|print-lists\/jobs)\/[a-zA-Z0-9-]+\/(?:manifest|artifacts\/[a-zA-Z0-9_-]+)$/.test(downloadUrl)) {
     throw new Error('Invalid PDF download address');
   }
   const token = getToken();

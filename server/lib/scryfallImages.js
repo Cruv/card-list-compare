@@ -143,6 +143,7 @@ export async function fetchCardImageUrls(cards, { allowIncomplete = false, signa
           entry.scryfallId = card.id;
           entry.oracleId = card.oracle_id || null;
           entry.layout = card.layout || null;
+          entry.typeLine = card.type_line || null;
           entry.faceNames = card.card_faces?.map(face => face.name) || [card.name];
           entry.isDFC = !card.image_uris && (card.card_faces?.length || 0) >= 2;
           entry.imageUrls = entry.isDFC

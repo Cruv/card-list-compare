@@ -97,6 +97,9 @@ export default function AuthBar({ onShowForgotPassword }) {
         <button className="auth-bar-btn" onClick={() => { window.location.hash = '#print-station'; }} type="button" title="Household Print Station">
           Print Station
         </button>
+        <button className="auth-bar-btn" onClick={() => { window.location.hash = '#print-list'; }} type="button" title="Create a standalone print list">
+          Print List
+        </button>
         <button className="auth-bar-btn" onClick={() => { window.location.hash = '#settings'; }} type="button" title="Account Settings">
           Settings
         </button>
