@@ -178,27 +178,29 @@ project, publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistc
 at `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The repository's
 `./data` is not the household deployment path.
 
-The deployed server is **v2.53.2**, source `0851393`, local image
-`clc-household:2.53.2-0851393` with image ID
-`sha256:c667b207b10c852406ace2733b5941e27c92fc1b3af9ae4fffd8aad2fdd0fa61`.
+The deployed server is **v2.53.3**, source `61ebf30`, local image
+`clc-household:2.53.3-61ebf30` with image ID
+`sha256:b1db537c5028256cae873b312d821c098838c5d18969e6e0b70782ec76b157d7`.
 Source changes after this checkpoint are not a deployment claim. Private configuration is
 in `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and `runtime.env`.
 It preserves the container name, external `mtg_default` network, UID/GID, timezone, signing
 secret and data mount. `pull_policy: never` selects the local image; Watchtower is disabled
 for CLC. The registry's `latest` does not contain this feature branch. Do not prune its image.
 
-Deployment preserved all six print jobs and their immutable plans/manifests, including
-Rendmaw in Epson and the replacement 100-copy Jin Sakai batch waiting in CLC. All 38
-frontend files match the image through localhost and the household HTTPS origin.
-The preceding signed-in browser check verified all six household batches, untracked
-Archidekt deck choices and the reorganized deck workspace without creating a job or
-changing deck data. Release checks passed 1,116 JavaScript tests, 152 native tests,
-the production build and both dependency audits. Notification tests used mocked delivery;
-no Discord test ping or physical print was sent. This feature-branch push does not trigger
-the main/PR/tag CI workflow, so local validation is not a claim of a passing GitHub run.
+Deployment preserved all six print jobs and their immutable plans/manifests. Rendmaw and
+the replacement 100-copy Jin Sakai batch subsequently showed spooler completion; the
+station was idle for the native upgrade. All 38 frontend files match the image through
+localhost and the household HTTPS origin. The signed-in browser confirmed v2.53.3,
+all six household batches, the updated companion online and the station enabled.
+Release checks passed 1,126 JavaScript tests, 157 native tests, the production build
+and both dependency audits. Twelve disposable Chrome desktop/mobile status scenarios
+verified reminders, faults, unknown/stale/offline status and separate physical proof
+checks with no overflow or runtime errors. Tests used mocked delivery; no Discord test
+ping or physical print was sent. This feature-branch push does not trigger the main/PR/tag
+CI workflow, so local validation is not a claim of a passing GitHub run.
 
 The latest complete stopped-container backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T062600Z-before-2.53.2/data-complete`.
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T081135Z-before-2.53.3/data-complete`.
 The private deployment folder retains dated `update-*.json` checkpoints and rollback
 configurations. Preserve generator-cache symlinks as links when copying Linux venvs on the
 Mac. Take a fresh backup before another update, including newer jobs and user changes;
@@ -206,7 +208,7 @@ never restore an older database over new queued work merely to roll back fronten
 Never run two backends against the live database. Recreate only the CLC service; do not use
 `down` or `--remove-orphans` against the partial household Compose definition.
 
-The **v2.49.0 arm64 native companion** is installed under
+The **v2.53.3 arm64 native companion** is installed under
 `~/Library/Application Support/CLC Print Station/app`, with private configuration in
 `~/.config/clc-print-station`. `~/Library/LaunchAgents/local.clc.print-station.plist` keeps
 it running at login. It uses `EPSON_ET_8550_Series`, its saved 66 Epson driver options,
@@ -217,20 +219,25 @@ The accepted color/orientation recipe and remaining cutting/duplex checks are re
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The installed version and queue state
 are runtime observations; new source features require an actual companion update.
 
-The v2.53.2 arm64 companion package is prepared at
-`~/Downloads/CLC Print Station 2.53.2`, archive SHA-256
-`29b3f0a9c30098c57ad85c85a40d86a72b92babef0fea240dcaa15638f90331c`.
+The installed v2.53.3 arm64 companion package is retained at
+`~/Downloads/CLC Print Station 2.53.3`, archive SHA-256
+`d0fdec6d709a4fd65828ab9cefde74e93c1439c66970104c08389bc77ec10042`.
 It passed isolated self-check and repeat installation with history/configuration preserved.
-The guarded upgrade attempt declined installation while Rendmaw was active, leaving the
-companion enabled and unpaused. No background upgrade watcher is installed; retry the
-guarded installation at an idle point. Do not replace an active print process or describe
-the packaged version as installed until the native checkpoint is recorded. Server deck
-and price alerts use the new Proxy Balboa wording; native flip and printer-error wording
-requires this pending upgrade. See [NOTIFICATION_VOICE.md](NOTIFICATION_VOICE.md).
+The first guarded attempt declined installation while Jin was active. After the spooler
+reported completion, the upgrade replaced v2.53.1 at an idle point and restored the enabled
+setting before restarting the worker. The first post-install read-only SQLite verification
+failed to open the database; a fresh read after restart verified integrity and exact
+preservation of all five native jobs/passes, seven control receipts, saved settings and
+private configuration/token files against the stopped-worker backup at
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T081210Z-native-before-2.53.3`.
+The private `native-update-2.53.3.json` checkpoint records the successful verification.
+No background upgrade watcher is installed. The native update includes the new Proxy
+Balboa wording and exact Epson ink-tank reminder classification. See
+[NOTIFICATION_VOICE.md](NOTIFICATION_VOICE.md).
 
 The initial cached generator was verified at upstream
 `4d4aa73a95e93b09676c863a1861765863398c63`; normal startup still checks for a compatible newer
-version. The installed arm64 package is `~/Downloads/CLC Print Station 2.49.0`, archive
+version. The original arm64 package is `~/Downloads/CLC Print Station 2.49.0`, archive
 SHA-256 `2284b655758133927bb41e274bbb4fdb4826abd69c7cb7fa000769d9636ed8f7`.
 Run bundled Python with `-B -E -s`; writing bytecode inside an installed bundle changes its
 manifest and correctly fails verification. Private receipts/configuration survive updates.
