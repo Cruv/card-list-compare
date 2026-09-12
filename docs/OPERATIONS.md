@@ -178,29 +178,31 @@ project, publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistc
 at `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The repository's
 `./data` is not the household deployment path.
 
-The deployed server is **v2.53.3**, source `61ebf30`, local image
-`clc-household:2.53.3-61ebf30` with image ID
-`sha256:b1db537c5028256cae873b312d821c098838c5d18969e6e0b70782ec76b157d7`.
+The deployed server is **v2.54.0**, source `5b4df26`, local image
+`clc-household:2.54.0-5b4df26` with image ID
+`sha256:5993a6d685926ebfe4b8ee0507c9bc06f879664fe20da122ca313359ee05ebe6`.
 Source changes after this checkpoint are not a deployment claim. Private configuration is
 in `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and `runtime.env`.
 It preserves the container name, external `mtg_default` network, UID/GID, timezone, signing
 secret and data mount. `pull_policy: never` selects the local image; Watchtower is disabled
 for CLC. The registry's `latest` does not contain this feature branch. Do not prune its image.
 
-Deployment preserved all six print jobs and their immutable plans/manifests. Rendmaw and
-the replacement 100-copy Jin Sakai batch subsequently showed spooler completion; the
-station was idle for the native upgrade. All 38 frontend files match the image through
-localhost and the household HTTPS origin. The signed-in browser confirmed v2.53.3,
-all six household batches, the updated companion online and the station enabled.
-Release checks passed 1,126 JavaScript tests, 157 native tests, the production build
-and both dependency audits. Twelve disposable Chrome desktop/mobile status scenarios
-verified reminders, faults, unknown/stale/offline status and separate physical proof
-checks with no overflow or runtime errors. Tests used mocked delivery; no Discord test
-ping or physical print was sent. This feature-branch push does not trigger the main/PR/tag
-CI workflow, so local validation is not a claim of a passing GitHub run.
+Deployment preserved all seven print jobs and their immutable plans/manifests, along with
+three users, two tracked-deck owners, 15 tracked decks and 74 snapshots. The new 91-copy
+"Print list" batch (`456b56ee-2936-4f78-9509-7c9ea94f3db8`, Epson job 15) remained active;
+the native worker was left running and unpaused. All 38 frontend files match the image
+through localhost and the household HTTPS origin (76 responses). The signed-in browser
+confirmed server v2.54.0, all seven household batches and native v2.53.3 online and enabled.
+Release checks passed 1,126 JavaScript tests, 176 native tests, lint (five existing warnings),
+the production build and both dependency audits. Four disposable desktop/mobile browser
+scenarios verified connected/disconnected Discord settings without overflow or runtime
+errors. Isolated container restart and native repeat-install checks preserved fixture
+history/configuration. Tests used mocked delivery; no Discord test ping or physical print
+was sent. This feature-branch push does not trigger the main/PR/tag CI workflow, so local
+validation is not a claim of a passing GitHub run.
 
 The latest complete stopped-container backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T081135Z-before-2.53.3/data-complete`.
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T154503Z-before-2.54.0/data-complete`.
 The private deployment folder retains dated `update-*.json` checkpoints and rollback
 configurations. Preserve generator-cache symlinks as links when copying Linux venvs on the
 Mac. Take a fresh backup before another update, including newer jobs and user changes;
@@ -234,6 +236,18 @@ The private `native-update-2.53.3.json` checkpoint records the successful verifi
 No background upgrade watcher is installed. The native update includes the new Proxy
 Balboa wording and exact Epson ink-tank reminder classification. See
 [NOTIFICATION_VOICE.md](NOTIFICATION_VOICE.md).
+
+The **v2.54.0 native update is prepared but not installed** at this checkpoint. Its package
+is `~/Downloads/CLC Print Station 2.54.0/CLC-Print-Station`; the adjacent
+`clc-print-station-macos-arm64.tar.gz` archive has SHA-256
+`af9733afedc744caeb280a88b4ce34c98edab485a23d04b78082a5d0ef451328`.
+It passed isolated self-check and repeat installation. The one-shot idle guard declined
+installation because the 91-copy batch was active; it did not stop or change the worker.
+There is no background watcher or queued automatic upgrade. Install at an idle point,
+preserving the ledger, configuration and enabled state, then verify the live version.
+Named, unmentioned completion announcements and unmentioned delivery tests require this
+native update. Completion waits for every pass, including all DFC backs; existing completed
+jobs are not replayed. Alert delivery is best effort and never blocks the next job.
 
 The initial cached generator was verified at upstream
 `4d4aa73a95e93b09676c863a1861765863398c63`; normal startup still checks for a compatible newer
@@ -292,7 +306,12 @@ Mac flip notifications and Glass sound default on. Configure `refeed_notificatio
 For daily setup, an administrator opens **Print → Printer → Discord printer alerts**,
 saves a webhook and optional user ID, waits for the Mac acknowledgement, then sends a test.
 Disconnect writes a managed disabled setting that overrides any legacy destination.
-Only the configured user may be mentioned. No webhook was configured or sent by this change.
+On native v2.54.0+, only help-needed alerts (paper flips and printer faults) mention the
+configured user. Completion announcements include the saved job name and batch ID without
+any mentions; delivery tests also contain no mentions. Completion means every print pass
+finished in the spooler, not that drying, lamination or cutting is complete. Existing
+completed jobs are not announced retrospectively. No webhook was configured or sent by
+this release's validation.
 
 Back up `.print-station-notifications-key` beside the server database along with the
 private Mac ledger. The key is user-owned mode 0600 and encrypts pending webhook commands;
