@@ -89,7 +89,7 @@ describe('household station access and telemetry', () => {
     expect(body.jobs.pending[1]).toMatchObject({ id: first, deckName: 'Jin Sakai', totalCopies: 100, canOpen: false });
     expect(body.jobs.pending[1]).not.toHaveProperty('deckId');
     expect(body.jobs.pending[2]).toMatchObject({ canOpen: true, deckId: 1 });
-    expect(Object.keys(body.jobs.pending[1]).sort()).toEqual(['id', 'deckName', 'totalCopies', 'state', 'createdAt', 'queuedAt', 'completedAt', 'canOpen', 'canCancel'].sort());
+    expect(Object.keys(body.jobs.pending[1]).sort()).toEqual(['id', 'deckName', 'totalCopies', 'state', 'createdAt', 'queuedAt', 'completedAt', 'canOpen', 'canCancel', 'requesterName', 'workflow', 'backRequest', 'cancelRequested', 'cancelRequestId', 'packets', 'canCancelBacks', 'canPrepareBacks', 'backsCanceled', 'frontsCompleted'].sort());
     for (const secret of ['private card text', 'private baseline', 'never-expose-fixture', 'manifest_json', 'claimToken', 'downloadUrl']) expect(JSON.stringify(body.jobs)).not.toContain(secret);
     expect((await (await status(2)).json()).jobs.pending[1]).toMatchObject({ canOpen: true, deckId: null });
     for (const user of [3, 4]) { const denied = await status(user); expect(denied.status).toBe(403); expect(await denied.json()).not.toHaveProperty('jobs'); }
@@ -605,5 +605,109 @@ describe('managed Discord notifications', () => {
     await beat(heartbeat({ discord: { ...discordState(), webhookUrl: webhook }, events: [{ id: crypto.randomUUID(), at: new Date().toISOString(), level: 'error', message: 'Failed ' + webhook }] }));
     const result = await (await status()).json();
     expect(JSON.stringify(result)).not.toContain('fixture-discord-secret'); expect(result.events[0].message).toContain('[Discord webhook]');
+  });
+});
+
+describe('saved back packets and physical clearance controls', () => {
+  function seedDeferred(state = 'backs_pending', owner = 1) {
+    const jobId = seedJob(state, [
+      { artifactId: 'fronts', phase: 'fronts', state: 'completed', spoolerId: 'EPSON-front-7', completedAt: new Date().toISOString() },
+      { artifactId: 'fronts', phase: 'backs', state: 'pending', requiresRefeed: true, refeedConfirmed: false },
+    ]);
+    const row = db.get('SELECT manifest_json FROM print_jobs WHERE id = ?', [jobId]);
+    const manifest = JSON.parse(row.manifest_json);
+    Object.assign(manifest.artifacts[0], { kind: 'dfc', pageCount: 2, label: `CLC ${jobId.slice(0, 8)} DFC 1/1`, packetIndex: 1, packetCount: 1 });
+    const text = JSON.stringify(manifest);
+    db.run("UPDATE print_jobs SET user_id = ?, workflow = 'deferred-backs-v1', manifest_json = ?, manifest_sha256 = ?, expires_at = NULL WHERE id = ?", [owner, text, digest(text), jobId]);
+    return jobId;
+  }
+  const prepare = (jobId, owner = 1, artifactId = 'fronts') => request(`/api/print-station-management/jobs/${jobId}/backs/prepare`, { method: 'POST', body: { artifactId }, token: tokens[owner] });
+  const cancelBacks = (jobId, owner = 1) => request(`/api/print-station-management/jobs/${jobId}/backs/cancel`, { method: 'POST', body: {}, token: tokens[owner] });
+  const cancelAll = (jobId, owner = 1) => request(`/api/print-station-management/jobs/${jobId}/cancel`, { method: 'POST', body: {}, token: tokens[owner] });
+  it('shows a durable deferred backlog with matching labels and separate queue membership', async () => {
+    const mine = seedDeferred(), other = seedDeferred('backs_pending', 2);
+    const body = await (await status()).json();
+    expect(body.jobs.pending).toEqual([]);
+    expect(body.jobs.deferred.map(job => job.id)).toEqual(expect.arrayContaining([mine, other]));
+    const own = body.jobs.deferred.find(job => job.id === mine);
+    expect(own).toMatchObject({ canPrepareBacks: true, canCancelBacks: true, workflow: 'deferred-backs-v1', requesterName: 'admin', packets: [expect.objectContaining({ artifactId: 'fronts', label: `CLC ${mine.slice(0, 8)} DFC 1/1`, state: 'pending', frontSpoolerId: 'EPSON-front-7' })] });
+    const household = await (await status(2)).json();
+    expect(household.jobs.deferred.find(job => job.id === mine)).toMatchObject({ canPrepareBacks: false, canCancelBacks: false, canCancel: false });
+    expect(household.jobs.deferred.find(job => job.id === other)).toMatchObject({ canPrepareBacks: true, canCancelBacks: true });
+    management.resetPrintStationManagement();
+    expect((await (await status()).json()).jobs.deferred).toEqual(body.jobs.deferred);
+  });
+  it('persists exact packet intent for owner or admin even offline, but rejects other owners and mismatched packets', async () => {
+    const jobId = seedDeferred('backs_pending', 2);
+    expect((await prepare(jobId, 2, 'missing-packet')).status).toBe(409);
+    expect((await prepare(jobId, 3)).status).toBe(403);
+    expect((await prepare(jobId, 4)).status).toBe(403);
+    const response = await prepare(jobId, 2); expect(response.status).toBe(200);
+    expect((await response.json()).jobs.deferred[0]).toMatchObject({ backRequest: { artifactId: 'fronts', requesterId: 2 }, packets: [expect.objectContaining({ state: 'requested' })], canPrepareBacks: false });
+    const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+    expect((await prepare(jobId, 1)).status).toBe(200);
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [jobId])).toEqual(before);
+    const reserved = await request('/api/print-station/claim', { method: 'POST', body: { deferredBacks: true, maxArtifacts: 37 }, token: credential });
+    expect((await reserved.json()).job).toMatchObject({ id: jobId, state: 'awaiting_refeed' });
+    expect((await prepare(jobId, 2)).status).toBe(409);
+  });
+  it('supports owner cancellation for parked work and leaves other users batches untouched', async () => {
+    const mine = seedDeferred('backs_pending', 2), other = seedDeferred();
+    expect((await cancelBacks(other, 2)).status).toBe(403);
+    expect((await cancelAll(other, 2)).status).toBe(403);
+    expect((await cancelBacks(mine, 2)).status).toBe(200);
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [mine]).state).toBe('canceled');
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [other]).state).toBe('backs_pending');
+    expect((await cancelBacks(mine, 2)).status).toBe(200);
+  });
+  it('saves cancellation of queued backs before claim without upgrading active legacy jobs', async () => {
+    const jobId = seedDeferred('queued', 2);
+    const steps = [
+      { artifactId: 'fronts', phase: 'fronts', state: 'pending' },
+      { artifactId: 'fronts', phase: 'backs', state: 'pending', requiresRefeed: true },
+    ];
+    db.run('UPDATE print_jobs SET workflow = NULL, steps_json = ? WHERE id = ?', [JSON.stringify(steps), jobId]);
+    expect((await cancelBacks(jobId, 2)).status).toBe(200);
+    expect(db.get('SELECT state, workflow, station_id FROM print_jobs WHERE id = ?', [jobId])).toEqual({ state: 'queued', workflow: 'deferred-backs-v1', station_id: null });
+    expect((await claim()).status).toBe(409);
+    const upgraded = await request('/api/print-station/claim', { method: 'POST', body: { deferredBacks: true }, token: credential });
+    expect((await upgraded.json()).job).toMatchObject({ state: 'claimed', backsCanceled: 1, steps: [expect.objectContaining({ state: 'pending', phase: 'fronts' }), expect.objectContaining({ state: 'canceled', phase: 'backs' })] });
+  });
+  it('permits legacy active cancellation only after the live native capability is acknowledged', async () => {
+    const jobId = seedJob('submitted', [{ artifactId: 'fronts', phase: 'fronts', state: 'submitted', spoolerId: 'EPSON-old' }]);
+    expect((await cancelAll(jobId)).status).toBe(409);
+    await beat(heartbeat({ version: '2.55.0', deferredBacks: true, activeJob: { id: jobId, state: 'submitted' } }));
+    expect((await cancelAll(jobId)).status).toBe(200);
+    const stored = db.get('SELECT workflow, cancel_requested, cancel_request_id, state FROM print_jobs WHERE id = ?', [jobId]);
+    expect(stored).toMatchObject({ workflow: null, cancel_requested: 'all', state: 'submitted' });
+    expect(stored.cancel_request_id).toMatch(/^[a-f0-9-]{36}$/);
+  });
+  it('rejects a saved clearance command when the same batch reaches a different back boundary', async () => {
+    const jobId = seedDeferred('awaiting_paper_reset', 2);
+    const firstId = crypto.randomUUID(), first = `back:${firstId}`;
+    db.run('UPDATE print_jobs SET back_request_json = ? WHERE id = ?', [JSON.stringify({ id: firstId, artifactId: 'fronts', requestedAt: new Date().toISOString(), requesterId: 2 }), jobId]);
+    await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId: first } }));
+    const receipt = await accepted(command('clear_paper', { jobId, clearanceId: first, paperCleared: true }), 2);
+    const secondId = crypto.randomUUID(), second = `back:${secondId}`;
+    db.run('UPDATE print_jobs SET back_request_json = ? WHERE id = ?', [JSON.stringify({ id: secondId, artifactId: 'fronts', requestedAt: new Date().toISOString(), requesterId: 2 }), jobId]);
+    const response = await (await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId: second } }))).json();
+    expect(response.commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [receipt.id]).status).toBe('rejected');
+    expect((await send(command('clear_paper', { jobId, clearanceId: first, paperCleared: true }), 2)).status).toBe(409);
+    await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_paper_reset' } }));
+    expect((await (await status()).json()).station.activeJob.clearanceId).toBeNull();
+  });
+  it('binds paper clearance to exact active job, explicit confirmation, owner and native waiting state', async () => {
+    const jobId = seedDeferred('awaiting_paper_reset', 2), other = seedDeferred(), requestId = crypto.randomUUID(), clearanceId = `back:${requestId}`;
+    db.run('UPDATE print_jobs SET back_request_json = ? WHERE id = ?', [JSON.stringify({ id: requestId, artifactId: 'fronts', requestedAt: new Date().toISOString(), requesterId: 2 }), jobId]);
+    await beat(heartbeat({ version: '2.55.0', activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId, artifactId: 'fronts', phase: 'backs' } }));
+    expect((await send(command('clear_paper', { jobId, clearanceId, paperCleared: false }), 2)).status).toBe(400);
+    expect((await send(command('clear_paper', { jobId: other, clearanceId, paperCleared: true }), 2)).status).toBe(403);
+    const acceptedCommand = await accepted(command('clear_paper', { jobId, clearanceId, paperCleared: true }), 2);
+    const delivery = await (await beat(heartbeat({ version: '2.55.0', activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId, artifactId: 'fronts', phase: 'backs' } }))).json();
+    expect(delivery.commands[0]).toMatchObject({ id: acceptedCommand.id, type: 'clear_paper', jobId, paperCleared: true });
+    // Command acknowledgement alone never claims that paper was cleared or prints backs.
+    await beat(heartbeat({ receipts: [{ commandId: acceptedCommand.id, status: 'applied', message: 'fixture' }] }));
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [jobId]).state).toBe('awaiting_paper_reset');
   });
 });

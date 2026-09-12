@@ -291,14 +291,27 @@ paused. It can report setup health before proof flags are enabled. For source de
 the optional LaunchAgent writer remains available separately.
 The repository's automated tests use fake submissions and never configure a printer.
 
-For each deck job the station completes ordinary fronts, then each DFC packet's page 1
-front pass, explicit flip/reload wait, and page 2 back pass before starting the next packet.
-The printed front label `CLC <job-short-ID> DFC x/y` matches the packet shown in CLC and
-its flip alert. All passes are one-sided; unused paper and older output must stay separate
-from the sheet being reloaded. The household queue remains held until the packet is
-resolved. Waiting packets surface even while paused, and dismissing an alert never submits
-backs. An earlier immutable PDF may instead contain multiple sheets and no job label:
-inspect its preview/all pages and match job, packet and sheet count before reloading.
+For new work claimed by companion v2.55.0+, all ordinary and DFC fronts finish first.
+Matching backs become **Backs for later** and other batches continue. Pending backs and
+their PDFs remain stored until printed or canceled; they are not marked completed to
+release the queue. Newly generated pages include the frozen requester and batch label,
+plus the sheet/packet ID and side. The exact `CLC <job-short-ID> DFC x/y` identity remains
+the link between each sheet, saved artifact and alert.
+
+Select one saved packet to request the printer when its current work finishes. Leave blank
+paper loaded until CLC says that exact packet is ready to reload. Then match and reload
+only that packet, confirm its checkbox and print its backs. This reservation holds other
+CLC work. After the back pass completes, remove printed output, load blank paper and confirm
+again to release the queue. Each confirmation is bound to the exact packet or cancellation;
+an old browser tab cannot clear a later sheet. Opening or dismissing an alert never submits
+anything. Owners can cancel their remaining job or backs; admins can do so across users.
+Native cancellation targets only a uniquely matched CUPS title/ID and needs paper clearance
+after active printing. Existing printed-pass receipts are retained. An ambiguous CUPS outcome
+stays held for reconciliation instead of being treated as canceled.
+
+Already-claimed legacy jobs keep their original alternating sequence. An earlier immutable
+PDF may contain multiple sheets and no job label: inspect all its pages and match job,
+packet and sheet count before reloading. Upgrading does not rewrite those PDFs.
 
 Mac flip notifications and Glass sound default on. Configure `refeed_notifications` and
 `refeed_sound` as JSON booleans in the private mode-0600 Mac config. Optional
@@ -312,6 +325,9 @@ any mentions; delivery tests also contain no mentions. Completion means every pr
 finished in the spooler, not that drying, lamination or cutting is complete. Existing
 completed jobs are not announced retrospectively. No webhook was configured or sent by
 this release's validation.
+Native v2.55.0 adds unmentioned fronts-finished messages explaining that backs are saved.
+Only a selected packet asks for a flip; returning blank paper after its backs is also a
+help-needed alert. Canceling backs never produces a false whole-job completion message.
 
 Back up `.print-station-notifications-key` beside the server database along with the
 private Mac ledger. The key is user-owned mode 0600 and encrypts pending webhook commands;
@@ -353,8 +369,10 @@ private configuration together. Do not restore just an old ledger over newer pri
 Companion updates come from stable published GitHub release assets in the fixed CLC repo.
 The updater checks archive/manifest digests, path containment and startup self-check before
 activation. It retains the prior version and does not switch on download/validation failure.
-Updates and rollback wait for no active local job; ambiguous submissions and DFC waits block
-them. They preserve the current ledger/config and leave the station paused. Log files rotate
+Updates and rollback wait for no active local job; ambiguous submissions, loaded-paper
+reservations and paper-clearance waits block them. Safe saved backs do not prevent a newer
+compatible update; finish or cancel them before rolling back below v2.55.0. They preserve
+the current ledger/config and leave the station paused. Log files rotate
 at launch when over 5 MiB, keeping three backups. A package's first installation has no
 rollback version. See the companion README for installer migration and the explicit
 build/draft-publication workflow; pushing a feature branch does not publish an update.
@@ -365,7 +383,7 @@ retained job and temporary generation files. A retained job is capped at 2 GiB i
 sources; one PDF can be at most 1 GiB. Saved MPC sources stream sequentially to disk with
 a 1.5 GiB total limit and 20 MiB per image. A single worker processes at most 250 copies per job, with
 two pending jobs per user and ten awaiting generation overall. Ready/terminal PDFs expire
-after seven days. Active, queued and uncertain jobs never expire automatically. Use
+after seven days. Active, queued, uncertain and saved-back jobs never expire automatically. Use
 **Remove PDFs** on a safe batch to release disk space while preserving its manifest/history.
 
 Before sending, configure and prove the Mac's Epson queue, color options and manual DFC

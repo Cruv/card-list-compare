@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createPrintGenerator, planPrintSheets, PRINT_RECIPE } from './printGenerator.js';
+import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE } from './printGenerator.js';
 import { headlessRequirements, PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 
 const temporary = [];
@@ -177,6 +177,19 @@ describe('cached generator runtime', () => {
 });
 
 describe('PDF adapter publication', () => {
+  it('normalizes controls, Unicode and long names into bounded honest printed identification', () => {
+    expect(printPageIdentification({ requesterName: ' Dénny\n\u202e(Franco) ', batchName: 'Jin’s “deck” — 🐉' })).toEqual({
+      version: 1, requesterName: 'Denny (Franco)', batchName: 'Jin\'s "deck" - ?',
+    });
+    const long = printPageIdentification({ requesterName: 'W'.repeat(100), batchName: 'W'.repeat(300) });
+    expect(long.requesterName).toHaveLength(48);
+    expect(long.batchName).toHaveLength(96);
+    expect(long.batchName.endsWith('...')).toBe(true);
+    expect(printPageIdentification({ requesterName: '   ', batchName: '\n' })).toMatchObject({ requesterName: 'Unknown requester', batchName: 'Print list' });
+    expect(() => printPageIdentification({ requesterName: null })).toThrow('bounded text');
+    expect(() => printPageIdentification({ batchName: 'x'.repeat(4097) })).toThrow('bounded text');
+  });
+
   it.each([1, 7, 8, 249])('publishes %i DFC copies as paired packets after ordinary fronts, with matching labels and checksums', async count => {
     const directory = await temp();
     const release = vi.fn();
@@ -198,12 +211,15 @@ describe('PDF adapter publication', () => {
       id: `copy-${i}`, frontPath: `/front-${i}.png`, backPath: `/back-${i}.png`,
     }))];
     const onProgress = vi.fn();
-    const result = await createPrintGenerator({ runtime, run }).generate({ cards, outputDir: directory, batchLabel: 'CLC 1234abcd', onProgress });
+    const result = await createPrintGenerator({ runtime, run }).generate({ cards, outputDir: directory, batchLabel: 'CLC 1234abcd',
+      requesterName: 'Dénny', batchName: 'Friday proxies', onProgress });
+    expect(result.printedIdentification).toEqual({ version: 1, requesterName: 'Denny', batchName: 'Friday proxies' });
     const packetCount = Math.ceil(count / 7);
     expect(result.artifacts).toHaveLength(packetCount + 1);
     expect(result.artifacts[0]).toMatchObject({ id: 'fronts', kind: 'ordinary', pageCount: 1, cardCount: 1, label: 'CLC 1234abcd fronts' });
     expect(result.artifacts[0]).not.toHaveProperty('packetIndex');
     expect(requests[0]).toMatchObject({ label: 'CLC 1234abcd fronts 1/1', doubleFaced: false });
+    expect(result.artifacts[0].pageLabels).toEqual([{ page: 1, phase: 'fronts', label: 'CLC 1234abcd fronts 1/1' }]);
     for (let i = 1; i <= packetCount; i++) {
       const artifact = result.artifacts[i];
       expect(artifact).toMatchObject({
@@ -211,6 +227,10 @@ describe('PDF adapter publication', () => {
         cardCount: Math.min(7, count - (i - 1) * 7), packetIndex: i, packetCount, label: `CLC 1234abcd DFC ${i}/${packetCount}`,
       });
       expect(requests[i]).toMatchObject({ label: artifact.label, doubleFaced: true });
+      expect(artifact.printedIdentification).toEqual(result.printedIdentification);
+      expect(requests[i].printedIdentification).toEqual(result.printedIdentification);
+      expect(artifact.pageLabels).toEqual([{ page: 1, phase: 'fronts', label: artifact.label }, { page: 2, phase: 'backs', label: artifact.label }]);
+      expect(requests[i].pageLabels).toEqual(artifact.pageLabels);
       expect(merges[i].pageCount).toBe(2);
       expect(artifact.slotMap.map(slot => slot.cardId)).toEqual(requests[i].cards.map(card => card.id));
       expect(artifact.slotMap.every(slot => slot.frontPage === 1 && slot.backPage === 2)).toBe(true);
@@ -230,6 +250,26 @@ describe('PDF adapter publication', () => {
     })));
     expect((await fs.readdir(directory)).sort()).toEqual(result.artifacts.map(artifact => path.basename(artifact.path)).sort());
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it('tags every ordinary sheet with its own page number and preserves the exact packet identity', async () => {
+    const directory = await temp(), requests = [];
+    const runtime = { capture: () => ({ directory: '/runtime', revision: 'fixed' }) };
+    const run = async (_command, args) => {
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      if (args[1] === 'chunk') {
+        requests.push(request);
+        await fs.writeFile(path.join(request.directory, 'sheet.pdf'), request.label);
+        await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({ images: [] }));
+      } else await fs.writeFile(request.output, 'merged');
+    };
+    const result = await createPrintGenerator({ runtime, run }).generate({ outputDir: directory, batchLabel: 'CLC 1234abcd',
+      cards: Array.from({ length: 15 }, (_, i) => ({ id: `copy-${i}`, frontPath: '/front.png' })),
+      requesterName: '(Denny) \\ printer', batchName: 'W'.repeat(120) });
+    expect(result.artifacts[0].label).toBe('CLC 1234abcd fronts');
+    expect(result.artifacts[0].pageLabels).toEqual([1, 2, 3].map(page => ({ page, phase: 'fronts', label: `CLC 1234abcd fronts ${page}/3` })));
+    expect(requests.map(request => request.pageLabels)).toEqual([1, 2, 3].map(page => [{ page: 1, phase: 'fronts', label: `CLC 1234abcd fronts ${page}/3` }]));
+    expect(result.artifacts[0].printedIdentification).toEqual(result.printedIdentification);
   });
 
   it.each(['', 'CLC\nnext', 'CLC/'.repeat(7), 'x'.repeat(25), null])('rejects invalid batch label %s before capturing a runtime', async batchLabel => {

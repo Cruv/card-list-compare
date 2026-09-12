@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { printerHealthPresentation, printStationSummary } from './printStationStatus';
+import { printerHealthPresentation, printStationSummary, paperClearanceIdentity } from './printStationStatus';
 
 const current = { fresh: true, online: true, loading: false };
 const reminder = 'Regularly check ink levels in the actual ink tanks.';
@@ -8,6 +8,19 @@ const station = changes => ({ recipeVerified: true, duplexVerified: true, paused
   activeJob: { state: 'submitted', deckName: 'Jin', id: 'batch-jin' }, health: ready, ...changes });
 
 describe('printer status presentation', () => {
+  it('binds paper acknowledgement to the exact job, state and clearance boundary', () => {
+    const first = { id: 'same-job', state: 'awaiting_paper_reset', clearanceId: 'back:first-request' };
+    const saved = paperClearanceIdentity(first);
+    expect(saved).toBe(paperClearanceIdentity({ ...first }));
+    for (const changed of [
+      { ...first, clearanceId: 'back:second-request' },
+      { ...first, state: 'awaiting_clearance' },
+      { ...first, id: 'another-job' },
+    ]) expect(paperClearanceIdentity(changed)).not.toBe(saved);
+    for (const missing of [null, {}, { ...first, clearanceId: null }, { ...first, clearanceId: '' }, { ...first, id: null }, { ...first, state: 'submitted' }]) {
+      expect(paperClearanceIdentity(missing)).toBeNull();
+    }
+  });
   it('keeps the current batch visible while an informational ink reminder is reported', () => {
     const value = station();
     expect(printStationSummary(value, current)).toBe('In the Epson queue');
@@ -62,6 +75,12 @@ describe('printer status presentation', () => {
     expect(printStationSummary(station({ activeJob: null, recipeVerified: false }), current)).toBe('Verify your print recipe on the Mac');
     expect(printStationSummary(station({ activeJob: null, recipeVerified: false, testPrintingEnabled: true }), current)).toBe('Ready for a test batch');
     expect(printStationSummary(station({ recipeVerified: false }), current)).toBe('In the Epson queue');
+  });
+
+  it('treats selected-back paper handling as action while saved backs do not block the next job', () => {
+    expect(printStationSummary(station({ activeJob: null }), current)).toBe('Ready for your next batch');
+    expect(printStationSummary(station({ activeJob: { state: 'awaiting_paper_reset' } }), current)).toBe('Restore blank paper for the next job');
+    expect(printStationSummary(station({ activeJob: { state: 'awaiting_clearance' } }), current)).toBe('Clear paper from the canceled pass');
   });
 
   it('deduplicates readable advisory text without changing the received report', () => {

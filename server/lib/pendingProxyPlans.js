@@ -243,7 +243,7 @@ export async function processPendingProxyPlans() {
   workerActive = true;
   try {
     const jobs = all(`SELECT id,user_id FROM print_jobs WHERE manifest_json IS NOT NULL
-      AND state IN ('ready','queued','claimed','submitted','submitting','awaiting_refeed','uncertain','completed')
+      AND state IN ('ready','queued','claimed','submitted','submitting','awaiting_refeed','backs_pending','awaiting_paper_reset','uncertain','completed')
       AND COALESCE(proxy_staging_next_attempt,0)<=? AND NOT EXISTS
       (SELECT 1 FROM manasync_print_items WHERE print_job_id=print_jobs.id AND user_id=print_jobs.user_id)
       ORDER BY created_at LIMIT 2`,[Date.now()]);

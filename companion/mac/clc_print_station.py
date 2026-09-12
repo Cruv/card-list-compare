@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.54.0"
+COMPANION_VERSION = "2.55.0"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -38,6 +38,8 @@ FIXED_OPTIONS = {"media": "Letter", "sides": "one-sided", "number-up": "1",
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
                                        "job-name", "job-hold-until", "job-sheets", "landscape"}
 TERMINAL = {"completed", "failed", "canceled"}
+PASS_TERMINAL = {"completed", "canceled"}
+DEFERRED_WORKFLOW = "deferred-backs-v1"
 
 
 class StationError(Exception):
@@ -48,6 +50,14 @@ def checked_id(value, label):
     if not isinstance(value, str) or not ID.fullmatch(value):
         raise StationError("Invalid " + label)
     return value
+
+
+def clearance_id(job):
+    if job.get("cancelRequested"):
+        key = job.get("cancelRequestId")
+        return "cancel:" + key if isinstance(key, str) and ID.fullmatch(key) else None
+    key = (job.get("backRequest") or {}).get("id")
+    return "back:" + key if isinstance(key, str) and ID.fullmatch(key) else None
 
 
 def private_file(path):
@@ -175,7 +185,7 @@ class Client:
         return result
 
     def claim(self):
-        return self.json("/api/print-station/claim", {"maxArtifacts": 37}).get("job")
+        return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True}).get("job")
 
     def management_heartbeat(self, status):
         return self.json("/api/print-station/heartbeat", status)
@@ -283,10 +293,24 @@ class Ledger:
             self.db.execute(sql, args)
 
     def current(self):
-        return self.db.execute("SELECT * FROM jobs WHERE state NOT IN ('completed','failed','canceled') ORDER BY updated LIMIT 1").fetchone()
+        return self.db.execute("""SELECT * FROM jobs j WHERE state NOT IN ('completed','failed','canceled','backs_pending')
+            OR (state='backs_pending' AND EXISTS (SELECT 1 FROM passes p WHERE p.job_id=j.id
+                AND p.state IN ('intent','submitting','submitted','uncertain','failed')))
+            ORDER BY updated LIMIT 1""").fetchone()
 
     def passes(self, job_id):
         return self.db.execute("SELECT * FROM passes WHERE job_id=? ORDER BY rowid", (job_id,)).fetchall()
+
+    def pending(self, job):
+        """Choose physical work without letting a saved back block later fronts."""
+        entries = [entry for entry in self.passes(job["id"]) if entry["state"] not in PASS_TERMINAL]
+        active = next((entry for entry in entries if entry["state"] != "pending"), None)
+        if active is not None or job.get("workflow") != DEFERRED_WORKFLOW:
+            return active or next(iter(entries), None)
+        selected = (job.get("backRequest") or {}).get("artifactId")
+        if selected:
+            return next((entry for entry in entries if entry["phase"] == "backs" and entry["artifact_id"] == selected), None)
+        return next((entry for entry in entries if entry["phase"] == "fronts"), None)
 
     def set_pass(self, entry, state, detail=None, spooler_id=None):
         self.write("UPDATE passes SET state=?,detail=?,spooler_id=COALESCE(?,spooler_id) WHERE job_id=? AND artifact_id=? AND phase=?",
@@ -297,6 +321,8 @@ class Ledger:
 
     def event(self, job, entry, state, renew=False, **extra):
         base = "/".join([job["id"], entry["artifact_id"], entry["phase"], state, extra.get("resolution", "event")])
+        if state in {"canceled", "paper_ready"}:
+            base += "/" + str(extra.get("clearanceId"))
         prefix = base + "/"
         existing = self.db.execute("SELECT * FROM events WHERE substr(event_key,1,?)=? ORDER BY rowid DESC LIMIT 1", (len(prefix), prefix)).fetchone()
         if existing and (existing["reply"] is None or not renew):
@@ -320,6 +346,8 @@ def checked_job(job, config):
         raise StationError("Job recipe is not locally approved")
     if not SHA256.fullmatch(job.get("manifestSha256", "")):
         raise StationError("Job has no immutable manifest SHA-256")
+    if job.get("workflow") not in {None, DEFERRED_WORKFLOW}:
+        raise StationError("Unsupported saved print workflow")
     artifacts = job.get("artifacts", [])
     if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 37:
         raise StationError("Expected one to 37 finished PDF artifacts")
@@ -359,6 +387,16 @@ def checked_job(job, config):
                 raise StationError("Invalid double-sided packet identity or page count")
     if size > config["max_job_bytes"]:
         raise StationError("Job PDF size exceeds the local storage limit")
+    request = job.get("backRequest")
+    if request is not None:
+        if (job.get("workflow") != DEFERRED_WORKFLOW or not isinstance(request, dict)
+                or not any(item["id"] == request.get("artifactId") and item["kind"] == "dfc" for item in artifacts)):
+            raise StationError("Invalid saved back packet reservation")
+        checked_id(request.get("id"), "back packet reservation")
+    if job.get("cancelRequested"):
+        if job["cancelRequested"] not in {"all", "backs"}:
+            raise StationError("Invalid saved cancellation scope")
+        checked_id(job.get("cancelRequestId"), "cancellation request")
     return job
 
 
@@ -473,6 +511,11 @@ class Cups:
             raise StationError("lp returned no recognizable spooler job ID; reconcile before any retry")
         return match[1]
 
+    def cancel(self, spooler_id):
+        if not isinstance(spooler_id, str) or not re.fullmatch(re.escape(self.config["queue"]) + r"-[1-9]\d*", spooler_id):
+            raise StationError("Invalid CUPS job cancellation target")
+        self.runner(["/usr/bin/cancel", "-h", "localhost", spooler_id])
+
 
 class Station:
     def __init__(self, config, client=None, cups=None, ledger=None, alerts=None):
@@ -482,9 +525,15 @@ class Station:
         self.ledger = ledger or Ledger(config["state_dir"])
         self.management = None
         self.alerts = alerts if alerts is not None else RefeedAlerts(self.ledger, config)
+        self.last_parked_sync = None
+        self.parked_sync_after = ""
 
     def waiting_for_refeed(self, job, pending):
         """Surface durable physical attention even while paused or disconnected."""
+        if pending is None:
+            return False
+        if job.get("workflow") == DEFERRED_WORKFLOW and (job.get("backRequest") or {}).get("artifactId") != pending["artifact_id"]:
+            return False
         if pending["phase"] != "backs" or pending["state"] != "pending" or pending["resume_requested"]:
             return False
         if job.get("state") in TERMINAL or job.get("state") == "expired":
@@ -511,20 +560,32 @@ class Station:
         existing = self.ledger.db.execute("SELECT * FROM jobs WHERE id=?", (job["id"],)).fetchone()
         if existing:
             original = json.loads(existing["payload"])
-            if original["manifestSha256"] != job["manifestSha256"] or original["claimToken"] != job["claimToken"]:
+            if (original["manifestSha256"] != job["manifestSha256"] or original["claimToken"] != job["claimToken"]
+                    or original.get("workflow") != job.get("workflow")):
                 raise StationError("Previously seen job changed its manifest or claim token; refusing to print")
+            if existing["state"] == "backs_pending" and job.get("workflow") == DEFERRED_WORKFLOW:
+                if job.get("state") == "awaiting_refeed" and job.get("backRequest"):
+                    selected = job["backRequest"]["artifactId"]
+                    front = next((entry for entry in self.ledger.passes(job["id"])
+                                  if entry["artifact_id"] == selected and entry["phase"] == "fronts"), None)
+                    back = next((entry for entry in self.ledger.passes(job["id"])
+                                 if entry["artifact_id"] == selected and entry["phase"] == "backs"), None)
+                    if not front or front["state"] != "completed" or not back or back["state"] != "pending":
+                        raise StationError("The selected back does not match a saved completed front")
+                    self.ledger.write("UPDATE jobs SET payload=?,state='awaiting_refeed',updated=? WHERE id=?",
+                                      (json.dumps(job), time.time(), job["id"]))
             return
         steps = {(step["artifactId"], step["phase"]): step for step in job.get("steps", [])}
         with self.ledger.db:
             self.ledger.db.execute("INSERT INTO jobs(id,payload,recipe_hash,updated) VALUES(?,?,?,?)",
                                    (job["id"], json.dumps(job), recipe_fingerprint(self.config), time.time()))
-            # Ordinary fronts precede DFC batches; each DFC batch finishes both
-            # passes before another artifact can enter the physical queue.
+            # Preserve stable pass rows/titles across upgrades. Scheduling uses
+            # the saved workflow and explicit back reservation, not row order.
             for artifact in sorted(job["artifacts"], key=lambda a: a["kind"] == "dfc"):
                 for phase in (["fronts", "backs"] if artifact["kind"] == "dfc" else ["fronts"]):
                     step = steps.get((artifact["id"], phase), {})
                     state_value = step.get("state", "pending")
-                    if state_value not in {"pending", "submitting", "submitted", "completed", "uncertain", "failed"}:
+                    if state_value not in {"pending", "submitting", "submitted", "completed", "uncertain", "failed", "canceled"}:
                         raise StationError("Unknown server submission state")
                     # Server submission intent survives even loss of this Mac's
                     # ledger. Recover from CUPS, never treat it as a fresh pass.
@@ -532,7 +593,7 @@ class Station:
                     title = "CLC-" + hashlib.sha256((job["id"] + "/" + artifact["id"] + "/" + phase).encode()).hexdigest()[:32]
                     self.ledger.db.execute("INSERT INTO passes(job_id,artifact_id,phase,state,title,spooler_id,cups_started) VALUES(?,?,?,?,?,?,?)",
                                            (job["id"], artifact["id"], phase, local, title, step.get("spoolerId"),
-                                            0 if state_value == "pending" else 1))
+                                            0 if state_value in {"pending", "canceled"} and not step.get("spoolerId") else 1))
 
     def retire_canceled_before_cups(self, original, fresh):
         """Release only a verified cancellation with durable proof of no CUPS attempt."""
@@ -583,6 +644,172 @@ class Station:
 
     def heartbeat(self, job):
         self.client.report(job, {"claimToken": job["claimToken"], "eventId": uuid.uuid4().hex, "state": "heartbeat"})
+
+    def refresh_job(self, original):
+        fresh = self.client.get_job(original["id"])
+        if (not isinstance(fresh, dict) or any(fresh.get(key) != original.get(key)
+                for key in ("id", "manifestSha256", "claimToken", "workflow"))):
+            raise StationError("Server job identity changed; refusing to continue")
+        checked_job(fresh, self.config)
+        self.ledger.write("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(fresh), fresh["id"]))
+        return fresh
+
+    def refresh_parked(self):
+        """Retire server-canceled saved work without claiming it or replaying alerts."""
+        if self.last_parked_sync is not None and time.monotonic() - self.last_parked_sync < 60:
+            return
+        self.last_parked_sync = time.monotonic()
+        row = self.ledger.db.execute("SELECT * FROM jobs WHERE state='backs_pending' AND id>? ORDER BY id LIMIT 1", (self.parked_sync_after,)).fetchone()
+        if row is None:
+            self.parked_sync_after = ""
+            row = self.ledger.db.execute("SELECT * FROM jobs WHERE state='backs_pending' ORDER BY id LIMIT 1").fetchone()
+        if row is None:
+            return
+        self.parked_sync_after = row["id"]
+        try:
+            job = self.refresh_job(json.loads(row["payload"]))
+            self.sync_steps(job)
+            if job.get("state") in TERMINAL and all(entry["state"] in PASS_TERMINAL for entry in self.ledger.passes(job["id"])):
+                self.ledger.set_job(job["id"], job["state"], "Saved printing resolved on CLC; physical receipts retained")
+        except (StationError, OSError, ValueError):
+            # This housekeeping cannot authorize a back or block another job.
+            pass
+
+    def sync_steps(self, job):
+        remote = {(step["artifactId"], step["phase"]): step for step in job.get("steps", [])}
+        for entry in self.ledger.passes(job["id"]):
+            step = remote.get((entry["artifact_id"], entry["phase"]), {})
+            if entry["state"] != "completed" and step.get("state") == "completed" and step.get("spoolerId"):
+                if entry["spooler_id"] and entry["spooler_id"] != step["spoolerId"]:
+                    raise StationError("CLC completion and local spooler ID disagree; reconcile the paper")
+                self.ledger.set_pass(entry, "completed", spooler_id=step["spoolerId"])
+            elif step.get("state") == "canceled" and entry["state"] not in PASS_TERMINAL:
+                # A server-only cancellation is safe only while both sides agree
+                # no physical call occurred. Started passes require clearance.
+                clear_proof = any(json.loads(row["payload"]).get("state") == "canceled"
+                                  and json.loads(row["payload"]).get("paperCleared") is True
+                                  and json.loads(row["payload"]).get("claimToken") == job["claimToken"]
+                                  for row in self.ledger.db.execute("SELECT payload FROM events WHERE event_key LIKE ?", (job["id"] + "/%",)))
+                if (entry["cups_started"] == 0 and not entry["spooler_id"]) or clear_proof:
+                    self.ledger.set_pass(entry, "canceled", "Canceled before a CUPS attempt")
+
+    def deferred_transition(self, job):
+        if job.get("workflow") != DEFERRED_WORKFLOW:
+            return None
+        if job.get("state") == "awaiting_paper_reset":
+            self.ledger.set_job(job["id"], "awaiting_paper_reset", "Back pass finished. Remove printed output and load blank paper, then confirm in CLC.")
+            artifact = next((item for item in job["artifacts"] if item["id"] == (job.get("backRequest") or {}).get("artifactId")), None)
+            if artifact:
+                self.notify_stage("paper_reset", job, artifact)
+            return "awaiting_paper_reset"
+        if job.get("state") == "backs_pending":
+            entries = self.ledger.passes(job["id"])
+            if any(entry["phase"] == "fronts" and entry["state"] not in PASS_TERMINAL for entry in entries):
+                raise StationError("CLC parked backs before every front was resolved")
+            if any(entry["state"] not in {"pending", *PASS_TERMINAL} for entry in entries):
+                raise StationError("A disputed physical pass cannot be parked as saved backs")
+            self.ledger.set_job(job["id"], "backs_pending", "Fronts printed; matching backs saved for later")
+            self.notify_stage("fronts_completed", job)
+            return "backs_pending"
+        return None
+
+    def alert_result(self, notice):
+        if self.management and notice.get("message") and notice.get("level"):
+            self.management.event(notice["level"], notice["message"])
+
+    def notify_stage(self, method, *args):
+        try:
+            self.alert_result(getattr(self.alerts, method)(*args))
+        except Exception:
+            # The physical state is committed first; an alert/log failure cannot
+            # hold up ordinary fronts or authorize reloaded paper.
+            pass
+
+    def cancel_entries(self, job):
+        scope = job.get("cancelRequested")
+        return [entry for entry in self.ledger.passes(job["id"])
+                if entry["state"] not in PASS_TERMINAL and (scope == "all" or (scope == "backs" and entry["phase"] == "backs"))]
+
+    def cancellation_observations(self, job):
+        """Never cancel by owner/all-jobs. Match the exact saved title and ID."""
+        targets = self.cancel_entries(job)
+        history = None
+        observed = []
+        for entry in targets:
+            if entry["cups_started"] == 0 and not entry["spooler_id"]:
+                observed.append((entry, None))
+                continue
+            if history is None:
+                history = self.cups.jobs()
+            matches = [item for item in history if item["title"] == entry["title"]]
+            if (len(matches) != 1 or (entry["spooler_id"] and matches[0]["id"] != entry["spooler_id"])
+                    or matches[0]["state"] not in {3, 4, 5, 6, 7, 8, 9}):
+                raise StationError("Cannot identify the exact CUPS cancellation outcome. Inspect its queue and reconcile before clearing this batch.")
+            observed.append((entry, matches[0]))
+        return observed
+
+    def handle_cancel(self, job):
+        if job.get("cancelRequested") not in {"all", "backs"}:
+            return None
+        self.ledger.set_job(job["id"], "awaiting_clearance", "Cancellation requested. Clear the indicated printed paper before continuing.")
+        for entry, observed in self.cancellation_observations(job):
+            if observed and observed["state"] in {3, 4, 5, 6}:
+                self.cups.cancel(observed["id"])
+                # Save its identity even if the original lp receipt was lost.
+                self.ledger.set_pass(entry, entry["state"], spooler_id=observed["id"])
+            elif observed and observed["state"] == 9:
+                # Cancellation arrived after physical completion. Preserve what
+                # actually printed; never pretend those sheets were canceled.
+                self.observe(job, entry)
+        self.ledger.set_job(job["id"], "awaiting_clearance", "Check canceled output, remove printed paper and load blanks; confirm in CLC")
+        pending = self.ledger.pending(job)
+        artifact_id = pending["artifact_id"] if pending else (job.get("backRequest") or {}).get("artifactId")
+        artifact = next((item for item in job["artifacts"] if item["id"] == artifact_id), job["artifacts"][0])
+        self.notify_stage("cancellation", job, artifact)
+        return "awaiting_clearance"
+
+    def clear_paper(self, job_id, expected_clearance):
+        checked_id(job_id, "job ID")
+        current = self.ledger.current()
+        if not current or current["id"] != job_id or current["state"] not in {"awaiting_clearance", "awaiting_paper_reset"}:
+            raise StationError("This batch is not waiting for paper clearance")
+        if not expected_clearance or clearance_id(json.loads(current["payload"])) != expected_clearance:
+            raise StationError("Paper confirmation belongs to a different packet or cancellation")
+        job = self.refresh_job(json.loads(current["payload"]))
+        if clearance_id(job) != expected_clearance:
+            raise StationError("Paper confirmation belongs to a different packet or cancellation")
+        self.sync_steps(job)
+        if job.get("cancelRequested"):
+            for _entry, observed in self.cancellation_observations(job):
+                if observed and observed["state"] < 7:
+                    raise StationError("The canceled CUPS pass is still active. Wait for it to stop before clearing the paper.")
+                if observed and observed["state"] == 9:
+                    self.observe(job, _entry)
+            job = self.refresh_job(job)
+            self.sync_steps(job)
+            entry = next(iter(self.cancel_entries(job)), None)
+            if entry is None:
+                entry = self.ledger.passes(job_id)[-1]
+            reply = self.report(job, entry, "canceled", paperCleared=True, clearanceId=expected_clearance)
+            fresh = reply["job"]
+            remote = {(step["artifactId"], step["phase"]): step for step in fresh["steps"]}
+            for entry in self.ledger.passes(job_id):
+                if remote.get((entry["artifact_id"], entry["phase"]), {}).get("state") == "canceled" and entry["state"] != "completed":
+                    self.ledger.set_pass(entry, "canceled", "Cancellation confirmed after clearing paper")
+        elif current["state"] == "awaiting_paper_reset" and job.get("state") == "awaiting_paper_reset":
+            selected = (job.get("backRequest") or {}).get("artifactId")
+            entry = next((entry for entry in self.ledger.passes(job_id) if entry["artifact_id"] == selected and entry["phase"] == "backs"), None)
+            if entry is None or entry["state"] != "completed":
+                raise StationError("The selected back pass is not confirmed completed")
+            fresh = self.report(job, entry, "paper_ready", paperCleared=True, clearanceId=expected_clearance)["job"]
+        else:
+            raise StationError("The paper-clearance request no longer matches this batch")
+        if fresh.get("state") == "completed":
+            self.complete_job(fresh, "All print passes resolved and paper cleared")
+        elif fresh.get("state") in TERMINAL:
+            self.ledger.set_job(job_id, fresh["state"], "Canceled remaining printing; paper clearance confirmed")
+        elif not self.deferred_transition(fresh):
+            self.ledger.set_job(job_id, "active", "Paper cleared; remaining fronts may continue")
 
     def complete_job(self, job, detail):
         # Notify only on this durable transition, never by scanning old completed
@@ -654,6 +881,8 @@ class Station:
     def poll_once(self, allow_submit=True):
         current = self.ledger.current()
         if not current:
+            if allow_submit:
+                self.refresh_parked()
             if self.ledger.paused():
                 return "paused"
             if not allow_submit:
@@ -671,38 +900,37 @@ class Station:
         job = json.loads(current["payload"])
         if current["recipe_hash"] != recipe_fingerprint(self.config):
             raise StationError("Local queue/options changed during this job; restore its original recipe before continuing")
-        pending = next((entry for entry in self.ledger.passes(job["id"]) if entry["state"] != "completed"), None)
-        if pending is None:
-            return self.complete_job(job, "All passes confirmed completed by CUPS")
-        self.waiting_for_refeed(job, pending)
-        fresh = self.client.get_job(job["id"])
-        if (not isinstance(fresh, dict) or fresh.get("id") != job["id"]
-                or fresh.get("manifestSha256") != job["manifestSha256"] or fresh.get("claimToken") != job["claimToken"]):
-            raise StationError("Server job identity changed; refusing to continue")
-        job = fresh
-        self.ledger.write("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(job), job["id"]))
+        pending = self.ledger.pending(job)
+        # A legacy local front completion still surfaces its existing flip hold
+        # offline. Deferred sheets only ask for reload after explicit reservation.
+        if job.get("workflow") != DEFERRED_WORKFLOW:
+            self.waiting_for_refeed(job, pending)
+        fresh = self.refresh_job(job)
         if self.retire_canceled_before_cups(job, fresh):
             return "canceled before submission"
-        remote = {(step["artifactId"], step["phase"]): step for step in job.get("steps", [])}
-        for entry in self.ledger.passes(job["id"]):
-            step = remote.get((entry["artifact_id"], entry["phase"]), {})
-            if entry["state"] != "completed" and step.get("state") == "completed" and step.get("spoolerId"):
-                if entry["spooler_id"] and entry["spooler_id"] != step["spoolerId"]:
-                    self.ledger.set_job(job["id"], "uncertain", "CLC completion and local spooler ID disagree")
-                    return "paper clearance required"
-                # A lost acknowledgement for any pass (including DFC fronts)
-                # survives expired CUPS history in CLC's durable completion.
-                self.ledger.set_pass(entry, "completed", spooler_id=step["spoolerId"])
-                self.ledger.set_job(job["id"], "active")
-        pending = next((entry for entry in self.ledger.passes(job["id"]) if entry["state"] != "completed"), None)
-        if pending is None:
-            return self.complete_job(job, "Recovered durable spooler completion acknowledgements from CLC")
+        job = fresh
+        self.sync_steps(job)
+        canceled = self.handle_cancel(job)
+        if canceled:
+            return canceled
+        transitioned = self.deferred_transition(job)
+        if transitioned:
+            return transitioned
+        pending = self.ledger.pending(job)
+        unresolved = [entry for entry in self.ledger.passes(job["id"]) if entry["state"] not in PASS_TERMINAL]
+        if pending is None and not unresolved:
+            if job.get("state") == "canceled":
+                self.ledger.set_job(job["id"], "canceled", "Remaining print passes were canceled")
+                return "canceled"
+            return self.complete_job(job, "All passes confirmed completed or deliberately canceled")
         if job.get("state") in TERMINAL or job.get("state") == "expired":
             if all(entry["state"] == "pending" for entry in self.ledger.passes(job["id"])):
                 self.ledger.set_job(job["id"], "canceled", "Job ended on CLC before local submission")
                 return "canceled before submission"
             self.ledger.set_job(job["id"], "uncertain", "CLC job ended after printing began; check output and clear paper")
             return "paper clearance required"
+        if pending is None:
+            raise StationError("No eligible pass in the active saved workflow; reconcile its server state")
         self.heartbeat(job)
         if pending["state"] in {"intent", "submitted", "uncertain"}:
             self.observe(job, pending)
@@ -777,7 +1005,8 @@ class Station:
         row = self.ledger.db.execute("SELECT state FROM jobs WHERE id=?", (job_id,)).fetchone()
         if not row or row["state"] != "awaiting_refeed":
             raise StationError("This job is not waiting for an operator refeed")
-        entry = next((item for item in self.ledger.passes(job_id) if item["state"] != "completed"), None)
+        saved = self.ledger.db.execute("SELECT payload FROM jobs WHERE id=?", (job_id,)).fetchone()
+        entry = self.ledger.pending(json.loads(saved["payload"]))
         if not entry or entry["phase"] != "backs" or entry["state"] != "pending":
             raise StationError("No unsubmitted back pass is eligible for refeed")
         self.ledger.write("UPDATE passes SET resume_requested=1 WHERE job_id=? AND artifact_id=? AND phase='backs'",
@@ -795,11 +1024,12 @@ class Station:
             raise StationError("Server job identity changed; refusing to release")
         detail = "Operator checked output, cleared paper and unsafe CUPS jobs; abandon without automatic reprint"
         if job.get("state") not in TERMINAL and job.get("state") != "expired":
-            remote = next((step for step in job.get("steps", []) if step["state"] != "completed"), None)
-            if not remote:
+            entry = self.ledger.pending(job)
+            remote = next((step for step in job.get("steps", []) if entry is not None
+                           and step["artifactId"] == entry["artifact_id"] and step["phase"] == entry["phase"]
+                           and step["state"] not in PASS_TERMINAL), None)
+            if remote is None:
                 raise StationError("CLC has no remaining pass to release")
-            entry = next(item for item in self.ledger.passes(job_id)
-                         if item["artifact_id"] == remote["artifactId"] and item["phase"] == remote["phase"])
             if remote["state"] in {"submitting", "submitted", "uncertain"}:
                 job = self.report(job, entry, "reconciled", resolution="abandoned", paperCleared=True, detail=detail)["job"]
             elif remote["state"] == "pending":

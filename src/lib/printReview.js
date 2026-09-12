@@ -18,8 +18,9 @@ export function printCopyBreakdown(plan, fullSourceCopies) {
   return { sourceCopies, suggestedCopies, unchangedCopies: sourceCopies - suggestedCopies, extraCopies, removedCopies, basicCopies, totalCopies };
 }
 
-/** Cancellation is available only before any pass has left the pending state. */
+/** Current servers decide whether cancellation needs native spooler handling. */
 export function canCancelReviewedPrintJob(job) {
+  if (typeof job?.canCancel === 'boolean') return job.canCancel && !job.cancelRequested;
   return ['preparing', 'ready', 'queued', 'claimed'].includes(job?.state)
     && Array.isArray(job.steps) && job.steps.every(step => step.state === 'pending');
 }

@@ -30,10 +30,11 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.54.0';
+const APP_VERSION = '2.55.0';
 const WHATS_NEW = [
-  'Proxy Balboa announces completed print jobs by name without a personal mention',
-  'Discord mentions are reserved for paper flips and printer problems that need your help',
+  'Print all fronts now and save matching backs for later',
+  'Cancel a batch or its remaining backs from Printer',
+  'New print sheets show the requester, batch and sheet labels',
 ];
 
 function getResetToken() {

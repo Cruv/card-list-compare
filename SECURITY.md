@@ -158,6 +158,16 @@ job/packet label, download metadata and reload prompt identify that same artifac
 still require completed fronts and an explicit operator reload acknowledgement. Existing
 multi-sheet PDFs are retained with their original pairing and require matching the old PDF.
 
+Companion v2.55.0 advertises support before a new job adopts deferred backs. All fronts may
+finish and release the queue while backs stay durable; older companions cannot claim that
+workflow. Selecting saved backs reserves the exact packet before paper is loaded. Resume
+binds to its artifact, and subsequent paper clearance binds to a unique packet-reservation
+or cancellation ID at enqueue, delivery and native execution. Owners can cancel their own
+remaining work; admins can cancel across household users. Active cancellation uses only the
+exact saved CUPS title and job ID, retains completed receipts and requires confirmed paper
+clearance. Missing or ambiguous CUPS outcomes cannot authorize a silent release. Printed
+requester/batch labels are bounded text rendered only in the approved PDF margin.
+
 Flip alerts never authorize printing. The Mac stores an attempt for each job/artifact/channel
 before requesting a local notification or sending an optional Discord webhook. Retries and
 restarts cannot produce repeated pings; delivery failures leave the job waiting. Notification
@@ -172,7 +182,8 @@ the request UUID. Tests bind to the acknowledged configuration revision, durably
 intent before networking, and do not automatically retry uncertain sends. Credentials
 stay outside station telemetry and logs.
 Only canonical HTTPS Discord webhook URLs are accepted, redirects are refused, and
-allowed mentions contain only the explicitly configured Discord user ID. Enabling the
+help-needed alerts may mention only the explicitly configured Discord user ID. Completion,
+fronts-finished and delivery-test messages disable all mentions. Enabling the
 webhook shares the deck name, job/packet identity and CLC station link with its channel;
 no PDF, card artwork, station credential or automatic resume action is sent.
 

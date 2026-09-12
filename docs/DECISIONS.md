@@ -154,7 +154,7 @@ switch away from saved MPC art. Chosen IDs, resolved faces and both comparison t
 the immutable plan/hash; changing them requires a new review. Explicit-ID image downloads
 must not use a set/collector-only cache that could return another language or art variant.
 
-**One-sheet DFC packets (2026-09-10).** Keep each batch isolated and print its ordinary fronts
+**One-sheet DFC packets (2026-09-10; sequencing revised 2026-09-12).** Keep each batch isolated and print its ordinary fronts
 first. Each subsequent DFC artifact contains at most seven copies on exactly two pages:
 front, then back. Partial sheets are intentional; easier paper handling takes priority over
 filling every position. Numbered packet IDs and the printed `CLC <job-short-ID> DFC x/y`
@@ -162,17 +162,38 @@ label connect the physical sheet to its waiting pass. Labels use upstream's exis
 margin, preserving the v6 geometry, crop and registration marks. Legacy artifacts are not
 rewritten; their multi-sheet layout and missing job labels require preview/all-page review.
 
-After a front pass completes, hold the household queue and alert the operator. Only an
-explicit confirmation for the exact waiting job/packet permits its one-sided back pass;
-the next packet waits until that pass completes. The wait remains visible while paused.
+**Deferred backs (2026-09-12).** At the owner's request, new jobs accepted by a compatible
+companion print all ordinary and DFC fronts before parking unfinished backs. A durable
+`backs_pending` state releases the household front queue and preserves the immutable PDFs
+without normal expiry until the backs complete or are canceled. The per-job workflow marker
+keeps already claimed legacy jobs on their original front/back sequence; neither their
+artifacts nor submission receipts are rewritten.
+
+The owner or admin selects one exact back packet for later printing, even days later.
+That selection reserves the printer at a safe boundary before a reload notice permits
+handling paper. Only an explicit matching-job/packet acknowledgement submits the one-sided
+back pass. After it finishes, `awaiting_paper_reset` holds new front work until the operator
+confirms the printed sheets were removed and only blank paper is loaded. Other applications
+are outside this reservation, so the physical Epson queue remains dedicated during reload.
+Unselected backs never hold front work. No automatic back retries or scheduled physical
+reloads are inferred.
+
+Owners and admins can cancel a whole batch or only its unfinished backs. Pending passes can
+be canceled immediately; affected native submissions are stopped by their saved CUPS IDs,
+then `awaiting_clearance` requires physical paper removal before releasing new pages. A
+canceled pass never becomes completed, and canceling backs does not claim both faces printed.
+Records remain available for review; usable-copy confirmation stays separate in ManaSync.
+
 Default Mac notifications with Glass sound and optional Discord delivery are reminders,
-never print authorization. Dismissal and delivery failure cannot resume a job. Administrators
-configure Discord from Print → Printer using fixed configure/test commands; delivery stays
-on the Mac. Pending server secrets are encrypted, browser recovery stores only a UUID,
-and the private Mac ledger atomically stores settings and command receipts. Disconnect
-overrides older local config. Only the configured user ID can be mentioned. Tests bind to
-the acknowledged settings revision and record intent before sending, without automatic
-replay after an ambiguous response. No webhook was configured or sent during implementation.
+never print authorization. Fronts-finished and whole-job completion messages name the job
+without a personal mention. Selected reloads, required paper clearance and real printer
+faults may mention the configured operator. Dismissal and delivery failure cannot resume a
+job. Administrators configure Discord in Printer; delivery remains native. Pending server
+secrets are encrypted, browser recovery stores nonsecret request identity, and the private
+Mac ledger atomically stores settings and command receipts. Disconnect overrides local
+configuration. Tests bind to the acknowledged revision and never mention the user. Delivery
+attempts are recorded before sending, with no automatic replay after an ambiguous response.
+No webhook was configured or sent during implementation.
 
 **Artwork review (2026-09-11).** Resolve selected printings and physical faces before PDF
 creation. Show actual thumbnails, source, exact printing, missing faces and separate DFC

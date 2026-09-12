@@ -1,14 +1,16 @@
 import { all, get } from '../db.js';
 import { printError } from './printQueuePlan.js';
+import { isDeferred, canCancelRemaining, hasPendingBacks, canCancelUnstartedBacks, workflowSummary } from './printWorkflow.js';
+import { printCapabilities } from './printQueue.js';
 
-const STATES = new Set(['all', 'preparing', 'ready', 'queued', 'claimed', 'submitting', 'submitted', 'awaiting_refeed', 'uncertain', 'completed', 'failed', 'canceled', 'expired']);
+const STATES = new Set(['all', 'preparing', 'ready', 'queued', 'claimed', 'submitting', 'submitted', 'awaiting_refeed', 'backs_pending', 'awaiting_paper_reset', 'uncertain', 'completed', 'failed', 'canceled', 'expired']);
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const number = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000 ? value : 0;
 
 export function canCancelHouseholdBatch(row) {
   return (row.station_id === 'household' || (row.station_id === null && (row.queue_requested || row.queued_at)))
-    && ['preparing', 'ready', 'queued', 'claimed'].includes(row.state)
-    && JSON.parse(row.steps_json || '[]').every(step => step.state === 'pending');
+    && (isDeferred(row) ? canCancelRemaining(row) : ['preparing', 'ready', 'queued', 'claimed'].includes(row.state)
+      && JSON.parse(row.steps_json || '[]').every(step => step.state === 'pending'));
 }
 
 function publicProgress(raw) {
@@ -18,10 +20,11 @@ function publicProgress(raw) {
   return null;
 }
 
-export function listPrintBatches(userId, query = {}) {
+export function listPrintBatches(userId, query = {}, { deferredBacks = false } = {}) {
   const user = get('SELECT is_admin, suspended FROM users WHERE id = ?', [userId]);
   if (!user || user.suspended) throw printError('An active account is required', 403);
   const admin = !!user.is_admin;
+  const canControl = printCapabilities(userId).canQueue;
   const state = query.state ?? 'all';
   if (typeof state !== 'string' || !STATES.has(state)) throw printError('Invalid print batch state');
   const order = query.order ?? 'queue';
@@ -48,8 +51,8 @@ export function listPrintBatches(userId, query = {}) {
     cursorClause = `WHERE (sort_rank > ? OR (sort_rank = ? AND (sort_at ${direction} ? OR (sort_at = ? AND (created_at ${direction} ? OR (created_at = ? AND id ${direction} ?))))))`;
     cursorParams.push(cursor.rank, cursor.rank, cursor.sortAt, cursor.sortAt, cursor.createdAt, cursor.createdAt, cursor.id);
   }
-  const rank = order === 'newest' ? '0' : "CASE WHEN p.state IN ('claimed', 'submitting', 'submitted', 'awaiting_refeed', 'uncertain') THEN 0 WHEN p.state = 'queued' THEN 1 WHEN p.state = 'preparing' THEN 2 WHEN p.state = 'ready' THEN 3 ELSE 4 END";
-  const sortAt = order === 'newest' ? 'p.created_at' : "CASE WHEN p.state IN ('claimed', 'submitting', 'submitted', 'awaiting_refeed', 'uncertain', 'queued', 'preparing') THEN COALESCE(p.queued_at, p.created_at) ELSE p.created_at END";
+  const rank = order === 'newest' ? '0' : "CASE WHEN p.state IN ('claimed', 'submitting', 'submitted', 'awaiting_refeed', 'awaiting_paper_reset', 'uncertain') THEN 0 WHEN p.state = 'queued' THEN 1 WHEN p.state = 'preparing' THEN 2 WHEN p.state IN ('ready', 'backs_pending') THEN 3 ELSE 4 END";
+  const sortAt = order === 'newest' ? 'p.created_at' : "CASE WHEN p.state IN ('claimed', 'submitting', 'submitted', 'awaiting_refeed', 'awaiting_paper_reset', 'uncertain', 'queued', 'preparing') THEN COALESCE(p.queued_at, p.created_at) ELSE p.created_at END";
   // Match claimPrintJob's queued_at, created_at, id ordering even when several
   // batches enter the queue in the same millisecond. Keep every key in cursors.
   const sort = order === 'newest' ? 'sort_at DESC, id DESC' : 'sort_rank ASC, CASE WHEN sort_rank <= 2 THEN sort_at END ASC, CASE WHEN sort_rank > 2 THEN sort_at END DESC, CASE WHEN sort_rank <= 2 THEN created_at END ASC, CASE WHEN sort_rank > 2 THEN created_at END DESC, CASE WHEN sort_rank <= 2 THEN id END ASC, CASE WHEN sort_rank > 2 THEN id END DESC';
@@ -64,7 +67,12 @@ export function listPrintBatches(userId, query = {}) {
       return { id: row.id, deckName: typeof plan.deckName === 'string' ? plan.deckName.slice(0, 200) : 'Card batch',
         totalCopies: number(plan.totalCopies), state: row.state, createdAt: row.created_at, updatedAt: row.updated_at,
         queueOnReady: !!row.queue_requested, sourceKind: row.tracked_deck_id === null ? 'list' : 'deck',
-        canOpen, canCancel: admin && !!canCancelHouseholdBatch(row),
+        canOpen, canCancel: canControl && (admin || canOpen) && (!!canCancelHouseholdBatch(row)
+          || (deferredBacks === true && row.station_id === 'household' && canCancelRemaining(row))),
+        canCancelBacks: canControl && (admin || canOpen) && (isDeferred(row) || canCancelUnstartedBacks(row)
+          || (deferredBacks === true && row.station_id === 'household')) && hasPendingBacks(row) && !row.cancel_requested,
+        canPrepareBacks: canControl && (admin || canOpen) && isDeferred(row) && row.state === 'backs_pending' && !row.back_request_json && !row.cancel_requested,
+        ...workflowSummary(row),
         ...(canOpen ? { deckId: row.tracked_deck_id } : {}),
         ...(admin ? { requesterName: typeof row.requester_name === 'string' ? row.requester_name.slice(0, 120) : 'Deleted account' } : {}),
         progress: publicProgress(row.progress_json), artifactsCount: row.state === 'expired' ? 0 : Math.min(manifest?.artifacts?.length || 0, 37),

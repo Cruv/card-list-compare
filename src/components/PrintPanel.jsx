@@ -13,6 +13,8 @@ const STATES = {
   preparing: 'Preparing PDFs', ready: 'PDFs ready', queued: 'Waiting for the Mac',
   claimed: 'Preparing on the Mac', submitting: 'Submitting to Epson', submitted: 'In the Epson queue',
   awaiting_refeed: 'Waiting for manual flip / reload', completed: 'Spooler completed',
+  backs_pending: 'Fronts printed · backs saved', awaiting_paper_reset: 'Backs printed · restore blank paper',
+  awaiting_clearance: 'Canceled pages · clear paper',
   uncertain: 'Submission needs review on the Mac', failed: 'Failed', canceled: 'Canceled', expired: 'PDFs expired',
 };
 
@@ -23,14 +25,16 @@ function artifactName(artifact) {
 }
 
 function WaitingPrintPacket({ job }) {
+  if (job.state === 'backs_pending') return <section className="print-panel-confirmation" aria-label="Backs saved for later"><strong>Fronts are printed. Backs are saved for later.</strong><p>Other front jobs can continue. Keep the labeled double-sided sheets, then choose their matching packets in <a href="#print-station">Printer → Backs for later</a> whenever you are ready. Select a packet before reloading paper.</p></section>;
+  if (['awaiting_clearance', 'awaiting_paper_reset'].includes(job.state)) return <section className="print-panel-confirmation"><strong>{job.state === 'awaiting_clearance' ? 'Canceled-job paper needs clearing' : 'Backs finished — restore blank paper'}</strong><p>Remove printed or flipped paper, leave only blank paper in the rear feeder and confirm in <a href="#print-station">Printer</a> before other front jobs continue.</p></section>;
   if (job.state !== 'awaiting_refeed') return null;
-  const next = job.steps?.find(step => step.state !== 'completed');
+  const next = job.steps?.find(step => step.artifactId === job.backRequest?.artifactId && step.phase === 'backs') || job.steps?.find(step => step.state === 'awaiting_refeed');
   const artifact = job.artifacts?.find(item => item.id === next?.artifactId);
   return <section className="print-panel-confirmation" aria-label="Waiting for paper reload">
     <strong>{artifact ? `Flip and reload ${artifactName(artifact)}` : 'Paper reload is waiting'}</strong>
     {artifact?.label && <p>Match the printed margin label: <strong>{artifact.label}</strong></p>}
     <p>{artifact?.sheetCount ? `${artifact.sheetCount} ${artifact.sheetCount === 1 ? 'sheet' : 'sheets'}. ` : ''}Set aside the other completed output and remove unused blank paper from the rear feeder. Reload only the paper for this packet, following the verified flip direction and page order. Return blank paper after its backs finish. {artifact && !artifact.label && 'Match this older stack against its downloaded double-faced PDF. '}
-      Confirm this exact packet in <a href="#print-station">Printer</a>. The remaining queue waits for its backs.</p>
+      Confirm this exact selected packet in <a href="#print-station">Printer</a>. Other jobs wait only while this packet is selected and its paper is being handled.</p>
   </section>;
 }
 
@@ -393,6 +397,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       <WaitingPrintPacket job={job} />
       {job.state === 'uncertain' && <p>The Mac needs to reconcile this batch with Epson’s queue. Check <a href="#print-station">Printer</a> before creating another batch.</p>}
       {job.state === 'completed' && <p>Printing finished according to the spooler. Check the sheets, then confirm the usable copies.</p>}
+      {job.state === 'canceled' && job.frontsCompleted && job.backsCanceled > 0 && <p>The fronts finished, and remaining backs were canceled. This job did not print every planned face.</p>}
+      {job.cancelRequested && <p>Cancellation requested. Follow any paper-clearance instructions in <a href="#print-station">Printer</a>.</p>}
       <div className="print-panel-actions">
         {job.state === 'ready' && capabilities.canQueue && <button className="btn btn-primary" type="button" disabled={busy} onClick={() => jobAction(standalone ? queueStandalonePrintJob : queuePrintJob, job)}>Send to Mac</button>}
         {(job.artifacts || []).filter(a => a.downloadUrl).map(artifact => <button className="btn btn-secondary btn-sm" type="button" key={artifact.id} title={artifact.label || undefined} onClick={() => download(artifact, job)}>Download {artifactName(artifact)} PDF{artifact.kind === 'dfc' ? ' · fronts + backs' : ''}</button>)}
@@ -407,11 +413,12 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         <p className="print-panel-meta">{new Date(job.createdAt).toLocaleString()} · {job.mode === 'adhoc' ? job.comparison?.mode === 'changes' ? 'Compared lists · changes' : 'Independent print list' : job.mode === 'changes' ? `Snapshots #${job.source?.id} → #${job.target?.id}` : `Snapshot #${job.target?.id}`} · {job.artSource === 'saved-mpc' ? job.printingOverrideCount ? 'MPC + selected Scryfall art' : 'Saved MPC artwork' : 'Scryfall artwork'}{job.printingOverrideCount ? ` · ${job.printingOverrideCount} art selections` : ''}</p>
         {job.manifestSha256 && <ProxyConfirmationStatus items={confirmationItems.filter(item => item.printJobId === job.id)} />}
         <div className="print-panel-actions">
-          {canCancelReviewedPrintJob(job) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(standalone ? cancelStandalonePrintJob : cancelPrintJob, job)}>Cancel batch</button>}
+          {canCancelReviewedPrintJob(job) && (['preparing', 'ready', 'queued'].includes(job.state) ? <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(standalone ? cancelStandalonePrintJob : cancelPrintJob, job)}>Cancel batch</button> : <a className="btn btn-secondary btn-sm" href="#print-station">Manage cancellation in Printer</a>)}
+          {job.canCancelBacks && <a className="btn btn-secondary btn-sm" href="#print-station">Manage remaining backs</a>}
           {job.manifestSha256 && <button className="btn btn-secondary btn-sm" type="button" onClick={() => downloadManifest(job)}>Download batch details</button>}
           {['ready', 'completed', 'failed', 'canceled'].includes(job.state) && job.artifacts?.length > 0 && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(standalone ? expireStandalonePrintArtifacts : expirePrintArtifacts, job)}>Remove PDFs</button>}
         </div>
-        <p className="print-panel-meta">PDFs are kept for seven days. Removing them keeps the batch record.</p>
+        <p className="print-panel-meta">Saved backs remain available until completed or canceled. Ready and finished PDFs normally expire after seven days. Removing PDFs keeps the batch record.</p>
       </details>
     </article>;
   }
@@ -491,7 +498,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       {plan.totalCopies > 0 && <PrintListReview key={plan.planHash} plan={plan} onRemove={removeCard} excludedCards={excludedCards} disabled={busy || creationPending} shoppingDisabled={reviewDirty} printingOverrides={printingOverrides} onPickArt={setSelectedArtCard} onResetArt={resetArt} />}
       {plan.missingArtwork?.length > 0 && <div className="print-panel-error" role="alert">Choose artwork for:{'\n'}{plan.missingArtwork.map(card => `${card.quantity}× ${card.displayName} (${card.face})`).join('\n')}</div>}
       {plan.totalCopies === 0 && <p>No copies remain. Restore removed cards, add extras or change the selection options.</p>}
-      {summary?.doubleFaced > 0 && <p className="print-dfc-note">{summary.doubleFaced} double-sided {summary.doubleFaced === 1 ? 'card' : 'cards'} will use {summary.packets} separate {summary.packets === 1 ? 'sheet' : 'sheets'}. The Mac will wait for you to flip each labelled sheet before printing its back.</p>}
+      {summary?.doubleFaced > 0 && <p className="print-dfc-note">{summary.doubleFaced} double-sided {summary.doubleFaced === 1 ? 'card' : 'cards'} will use {summary.packets} separate labeled {summary.packets === 1 ? 'sheet' : 'sheets'}. With companion 2.55.0 or newer, all fronts print first. Keep those sheets and choose their backs later in Printer; other front jobs continue. Older companions keep their original front/back sequence.</p>}
       {station?.online && station.duplexVerified === false && summary?.doubleFaced > 0 && <p className="print-panel-meta">Double-sided alignment has not been verified. Check Printer before continuing. <a href="#print-station">Printer</a></p>}
       <div className="print-review-footer"><div><strong>{plan.totalCopies} {plan.totalCopies === 1 ? 'copy' : 'copies'}{summary ? ` · ${summary.sheets} ${summary.sheets === 1 ? 'sheet' : 'sheets'}` : ''}</strong><span>Entire reviewed batch · Letter paper</span></div><div className="print-panel-actions">
         {reviewDirty ? <button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : 'Review updated list'}</button> : <><button className={`btn ${capabilities.canQueue ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{capabilities.canQueue && <button className="btn btn-primary" disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}

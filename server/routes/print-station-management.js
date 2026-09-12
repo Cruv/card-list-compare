@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { createStationCommand, printStationStatus, createDiscordCommand, findStationCommand, cancelHouseholdPrintJob } from '../lib/printStationManagement.js';
+import { createStationCommand, printStationStatus, createDiscordCommand, findStationCommand, cancelHouseholdPrintJob, prepareHouseholdBacks, cancelHouseholdBacks } from '../lib/printStationManagement.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -11,6 +11,8 @@ const route = callback => (req, res) => {
 };
 router.get('/status', route((req, res) => res.json(printStationStatus(req.user.userId))));
 router.post('/jobs/:jobId/cancel', route((req, res) => res.json(cancelHouseholdPrintJob(req.user.userId, req.params.jobId))));
+router.post('/jobs/:jobId/backs/prepare', route((req, res) => res.json(prepareHouseholdBacks(req.user.userId, req.params.jobId, req.body))));
+router.post('/jobs/:jobId/backs/cancel', route((req, res) => res.json(cancelHouseholdBacks(req.user.userId, req.params.jobId))));
 router.post('/commands', route((req, res) => res.json(createStationCommand(req.user.userId, req.body))));
 router.get('/commands/:key', route((req, res) => res.json(findStationCommand(req.user.userId, req.params.key))));
 router.post('/discord', route((req, res) => res.json(createDiscordCommand(req.user.userId, req.body))));

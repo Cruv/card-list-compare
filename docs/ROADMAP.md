@@ -19,7 +19,7 @@ print records. [UI organization](UI_REDESIGN_INVENTORY.md) is the current capabi
 The new native source reports printer/active-pass faults through Mac and optional Discord
 alerts with durable duplicate suppression; it does not pause, resume or retry prints.
 The deployed server/native versions are separately recorded in
-[the household checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11).
+[the household checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-12).
 A companion update must wait for its active physical work to finish; preserve Enabled and
 all private receipts/settings during the household rollout. Never pause the running
 household station for interface testing. Reconcile Portainer's saved service definition
@@ -32,11 +32,14 @@ labels and geometry for one ordinary card plus eight DFCs in separate packets, w
 printing paper. The owner's 600 PPI, 1 mm crop and Epson Vivid settings are preserved in
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
 
-Ordinary fronts run first, followed by numbered DFC packets of at most seven copies on
-one front/back sheet. The queue waits for that exact sheet to be reloaded; its backs
-complete before the next packet. The Mac must be awake. Earlier unlabeled/multi-sheet PDFs
-stay immutable and need careful matching. Drying, lamination and cutting tracking remain
-excluded. Printing never advances the assembled paper-deck marker automatically.
+With companion v2.55.0+, all fronts finish before backs are saved for later; other batches
+continue. Each DFC packet holds at most seven copies on one front/back sheet. Choose a
+saved packet when ready, wait for its exclusive printer reservation, then match/reload and
+confirm. After its backs, confirm blank paper is loaded before normal printing resumes.
+Owners/admins can cancel remaining jobs or just backs. New pages identify requester, batch,
+packet/sheet and side. The Mac must be awake. Already-claimed legacy jobs and their PDFs
+stay immutable and retain their original sequence. Drying, lamination and cutting tracking
+remain excluded. Printing never advances the assembled paper-deck marker automatically.
 
 ## Optional companion integration — ManaSync
 

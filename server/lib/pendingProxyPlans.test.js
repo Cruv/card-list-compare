@@ -105,6 +105,13 @@ const confirm = (quantity=1,operationId=randomUUID(),revision=first().pendingPro
 const publish = async () => { await connect(); await plans.processPendingProxyPlans(); return first(); };
 
 describe('native pending proxy plans',() => {
+  it.each(['backs_pending','awaiting_paper_reset'])('retains ManaSync pending plans while native printing is %s',async state => {
+    db.run('UPDATE print_jobs SET state=? WHERE id=?',[state,jobId]);
+    const item = await publish();
+    expect(item.printJobId).toBe(jobId);
+    expect(item.pendingProxy.status).toBe('pending');
+    expect(pending.size).toBe(1);
+  });
   it('publishes and confirms a standalone batch with its frozen label and no fabricated deck',async () => {
     const label = 'Friday proxy replacements 🐉';
     const listText = '3 Sol Ring (C21) 263';

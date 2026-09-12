@@ -582,6 +582,10 @@ export const getPrintStationStatus = (signal) =>
   apiFetch('/print-station-management/status', { signal, timeout: 10_000 });
 export const cancelHouseholdPrintJob = jobId =>
   apiFetch(`/print-station-management/jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
+export const preparePrintJobBacks = (jobId, artifactId, signal) =>
+  apiFetch(`/print-station-management/jobs/${encodeURIComponent(jobId)}/backs/prepare`, { method: 'POST', body: JSON.stringify({ artifactId }), signal });
+export const cancelPrintJobBacks = (jobId, signal) =>
+  apiFetch(`/print-station-management/jobs/${encodeURIComponent(jobId)}/backs/cancel`, { method: 'POST', body: '{}', signal });
 export const sendPrintStationCommand = (command, signal) =>
   apiFetch('/print-station-management/commands', { method: 'POST', body: JSON.stringify(command), signal });
 

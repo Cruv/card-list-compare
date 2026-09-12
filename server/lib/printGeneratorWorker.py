@@ -1,4 +1,4 @@
-"""CLC adapter: upstream creates every sheet; pypdf only validates and merges PDFs."""
+"""Upstream creates every sheet; CLC adds margin identification without touching artwork."""
 import hashlib
 import io
 import gc
@@ -11,6 +11,7 @@ import warnings
 
 from PIL import Image, ImageDraw
 from pypdf import PdfReader, PdfWriter
+from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject
 
 # Generated 600 PPI sheets are 33.66 megapixels; source cards have a smaller explicit cap.
 Image.MAX_IMAGE_PIXELS = 34_000_000
@@ -83,6 +84,59 @@ def validate_pdf(filename, count):
         reader.close()
 
 
+def identify_pages(filename, identification, labels):
+    """Add vector text only in the approved v6 top-center margin.
+
+    Card pixels start 54.72pt below the top edge; registration marks are at the
+    outer corners. Our three 8pt lines occupy x=66..726, y=570..600, clear of both.
+    Existing 600ppi DeviceRGB image streams are copied without recompression.
+    """
+    values = [identification.get("requesterName"), identification.get("batchName")]
+    if identification.get("version") != 1 or any(not isinstance(value, str) or not value
+            or any(ord(char) < 32 or ord(char) > 126 for char in value) for value in values):
+        raise ValueError("Page identification must use bounded printable text")
+    if len(values[0]) > 48 or len(values[1]) > 96:
+        raise ValueError("Page identification exceeds the approved margin")
+    temporary = filename.with_suffix(".identified.pdf")
+    with open(filename, "rb") as source:
+        reader = PdfReader(source, strict=True)
+        if len(labels) != len(reader.pages):
+            raise ValueError("Every generated page requires its exact identification")
+        writer = PdfWriter()
+        writer.append(reader, import_outline=False)
+        font = writer._add_object(DictionaryObject({NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"), NameObject("/BaseFont"): NameObject("/Courier")}))
+        for index, page in enumerate(writer.pages):
+            item = labels[index]
+            label = item.get("label")
+            if item.get("page") != index + 1 or item.get("phase") not in ("fronts", "backs") \
+                    or not isinstance(label, str) or not 1 <= len(label) <= 96 \
+                    or any(ord(char) < 32 or ord(char) > 126 for char in label):
+                raise ValueError("Page label must identify its exact sheet and side")
+            lines = [f"Queued by: {values[0]}", f"Batch: {values[1]}",
+                     f"{label} | {'FRONT' if item['phase'] == 'fronts' else 'BACK'}"]
+            resources = DictionaryObject(page["/Resources"])
+            fonts = DictionaryObject(resources.get("/Font", DictionaryObject()).get_object())
+            if "/CLCPageIdentity" in fonts:
+                raise ValueError("Generated PDF already contains CLC page identification")
+            fonts[NameObject("/CLCPageIdentity")] = font
+            resources[NameObject("/Font")] = fonts
+            page[NameObject("/Resources")] = resources
+            commands = ["q", "0 g", "BT", "/CLCPageIdentity 8 Tf"]
+            for y, text in zip((592, 582, 572), lines):
+                commands.extend((f"1 0 0 1 66 {y} Tm", f"<{text.encode('ascii').hex()}> Tj"))
+            commands.extend(("ET", "Q"))
+            overlay = DecodedStreamObject()
+            overlay.set_data(("\n" + "\n".join(commands) + "\n").encode("ascii"))
+            contents = page.raw_get("/Contents")
+            contents = list(contents.get_object()) if isinstance(contents.get_object(), ArrayObject) else [contents]
+            page[NameObject("/Contents")] = ArrayObject([*contents, writer._add_object(overlay)])
+        with open(temporary, "wb") as destination:
+            writer.write(destination)
+        reader.close()
+    temporary.replace(filename)
+
+
 def chunk(request):
     source, directory = Path(request["source"]), Path(request["directory"])
     approved_geometry(source)
@@ -108,6 +162,8 @@ def chunk(request):
     if not request["doubleFaced"]:
         args.append("--only_fronts")
     subprocess.run(args, cwd=directory, stdin=subprocess.DEVNULL, check=True, timeout=90)
+    validate_pdf(output, 2 if request["doubleFaced"] else 1)
+    identify_pages(output, request["printedIdentification"], request["pageLabels"])
     validate_pdf(output, 2 if request["doubleFaced"] else 1)
     (directory / "result.json").write_text(json.dumps({"images": metadata}))
     # The validated PDF and metadata are self-contained. Source artwork remains
@@ -155,6 +211,9 @@ def smoke(source, directory):
         working = directory / ("dfc" if double_faced else "ordinary")
         working.mkdir()
         chunk({"source": str(source), "directory": str(working), "label": "CLC runtime check",
+               "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Approved geometry test"},
+               "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"}] + (
+                   [{"page": 2, "phase": "backs", "label": "CLC runtime check"}] if double_faced else []),
                "doubleFaced": double_faced, "cards": cards if double_faced else [
                    {"id": card["id"], "frontPath": card["frontPath"]} for card in cards]})
         reader = PdfReader(working / "sheet.pdf", strict=True)

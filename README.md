@@ -2,7 +2,7 @@
 
 Compare two MTG deck lists side-by-side and generate detailed changelogs showing cards added, removed, quantity changes, and printing swaps. Import from supported deck sites or paste a text list. Track Archidekt decks with snapshot history, paper-deck baselines, analytics, and proxy image exports.
 
-CLC generates Silhouette v6 PDFs from standalone print lists, full deck snapshots or version differences, with ordinary fronts followed by separate, one-sheet double-faced packets for that batch. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
+CLC generates Silhouette v6 PDFs from standalone print lists, full deck snapshots or version differences, with all front images printed first and labeled double-faced sheets saved for optional back printing later. Authorized household users can queue finished PDFs through the [native Mac companion](companion/mac/README.md), which uses the installed Epson driver and verified local settings. Collection and purchase management belong to the optional ManaSync companion; CLC has no native collection feature. See [Home printing workflow](docs/PRINT_WORKFLOW.md).
 
 ## Find your way around
 
@@ -18,7 +18,7 @@ Administration for administrators. Dark and light themes use the same organizati
 | Changes | Compare versions, manage one version history and review Archidekt changes or ManaSync proposals. |
 | Print → New print list | Prepare an ad-hoc or comparison list. Prepare holds selection/artwork review; Batches holds that account's standalone batch history. |
 | Deck → Print | Prepare snapshot/delta jobs and inspect that deck's batches. |
-| Print → Printer | Follow all batch statuses (all users for admins), check the Mac, handle labeled flip packets and manage printer alerts/settings. |
+| Print → Printer | Follow all batch statuses (all users for admins), check the Mac, select saved backs, handle paper reloads, cancel jobs and manage printer alerts/settings. |
 | Connections | Connect ManaSync ownership to CLC; optionally authorize CLC decks in ManaSync separately. |
 | Account settings | Profile/email, security, personal invitations and account deletion. |
 | Administration | Overview, Users, All invitations, App settings, Shared links, Audit log and System maintenance. |
@@ -217,16 +217,16 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Archidekt printing choices** — URL imports and tracked Archidekt snapshots preserve the selected set and collector number, so Scryfall supplies that exact artwork. Printing uses the reviewed snapshot or imported list. A later DeckCheck/plain-text import has no art choices of its own; saved snapshots carry forward earlier printing metadata where possible and resolve new cards through Scryfall. It does not silently replace protected local content with the current Archidekt deck. **Pick art** can override a card for this batch.
 - **Filter and buy** — search and sort the reviewed artwork, filter by single/double-sided cards or ManaSync ownership, and copy or open a Mana Pool buy list of visible missing originals. Filters do not change the print order; incoming or owned originals are never added to the missing-card buy list.
 - **Complete batches** — ordinary fronts first, then DFC packets of up to seven copies. Each DFC PDF has page 1 fronts and page 2 backs, with a printed job/packet label; every required face must validate before publication.
-- **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation. Printer consolidates saved PDFs, waiting jobs and completed/failed/canceled history across decks and standalone lists. Admins see all users; others see their own, with explicit waiting-in-CLC versus Epson status and links to their exact batch. Administrators can cancel a waiting job before any submission; submitted passes require Mac reconciliation.
-- **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; each DFC front pass completes before a flip alert and explicit reload confirmation. Its back pass finishes before the next packet; other CLC jobs wait.
-- **Print → Printer** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, and confirm a specific DFC paper reload. The status shows its reason directly, distinguishing confirmed faults, unavailable status and informational reminders. Companion 2.53.3+ recognizes Epson's routine ink-tank reminder without presenting it as an empty-ink error. Administrators also see managed version controls when the station supports them.
+- **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation. Printer consolidates saved PDFs, waiting jobs and completed/failed/canceled history across decks and standalone lists. Admins see all users; others see their own, with explicit waiting-in-CLC versus Epson status and links to their exact batch. Owners and administrators can cancel whole batches or only unfinished backs. The Mac stops affected submissions and requires paper clearance when necessary.
+- **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; all ordinary and double-faced fronts finish before the job parks its backs. Other front jobs continue. Choose any saved packet later; the Mac reserves the printer before an explicit reload confirmation, then prints its backs and waits for confirmation that blank paper is restored.
+- **Print → Printer** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, select saved back packets, confirm their reload and restore blank paper after printing or cancellation. The status shows its reason directly, distinguishing confirmed faults, unavailable status and informational reminders. Companion 2.53.3+ recognizes Epson's routine ink-tank reminder without presenting it as an empty-ink error. Administrators also see managed version controls when the station supports them.
 
-Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active print jobs are protected from expiry. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
+Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active jobs and unfinished saved backs are protected from expiry, including across restarts and days of waiting; they still count against the storage quota. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
 
-Flip and reported printer-error alerts use a Mac notification and Glass sound by default, with optional Discord delivery
+Selected-packet flip, paper-clearance and reported printer-error alerts use a Mac notification and Glass sound by default, with optional Discord delivery
 connected through the administrator's **Print → Printer → Discord printer alerts** controls.
 Companion **2.54.0+** also sends a Discord completion message naming the whole job after all
-required print passes finish in the Mac spooler. Only newly completed jobs are announced;
+required print passes finish in the Mac spooler. Companion **2.55.0+** also announces fronts finished with backs saved for later, without a personal mention. Only newly completed jobs are announced;
 existing completed history is not replayed. Completion describes the spooler result, not
 approval of the physical cards. Completion and test messages never mention a user directly.
 The optional Discord user ID is used only when help is needed, such as a paper flip or printer error.
@@ -235,7 +235,7 @@ test. The same panel can disconnect it. Discord messages come from **Proxy Balbo
 original Rocky-inspired phrasing between a factual preview headline and precise plain-language
 job, error or flip details. Deck-change and price alerts use the same voice, retain their exact
 changes/totals and link directly to the deck. See [notification voice](docs/NOTIFICATION_VOICE.md). Printer-error alerts require companion 2.53.0 or newer and use persisted per-episode duplicate suppression. Dismissing an alert never resumes printing; the waiting
-packet stays visible in **Print → Printer**, including while paused. Earlier PDFs remain
+packet stays visible in **Print → Printer**, including while paused. Unselected saved backs never hold the front queue. Once a back packet is selected, its reload and blank-paper confirmation do hold new front submissions. Earlier PDFs remain
 unchanged and may contain several DFC sheets without a job label: preview all pages and
 match the exact waiting packet before reloading. See the [packet sequence and alerts](docs/PRINT_WORKFLOW.md#double-faced-packets-and-flip-alerts).
 

@@ -220,6 +220,56 @@ def discord_completion_payload(job, config):
             "allowed_mentions": {"parse": [], "users": [], "roles": []}, "tts": False}
 
 
+def discord_fronts_payload(job, config):
+    payload = discord_completion_payload(job, config)
+    content = payload["content"].replace("Print job complete", "Fronts printed · backs saved", 1)
+    content = content.replace("Yo, we got it done, y'know? That one's all finished.",
+                              "Yo, the fronts are done, y'know? We got the other sides saved for when you're ready.")
+    content = content.replace("All print passes completed in the printer queue.", "All front passes completed. Matching backs are saved for later.")
+    content = content.replace("None. No paper flip is needed for this job.",
+                              "None right now. Leave blank paper loaded. Choose a saved packet in CLC when you want to print its backs; wait for the reload alert before loading it.")
+    payload["content"] = content
+    return payload
+
+
+def paper_reset_text(job, artifact):
+    _title, subtitle, _body = alert_text(job, artifact)
+    label = display_text(artifact.get("label") or artifact["id"], 180)
+    body = f"Backs finished for {label}. Remove the printed sheet(s), load blank paper in the rear feeder, then confirm paper cleared in CLC. Other printing waits for this confirmation."
+    return "CLC: return blank paper", subtitle, body
+
+
+def discord_paper_reset_payload(job, artifact, config):
+    payload = discord_payload(job, artifact, config)
+    _title, _subtitle, original = alert_text(job, artifact)
+    _title, _subtitle, replacement = paper_reset_text(job, artifact)
+    payload["content"] = payload["content"].replace("Paper flip needed", "Return blank paper", 1).replace(
+        "Yo. So, uh... we got the other side to do, y'know? I need a little help over here.",
+        "Yo, that side's done. I need you over here a second—get the blank paper back in, y'know?").replace(
+        discord_text(original), discord_text(replacement))
+    return payload
+
+
+def cancel_clearance_text(job, artifact):
+    name = display_text(job.get("deckName") or "Print batch", 70)
+    label = display_text(artifact.get("label") or artifact.get("id") or "", 180)
+    body = f"Cancellation requested for {label}. Check that printing has stopped, remove partially printed paper, load blanks, then confirm paper cleared in CLC. The queue waits for this check."
+    return "CLC: clear canceled print paper", f"{name} · {display_text(job['id'], 12)}", body
+
+
+def discord_cancel_clearance_payload(job, artifact, config):
+    payload = discord_paper_reset_payload(job, artifact, config)
+    _title, _subtitle, original = paper_reset_text(job, artifact)
+    _title, _subtitle, replacement = cancel_clearance_text(job, artifact)
+    payload["content"] = payload["content"].replace("Return blank paper", "Canceled print needs paper clearance", 1).replace(
+        "Yo, that side's done. I need you over here a second—get the blank paper back in, y'know?",
+        "Yo, you wanted to stop this one. I need a little help checkin' the paper over here, y'know?").replace(
+        discord_text(original), discord_text(replacement))
+    if artifact.get("kind") != "dfc":
+        payload["content"] = payload["content"].replace(" · packet 1/1", "").replace("\nPacket 1/1", "").replace("Packet ID:", "Pass artifact:")
+    return payload
+
+
 class RefeedAlerts:
     def __init__(self, ledger, config, runner=subprocess.run, discord_transport=post_discord):
         self.ledger, self.config, self.runner = ledger, config, runner
@@ -247,7 +297,7 @@ class RefeedAlerts:
         name = "Mac" if channel == "mac" else "Discord"
         return result("failed", name + " flip alert could not be saved safely. Check the waiting batch in CLC Print Station.", "warning")
 
-    def notify_channel(self, channel, job, artifact):
+    def notify_channel(self, channel, job, artifact, stage="backs"):
         try:
             if channel == "mac" and self.config.get("refeed_notifications", True) is False:
                 return result("disabled")
@@ -258,8 +308,9 @@ class RefeedAlerts:
                 effective, _managed = effective_alert_config(self.ledger, self.config)
                 if not effective.get("refeed_discord_webhook_url"):
                     return result("disabled")
-            title, subtitle, body = alert_text(job, artifact)
-            identity = (job["id"], artifact["id"], "backs")
+            canceled = stage.startswith("cancel:")
+            title, subtitle, body = (cancel_clearance_text if canceled else paper_reset_text if stage == "paper_reset" else alert_text)(job, artifact)
+            identity = (job["id"], artifact["id"], stage)
             table = CHANNEL_TABLES[channel]
             try:
                 with self.ledger.db:
@@ -274,7 +325,7 @@ class RefeedAlerts:
             name = "Mac" if channel == "mac" else "Discord"
             try:
                 if channel == "discord":
-                    payload = discord_payload(job, artifact, effective)
+                    payload = (discord_cancel_clearance_payload if canceled else discord_paper_reset_payload if stage == "paper_reset" else discord_payload)(job, artifact, effective)
                     self.discord_transport(effective["refeed_discord_webhook_url"], payload, timeout=5)
                 else:
                     completed = self.runner(
@@ -316,6 +367,57 @@ class RefeedAlerts:
             return response
         except Exception:
             return result("failed", "Flip notifications are unavailable. Check the waiting batch in CLC Print Station.", "warning")
+
+    def paper_reset(self, job, artifact):
+        return self.paper_clearance(job, artifact, "paper_reset")
+
+    def cancellation(self, job, artifact):
+        return self.paper_clearance(job, artifact, "cancel:" + str(job.get("cancelRequestId")))
+
+    def paper_clearance(self, job, artifact, stage):
+        try:
+            channels = {name: self.notify_channel(name, job, artifact, stage) for name in CHANNEL_TABLES}
+            statuses = {item["status"] for item in channels.values()}
+            status = next(value for value in ("failed", "attempted", "duplicate", "disabled") if value in statuses)
+            messages = [item["message"] for item in channels.values() if item["message"]]
+            return {**result(status, " ".join(messages) or None, "warning" if status == "failed" else "info" if messages else None), "channels": channels}
+        except Exception:
+            return result("failed", "Paper-clearance notification unavailable. Check the waiting batch in CLC.", "warning")
+
+    def fronts_completed(self, job):
+        """One unmentioned receipt; saved backs never trigger unsolicited flips."""
+        try:
+            effective, _managed = effective_alert_config(self.ledger, self.config)
+            if not effective.get("refeed_discord_webhook_url"):
+                return result("disabled")
+            self.ledger.write("""CREATE TABLE IF NOT EXISTS print_fronts_alerts (
+                job_id TEXT PRIMARY KEY, attempted_at REAL NOT NULL, outcome TEXT NOT NULL)""")
+            with self.ledger.db:
+                row = self.ledger.db.execute("SELECT state,payload FROM jobs WHERE id=?", (job["id"],)).fetchone()
+                if not row or row["state"] != "backs_pending":
+                    return result("ignored")
+                saved = json.loads(row["payload"])
+                entries = self.ledger.passes(job["id"])
+                expected = {artifact["id"] for artifact in saved["artifacts"]}
+                fronts = [entry for entry in entries if entry["phase"] == "fronts"]
+                if (saved.get("workflow") != "deferred-backs-v1" or saved.get("id") != job["id"] or not fronts
+                        or any(entry["state"] != "completed" for entry in fronts)
+                        or {entry["artifact_id"] for entry in fronts} != expected
+                        or not any(entry["phase"] == "backs" and entry["state"] == "pending" for entry in entries)):
+                    return result("ignored")
+                payload = discord_fronts_payload(saved, effective)
+                reserved = self.ledger.db.execute("INSERT OR IGNORE INTO print_fronts_alerts VALUES(?,?,?)", (job["id"], time.time(), "attempting"))
+            if reserved.rowcount != 1:
+                return result("duplicate")
+            outcome = "attempted"
+            try:
+                self.discord_transport(effective["refeed_discord_webhook_url"], payload, timeout=5)
+            except Exception:
+                outcome = "failed"
+            self.ledger.write("UPDATE print_fronts_alerts SET outcome=? WHERE job_id=?", (outcome, job["id"]))
+            return result(outcome, "Fronts-finished notification " + ("requested without a mention." if outcome == "attempted" else "not confirmed; no automatic retry."), "info" if outcome == "attempted" else "warning")
+        except Exception:
+            return result("failed", "Fronts-finished notification unavailable. Saved backs remain in CLC.", "warning")
 
     def job_completed(self, job):
         """Called on a new durable whole-job completion, never for history scans.

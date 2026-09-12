@@ -8,6 +8,7 @@ import {
 } from '../lib/printQueue.js';
 import { getPrintGeneratorStatus } from '../lib/printGenerator.js';
 import { listPrintBatches } from '../lib/printBatchHistory.js';
+import { supportsDeferredBacks } from '../lib/printStationManagement.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -28,7 +29,7 @@ const route = callback => async (req, res) => {
     res.status(error.status || 500).json({ error: error.message });
   }
 };
-printBatchesRouter.get('/', route((req, res) => res.json(listPrintBatches(req.user.userId, req.query))));
+printBatchesRouter.get('/', route((req, res) => res.json(listPrintBatches(req.user.userId, req.query, { deferredBacks: supportsDeferredBacks() }))));
 router.post('/:deckId/print-plan', route(async (req, res) => {
   const plan = await buildPrintPlan(req.user.userId, deckId(req), req.body || {});
   res.json({ plan: publicPrintPlan(plan), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });

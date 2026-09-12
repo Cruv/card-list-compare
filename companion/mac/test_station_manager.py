@@ -63,6 +63,7 @@ class ManagerTests(unittest.TestCase):
         resign(new)
         with self.assertRaisesRegex(manager.ManagerError, "printer status"):
             manager.verify_bundle(new)
+
         for name in ("clc_printer_health.py", "get-printer.test"):
             (new / name).write_text("# local health fixture")
         resign(new)
@@ -71,6 +72,18 @@ class ManagerTests(unittest.TestCase):
         resign(new)
         with self.assertRaisesRegex(manager.ManagerError, "printer status"):
             manager.verify_bundle(new)
+
+    def test_safe_saved_backs_allow_idle_upgrade_but_not_old_worker_rollback(self):
+        self.ledger.write("INSERT INTO jobs VALUES('saved',?,'recipe','backs_pending',NULL,0)",
+                          (json.dumps({'workflow': 'deferred-backs-v1'}),))
+        self.ledger.write("INSERT INTO passes(job_id,artifact_id,phase,state,title,cups_started) VALUES('saved','dfc','backs','pending','title',0)")
+        manager.assert_idle(self.config)
+        manager.assert_workflow_compatible(self.config, '2.55.0')
+        with self.assertRaisesRegex(manager.ManagerError, 'Finish or cancel saved backs'):
+            manager.assert_workflow_compatible(self.config, '2.54.0')
+        self.ledger.write("UPDATE passes SET state='submitted',cups_started=1")
+        with self.assertRaisesRegex(manager.ManagerError, 'active print job'):
+            manager.assert_idle(self.config)
 
     def install(self):
         return manager.install_bundle(self.bundle(), self.config_path, load_agent=False, launch_agents=self.root / "agents")

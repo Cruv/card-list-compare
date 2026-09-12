@@ -2,9 +2,20 @@ export const PRINT_JOB_STATES = {
   active: 'Preparing on the Mac',
   claimed: 'Preparing on the Mac', submitting: 'Submitting to Epson',
   submitted: 'In the Epson queue', awaiting_refeed: 'Waiting for flip and reload',
+  backs_pending: 'Fronts printed · backs saved', awaiting_paper_reset: 'Backs printed · restore blank paper',
+  awaiting_clearance: 'Canceled pages · clear paper',
   uncertain: 'Needs review at the Mac', completed: 'Spooler completed',
   preparing: 'Generating PDFs in CLC', queued: 'Waiting in CLC', failed: 'Failed', canceled: 'Canceled', expired: 'PDFs expired',
 };
+
+export function paperClearanceIdentity(job) {
+  if (!['awaiting_clearance', 'awaiting_paper_reset'].includes(job?.state)
+    || typeof job.id !== 'string' || !job.id
+    || typeof job.clearanceId !== 'string' || !job.clearanceId) return null;
+  // A later back packet (or cancellation) can belong to the same job. A paper
+  // check for one boundary must never authorize another boundary after polling.
+  return JSON.stringify([job.id, job.state, job.clearanceId]);
+}
 
 export function printerHealthPresentation(health, current) {
   // A stale report or an undecoded driver response cannot confirm a fault.
@@ -33,6 +44,8 @@ export function printStationSummary(station, { fresh, online, loading }) {
   if (!online) return 'The Mac is offline';
   if (station.paused) return 'Printing is paused';
   const activeJob = station.activeJob;
+  if (activeJob?.state === 'awaiting_clearance') return 'Clear paper from the canceled pass';
+  if (activeJob?.state === 'awaiting_paper_reset') return 'Restore blank paper for the next job';
   if (activeJob?.state === 'awaiting_refeed') return 'Your paper needs flipping';
   if (activeJob?.state === 'uncertain') return 'Review this batch on the Mac';
   const health = printerHealthPresentation(station.health, true);

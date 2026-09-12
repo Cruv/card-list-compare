@@ -244,22 +244,38 @@ was printed, and it does not complete the physical cutting or duplex proof.
 
 ## Double-faced packets and flip alerts
 
-The companion finishes the batch’s ordinary fronts first. For each DFC packet it submits
-page 1 as one one-sided front pass, waits for confirmed spooler completion, then holds on
-that exact job and packet ID. The Mac requests a flip alert and CLC shows the waiting
-packet's printed label, copy count and sheet count. Match `CLC <job-short-ID> DFC x/y` on
-the printed front to the waiting packet; set earlier output aside and remove unused blank
-paper from the rear feeder before loading the matching printed sheet.
+For new jobs, companion **2.55.0+** prints the batch's ordinary fronts and every DFC front
+page on blank paper first. Their matching back passes are parked in durable
+`backs_pending` state under **Print → Printer → Backs for later**. Other queued front jobs
+continue without an operator flip. The list keeps each job name, requester, full batch ID,
+packet label/count and front-completion time. Save the physical sheets by their printed
+`CLC <job-short-ID> DFC x/y` identity. Unfinished backs and their immutable PDFs remain
+stored across restarts and beyond the normal seven-day artifact expiry, until completed or
+canceled. They still consume the shared disk quota.
 
-Flip and reload only that packet's printed sheet according to the physically proven feeder
-procedure, then use **Confirm paper reload** in **Print → Printer**. Confirmation applies
-only to the shown job/packet. Page 2 then runs as a separate one-sided back pass; it must
-finish before the next packet starts. Return blank paper to the feeder after the backs
-finish so the next front pass can print. Automatic duplex is disabled. The household CLC
-queue stays held throughout the wait. Pausing does not hide an existing flip wait, and
-confirmation does not override a pause. Opening or dismissing a notification never resumes
-printing. Other applications can still print, so keep the Epson queue dedicated while a
-packet is waiting for its back.
+When ready—even on another day—choose **Prepare this packet’s backs**. This selects one
+exact job/artifact; it does not say paper is loaded and does not submit any backs. Keep
+blank paper in the rear feeder while the Mac finishes current work and reserves the
+printer. Once the selected packet becomes **Waiting for flip and reload**, match its
+printed label, remove unused blank paper, and reload only its sheet in the physically
+verified orientation. Check the matching-paper acknowledgement, then choose **Confirm and
+print this packet’s backs**. Page 2 runs as a separate one-sided pass; automatic duplex
+remains disabled.
+
+When the backs finish, the station enters `awaiting_paper_reset`. Remove the finished
+sheet and any other printed/flipped paper from the rear feeder, load blank paper, check
+the paper-clearance acknowledgement and choose **Confirm blank paper is ready**. Only
+then can front work resume or another back packet be selected. The acknowledgement applies to
+that exact back completion or cancellation: a later packet or cancellation requires a
+fresh paper check, even when it belongs to the same job. The reservation protects
+CLC submissions; other applications can still print, so keep the Epson queue dedicated
+while handling reloaded paper. Pausing never hides a pending reload/reset and a reload
+confirmation cannot override pause. Opening or dismissing a notification never submits,
+resumes or cancels a print.
+
+Previously claimed jobs retain their saved original front/back sequence. Upgrading does
+not reorder an active job or replace any PDFs. Those legacy jobs can still hold the queue
+at their original flip step until completed or canceled.
 
 Local Mac notifications and their **Glass** sound default on. The private Mac configuration
 accepts JSON booleans `refeed_notifications` and `refeed_sound` (both default `true`), plus
@@ -279,9 +295,9 @@ No real destination or test message is created by installing this feature.
 See the [Mac alert setup](../companion/mac/README.md#flip-alerts).
 
 Notification permission, Focus or sound settings can suppress a Mac alert. Each configured
-channel is attempted once per waiting packet; ambiguous or failed delivery is logged
+channel is attempted once per selected waiting packet or paper-clearance event; ambiguous or failed delivery is logged
 without automatically retrying. Alert failure is nonfatal and cannot authorize backs:
-the durable wait remains visible in CLC, even while paused.
+the durable wait remains visible in CLC, even while paused. Merely saving backs for later does not request a flip or hold front printing.
 
 Existing PDFs and manifests are immutable. A legacy `double-faced.pdf` may contain several
 front/back page pairs and lack the job label above. Inspect its PDF preview and all pages,
@@ -294,7 +310,11 @@ Companion **2.54.0+** uses the configured Discord connection to announce a newly
 job after all its required front and back passes have confirmed completion in the Mac
 spooler. The message names the whole deck or standalone print job, includes its batch
 identity and printer details, and does not directly mention the configured user. A
-finished front pass or intermediate DFC packet is not a whole-job completion. Existing
+finished front pass or intermediate DFC packet is not a whole-job completion. Companion
+**2.55.0+** separately announces all fronts finished with backs saved for later, without an
+@mention. A selected back pass requests a personal mention when its reload or subsequent
+blank-paper reset needs help. Canceled backs remain canceled and do not produce a false
+all-faces-complete announcement. Existing
 submitted passes can complete and be announced while new submissions are paused.
 
 Completion describes the spooler result. It does not confirm usable cards, alignment,
@@ -339,16 +359,20 @@ flip and error alerts; private webhook values never enter status or event messag
 across owners, deck snapshots and standalone lists, with pagination and status filtering.
 Other signed-in users see their own batch history, even without physical-printer access. Waiting in CLC means the
 PDF/job is saved and has not reached the spooler; Epson status identifies an actual pass
-already submitted. The app retains waiting batches to sequence manual DFC work safely.
+already submitted. Unselected saved backs release the front queue; selecting a back packet reserves a safe paper-handling window.
 Owner links open the exact batch without overwriting a draft; summaries do not grant
 access to another user's deck text or artifact URLs.
 
-Admins can cancel a waiting batch before any pass has begun submission. If submission may
-exist, CLC refuses that cancellation: cancel/reconcile the exact Mac spooler job and clear
-paper before releasing it. Canceled jobs are retained as records; they are never retried
-automatically. Companion 2.53.0 can retire a verified cancellation before any local CUPS
-attempt, including after an interrupted authorization request. Older or ambiguous attempts
-still require reconciliation; the new proof never infers paper clearance. Preparing another batch remains available while earlier jobs wait or print.
+Owners and administrators can **Cancel batch** to stop every unfinished pass, or
+**Cancel only backs** to preserve front work while canceling unfinished backs. This never
+undoes already printed output. Pending-only cancellations settle immediately. If affected
+pages have entered submission, the Mac stops only their recorded Epson submission and
+requires `awaiting_clearance`: remove partial/flipped paper and confirm blank paper before
+releasing more front work. A missing or ambiguous submission still needs reconciliation;
+software does not infer paper clearance. Completed passes remain completed, canceled
+passes remain canceled, and neither is automatically retried. A job whose fronts finish
+but backs are canceled is shown as **Finished · backs canceled**, not as every face printed.
+Preparing another batch remains available while earlier jobs wait or print.
 Only concurrent PDF preparation and storage capacity are limited; queued jobs do not
 consume the per-user preparation allowance. Unresolved submission requests keep their
 original payload locked until receipt recovery, preventing duplicates.
@@ -378,15 +402,17 @@ records local submission intent durably, gets server authorization for that pass
 to its fixed local queue, then reports the spooler ID. No request can supply shell commands,
 executable paths or printer destinations. A durable station claim prevents interleaving;
 lease expiry is not permission to repeat a physical submission. Interrupted or ambiguous
-submissions require reconciliation rather than blind retry. A canceled CLC batch cannot
-cancel paper already submitted to Epson; cancellation is restricted before submission.
+submissions require reconciliation rather than blind retry. The deferred workflow can request cancellation of an exact native submission; the
+Mac uses its durable CUPS ID and requires physical paper clearance before releasing work.
+Legacy or ambiguous submissions still require explicit Mac reconciliation.
 
 States distinguish preparing, ready, queued, claimed, submitting, submitted, awaiting
-refeed, completed, uncertain, failed, canceled and expired. “Completed” means confirmed
+refeed, backs pending, paper reset, cancellation clearance, completed, uncertain, failed,
+canceled and expired. “Completed” means confirmed
 spooler completion, not proof that usable cards emerged or were cut and assembled.
 
 Ready and terminal artifacts expire after seven days; queued, active, uncertain and
-refeed-waiting batches are protected. Default retained-job storage is 10 GiB, configurable
+refeed-waiting, paper-reset and saved-back batches are protected without a waiting-time limit. Default retained-job storage is 10 GiB, configurable
 with `PRINT_STORAGE_MAX_MB`; preparation reserves 5 GiB for the retained job plus temporary
 sheet images and PDF parts. Remove old PDFs if that working space is unavailable. The manifest
 and event history remain after artifact expiry. Account deletion purges its jobs and files,

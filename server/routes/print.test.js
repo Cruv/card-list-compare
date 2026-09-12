@@ -124,6 +124,26 @@ describe('global print batch history', () => {
     return id;
   }
 
+  it('enables active legacy cancellation only from a live native capability and preserves owner authorization', async () => {
+    const id = seed(2, 'submitted', new Date().toISOString());
+    const steps = [{ artifactId: 'double-faced', phase: 'fronts', state: 'submitted', spoolerId: 'EPSON-legacy' },
+      { artifactId: 'double-faced', phase: 'backs', state: 'pending', requiresRefeed: true }];
+    db.run("UPDATE print_jobs SET station_id = 'household', steps_json = ? WHERE id = ?", [JSON.stringify(steps), id]);
+    const list = async (token = 'user-1', query = '') => (await (await request('/api/print-batches' + query, { token })).json()).jobs[0];
+    expect(await list('user-1', '?deferredBacks=true')).toMatchObject({ canCancel: false, canCancelBacks: false });
+    const heartbeat = { version: '2.55.0', paused: false, queue: 'EPSON', recipeVerified: true, duplexVerified: true,
+      recipeFingerprint: 'f'.repeat(64), health: { ok: true, known: true, message: 'Fixture ready' }, activeJob: null, events: [], receipts: [] };
+    expect((await station('/heartbeat', 'POST', { ...heartbeat, deferredBacks: false })).status).toBe(200);
+    expect(await list()).toMatchObject({ canCancel: false, canCancelBacks: false });
+    expect((await station('/heartbeat', 'POST', { ...heartbeat, deferredBacks: true })).status).toBe(200);
+    expect(await list()).toMatchObject({ canCancel: true, canCancelBacks: true, canOpen: false });
+    expect(await list('user-2')).toMatchObject({ canCancel: false, canCancelBacks: false, canOpen: true });
+    vi.stubEnv('PRINT_ALLOWED_USER_IDS', '2');
+    expect(await list('user-2')).toMatchObject({ canCancel: true, canCancelBacks: true });
+    const current = Date.now(); vi.spyOn(Date, 'now').mockReturnValue(current + 21_000);
+    expect(await list()).toMatchObject({ canCancel: false, canCancelBacks: false });
+  });
+
   it('paginates every owner and source for admins, but always scopes normal users to their own batches', async () => {
     const ids = [];
     for (let n = 0; n < 55; n++) ids.push(seed(n % 2 + 1, 'completed', `2026-09-${String(n % 28 + 1).padStart(2, '0')}T00:00:00Z`, { deckId: n % 3 ? null : n % 2 + 1 }));
@@ -767,5 +787,147 @@ describe('print storage, deletion, and durable transactions', () => {
     ])).toThrow();
     expect(db.get('SELECT username FROM users WHERE id = 1').username).toBe('printer');
     expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(before);
+  });
+});
+
+describe('deferred back-side scheduling', () => {
+  const front = artifactId => ({ artifactId, phase: 'fronts' });
+  const back = artifactId => ({ artifactId, phase: 'backs' });
+  const row = job => db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+  const cleared = job => { const saved = row(job); return { paperCleared: true, clearanceId: saved.cancel_requested ? `cancel:${saved.cancel_request_id}` : `back:${JSON.parse(saved.back_request_json).id}` }; };
+  function finish(job, pass, spoolerId) {
+    report(job, 'submitting', pass); report(job, 'submitted', { ...pass, spoolerId });
+    return report(job, 'completed', { ...pass, spoolerId }).job;
+  }
+  async function packets() {
+    db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt (M10) [146]\n8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+    services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
+    const readyJob = await ready({ queueOnReady: true });
+    const original = row(readyJob);
+    const job = queue.claimPrintJob({ deferredBacks: true });
+    return { job, original };
+  }
+  function finishFronts(job) {
+    for (const [index, pass] of job.steps.filter(step => step.phase === 'fronts').entries()) finish(job, front(pass.artifactId), `EPSON-front-${index}`);
+    return queue.getOwnedPrintJob(1, 1, job.id);
+  }
+  it('prints every front first, parks saved backs without a queue blocker and preserves immutable identity', async () => {
+    const { job, original } = await packets();
+    expect(job.workflow).toBe('deferred-backs-v1');
+    expect(job.steps.map(step => step.phase)).toEqual(['fronts', 'fronts', 'fronts', 'backs', 'backs']);
+    expect(row(job).manifest_json).toBe(original.manifest_json);
+    expect(row(job).manifest_sha256).toBe(original.manifest_sha256);
+    finish(job, front('fronts'), 'EPSON-ordinary');
+    finish(job, front('double-faced-001'), 'EPSON-dfc-1');
+    expect(row(job).state).toBe('claimed');
+    finish(job, front('double-faced-002'), 'EPSON-dfc-2');
+    expect(row(job)).toMatchObject({ state: 'backs_pending', expires_at: null });
+    expect(queue.claimPrintJob({ deferredBacks: true })).toBeNull();
+    const next = await ready({ queueOnReady: true });
+    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(next.id);
+    expect(row(job).claim_nonce).toBeTruthy();
+    expect(queue.formatPrintJob(row(job), true).claimToken).toBe(job.claimToken);
+  });
+  it('keeps deferred PDFs, pass receipts and saved request through restart and retention cleanup', async () => {
+    const { job } = await packets(); finishFronts(job);
+    queue.preparePrintBacks(row(job), 'double-faced-002', 1);
+    db.run("UPDATE print_jobs SET expires_at = '2000-01-01T00:00:00Z', updated_at = '2000-01-01T00:00:00Z' WHERE id = ?", [job.id]);
+    const before = row(job);
+    stopQueue = queue.initPrintQueue();
+    expect(row(job)).toEqual(before);
+    expect(queue.verifiedPrintArtifact(row(job), 'double-faced-002').path).toBeTruthy();
+    expect(() => queue.expireOwnedPrintArtifacts(1, 1, job.id)).toThrow('must be kept');
+  });
+  it('reserves a selected later packet before refeed and requires blank-paper reset after backs', async () => {
+    const { job } = await packets(); finishFronts(job);
+    queue.preparePrintBacks(row(job), 'double-faced-002', 1);
+    const parked = row(job);
+    queue.preparePrintBacks(row(job), 'double-faced-002', 1);
+    expect(row(job)).toEqual(parked); // retry is not a new physical request
+    expect(() => queue.preparePrintBacks(row(job), 'double-faced-001', 1)).toThrow('already requested');
+    const reserved = queue.claimPrintJob({ deferredBacks: true });
+    expect(reserved).toMatchObject({ id: job.id, state: 'awaiting_refeed', claimToken: job.claimToken });
+    expect(() => report(job, 'refeed', back('double-faced-001'))).toThrow('exact back pass');
+    report(job, 'refeed', back('double-faced-002'));
+    expect(() => queue.purgeUserPrintJobs(1)).toThrow('Reconcile active print submissions');
+    const reset = finish(job, back('double-faced-002'), 'EPSON-late-back');
+    expect(reset.state).toBe('awaiting_paper_reset');
+    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(job.id);
+    expect(() => report(job, 'paper_ready')).toThrow('blank paper');
+    expect(report(job, 'paper_ready', cleared(job)).job).toMatchObject({ state: 'backs_pending', backRequest: null });
+    expect(queue.claimPrintJob({ deferredBacks: true })).toBeNull();
+    expect(() => queue.preparePrintBacks(row(job), 'double-faced-002', 1)).toThrow('unfinished');
+    queue.preparePrintBacks(row(job), 'double-faced-001', 1); queue.claimPrintJob({ deferredBacks: true });
+    report(job, 'refeed', back('double-faced-001'));
+    finish(job, back('double-faced-001'), 'EPSON-final-back');
+    expect(row(job).state).toBe('awaiting_paper_reset');
+    expect(report(job, 'paper_ready', cleared(job)).job.state).toBe('completed');
+  });
+  it('waits behind the current physical job before reserving old paper ahead of ordinary queued work', async () => {
+    const { job } = await packets(); finishFronts(job);
+    const second = await ready({ queueOnReady: true }), third = await ready({ queueOnReady: true });
+    const active = queue.claimPrintJob({ deferredBacks: true });
+    expect(active.id).toBe(second.id);
+    queue.preparePrintBacks(row(job), 'double-faced-001', 1);
+    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(second.id);
+    finishFronts(active);
+    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(job.id);
+    expect(row(third).state).toBe('queued');
+  });
+  it('blocks an old native client from resuming the new workflow without mutating its saved request', async () => {
+    const { job } = await packets(); finishFronts(job);
+    queue.preparePrintBacks(row(job), 'double-faced-001', 1);
+    const before = row(job);
+    expect(() => queue.claimPrintJob()).toThrow('deferred back-side');
+    expect(row(job)).toEqual(before);
+    const invalid = await station('/claim', 'POST', { deferredBacks: 'true' });
+    expect(invalid.status).toBe(400);
+  });
+  it('does not reorder or upgrade an already active legacy physical batch', async () => {
+    const prepared = await ready({ queueOnReady: true }); const legacy = queue.claimPrintJob();
+    report(legacy, 'submitting', front('fronts')); report(legacy, 'submitted', { ...front('fronts'), spoolerId: 'EPSON-legacy' });
+    const before = row(prepared);
+    expect(queue.claimPrintJob({ deferredBacks: true }).workflow).toBeNull();
+    expect(row(prepared)).toEqual(before);
+  });
+  it('cancels only pending backs while ordinary fronts are running and keeps the acknowledged spooler state', async () => {
+    const { job } = await packets();
+    report(job, 'submitting', front('fronts')); report(job, 'submitted', { ...front('fronts'), spoolerId: 'EPSON-live' });
+    const result = queue.requestPrintCancellation(row(job), 'backs');
+    expect(result).toMatchObject({ state: 'submitted', cancelRequested: null, backsCanceled: 2 });
+    expect(result.steps[0]).toMatchObject({ state: 'submitted', spoolerId: 'EPSON-live' });
+    report(job, 'completed', { ...front('fronts'), spoolerId: 'EPSON-live' });
+    finish(job, front('double-faced-001'), 'EPSON-remaining-front-1');
+    const last = finish(job, front('double-faced-002'), 'EPSON-remaining-front-2');
+    expect(last).toMatchObject({ state: 'canceled', backsCanceled: 2, frontsCompleted: true });
+    expect(queue.claimPrintJob({ deferredBacks: true })).toBeNull();
+  });
+  it('cancels parked backs immediately but protects a reserved sheet until native paper clearance', async () => {
+    const { job } = await packets(); finishFronts(job);
+    queue.preparePrintBacks(row(job), 'double-faced-001', 1); queue.claimPrintJob({ deferredBacks: true });
+    const requested = queue.requestPrintCancellation(row(job), 'backs');
+    expect(requested).toMatchObject({ state: 'awaiting_refeed', cancelRequested: 'backs' });
+    expect(() => report(job, 'refeed', back('double-faced-001'))).toThrow('cancellation');
+    expect(() => report(job, 'canceled')).toThrow('paper clearance');
+    const canceled = report(job, 'canceled', cleared(job)).job;
+    expect(canceled).toMatchObject({ state: 'canceled', cancelRequested: null, backRequest: null, backsCanceled: 2, frontsCompleted: true });
+    expect(canceled.steps.filter(step => step.phase === 'fronts').every(step => step.state === 'completed')).toBe(true);
+  });
+  it('retains active cancellation across a racing final front completion until native acknowledgement', async () => {
+    const { job } = await packets();
+    finish(job, front('fronts'), 'EPSON-ordinary'); finish(job, front('double-faced-001'), 'EPSON-first');
+    report(job, 'submitting', front('double-faced-002')); report(job, 'submitted', { ...front('double-faced-002'), spoolerId: 'EPSON-last' });
+    queue.requestPrintCancellation(row(job), 'all');
+    expect(report(job, 'completed', { ...front('double-faced-002'), spoolerId: 'EPSON-last' }).job).toMatchObject({ state: 'claimed', cancelRequested: 'all' });
+    expect(() => queue.purgeUserPrintJobs(1)).toThrow('Reconcile active print submissions');
+    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(job.id);
+    expect(report(job, 'canceled', cleared(job)).job.state).toBe('canceled');
+  });
+  it('freezes requester name for generated page identification', async () => {
+    const { job } = await create({ queueOnReady: false });
+    db.run("UPDATE users SET username = 'renamed-later' WHERE id = 1");
+    await queue.processNextPrintJob();
+    expect(JSON.parse(row(job).plan_json).requesterName).toBe('printer');
+    expect(services.generatePrintPdfs).toHaveBeenLastCalledWith(expect.objectContaining({ requesterName: 'printer', batchName: 'Deck 1' }));
   });
 });

@@ -594,6 +594,11 @@ export async function initDb() {
   }
   db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_user_deck ON print_jobs(user_id, tracked_deck_id, created_at)');
   db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_state ON print_jobs(state, queued_at, created_at)');
+  // Optional scheduling metadata upgrades without rewriting old PDF manifests,
+  // pass order, claim identities or spooler receipts.
+  for (const column of ['workflow', 'back_request_json', 'cancel_requested', 'cancel_request_id']) {
+    if (!all('PRAGMA table_info(print_jobs)').some(item => item.name === column)) db.run(`ALTER TABLE print_jobs ADD COLUMN ${column} TEXT`);
+  }
   db.run(`CREATE TABLE IF NOT EXISTS print_job_events (
     job_id TEXT NOT NULL, event_id TEXT NOT NULL, request_hash TEXT NOT NULL,
     event_json TEXT NOT NULL, created_at TEXT NOT NULL,

@@ -134,3 +134,10 @@
 .station-overview .station-actions { margin-top: 12px; }
 .station-pause-help { margin-top: 8px; }
 .station-refeed > .station-refeed { border: 0; border-top: 1px solid var(--border-color); border-radius: 0; padding: 18px 0 0; background: transparent; }
+.station-deferred-jobs, .station-deferred-packets { list-style: none; padding: 0; margin: 0; }
+.station-deferred-jobs > li { border-top: 1px solid var(--border-color); margin-top: 20px; padding-top: 20px; }
+.station-deferred-jobs h3 { overflow-wrap: anywhere; }
+.station-deferred-packets > li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-left: 3px solid var(--border-color); padding: 12px 16px; margin-top: 12px; }
+.station-deferred-packets > li > div { flex: 1 1 230px; min-width: 0; overflow-wrap: anywhere; }
+.station-paper-check { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0; }
+.station-paper-check input { margin-top: 5px; flex-shrink: 0; }

@@ -169,7 +169,7 @@ def assert_idle(config, allow_missing=False):
         connection = sqlite3.connect(database.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)
         try:
             paused = connection.execute("SELECT value FROM settings WHERE key='paused'").fetchone()
-            active = connection.execute("SELECT id FROM jobs WHERE state NOT IN ('completed','failed','canceled') LIMIT 1").fetchone()
+            active = connection.execute("SELECT id FROM jobs WHERE state NOT IN ('completed','failed','canceled','backs_pending') LIMIT 1").fetchone()
             uncertain = connection.execute("""SELECT p.job_id FROM passes p LEFT JOIN jobs j ON j.id=p.job_id
                 WHERE p.state IN ('intent','submitting','submitted','uncertain')
                 AND (j.id IS NULL OR j.state NOT IN ('completed','failed','canceled')) LIMIT 1""").fetchone()
@@ -181,6 +181,22 @@ def assert_idle(config, allow_missing=False):
             connection.close()
     except sqlite3.Error as error:
         raise ManagerError("Station ledger could not be checked safely") from error
+
+
+def assert_workflow_compatible(config, target_version):
+    """Old workers cannot safely schedule a ledger containing saved backs."""
+    if tuple(map(int, version(target_version).split("."))) >= (2, 55, 0):
+        return
+    database = Path(config["state_dir"]).expanduser() / "station.sqlite3"
+    if not database.exists():
+        return
+    try:
+        with contextlib.closing(sqlite3.connect(database.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
+            saved = connection.execute("SELECT payload FROM jobs WHERE state NOT IN ('completed','failed','canceled')")
+            if any(json.loads(row[0]).get("workflow") == "deferred-backs-v1" for row in saved):
+                raise ManagerError("Finish or cancel saved backs before installing a companion older than 2.55.0")
+    except (sqlite3.Error, ValueError) as error:
+        raise ManagerError("Saved print workflow compatibility could not be checked safely") from error
 
 
 def safe_name(name):
@@ -411,6 +427,7 @@ def check_update(config):
 
 
 def activate_bundle(config, directory, expected_version, expected_arch):
+    assert_workflow_compatible(config, expected_version)
     root = managed_root(config)
     metadata = verify_bundle(directory, expected_version, expected_arch)
     bundle_health(directory, expected_version)
@@ -443,6 +460,7 @@ def _apply_update(config, action="update", target_version=None):
             previous = selected(root, "previous")
             if not previous or target_version and version(target_version) != previous:
                 raise ManagerError("No matching previous version is available for rollback")
+            assert_workflow_compatible(config, previous)
             verify_bundle(root / "versions" / previous, previous, architecture())
             bundle_health(root / "versions" / previous, previous)
             assert_idle(config)
@@ -542,6 +560,7 @@ def install_bundle(bundle, config_path=DEFAULT_CONFIG, load_agent=True, launch_a
             # Existing active state must never be hidden by a fresh installation.
             if ledger.current():
                 raise ManagerError("Reconcile existing print jobs before installing the managed station")
+            assert_workflow_compatible(config, metadata["version"])
             ledger.write("INSERT OR REPLACE INTO settings(key,value) VALUES('paused','1')")
             assert_idle(config)
             destination = root / "versions" / metadata["version"]

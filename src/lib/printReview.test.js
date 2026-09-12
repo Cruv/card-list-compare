@@ -9,7 +9,7 @@ const plan = () => ({ totalCopies: 8, ordinaryCopies: 1, doubleFacedCopies: 7,
     { isDFC: true, faces: [face('front', 'saved-mpc'), face('back', 'saved-mpc')], errors: [] }] });
 
 describe('physical artwork review', () => {
-  it('offers cancellation for untouched work, but never between printed packets or after an uncertain submission', () => {
+  it('keeps legacy cancellation limited to untouched work when no server permission is supplied', () => {
     for (const state of ['preparing', 'ready', 'queued', 'claimed']) expect(canCancelReviewedPrintJob({ state, steps: [] })).toBe(true);
     const pending = { state: 'claimed', steps: [{ phase: 'fronts', state: 'pending' }, { phase: 'backs', state: 'pending' }] };
     expect(canCancelReviewedPrintJob(pending)).toBe(true);
@@ -19,6 +19,12 @@ describe('physical artwork review', () => {
     expect(canCancelReviewedPrintJob({ state: 'claimed' })).toBe(false);
     expect(canCancelReviewedPrintJob({ ...pending, state: 'awaiting_refeed' })).toBe(false);
     expect(canCancelReviewedPrintJob({ ...pending, state: 'canceled' })).toBe(false);
+  });
+  it('uses current server cancellation permissions for native cancellation and suppresses duplicate requests', () => {
+    expect(canCancelReviewedPrintJob({ state: 'submitted', canCancel: true })).toBe(true);
+    expect(canCancelReviewedPrintJob({ state: 'backs_pending', canCancel: true })).toBe(true);
+    expect(canCancelReviewedPrintJob({ state: 'ready', steps: [], canCancel: false })).toBe(false);
+    expect(canCancelReviewedPrintJob({ state: 'submitted', canCancel: true, cancelRequested: 'all' })).toBe(false);
   });
   it('counts each double-sided copy once, with a separate front/back packet', () => {
     expect(printReviewSummary(plan())).toEqual({ ordinary: 1, doubleFaced: 7, ordinarySheets: 1, packets: 1, sheets: 2, pages: 3 });

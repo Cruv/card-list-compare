@@ -25,7 +25,8 @@ router.post('/claim', route((req, res) => {
   if (!Number.isSafeInteger(maxArtifacts) || maxArtifacts < 1 || maxArtifacts > 37) {
     return res.status(400).json({ error: 'maxArtifacts must be an integer between 1 and 37' });
   }
-  res.json({ job: claimForManagedStation(maxArtifacts) });
+  if (req.body?.deferredBacks !== undefined && typeof req.body.deferredBacks !== 'boolean') return res.status(400).json({ error: 'deferredBacks must be true or false' });
+  res.json({ job: claimForManagedStation(maxArtifacts, req.body?.deferredBacks === true) });
 }));
 router.get('/jobs/:jobId', route((req, res) => res.json({ job: formatPrintJob(stationPrintJob(req.params.jobId), true) })));
 router.post('/jobs/:jobId/report', route((req, res) => res.json(reportPrintJob(req.params.jobId, req.body || {}))));

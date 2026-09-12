@@ -7,6 +7,7 @@ import { get, all, run, runTransaction } from '../db.js';
 import { buildPrintPlan, publicPrintPlan, printError, sha256 } from './printQueuePlan.js';
 import { preparePrintImages } from './printQueueImages.js';
 import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from './printGenerator.js';
+import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -21,9 +22,9 @@ const MANIFEST_RESERVE_BYTES = 1024 * 1024;
 const STORAGE_MAX_BYTES = Math.max(1, Number(process.env.PRINT_STORAGE_MAX_MB) || 10240) * 1024 * 1024;
 const LEASE_MS = 120000;
 const STATION_ID = 'household';
-const ACTIVE_STATES = ['claimed', 'submitting', 'submitted', 'awaiting_refeed', 'uncertain'];
-const PHYSICAL_STATES = ['submitting', 'submitted', 'awaiting_refeed', 'uncertain'];
-const NEVER_EXPIRE = ['preparing', 'queued', ...ACTIVE_STATES];
+const ACTIVE_STATES = ACTIVE_PRINT_STATES;
+const PHYSICAL_STATES = ['submitting', 'submitted', 'awaiting_refeed', 'awaiting_paper_reset', 'uncertain'];
+const NEVER_EXPIRE = ['preparing', 'queued', 'backs_pending', ...ACTIVE_STATES];
 let workerActive = false;
 let timer;
 const controllers = new Map();
@@ -114,6 +115,8 @@ function artifactRecord(row, artifact, station) {
     pageCount: artifact.pageCount, sheetCount: artifact.sheetCount, cardCount: artifact.cardCount,
     ...(artifact.label ? { label: artifact.label } : {}),
     ...(artifact.packetIndex ? { packetIndex: artifact.packetIndex, packetCount: artifact.packetCount } : {}),
+    ...(artifact.printedIdentification ? { printedIdentification: artifact.printedIdentification } : {}),
+    ...(artifact.pageLabels ? { pageLabels: artifact.pageLabels } : {}),
     frontPages: artifact.kind === 'dfc' ? Array.from({ length: artifact.sheetCount }, (_, n) => n * 2 + 1) : Array.from({ length: artifact.pageCount }, (_, n) => n + 1),
     backPages: artifact.kind === 'dfc' ? Array.from({ length: artifact.sheetCount }, (_, n) => n * 2 + 2) : [],
     downloadUrl: station
@@ -137,6 +140,7 @@ export function formatPrintJob(row, station = false) {
     recipeId: manifest?.recipe?.id || 'household-letter-v6', manifestSha256: row.manifest_sha256,
     artifacts: row.state === 'expired' ? [] : (manifest?.artifacts || []).map(artifact => artifactRecord(row, artifact, station)),
     steps: parse(row.steps_json) || [],
+    ...workflowSummary(row),
   };
   if (station) Object.assign(value, { claimToken: claimToken(row), leaseExpiresAt: row.lease_expires_at });
   return value;
@@ -174,6 +178,8 @@ export async function createPrintJob(userId, deckId, request) {
   cleanupPrintArtifacts();
   if (totalStorage() + PRINT_WORKING_RESERVE_BYTES > STORAGE_MAX_BYTES) throw printError('Print storage lacks the 5 GiB working allowance. Remove or expire completed artifacts before preparing more PDFs.', 507);
   const id = crypto.randomUUID(), timestamp = now();
+  const requester = get('SELECT username FROM users WHERE id = ?', [userId]);
+  plan.requesterName = (requester?.username || 'Unknown requester').slice(0, 120);
   run(`INSERT INTO print_jobs (id, user_id, tracked_deck_id, request_key, request_hash, plan_json, queue_requested, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, userId, deckId, requestKey, requestHash, json(plan), request.queueOnReady ? 1 : 0, timestamp, timestamp]);
   triggerWorker();
@@ -230,6 +236,7 @@ export async function processNextPrintJob() {
     const generated = await generatePrintPdfs({
       cards: copies.map(copy => ({ id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}) })),
       outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
+      requesterName: plan.requesterName || 'Unknown requester', batchName: plan.deckName,
       maxOutputBytes, signal: controller.signal, onProgress: progress,
     });
     assertActive();
@@ -269,6 +276,7 @@ export async function processNextPrintJob() {
       copies: copies.map(copy => ({ ...copy, front: withoutPath(copy.front), ...(copy.back ? { back: withoutPath(copy.back) } : {}) })),
       generatorRevision: generated.revision, generatorRuntimeVersion: generated.runtimeVersion, recipe: generated.recipe, artifacts, slots: generated.slots,
       images: generated.images || [], generatedAt: now(),
+      ...(generated.printedIdentification ? { printedIdentification: generated.printedIdentification } : {}),
     };
     const bytes = json(manifest), hash = sha256(bytes);
     if (Buffer.byteLength(bytes) > MANIFEST_RESERVE_BYTES) throw printError('Print manifest exceeds the storage limit', 507);
@@ -312,12 +320,60 @@ export function queuePrintJob(userId, deckId, id) {
 export function cancelPrintJob(userId, deckId, id) {
   const row = ownerJob(userId, deckId, id);
   if (row.state === 'canceled') return formatPrintJob(row);
+  if (isDeferred(row)) return requestPrintCancellation(row, 'all');
   if (!['preparing', 'ready', 'queued', 'claimed'].includes(row.state) || parse(row.steps_json).some(step => step.state !== 'pending')) {
     throw printError('A spooler submission may exist. Reconcile or cancel it at the print station first.', 409);
   }
   controllers.get(id)?.abort();
   run("UPDATE print_jobs SET state = 'canceled', queue_requested = 0, updated_at = ?, completed_at = ?, expires_at = ? WHERE id = ?", [now(), now(), retentionExpiry(), id]);
   return getOwnedPrintJob(userId, deckId, id);
+}
+
+/** Called only after owner/admin authorization. Active physical work is canceled
+ * by the native station, never by guessing a CUPS outcome in the container. */
+export function requestPrintCancellation(row, scope = 'all') {
+  if (!['all', 'backs'].includes(scope)) throw printError('Invalid print cancellation scope');
+  if (row.state === 'canceled') return formatPrintJob(row);
+  if (PRINT_TERMINAL_STATES.includes(row.state)) throw printError('This print batch has already finished', 409);
+  const steps = readSteps(row), targets = steps.filter(step => !finishedStep(step) && (scope === 'all' || step.phase === 'backs'));
+  if (!targets.length && row.state !== 'preparing') throw printError('No unfinished passes remain to cancel', 409);
+  if (row.cancel_requested) {
+    if (row.cancel_requested !== scope && scope !== 'all') throw printError('This batch already has a cancellation pending', 409);
+    if (row.cancel_requested === scope) return formatPrintJob(row);
+  }
+  const reserved = !!readBackRequest(row) && ACTIVE_STATES.includes(row.state);
+  const physical = targets.some(step => ['submitting', 'submitted', 'uncertain'].includes(step.state));
+  const activeAll = scope === 'all' && ACTIVE_STATES.includes(row.state) && steps.some(step => step.state !== 'pending');
+  if (reserved || physical || activeAll) {
+    run('UPDATE print_jobs SET cancel_requested = ?, cancel_request_id = ?, updated_at = ? WHERE id = ?', [scope, crypto.randomUUID(), now(), row.id]);
+  } else {
+    if (scope === 'all') controllers.get(row.id)?.abort();
+    for (const step of targets) Object.assign(step, { state: 'canceled', canceledAt: now() });
+    const state = scope === 'all' ? 'canceled' : settledPrintState(row, steps);
+    // Canceling future backs during an in-flight front must not change its
+    // submission state or lease. Only its future work is removed.
+    const finalState = scope === 'backs' && ['ready', 'queued', 'submitting', 'submitted', 'uncertain'].includes(row.state) ? row.state : state;
+    run('UPDATE print_jobs SET state = ?, steps_json = ?, back_request_json = NULL, cancel_requested = NULL, cancel_request_id = NULL, queue_requested = ?, updated_at = ?, completed_at = ?, expires_at = ? WHERE id = ?',
+      [finalState, json(steps), scope === 'all' ? 0 : row.queue_requested, now(), PRINT_TERMINAL_STATES.includes(finalState) ? now() : row.completed_at,
+        PRINT_TERMINAL_STATES.includes(finalState) ? retentionExpiry() : row.expires_at, row.id]);
+  }
+  return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [row.id]));
+}
+
+export function preparePrintBacks(row, artifactId, requesterId) {
+  if (!isDeferred(row) || row.state !== 'backs_pending' || row.cancel_requested) throw printError('This batch is not ready to schedule saved backs', 409);
+  const request = readBackRequest(row);
+  if (request) {
+    if (request.artifactId === artifactId) return formatPrintJob(row);
+    throw printError('Another packet from this batch is already requested', 409);
+  }
+  const steps = readSteps(row), back = steps.find(step => step.artifactId === artifactId && step.phase === 'backs');
+  const front = steps.find(step => step.artifactId === artifactId && step.phase === 'fronts');
+  if (!back || back.state !== 'pending' || front?.state !== 'completed') throw printError('Choose an unfinished back packet whose fronts are complete', 409);
+  verifiedPrintArtifact(row, artifactId);
+  run('UPDATE print_jobs SET back_request_json = ?, updated_at = ? WHERE id = ?',
+    [json({ id: crypto.randomUUID(), artifactId, requestedAt: now(), requesterId }), now(), row.id]);
+  return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [row.id]));
 }
 
 export function verifiedPrintArtifact(row, artifactId) {
@@ -367,7 +423,9 @@ export function cleanupPrintArtifacts() {
 
 export function purgeUserPrintJobs(userId) {
   const rows = all('SELECT * FROM print_jobs WHERE user_id = ?', [userId]);
-  if (rows.some(row => PHYSICAL_STATES.includes(row.state) || parse(row.steps_json).some(step => ['submitting', 'submitted', 'uncertain'].includes(step.state)))) {
+  if (rows.some(row => PHYSICAL_STATES.includes(row.state) || row.cancel_requested
+    || (ACTIVE_STATES.includes(row.state) && row.back_request_json)
+    || parse(row.steps_json).some(step => ['submitting', 'submitted', 'uncertain'].includes(step.state)))) {
     throw printError('Reconcile active print submissions at the household station before deleting this account', 409);
   }
   for (const row of rows) {
@@ -392,9 +450,12 @@ export function assertStationArtifactCapacity(row, maxArtifacts) {
     throw printError(`Upgrade the Mac print companion to continue this job: it has ${artifacts.length} PDF artifacts, but this companion supports ${maxArtifacts}.`, 409);
   }
 }
-export function claimPrintJob({ maxArtifacts = 37 } = {}) {
+export function assertStationWorkflow(row, deferredBacks) {
+  if (isDeferred(row) && !deferredBacks) throw printError('Upgrade the Mac print companion to continue deferred back-side printing.', 409);
+}
+export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false } = {}) {
   let row = all(`SELECT * FROM print_jobs WHERE station_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY queued_at, created_at, id LIMIT 1`, [STATION_ID, ...ACTIVE_STATES])[0];
-  if (row) assertStationArtifactCapacity(row, maxArtifacts);
+  if (row) { assertStationArtifactCapacity(row, maxArtifacts); assertStationWorkflow(row, deferredBacks); }
   if (row && row.state === 'claimed' && parse(row.steps_json).every(step => step.state === 'pending') && !printCapabilities(row.user_id).canQueue) {
     run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, station_id = NULL, claim_nonce = NULL, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked before submission', now(), row.id]);
     row = null;
@@ -406,6 +467,21 @@ export function claimPrintJob({ maxArtifacts = 37 } = {}) {
     }
     return formatPrintJob(row, true);
   }
+  // Reserving a saved packet is exclusive only after the prior physical work
+  // has finished. Its original nonce and receipts survive days of parking.
+  const requested = all("SELECT * FROM print_jobs WHERE station_id = ? AND state = 'backs_pending' AND back_request_json IS NOT NULL ORDER BY json_extract(back_request_json, '$.requestedAt'), id", [STATION_ID]);
+  for (const saved of requested) {
+    assertStationWorkflow(saved, deferredBacks);
+    assertStationArtifactCapacity(saved, maxArtifacts);
+    if (!printCapabilities(saved.user_id).canQueue) {
+      run('UPDATE print_jobs SET back_request_json = NULL, updated_at = ? WHERE id = ?', [now(), saved.id]);
+      continue;
+    }
+    const request = readBackRequest(saved);
+    verifiedPrintArtifact(saved, request.artifactId);
+    run("UPDATE print_jobs SET state = 'awaiting_refeed', lease_expires_at = ?, updated_at = ? WHERE id = ?", [leaseExpiry(), now(), saved.id]);
+    return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [saved.id]), true);
+  }
   while ((row = get("SELECT * FROM print_jobs WHERE state = 'queued' ORDER BY queued_at, created_at, id LIMIT 1"))) {
     if (!printCapabilities(row.user_id).canQueue) {
       run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked; PDF remains available to its owner', now(), row.id]);
@@ -414,9 +490,12 @@ export function claimPrintJob({ maxArtifacts = 37 } = {}) {
     // Check compatibility before hashing PDFs or creating a durable claim. Older
     // companions can upgrade without trapping this FIFO job in claimed state.
     assertStationArtifactCapacity(row, maxArtifacts);
+    assertStationWorkflow(row, deferredBacks);
     for (const artifact of parse(row.manifest_json).artifacts) verifiedPrintArtifact(row, artifact.id);
-    run("UPDATE print_jobs SET state = 'claimed', station_id = ?, claim_nonce = ?, lease_expires_at = ?, updated_at = ? WHERE id = ? AND state = 'queued'",
-      [STATION_ID, crypto.randomBytes(24).toString('hex'), leaseExpiry(), now(), row.id]);
+    const steps = readSteps(row), upgrade = deferredBacks && steps.every(step => step.state === 'pending');
+    const ordered = upgrade ? [...steps.filter(step => step.phase === 'fronts'), ...steps.filter(step => step.phase === 'backs')] : steps;
+    run("UPDATE print_jobs SET state = 'claimed', station_id = ?, claim_nonce = ?, lease_expires_at = ?, updated_at = ?, workflow = ?, steps_json = ? WHERE id = ? AND state = 'queued'",
+      [STATION_ID, row.claim_nonce || crypto.randomBytes(24).toString('hex'), leaseExpiry(), now(), upgrade ? DEFERRED_BACKS_WORKFLOW : row.workflow, json(ordered), row.id]);
     return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [row.id]), true);
   }
   return null;
@@ -440,12 +519,13 @@ export function reportPrintJob(id, event) {
   if (typeof event.detail === 'string' && event.detail.length > 2000) throw printError('Station detail is too long');
   if (event.spoolerId !== undefined && (typeof event.spoolerId !== 'string' || !/^[a-zA-Z0-9_.:-]{1,200}$/.test(event.spoolerId))) throw printError('Invalid spooler job ID');
   const steps = parse(row.steps_json), step = steps.find(item => item.artifactId === event.artifactId && item.phase === event.phase);
-  const next = steps.find(item => item.state !== 'completed');
-  let state = row.state, error = row.error;
+  const next = nextPrintStep(row, steps);
+  let state = row.state, error = row.error, backRequest = row.back_request_json, cancellation = row.cancel_requested, cancellationId = row.cancel_request_id;
   if (['canceled', 'expired', 'failed', 'completed'].includes(row.state) && event.state !== 'reconciled') throw printError('This print job is no longer active', 409);
   if (event.state === 'heartbeat') {
     // A heartbeat may renew a claim but never changes a physical outcome.
   } else if (event.state === 'submitting') {
+    if (row.cancel_requested && (row.cancel_requested === 'all' || event.phase === 'backs')) throw printError('Cancellation is pending for this print pass', 409);
     if (row.lease_expires_at <= now()) throw printError('Claim lease expired; renew it before starting submission', 409);
     if (!printCapabilities(row.user_id).canQueue) throw printError('Printing authorization was revoked', 403);
     if (!step || step !== next || step.state !== 'pending' || !['claimed', 'submitted'].includes(row.state)) throw printError('This pass is not eligible for a new submission', 409);
@@ -459,19 +539,31 @@ export function reportPrintJob(id, event) {
   } else if (event.state === 'completed') {
     if (!step || step.state !== 'submitted' || !event.spoolerId || step.spoolerId !== event.spoolerId) throw printError('Completion must match the acknowledged spooler job', 409);
     Object.assign(step, { state: 'completed', completedAt: now() });
-    const remaining = steps.find(item => item.state !== 'completed');
-    state = !remaining ? 'completed' : remaining.requiresRefeed && !remaining.refeedConfirmed ? 'awaiting_refeed' : 'claimed';
+    state = isDeferred(row) && step.phase === 'backs' ? 'awaiting_paper_reset' : settledPrintState(row, steps);
     error = null;
   } else if (event.state === 'awaiting_refeed') {
     if (!next?.requiresRefeed || next.refeedConfirmed || steps.some(item => ['submitting', 'submitted'].includes(item.state))) throw printError('This job is not ready for refeed', 409);
     state = 'awaiting_refeed';
   } else if (event.state === 'refeed') {
+    if (row.cancel_requested) throw printError('This back pass has a pending cancellation', 409);
     const front = steps.find(item => item.artifactId === event.artifactId && item.phase === 'fronts');
     if (state !== 'awaiting_refeed' || !step || step !== next || step.phase !== 'backs'
       || !step.requiresRefeed || step.refeedConfirmed || step.state !== 'pending' || front?.state !== 'completed') {
       throw printError('This exact back pass is not waiting for a paper refeed after completed fronts', 409);
     }
     Object.assign(step, { refeedConfirmed: true, refeedAt: now() }); state = 'claimed';
+  } else if (event.state === 'paper_ready') {
+    if (!isDeferred(row) || row.state !== 'awaiting_paper_reset' || row.cancel_requested || event.paperCleared !== true || !paperClearanceId(row) || event.clearanceId !== paperClearanceId(row)) throw printError('Confirm blank paper is ready for this exact completed back pass', 409);
+    state = settledPrintState(row, steps); backRequest = null;
+  } else if (event.state === 'canceled') {
+    if (!row.cancel_requested || event.paperCleared !== true || !paperClearanceId(row) || event.clearanceId !== paperClearanceId(row)) throw printError('Cancellation requires its saved request and exact confirmed paper clearance', 409);
+    for (const item of steps) {
+      if (!finishedStep(item) && (row.cancel_requested === 'all' || item.phase === 'backs')) {
+        Object.assign(item, { canceledFrom: item.state, state: 'canceled', canceledAt: now() });
+      }
+    }
+    state = row.cancel_requested === 'all' ? 'canceled' : settledPrintState(row, steps);
+    backRequest = null; cancellation = null; cancellationId = null; error = null;
   } else if (event.state === 'uncertain') {
     if (!step || !['submitting', 'submitted', 'uncertain'].includes(step.state)) throw printError('No submission exists to reconcile', 409);
     Object.assign(step, { state: 'uncertain', detail: event.detail || 'Submission outcome unknown' }); state = 'uncertain'; error = step.detail;
@@ -495,14 +587,16 @@ export function reportPrintJob(id, event) {
       Object.assign(step, { state: 'pending', detail: event.detail, spoolerId: null, reconciledAt: now() }); state = 'claimed';
     } else if (['submitted', 'completed'].includes(event.resolution) && event.spoolerId) {
       Object.assign(step, { state: event.resolution, detail: event.detail, spoolerId: event.spoolerId, reconciledAt: now() });
-      const remaining = steps.find(item => item.state !== 'completed');
-      state = event.resolution === 'submitted' ? 'submitted' : !remaining ? 'completed' : remaining.requiresRefeed && !remaining.refeedConfirmed ? 'awaiting_refeed' : 'claimed';
+      state = event.resolution === 'submitted' ? 'submitted' : isDeferred(row) && step.phase === 'backs' ? 'awaiting_paper_reset' : settledPrintState(row, steps);
     } else throw printError('Choose a verified reconciliation outcome and spooler ID where applicable');
     error = null;
   } else throw printError('Unsupported station event');
+  // A completion acknowledgement racing an operator cancellation cannot drop
+  // the physical reservation before the native station clears that request.
+  if (cancellation && ['completed', 'canceled', 'backs_pending'].includes(state)) state = 'claimed';
   runTransaction([
-    { sql: `UPDATE print_jobs SET state = ?, steps_json = ?, error = ?, lease_expires_at = ?, updated_at = ?, completed_at = ?, expires_at = ? WHERE id = ?`,
-      params: [state, json(steps), error, leaseExpiry(), now(), ['completed', 'failed'].includes(state) ? now() : row.completed_at, ['completed', 'failed'].includes(state) ? retentionExpiry() : row.expires_at, id] },
+    { sql: `UPDATE print_jobs SET state = ?, steps_json = ?, error = ?, lease_expires_at = ?, updated_at = ?, completed_at = ?, expires_at = ?, back_request_json = ?, cancel_requested = ?, cancel_request_id = ? WHERE id = ?`,
+      params: [state, json(steps), error, leaseExpiry(), now(), PRINT_TERMINAL_STATES.includes(state) ? now() : row.completed_at, state === 'backs_pending' ? null : PRINT_TERMINAL_STATES.includes(state) ? retentionExpiry() : row.expires_at, backRequest, cancellation, cancellationId, id] },
     { sql: 'INSERT INTO print_job_events (job_id, event_id, request_hash, event_json, created_at) VALUES (?, ?, ?, ?, ?)',
       params: [id, event.eventId, eventHash, json({ ...event, claimToken: undefined }), now()] },
   ]);

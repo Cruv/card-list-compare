@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import Icon from './Icon';
 import PrintBatchList from './PrintBatchList';
-import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand } from '../lib/api';
-import { PRINT_JOB_STATES as JOB_STATES, printerHealthPresentation, printStationSummary } from '../lib/printStationStatus';
+import DeferredPrintBacks from './DeferredPrintBacks';
+import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand, preparePrintJobBacks, cancelPrintJobBacks } from '../lib/api';
+import { PRINT_JOB_STATES as JOB_STATES, printerHealthPresentation, printStationSummary, paperClearanceIdentity } from '../lib/printStationStatus';
 import './PrintStationPage.css';
 
 const COMMAND_NAMES = {
-  pause: 'Pause station', unpause: 'Unpause station', resume: 'Resume reloaded batch',
+  pause: 'Pause station', unpause: 'Unpause station', resume: 'Print reloaded backs',
+  clear_paper: 'Confirm paper cleared',
   configure_discord: 'Save Discord settings', test_discord: 'Send Discord test',
   check_update: 'Check for updates', update: 'Update companion', rollback: 'Roll back companion',
 };
@@ -67,6 +69,7 @@ export default function PrintStationPage() {
   const [resumeJobId, setResumeJobId] = useState(null);
   const [resumeArtifactId, setResumeArtifactId] = useState(null);
   const [paperReloaded, setPaperReloaded] = useState(false);
+  const [paperClearedBoundary, setPaperClearedBoundary] = useState(null);
   const [webhookUrl, setWebhookUrl] = useState('');
   const [discordUserId, setDiscordUserId] = useState('');
   const [editingDiscord, setEditingDiscord] = useState(false);
@@ -163,12 +166,20 @@ export default function PrintStationPage() {
   const commandWaiting = commands.some(command => command.status === 'pending');
   const canControl = online && data?.permissions.canControl && !busy && !pendingRequest && !commandWaiting;
   const activeJob = station?.activeJob;
+  const deferredWorkflow = activeJob?.workflow === 'deferred-backs-v1';
   const packet = activeJob?.packet;
   const packetName = packet?.label ? `Packet ${packet.packetIndex} of ${packet.packetCount}` : 'Legacy double-faced PDF';
   const sheetWord = packet?.sheetCount === 1 ? 'sheet' : 'sheets';
-  const canResume = canControl && !station.paused && activeJob?.state === 'awaiting_refeed'
+  const canResume = canControl && !station.paused && !activeJob?.cancelRequested && activeJob?.state === 'awaiting_refeed'
     && !!activeJob.artifactId && packet?.artifactId === activeJob.artifactId;
   const matchingResume = activeJob?.id === resumeJobId && activeJob?.artifactId === resumeArtifactId;
+  const needsPaperClearance = ['awaiting_clearance', 'awaiting_paper_reset'].includes(activeJob?.state);
+  const clearanceBoundary = paperClearanceIdentity(activeJob);
+  const canClearPaper = canControl && !!clearanceBoundary && paperClearedBoundary === clearanceBoundary;
+  const deferredJobs = Array.isArray(data?.jobs?.deferred) ? data.jobs.deferred : [];
+  const backPreparationUnavailable = !fresh ? 'Refresh status before selecting saved backs.' : !online ? 'The Mac must be online before you select backs.'
+    : !data?.permissions.canControl ? 'Household printer access is required to select saved backs.' : station.paused ? 'Unpause the station before selecting backs.'
+      : busy || pendingRequest || commandWaiting ? 'Wait for the current request to finish before selecting another packet.' : '';
   const update = station?.update;
   const updateBusy = ['checking', 'updating', 'rollback'].includes(update?.status);
   const canCheckUpdate = canControl && data?.permissions.canUpdate && update?.supported && !updateBusy;
@@ -203,6 +214,7 @@ export default function PrintStationPage() {
       setResumeJobId(null);
       setResumeArtifactId(null);
       setPaperReloaded(false);
+      setPaperClearedBoundary(null);
       setNotice(`${COMMAND_NAMES[command.type]} request received. See Recent requests for the Mac’s acknowledgement.`);
       setData(old => old ? { ...old, commands: [result.command, ...(old.commands || []).filter(item => item.id !== result.command.id)].slice(0, 20) } : old);
       refreshRef.current();
@@ -276,9 +288,31 @@ export default function PrintStationPage() {
   function command(type, extra = {}) {
     if (!canControl || pendingRef.current) return;
     if (type === 'resume' && (!canResume || !paperReloaded || !matchingResume)) return;
+    if (type === 'clear_paper' && !canClearPaper) return;
     if (type === 'check_update' && !canCheckUpdate) return;
     if (['update', 'rollback'].includes(type) && !canUpdate) return;
     submit({ idempotencyKey: requestId(), type, ...extra });
+  }
+
+  async function backAction(type, job, selectedPacket) {
+    if (commandControllerRef.current || !fresh || busy || pendingRef.current) return;
+    if (type === 'prepare_backs' && (!canControl || !job.canPrepareBacks || !selectedPacket)) return;
+    if (type === 'cancel_backs' && !job.canCancelBacks) return;
+    const controller = new AbortController();
+    commandControllerRef.current = controller;
+    setBusy(true); setActionError(''); setNotice('');
+    try {
+      await (type === 'prepare_backs' ? preparePrintJobBacks(job.id, selectedPacket.artifactId, controller.signal) : cancelPrintJobBacks(job.id, controller.signal));
+      if (!mountedRef.current) return;
+      setNotice(type === 'prepare_backs'
+        ? `Backs requested for ${job.deckName || 'Card batch'} · ${selectedPacket.label || selectedPacket.artifactId}. Keep blank paper loaded until the matching packet is ready to reload.`
+        : `Cancellation requested for the remaining backs of ${job.deckName || 'Card batch'}. Check its status and follow any paper-clearance instructions.`);
+    } catch (error) {
+      if (mountedRef.current) setActionError(`The request could not be confirmed for batch ${job.id}. ${error.message} Check the refreshed status before retrying this same packet or cancellation.`);
+    } finally {
+      commandControllerRef.current = null;
+      if (mountedRef.current) { setBusy(false); refreshRef.current(); }
+    }
   }
 
   return (
@@ -321,7 +355,15 @@ export default function PrintStationPage() {
           {commandWaiting && <p className="station-small" role="status">A request is waiting for the Mac. Controls return when it is applied, rejected or expires.</p>}
         </section>
 
-        {activeJob?.state === 'awaiting_refeed' ? <section className="station-card station-refeed" aria-label="Paper reload required">
+        {needsPaperClearance ? <section className="station-card station-refeed" aria-label="Clear the printer paper">
+          <h2>{activeJob.state === 'awaiting_clearance' ? 'Remove canceled-job paper' : 'Backs finished — restore blank paper'}</h2>
+          <h3>{activeJob.deckName || 'Card batch'}</h3><p className="station-batch-id">Batch {activeJob.id}</p>
+          <p>{activeJob.state === 'awaiting_clearance' ? 'Wait for the printer to stop. Remove any partially printed or flipped sheets from this job and clear the rear feeder.' : 'Remove the finished double-sided sheet and any remaining flipped paper from the rear feeder.'} Load only blank paper before releasing the next front job.</p>
+          <label className="station-paper-check"><input type="checkbox" checked={!!clearanceBoundary && paperClearedBoundary === clearanceBoundary} disabled={!canControl || !clearanceBoundary} onChange={event => setPaperClearedBoundary(event.target.checked ? clearanceBoundary : null)} /><span>I removed the printed or flipped paper, checked the printer has stopped, and left only blank paper in the rear feeder.</span></label>
+          <button className="btn btn-primary" type="button" disabled={!canClearPaper} onClick={() => command('clear_paper', { jobId: activeJob.id, clearanceId: activeJob.clearanceId, paperCleared: true })}>Confirm blank paper is ready</button>
+          {!clearanceBoundary && <p className="station-small">The Mac has not confirmed which paper-clearance step is waiting. Refresh status before confirming.</p>}
+          <p className="station-small">The Mac checks the previous submission before releasing more pages. This does not restart a canceled pass.{station.paused && ' The station remains paused.'}</p>
+        </section> : activeJob?.state === 'awaiting_refeed' ? <section className="station-card station-refeed" aria-label="Paper reload required">
           <h2>{packet ? `Flip and reload ${packet.sheetCount} ${sheetWord}` : 'Paper reload is waiting'}</h2>
           <h3>{activeJob.deckName || 'Card batch'}{packet ? ` · ${packetName}` : ''}</h3>
           <p className="station-batch-id">Batch {activeJob.id}</p>
@@ -329,8 +371,8 @@ export default function PrintStationPage() {
             {packet.label ? <p className="station-batch-id"><strong>Match the printed margin label: {packet.label}</strong></p>
               : <p>This older PDF has no saved packet label. Match all {packet.sheetCount} {sheetWord} against this batch’s downloaded double-faced PDF before continuing.</p>}
             <p>Set aside the other completed output and remove unused blank paper from the rear feeder. Reload only {packet.sheetCount === 1 ? 'this matching sheet' : `these ${packet.sheetCount} matching sheets`}, following {station.testPrintingEnabled && !station.duplexVerified ? 'the flip direction and page order you are testing' : 'your verified flip direction and page order'}. This packet contains {packet.cardCount} {packet.cardCount === 1 ? 'card' : 'cards'}.</p>
-            <p>After its back pass finishes, return blank paper to the rear feeder for the next front pass.</p>
-            <p>The print queue is held while this back pass waits. Confirm below only after the matching paper is loaded.</p>
+            <p>This selected back pass has reserved the printer. Other CLC jobs wait while you reload it. Confirm below only after the matching paper is loaded.</p>
+            <p>{deferredWorkflow ? 'After its back pass finishes, remove the printed sheet and confirm blank paper is ready before other front jobs resume.' : 'This older job uses its saved alternating front/back sequence. Restore blank paper immediately after its backs finish for the next front pass.'}</p>
             {(!resumeJobId || !matchingResume) && <button className="btn btn-primary" type="button" disabled={!canResume} onClick={() => { setResumeJobId(activeJob.id); setResumeArtifactId(activeJob.artifactId); setPaperReloaded(false); }}>Confirm this paper is reloaded</button>}
           </> : <p>The waiting sheet details could not be verified. Refresh status before reloading or resuming.</p>}
           {!fresh && <p>Status is stale. Wait for a successful refresh before handling this packet.</p>}
@@ -340,12 +382,14 @@ export default function PrintStationPage() {
             <div className="station-card-heading"><h2>Current batch</h2>{activeJob && <Badge tone={activeJob.state === 'uncertain' ? 'warning' : 'neutral'}>{JOB_STATES[activeJob.state] || activeJob.state}</Badge>}</div>
             {activeJob ? <><h3>{activeJob.deckName || 'Card batch'}</h3><p className="station-batch-id">Batch {activeJob.id}</p>
               {packet && <><p><strong>{packetName}</strong> · {packet.sheetCount} {sheetWord} · {packet.cardCount} cards</p>{packet.label && <p className="station-batch-id">Margin label: {packet.label}</p>}</>}
-              {packet && activeJob.phase === 'fronts' && <p>This is a front pass. Load blank paper in the rear feeder and keep completed sheets separate.</p>}
+              {packet && activeJob.phase === 'fronts' && <p>{deferredWorkflow ? 'This is a front pass. Keep blank paper in the rear feeder and save the labeled sheet for its backs later. Other front jobs continue.' : 'This older job keeps its original front/back sequence. Keep blank paper loaded and follow its next reload instruction.'}</p>}
+              {activeJob.cancelRequested && <p role="status">Cancellation requested. Wait for the Mac to stop affected pages before clearing any paper.</p>}
               {activeJob.state === 'uncertain' && <p className="station-message station-message--warning">Check this batch against Epson’s queue at the Mac. Reconcile the existing submission before sending any more pages.</p>}
               <p className="station-small">Spooler completion does not confirm color, sheet alignment or cutting readiness.</p>
             </> : <div className="station-empty-batch"><Icon name="print" size={32} /><p>{fresh ? 'No active batch reported by the Mac.' : 'Refresh status to confirm the current batch.'}</p><span className="station-small">Your next batch appears here when the Mac picks it up.</span></div>}
           </section>}
 
+        <DeferredPrintBacks jobs={deferredJobs} fresh={fresh} canPrepare={canControl && !station?.paused} unavailableReason={backPreparationUnavailable} busy={busy || !!pendingRequest || commandWaiting} onAction={backAction} />
       </>}
       <PrintBatchList />
       {!restricted && <>
@@ -362,7 +406,8 @@ export default function PrintStationPage() {
         <details className="station-card station-management station-discord" aria-label="Discord notifications">
           <summary><span className="station-disclosure-title"><Icon name="connections" size={22} /><span>Discord printer alerts<small>Job completions, paper flips and printer errors</small></span></span><Badge tone={discord?.lastTest?.status && discord.lastTest.status !== 'confirmed' ? 'warning' : online && discord?.configured && !discordPending ? 'good' : 'neutral'}>{discord?.lastTest?.status && discord.lastTest.status !== 'confirmed' ? 'Test needs review' : discordPending ? 'Waiting for the Mac' : !fresh ? 'Status unavailable' : discord?.supported ? discord.configured ? online ? 'Connected' : 'Last reported connected' : 'Not connected' : 'Companion update required'}</Badge></summary><div className="station-disclosure-content">
           <p>With companion 2.54.0 or newer, get completion updates naming the job after the Mac confirms all its print passes are complete. Completion and test messages never mention you directly; personal mentions are reserved for alerts that need your help. Earlier completed jobs are not announced again.</p>
-          <p>Paper flips and reported printer errors need attention. Reload only the matching packet and confirm before its backs print. Repeated faults are quiet until the printer recovers; unknown or unavailable status does not count as recovery. Completion confirms the spooler result; check the physical sheets before using the cards.</p>
+          <p>With companion 2.55.0 or newer, fronts-finished updates say when backs are saved for later without mentioning you. A packet you select alerts you when it is safe to reload; after its backs print, an alert asks you to restore blank paper. Those paper tasks and reported printer errors may directly mention you.</p>
+          <p>Reload only the matching selected packet and confirm before its backs print. Repeated faults are quiet until the printer recovers; unknown or unavailable status does not count as recovery. Completion confirms the spooler result; check the physical sheets before using the cards.</p>
           {discord?.configured && <p className="station-small">{discord.managed ? 'Settings are managed here.' : 'The Mac is using its local Discord configuration.'} {discord.userId ? `Discord user ${discord.userId} is mentioned only when help is needed (companion 2.54.0 or newer).` : 'Messages do not mention a specific user.'}{!online && ' This is the last reported configuration; the Mac is not currently confirmed online.'}</p>}
           {discord?.lastTest && <p className={`station-message${discord.lastTest.status === 'confirmed' ? '' : ' station-message--warning'}`} role="status">{discord.lastTest.status === 'confirmed' ? 'Discord confirmed the test message.' : 'The test was not confirmed. Check Discord before requesting another test; it will not retry automatically.'} <span className="station-small">{timestamp(discord.lastTest.at)}</span></p>}
           {!discord?.supported && <p className="station-small">Install a companion version that supports managed Discord settings, then refresh this page.</p>}

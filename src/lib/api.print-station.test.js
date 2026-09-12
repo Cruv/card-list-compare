@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand, previewPrintPlan, createPrintJob } from './api';
+import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand, previewPrintPlan, createPrintJob, preparePrintJobBacks, cancelPrintJobBacks } from './api';
 
 function response(status, data) {
   return { ok: status >= 200 && status < 300, status, json: async () => data };
@@ -23,6 +23,29 @@ describe('print station HTTP requests', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('selects one exact saved back packet without asserting the paper was already reloaded', async () => {
+    fetch.mockResolvedValue(response(200, { station: {} }));
+    const controller = new AbortController();
+    await preparePrintJobBacks('batch-one', 'double-faced-002', controller.signal);
+    await cancelPrintJobBacks('batch-one', controller.signal);
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/print-station-management/jobs/batch-one/backs/prepare',
+      '/api/print-station-management/jobs/batch-one/backs/cancel',
+    ]);
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ artifactId: 'double-faced-002' });
+    expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({});
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer household-user-token');
+  });
+
+  it('sends the exact paper-clearance boundary with a physical acknowledgement', async () => {
+    fetch.mockResolvedValue(response(200, { command: { id: 'receipt' } }));
+    const command = { idempotencyKey: 'stable-request', type: 'clear_paper', jobId: 'same-job',
+      clearanceId: 'back:original-back-request', paperCleared: true };
+    await sendPrintStationCommand(command);
+    expect(fetch.mock.calls[0][0]).toBe('/api/print-station-management/commands');
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
   });
 
   it('uses secret-safe Discord endpoints and read-only recovery without writing browser storage', async () => {

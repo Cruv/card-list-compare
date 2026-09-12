@@ -11,9 +11,11 @@ described below.
 
 CLC generates the PDFs with Silhouette Card Maker. The companion keeps the server's card
 copies, 600 PPI, 1 mm crop, Letter v6 layout, skipped slot and registration geometry intact.
-It submits one copy in landscape at actual size, with automatic duplex disabled. Each deck's
-ordinary fronts run first. DFCs follow in numbered packets of at most seven copies, each
-with one front page and one back page submitted separately. The local queue, media/color driver
+It submits one copy in landscape at actual size, with automatic duplex disabled. In the
+deferred-backs workflow, ordinary fronts run first, followed by every DFC front. Matching
+backs stay saved until someone selects them later; they do not hold up other batches.
+DFCs use numbered packets of at most seven copies, each with one front page and one back
+page submitted separately. The local queue, media/color driver
 options and page order are configured here; server data cannot supply executable paths,
 printer destinations or CUPS options.
 
@@ -65,8 +67,10 @@ contained paths/links and every bundled file, then runs a no-print runtime self-
 selecting a version. This trusts the repository publisher over HTTPS; it is not an Apple
 code-signing guarantee. CLC cannot choose a different publisher or send executable code.
 
-An update requires an idle ledger and leaves the station paused. Active prints, uncertain
-outcomes and DFC refeed waits block version changes. An explicitly abandoned/reconciled
+An update requires the physical station to be idle and leaves it paused. Active prints,
+uncertain outcomes, reserved reloads and paper-clearance waits block version changes.
+Safely saved backs can remain in the ledger during an update, but they block rollback to
+a companion older than 2.55.0 until finished or canceled. An explicitly abandoned/reconciled
 terminal batch retains its receipt history without blocking future updates. Code/runtime
 rollback preserves configuration, the token, PDFs and the ledger. The first installation
 has no previous version to roll back to. No version change prints a test sheet automatically.
@@ -183,9 +187,10 @@ it does not change those flags or record a successful physical proof. The statio
 `testPrintingEnabled` separately so CLC can identify this mode.
 
 Test mode still requires an enabled station, an authorized CLC job, the locally approved
-recipe, valid PDFs, and working native printer settings. Every DFC packet still stops for
+recipe, valid PDFs, and working native printer settings. Every selected DFC back still waits for
 the operator to flip and reload its matching printed sheet before explicitly confirming
-the back pass. Pause, cancellation, durable submission receipts and recovery checks keep
+the back pass, then clear the output and return blank paper afterward. Pause, cancellation,
+durable submission receipts and recovery checks keep
 their normal behavior. Changing this option does not change the recipe fingerprint or
 erase print history. After testing, disable it to restore proof requirements, or record
 each proof flag only after its physical result has been checked.
@@ -222,7 +227,7 @@ python3 companion/mac/clc_print_station.py resume JOB_ID
 ```
 
 `pause` stops new claims/submissions; existing CUPS jobs continue and are monitored. `resume`
-is only accepted when the current DFC front pass has completed and the station is awaiting
+is only accepted when the selected DFC front pass has completed and the station is awaiting
 manual refeed. Match the exact waiting job and packet before using it. It records the
 operator's explicit confirmation that the indicated paper has been flipped and reloaded.
 The worker reports that confirmation to CLC before submitting the back page. Confirmation
@@ -232,39 +237,62 @@ can still submit to the printer, so keep the queue dedicated during a DFC refeed
 This adds no drying, lamination, collection or cutting tracking, and never changes a deck's
 paper-snapshot marker.
 
-### DFC packet sequence
+### Saved backs and DFC packet sequence (2.55.0+)
 
 New jobs keep ordinary cards in `fronts.pdf`; each DFC sheet is a separate two-page PDF:
 `double-faced-001.pdf`, `double-faced-002.pdf`, and so on. Page 1 contains at most seven
 fronts, and page 2 contains their matching backs. An underfilled final sheet is intentional.
-The front's existing margin carries `CLC <first-eight-job-ID-characters> DFC x/y`, followed
-by upstream's sheet/template text. That label also appears in the waiting packet and alert.
-The layout, three marks, crop and front/back transforms are unchanged.
+Every newly generated page, including ordinary sheets and both DFC sides, has a top-margin
+tag with the requester, batch name, exact job/packet or sheet identifier, and **FRONT** or
+**BACK**. Names are normalized and bounded to fit; unsupported characters appear as `?`
+and truncated names end with `...`. The exact `CLC <first-eight-job-ID-characters> DFC x/y`
+identifier remains unchanged and also appears in CLC and alerts. The existing front-side
+upstream label is preserved. Card image bytes, three registration marks, crop and
+front/back transforms are unchanged.
 
-The companion completes ordinary fronts, then handles each packet in this order:
+For jobs claimed by a compatible companion:
 
-1. Print page 1 as a one-sided pass and confirm its spooler completion.
-2. Hold the exact job/packet and show the flip alert. Match its printed label and keep
-   unused paper, other decks and previously printed packets separate.
-3. Remove unused blank paper from the rear feeder. Flip/reload only that packet's printed sheet using the physically verified procedure,
-   then **Confirm paper reload** in CLC → Print → Printer (or use the local `resume` control).
-4. Print page 2 as another one-sided pass. Its completion permits the next packet.
-   Return blank paper to the rear feeder after the back pass finishes. If the feeder is
-   empty, Epson waits for paper for the next front pass; CLC also identifies that front pass.
+1. Print all ordinary fronts and all DFC front pages with blank paper loaded. Wait for
+   explicit CUPS completion for each pass. No automatic back pass follows a front.
+2. CLC shows **Fronts printed · backs saved**. Keep the labeled front sheets for later; other queued batches
+   can print. Saved backs and their PDFs remain available without a time limit while pending.
+   The fronts-finished Discord update does not mention the operator or request a flip.
+3. In **Print → Printer → Backs for later**, select the exact saved packet when ready to finish it. A request
+   may wait for current printing. Leave blank paper loaded until CLC shows that packet as
+   the active reload and sends its flip alert; only then is the physical station reserved.
+4. Match the batch and packet labels. Remove blank paper from the rear feeder, flip/reload
+   only the matching printed sheet using the physically verified procedure, and choose
+   **Confirm and print this packet’s backs**. This authorizes only the selected back page, printed one-sided.
+5. After CUPS confirms the back pass, the station waits again. Remove the printed output,
+   return blank paper to the feeder, and choose **Confirm blank paper is ready**. The confirmation
+   must match the current packet or cancellation request. Other printing can then continue.
 
-The household CLC queue stays held while waiting. The wait and alert can surface while
-paused; neither notification dismissal nor a reload confirmation unpauses the station.
+Repeat selection/reload/clearance for each remaining packet, in any chosen order. A reload
+or paper-clearance wait holds the household queue; merely saving backs does not. The holds
+survive restarts and alert failures. Notification dismissal never authorizes printing, and
+no reload or clearance confirmation unpauses a paused station. Independent applications
+can still submit to Epson, so keep the physical queue dedicated while reloading.
+
+Use the batch's cancellation controls to cancel all remaining printing or only its pending
+backs. Canceling future backs preserves already completed fronts. If a selected packet may
+already be loaded, or a pass may have reached CUPS, the companion holds the station for
+inspection and explicit paper clearance. It targets only the exact saved CUPS job, never
+every job in the Epson queue. Inspect partial output before requesting replacement printing;
+canceling a pass cannot retract sheets that already printed.
 
 Old PDFs and manifests stay immutable. A legacy `double-faced.pdf` can contain several
 alternating front/back pairs and no job-specific printed label. Preview it and inspect all
 pages; match the waiting job/packet ID and physical sheet count before reloading the
 complete corresponding stack in its tested order. New packet labels cannot be assumed
-to exist on older output.
+to exist on older output. Already active legacy jobs finish under their original alternating
+front/back protocol; they are not silently converted while paper may be loaded. The server
+and companion advertise support for deferred backs before scheduling that workflow.
 
 ### Flip alerts
 
-The Mac requests a notification with the **Glass** sound when a DFC front pass has completed
-and its back is waiting for reload. Notifications are reminders only: opening or dismissing
+The Mac requests a notification with the **Glass** sound when a selected saved packet is
+reserved for reload, and another when blank paper must be returned after its back pass.
+Legacy jobs retain their original immediate flip alert. Notifications are reminders only: opening or dismissing
 one never authorizes printing. Print → Printer remains the persistent place to inspect
 and confirm the exact waiting packet, including while paused.
 
@@ -308,8 +336,9 @@ webhook URL is empty. A configured canonical
 `https://discord.com/api/webhooks/id/token` URL receives the waiting packet details and CLC
 link. A nonempty `refeed_discord_user_id` must be a Discord user ID; the message can mention
 only that configured user, with role/everyone mentions disabled. From 2.54.0, the ID is used
-only for alerts that need operator help, such as a paper flip or printer error. Completion
-and test messages never directly mention a user, even when an ID is configured. Omitting
+only for alerts that need operator help, such as a selected paper flip, returning blank paper,
+or a printer error. Fronts-finished, whole-job completion and test messages never directly
+mention a user, even when an ID is configured. Omitting
 the user ID sends all messages without a personal mention. Use a normal text-channel webhook; forum/thread query
 options are not supported. Keep the webhook out of environment variables, repositories and
 logs. CLC encrypts a pending setup command and never returns its URL in public status or
@@ -319,7 +348,7 @@ webhook was configured or message sent during this implementation.
 
 Allow notification delivery for the Mac notification sender in System Settings. Notification
 permissions, Focus and sound settings can suppress display or sound even when the request
-succeeds. Each enabled channel is attempted once per job/packet wait, with durable records
+succeeds. Each enabled channel is attempted once per job/packet and attention stage, with durable records
 to avoid repeated messages after a restart. Failed or ambiguous delivery is logged without
 exposing the webhook, is nonfatal, and is not automatically retried. The explicit reload
 hold remains in place; alert failure never silently prints the backs.
@@ -338,8 +367,11 @@ queued with an upgrade error before a new durable claim or print attempt is made
 The configured Discord connection also receives a message when the companion newly
 confirms that every required pass in a job has completed in the Mac spooler. It names the
 whole deck or standalone print job, retains the batch identity and printer details, and
-never directly mentions the configured user. A finished front pass or an intermediate
-packet does not mean the whole job is complete. Completion can still be observed while
+never directly mentions the configured user. Deferred jobs first send a separate **Fronts
+printed · backs saved** update. A finished front pass or an intermediate packet does not
+mean the whole job is complete; whole-job completion follows all back passes and final
+paper clearance. A job with canceled passes does not send an all-passes-completed message.
+Completion can still be observed while
 new submissions are paused.
 
 Completion is a spooler receipt, not proof that the cards are usable, correctly aligned,
@@ -392,8 +424,10 @@ will stop under the new code rather than silently change orientation. Use the pr
 to reconcile those batches first; never erase receipts or rewrite fingerprints to resume.
 
 PDF limits default to 1 GiB per artifact and 2 GiB per job. Hashing and downloading stream
-in 256 KiB blocks. Completed/failed local PDF directories expire after seven days; active,
-uncertain and awaiting-refeed files are retained. Job/pass/event tombstones remain in the
+in 256 KiB blocks. Completed/failed/canceled local PDF directories expire after seven days;
+active, uncertain, saved-back, reload and paper-clearance files are retained. CLC-side
+cancellation of dormant backs is reconciled by the Mac without printing or historical alerts.
+Job/pass/event tombstones remain in the
 ledger to prevent duplicate submission. Do not delete the ledger to retry a print.
 
 ## Optional start at login for a source checkout
@@ -436,8 +470,9 @@ on the configured CLC origin. [CUPS command options](https://www.cups.org/doc/op
 ### CLC station controls
 
 Open **Print → Printer** in CLC to see this Mac's heartbeat, printer check, version, proof
-flags, active batch and recent events. Authorized household print users can pause/unpause
-and confirm the exact waiting DFC batch has been flipped and reloaded. Administrators have
+flags, active batch, saved backs and recent events. Authorized household print users can
+pause/unpause, select saved backs, confirm the exact packet reload, and confirm paper
+clearance. Batch cancellation respects owner/admin permissions. Administrators have
 version controls when a managed installation is available; a source checkout reports those
 as unsupported. The existing CLI controls remain available.
 
@@ -450,10 +485,12 @@ sharing. Proof flags, queue and Epson options cannot be changed remotely.
 Controls arrive through `POST /api/print-station/heartbeat` alongside status, recent bounded
 events and durable receipts. Pause/refeed changes and their receipts commit together in the
 local ledger. Replays never reapply a control, and changed payloads under the same ID are
-rejected. Refeed includes the current job and back-pass artifact. Controls expire after
+rejected. Refeed includes the current job and back-pass artifact; paper clearance also binds
+the exact current packet or cancellation request, so an old confirmation cannot release a
+later load from the same batch. Controls expire after
 five minutes; a delivered control's late receipt still records what actually happened.
 The local ledger retains control tombstones and the latest 200 diagnostic events. Version
-changes require no active local batch, preserve the ledger/configuration and leave printing
+changes require no active physical batch, preserve the ledger/configuration and leave printing
 paused until an operator unpauses. Never remove receipts to force an update or reprint.
 
 ```bash
@@ -462,7 +499,9 @@ python3 -m unittest discover -s companion/mac -p 'test_*.py'
 
 Tests use fake HTTP responses, a fake spooler and temporary ledgers. They cover crashes at
 the submission boundary, replayed authorization, lost acknowledgements, unknown history,
-duplicate titles, DFC refeed, process locking, exact options, hash/size checks and token
+duplicate titles, all-front scheduling, saved-back retention, later packet selection,
+exact reload/clearance identity, cancellation during CUPS completion, dormant cancellation,
+legacy workflow and rollback compatibility, process locking, exact options, hash/size checks and token
 permissions. Where `ipptool` exists, one test runs only that read-only command against a
 disposable loopback IPP fixture to validate the actual native plist contract. No test sends
 anything to cupsd or a real printer. The suite also runs on Linux CI without CUPS installed;
@@ -491,6 +530,8 @@ of a later recurrence. No alert pauses, resumes or retries a print. The new fixe
 older version packages retain their existing validation rules for rollback.
 
 CLC's Printer page shows batches saved in CLC as well as actual Epson-spooled passes.
-Administrators see all household batches and can cancel jobs that have not begun submission.
+Administrators see all household batches and can request cancellation of remaining work.
+Pre-submission cancellation removes pending work directly; an active CUPS attempt or loaded
+back packet requires the native cancellation and paper-clearance sequence above.
 Multiple queued batches are allowed. Native protocol requests have a separate authenticated
 rate budget so browser traffic cannot starve heartbeats and reconciliation.

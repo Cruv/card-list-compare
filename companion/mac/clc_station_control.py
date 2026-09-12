@@ -11,12 +11,12 @@ import subprocess
 import time
 import uuid
 
-from clc_print_station import StationError, checked_id, recipe_fingerprint
+from clc_print_station import StationError, checked_id, recipe_fingerprint, clearance_id
 from clc_station_alerts import (DISCORD_SETTING, DISCORD_TEST_SETTING, validate_alert_config,
                                 effective_alert_config, discord_status, discord_test_payload)
 
 
-CONTROL_TYPES = {"pause", "unpause", "resume", "check_update", "update", "rollback", "configure_discord", "test_discord"}
+CONTROL_TYPES = {"pause", "unpause", "resume", "clear_paper", "check_update", "update", "rollback", "configure_discord", "test_discord"}
 
 
 def timestamp():
@@ -53,6 +53,11 @@ class StationControl:
             request = json.loads(row["payload"])
             if request.get("type") == "test_discord":
                 self.complete_discord_test(row["id"], request.get("revision"), False)
+                continue
+            if request.get("type") == "clear_paper":
+                # Local/network acknowledgements can be lost. Do not replay a
+                # physical confirmation after a restart or another sheet load.
+                self.finish(row["id"], "rejected", "Paper clearance was interrupted. Check the current batch before confirming again.")
                 continue
             applied = request.get("type") in {"update", "rollback"} and request.get("targetVersion") == self.update.get("currentVersion")
             self.finish(row["id"], "applied" if applied else "rejected",
@@ -95,7 +100,8 @@ class StationControl:
             current = self.ledger.current()
             if current:
                 job = json.loads(current["payload"])
-                pending = next((dict(row) for row in self.ledger.passes(current["id"]) if row["state"] != "completed"), None)
+                selected = self.ledger.pending(job)
+                pending = dict(selected) if selected is not None else None
             observed = self.station.cups.status(pending.get("spooler_id") if pending else None)
             if observed["ok"]:
                 # A healthy device must still pass the original local driver checks.
@@ -125,14 +131,20 @@ class StationControl:
         current = self.ledger.current()
         if current:
             active = {"id": current["id"], "state": current["state"]}
-            pending = next((row for row in self.ledger.passes(current["id"]) if row["state"] != "completed"), None)
+            job = json.loads(current["payload"])
+            if current["state"] in {"awaiting_clearance", "awaiting_paper_reset"}:
+                active["clearanceId"] = clearance_id(job)
+            pending = self.ledger.pending(job)
             if pending:
                 active.update(artifactId=pending["artifact_id"], phase=pending["phase"])
-            if pending and pending["state"] in {"intent", "submitted", "uncertain"}:
+            elif (job.get("backRequest") or {}).get("artifactId"):
+                active.update(artifactId=job["backRequest"]["artifactId"], phase="backs")
+            if pending and pending["state"] in {"intent", "submitted", "uncertain"} and current["state"] not in {"awaiting_clearance", "awaiting_paper_reset"}:
                 active["state"] = {"intent": "submitting"}.get(pending["state"], pending["state"])
         else:
             active = None
         return {"version": self.version, "paused": self.ledger.paused(), "queue": self.config["queue"],
+                "deferredBacks": True,
                 "recipeVerified": bool(self.config.get("recipe_verified")),
                 "duplexVerified": bool(self.config.get("duplex_verified")),
                 "testPrintingEnabled": self.config.get("allow_unverified_printing") is True,
@@ -154,7 +166,10 @@ class StationControl:
         kind = request.get("type")
         if kind in {"configure_discord", "test_discord"}:
             return self.apply_discord(request, command_id)
-        payload = json.dumps({key: request.get(key) for key in ("type", "jobId", "artifactId", "paperReloaded", "targetVersion")}, sort_keys=True)
+        payload_keys = ("type", "jobId", "artifactId", "paperReloaded", "targetVersion")
+        if kind == "clear_paper":
+            payload_keys += ("paperCleared", "clearanceId")
+        payload = json.dumps({key: request.get(key) for key in payload_keys}, sort_keys=True)
         prior = self.ledger.db.execute("SELECT * FROM control_receipts WHERE id=?", (command_id,)).fetchone()
         if prior:
             if prior["payload"] != payload:
@@ -180,7 +195,7 @@ class StationControl:
                         current = self.ledger.current()
                         if not current or current["id"] != request.get("jobId") or current["state"] != "awaiting_refeed":
                             raise StationError("This batch is no longer waiting for paper reload")
-                        pending = next((row for row in self.ledger.passes(current["id"]) if row["state"] != "completed"), None)
+                        pending = self.ledger.pending(json.loads(current["payload"]))
                         if (not pending or pending["phase"] != "backs" or pending["state"] != "pending"
                                 or pending["artifact_id"] != request.get("artifactId")):
                             raise StationError("The paper reload request belongs to a different back pass")
@@ -218,6 +233,15 @@ class StationControl:
             except (StationError, OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
                 rejection = self.safe_message(error)
                 self.update.update(status="failed", error=rejection)
+                self.finish(command_id, "rejected", rejection)
+        if not rejection and kind == "clear_paper":
+            try:
+                if request.get("paperCleared") is not True:
+                    raise StationError("Explicit confirmation that printed paper was removed and blank paper loaded is required")
+                self.station.clear_paper(request.get("jobId"), request.get("clearanceId"))
+                self.finish(command_id, "applied", "Paper clearance confirmed; the station may continue")
+            except (StationError, OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+                rejection = self.safe_message(error)
                 self.finish(command_id, "rejected", rejection)
         self.event("error" if rejection else "info", ("Control rejected: " + rejection) if rejection else "Control applied: " + str(kind))
 

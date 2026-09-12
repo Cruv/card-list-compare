@@ -1,21 +1,22 @@
 /** Household station controls. No executable paths, printer options or arbitrary commands. */
 import crypto from 'node:crypto';
 import { all, get, runTransaction } from '../db.js';
-import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, assertStationArtifactCapacity } from './printQueue.js';
+import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, requestPrintCancellation, preparePrintBacks, assertStationArtifactCapacity, assertStationWorkflow } from './printQueue.js';
 import { printError, sha256 } from './printQueuePlan.js';
 import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } from './printStationNotifications.js';
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
+import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
 
 const STATION = 'household';
 export const STATION_ONLINE_MS = 20_000;
 export const STATION_COMMAND_TTL_MS = 5 * 60_000;
-const COMMANDS = new Set(['pause', 'unpause', 'resume', 'check_update', 'update', 'rollback']);
+const COMMANDS = new Set(['pause', 'unpause', 'resume', 'clear_paper', 'check_update', 'update', 'rollback']);
 const UPDATE_COMMANDS = new Set(['check_update', 'update', 'rollback']);
 const DISCORD_COMMANDS = new Set(['configure_discord', 'test_discord']);
 const ADMIN_COMMANDS = new Set([...UPDATE_COMMANDS, ...DISCORD_COMMANDS]);
 const UPDATE_STATES = new Set(['unsupported', 'idle', 'checking', 'available', 'updating', 'rollback', 'failed']);
-const ACTIVE_STATES = ['claimed', 'submitting', 'submitted', 'awaiting_refeed', 'uncertain'];
-const LOCAL_STATES = new Set([...ACTIVE_STATES, 'active', 'intent', 'completed', 'failed', 'canceled']);
+const ACTIVE_STATES = ACTIVE_PRINT_STATES;
+const LOCAL_STATES = new Set([...ACTIVE_STATES, 'backs_pending', 'awaiting_clearance', 'active', 'intent', 'completed', 'failed', 'canceled']);
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const OPAQUE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
 let latest = null;
@@ -25,6 +26,7 @@ const online = () => lastSeen !== null && Date.now() - lastSeen <= STATION_ONLIN
 const statement = (sql, params = []) => ({ sql, params });
 
 export function resetPrintStationManagement() { latest = null; lastSeen = null; }
+export const supportsDeferredBacks = () => online() && latest?.deferredBacks === true;
 
 function object(value, field) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw printError(`${field} must be an object`);
@@ -119,7 +121,11 @@ function householdPrintJobs(userId, canManage = false) {
     return { id: row.id, deckName: typeof plan.deckName === 'string' ? plan.deckName.slice(0, 200) : 'Card batch',
       totalCopies: Number.isSafeInteger(plan.totalCopies) ? plan.totalCopies : 0,
       state: row.state, createdAt: row.created_at, queuedAt: row.queued_at,
-      completedAt: row.completed_at, canOpen, canCancel: canManage && !!canCancelHouseholdBatch(row),
+      completedAt: row.completed_at, canOpen, canCancel: (canManage || canOpen) && (!!canCancelHouseholdBatch(row) || (online() && latest?.deferredBacks && canCancelRemaining(row))),
+      requesterName: typeof plan.requesterName === 'string' ? plan.requesterName.slice(0, 120) : get('SELECT username FROM users WHERE id = ?', [row.user_id])?.username || 'Deleted account',
+      ...workflowSummary(row),
+      canCancelBacks: (canManage || canOpen) && (isDeferred(row) || canCancelUnstartedBacks(row) || (online() && latest?.deferredBacks)) && hasPendingBacks(row) && !row.cancel_requested,
+      canPrepareBacks: (canManage || canOpen) && isDeferred(row) && row.state === 'backs_pending' && !row.back_request_json && !row.cancel_requested,
       ...(canOpen ? { deckId: row.tracked_deck_id } : {}) };
   };
   const activePlaceholders = ACTIVE_STATES.map(() => '?').join(',');
@@ -133,16 +139,25 @@ function householdPrintJobs(userId, canManage = false) {
     WHERE state IN ('completed', 'failed', 'canceled', 'expired')
       AND (station_id = ? OR (station_id IS NULL AND (queue_requested = 1 OR queued_at IS NOT NULL)))
     ORDER BY COALESCE(completed_at, updated_at) DESC, created_at DESC, id DESC LIMIT 20`, [STATION]).map(summary);
-  return { pending, recent };
+  const deferred = all("SELECT * FROM print_jobs WHERE station_id = ? AND workflow = 'deferred-backs-v1' AND state = 'backs_pending' ORDER BY updated_at, created_at, id", [STATION]).map(summary);
+  return { pending, recent, deferred };
 }
 function firstBack(jobId, snapshot) {
   if (!snapshot?.activeJob || snapshot.activeJob.id !== jobId || snapshot.activeJob.state !== 'awaiting_refeed') return null;
-  const row = get("SELECT steps_json FROM print_jobs WHERE id = ? AND station_id = ? AND state = 'awaiting_refeed'", [jobId, STATION]);
+  const row = get("SELECT * FROM print_jobs WHERE id = ? AND station_id = ? AND state = 'awaiting_refeed'", [jobId, STATION]);
   if (!row) return null;
-  const step = JSON.parse(row.steps_json).find(item => item.state !== 'completed');
+  const step = nextPrintStep(row);
   if (snapshot.activeJob.artifactId && snapshot.activeJob.artifactId !== step?.artifactId) return null;
   if (snapshot.activeJob.phase && snapshot.activeJob.phase !== 'backs') return null;
   return step?.phase === 'backs' && step.state === 'pending' && !step.refeedConfirmed ? step.artifactId : null;
+}
+function currentClearance(jobId, snapshot) {
+  if (snapshot?.activeJob?.id !== jobId || !['awaiting_clearance', 'awaiting_paper_reset'].includes(snapshot.activeJob.state)) return null;
+  const row = get('SELECT * FROM print_jobs WHERE id = ? AND station_id = ?', [jobId, STATION]);
+  if (!row) return null;
+  const value = paperClearanceId(row);
+  if (!value || snapshot.activeJob.clearanceId !== value) return null;
+  return value;
 }
 function eventStatement(level, value) {
   const event = { id: crypto.randomUUID(), at: timestamp(), level, message: message(value) };
@@ -168,6 +183,7 @@ function publicCommand(row) {
   return { id: row.id, idempotencyKey: row.request_key, type: payload.type,
     jobId: payload.jobId || null, artifactId: payload.artifactId || null,
     ...(payload.type === 'resume' ? { paperReloaded: true } : {}), targetVersion: payload.targetVersion || null,
+    ...(payload.type === 'clear_paper' ? { paperCleared: true, clearanceId: payload.clearanceId } : {}),
     ...(DISCORD_COMMANDS.has(payload.type) ? { revision: payload.revision, ...(payload.type === 'configure_discord' ? { enabled: payload.enabled } : {}) } : {}),
     requesterId: row.requester_id, status: row.status, createdAt: row.created_at, expiresAt: row.expires_at,
     deliveredAt: row.delivered_at, acknowledgedAt: row.acknowledged_at, message: row.message };
@@ -192,7 +208,7 @@ function stationCommand(row) {
 function activePacket(row, active) {
   if (!row?.manifest_json || sha256(row.manifest_json) !== row.manifest_sha256) return null;
   if (active.state === 'awaiting_refeed' && !active.artifactId) return null;
-  const next = JSON.parse(row.steps_json || '[]').find(step => step.state !== 'completed');
+  const next = nextPrintStep(row) || (readBackRequest(row) && readSteps(row).find(step => step.artifactId === readBackRequest(row).artifactId && step.phase === 'backs'));
   if (!next || (active.artifactId && active.artifactId !== next.artifactId)
     || (active.phase && active.phase !== next.phase)) return null;
   const artifacts = JSON.parse(row.manifest_json).artifacts || [];
@@ -215,14 +231,18 @@ export function printStationStatus(userId) {
   const active = latest?.activeJob ? { ...latest.activeJob } : null;
   if (active) {
     if (active.state === 'awaiting_refeed') active.artifactId = firstBack(active.id, latest);
-    const row = get('SELECT plan_json, manifest_json, manifest_sha256, steps_json FROM print_jobs WHERE id = ? AND station_id = ?', [active.id, STATION]);
+    const row = get('SELECT * FROM print_jobs WHERE id = ? AND station_id = ?', [active.id, STATION]);
     const deckName = row && JSON.parse(row.plan_json).deckName;
     if (typeof deckName === 'string') active.deckName = deckName.slice(0, 200);
     active.packet = activePacket(row, active);
+    active.cancelRequested = row?.cancel_requested || null;
+    active.workflow = row?.workflow || null;
+    active.clearanceId = currentClearance(active.id, latest);
   }
   return { station: {
     stationId: STATION, online: live, lastSeenAt: lastSeen === null ? null : new Date(lastSeen).toISOString(),
     version: latest?.version || null, paused: latest?.paused ?? !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused,
+    deferredBacks: latest?.deferredBacks || false,
     queue: latest?.queue || null, recipeVerified: latest?.recipeVerified || false, duplexVerified: latest?.duplexVerified || false,
     testPrintingEnabled: latest?.testPrintingEnabled || false,
     recipeFingerprint: latest?.recipeFingerprint || null, activeJob: active,
@@ -235,13 +255,18 @@ export function printStationStatus(userId) {
 
 export function cancelHouseholdPrintJob(userId, jobId) {
   const access = requireControl(userId);
-  if (!access.canUpdate) throw printError('Only an administrator can cancel household batches here', 403);
   if (!UUID.test(jobId)) throw printError('Invalid print batch ID');
   const row = get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
   if (!row || (row.station_id !== STATION && !(row.station_id === null && (row.queue_requested || row.queued_at)))) {
     throw printError('Household print batch not found', 404);
   }
+  if (!access.canUpdate && row.user_id !== userId) throw printError('Only the batch owner or an administrator can cancel this batch', 403);
   if (row.state === 'canceled') return printStationStatus(userId);
+  if (isDeferred(row) || (online() && latest?.deferredBacks)) {
+    requestPrintCancellation(row, 'all');
+    commit([statement("UPDATE print_jobs SET station_id = ? WHERE id = ? AND state = 'canceled'", [STATION, row.id])]);
+    return printStationStatus(userId);
+  }
   if (!unsubmittedJob(row)) throw printError('This batch may have printed pages already. Check and cancel its submission at the Mac before reconciling it.', 409);
   // Keep the shared cancellation guard and abort any running PDF generation.
   // This does not send a native command or attempt to cancel a CUPS submission.
@@ -253,11 +278,40 @@ export function cancelHouseholdPrintJob(userId, jobId) {
   return printStationStatus(userId);
 }
 
+function ownedHouseholdBatch(userId, jobId, allowUnstarted = false) {
+  const access = requireControl(userId);
+  if (!UUID.test(jobId)) throw printError('Invalid print batch ID');
+  const row = get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+  if (!row || !(row.station_id === STATION || (allowUnstarted && row.station_id === null && canCancelUnstartedBacks(row)))) throw printError('Household print batch not found', 404);
+  if (!access.canUpdate && row.user_id !== userId) throw printError('Only the batch owner or an administrator can change this batch', 403);
+  return row;
+}
+export function prepareHouseholdBacks(userId, jobId, body = {}) {
+  const row = ownedHouseholdBatch(userId, jobId);
+  if (!body || typeof body !== 'object' || Object.keys(body).some(key => key !== 'artifactId')) throw printError('Supply only the selected packet artifactId');
+  preparePrintBacks(row, artifactId(body.artifactId), userId);
+  return printStationStatus(userId);
+}
+export function cancelHouseholdBacks(userId, jobId) {
+  const row = ownedHouseholdBatch(userId, jobId, true);
+  if (row.state === 'canceled') return printStationStatus(userId);
+  if (!hasPendingBacks(row)) throw printError('No unfinished back passes remain to cancel', 409);
+  if (!isDeferred(row) && canCancelUnstartedBacks(row)) {
+    // Front-only intent is saved before any physical claim. An older native
+    // cannot claim this workflow, so it cannot silently ignore canceled backs.
+    commit([statement('UPDATE print_jobs SET workflow = ? WHERE id = ?', [DEFERRED_BACKS_WORKFLOW, jobId])]);
+    row.workflow = DEFERRED_BACKS_WORKFLOW;
+  }
+  if (!isDeferred(row) && !(online() && latest?.deferredBacks)) throw printError('Update the Mac companion before canceling backs in an active older batch', 409);
+  requestPrintCancellation(row, 'backs');
+  return printStationStatus(userId);
+}
+
 function commandInput(body) {
   object(body, 'command');
   if (typeof body.idempotencyKey !== 'string' || !UUID.test(body.idempotencyKey)) throw printError('idempotencyKey must be a UUID');
   if (!COMMANDS.has(body.type)) throw printError('Unsupported station command');
-  const allowed = new Set(['idempotencyKey', 'type', ...(body.type === 'resume' ? ['jobId', 'artifactId', 'paperReloaded'] : []), ...(['update', 'rollback'].includes(body.type) ? ['targetVersion'] : [])]);
+  const allowed = new Set(['idempotencyKey', 'type', ...(body.type === 'resume' ? ['jobId', 'artifactId', 'paperReloaded'] : []), ...(body.type === 'clear_paper' ? ['jobId', 'clearanceId', 'paperCleared'] : []), ...(['update', 'rollback'].includes(body.type) ? ['targetVersion'] : [])]);
   if (Object.keys(body).some(key => !allowed.has(key))) throw printError('Unexpected station command field');
   const payload = { type: body.type };
   if (body.type === 'resume') {
@@ -265,6 +319,13 @@ function commandInput(body) {
     payload.artifactId = artifactId(body.artifactId);
     if (body.paperReloaded !== true) throw printError('Confirm that this batch has been flipped and reloaded');
     payload.paperReloaded = true;
+  }
+  if (body.type === 'clear_paper') {
+    payload.jobId = id(body.jobId, 'job ID');
+    if (typeof body.clearanceId !== 'string' || !/^(back|cancel):[a-f0-9-]{36}$/i.test(body.clearanceId)) throw printError('Supply the exact paper-clearance ID');
+    payload.clearanceId = body.clearanceId;
+    if (body.paperCleared !== true) throw printError('Confirm printed or partial sheets are removed and only blank paper is loaded');
+    payload.paperCleared = true;
   }
   if (['update', 'rollback'].includes(body.type)) payload.targetVersion = version(body.targetVersion);
   return { key: body.idempotencyKey.toLowerCase(), payload };
@@ -287,6 +348,10 @@ export function createStationCommand(userId, body, notification = false) {
   if (get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending'", [STATION])) throw printError('A station command is already awaiting acknowledgement', 409);
   if (payload.type === 'resume') {
     if (payload.artifactId !== firstBack(payload.jobId, latest) || latest.paused) throw printError('This station is not waiting for that paper refeed, or is paused', 409);
+  }
+  if (payload.type === 'clear_paper') {
+    ownedHouseholdBatch(userId, payload.jobId);
+    if (payload.clearanceId !== currentClearance(payload.jobId, latest)) throw printError('This station is not waiting for that exact paper clearance', 409);
   }
   if (UPDATE_COMMANDS.has(payload.type) && !latest.update?.supported) throw printError('Managed updates are not supported by this station installation', 409);
   if (['update', 'rollback'].includes(payload.type)) {
@@ -345,6 +410,10 @@ function heartbeatInput(body) {
     object(body.activeJob, 'activeJob');
     if (!LOCAL_STATES.has(body.activeJob.state)) throw printError('Invalid active job state');
     activeJob = { id: id(body.activeJob.id, 'active job ID'), state: body.activeJob.state };
+    if (body.activeJob.clearanceId !== undefined && body.activeJob.clearanceId !== null) {
+      if (typeof body.activeJob.clearanceId !== 'string' || !/^(back|cancel):[a-f0-9-]{36}$/i.test(body.activeJob.clearanceId)) throw printError('Invalid active paper-clearance ID');
+      activeJob.clearanceId = body.activeJob.clearanceId;
+    }
     if (body.activeJob.artifactId !== null && body.activeJob.artifactId !== undefined) activeJob.artifactId = artifactId(body.activeJob.artifactId);
     if (body.activeJob.phase !== null && body.activeJob.phase !== undefined) {
       if (!['fronts', 'backs'].includes(body.activeJob.phase)) throw printError('Invalid active job phase');
@@ -363,6 +432,7 @@ function heartbeatInput(body) {
   if (!Array.isArray(events) || events.length > 50 || !Array.isArray(receipts) || receipts.length > 20) throw printError('Heartbeat supports at most 50 events and 20 receipts');
   const eventIds = new Set(), receiptIds = new Set();
   return { snapshot: { version: version(body.version), paused: bool(body.paused, 'paused'), queue,
+    deferredBacks: body.deferredBacks === undefined ? false : bool(body.deferredBacks, 'deferredBacks'),
     recipeVerified: bool(body.recipeVerified, 'recipeVerified'), duplexVerified: bool(body.duplexVerified, 'duplexVerified'),
     testPrintingEnabled: body.testPrintingEnabled === undefined ? false : bool(body.testPrintingEnabled, 'testPrintingEnabled'),
     recipeFingerprint: body.recipeFingerprint.toLowerCase(), activeJob,
@@ -385,6 +455,7 @@ function invalidDelivery(row, snapshot) {
   const payload = JSON.parse(row.payload_json), access = permissions(row.requester_id);
   if (!access.canControl || (ADMIN_COMMANDS.has(payload.type) && !access.canUpdate)) return 'Requester is no longer authorized';
   if (payload.type === 'resume' && (snapshot.paused || firstBack(payload.jobId, snapshot) !== payload.artifactId)) return 'Paper refeed no longer matches the current batch';
+  if (payload.type === 'clear_paper' && payload.clearanceId !== currentClearance(payload.jobId, snapshot)) return 'Paper clearance no longer matches the exact current packet or cancellation';
   if (UPDATE_COMMANDS.has(payload.type) && !snapshot.update?.supported) return 'Station no longer supports managed updates';
   if (DISCORD_COMMANDS.has(payload.type) && !snapshot.discord?.supported) return 'This companion does not support Discord settings';
   if (payload.type === 'test_discord' && (!snapshot.discord.configured || snapshot.discord.revision !== payload.revision)) return 'Discord settings changed before the test';
@@ -447,14 +518,14 @@ export function stationManagementHeartbeat(body) {
 }
 
 /** Pause blocks only fresh claims; existing durable claims remain recoverable. */
-export function claimForManagedStation(maxArtifacts = 8) {
+export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false) {
   expireCommands();
   const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
   const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
   if (paused || pendingPause || (latest?.recipeVerified === false && latest?.testPrintingEnabled !== true)) {
     const active = activeServerJob();
-    if (active) assertStationArtifactCapacity(active, maxArtifacts);
+    if (active) { assertStationArtifactCapacity(active, maxArtifacts); assertStationWorkflow(active, deferredBacks); }
     return active ? formatPrintJob(active, true) : null;
   }
-  return claimPrintJob({ maxArtifacts });
+  return claimPrintJob({ maxArtifacts, deferredBacks });
 }

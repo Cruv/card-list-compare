@@ -18,6 +18,21 @@ const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;
 const DEFAULT_DATA = process.env.DB_PATH ? path.dirname(path.resolve(process.env.DB_PATH))
   : fileURLToPath(new URL('../data', import.meta.url));
 
+// PDF standard fonts have predictable metrics on every print host. Keep the
+// printed form explicit when a name contains glyphs this small margin cannot
+// represent; the immutable job/packet identifier always remains unchanged.
+export function printPageIdentification({ requesterName = 'Unknown requester', batchName = 'Print list' } = {}) {
+  const printable = (value, limit, fallback) => {
+    if (typeof value !== 'string' || value.length > 4096) throw new Error('Printed identification must contain bounded text');
+    const text = value.normalize('NFKD').replace(/\p{M}/gu, '')
+      .replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2010-\u2015\u2212]/g, '-')
+      .replace(/\p{Cf}/gu, '').replace(/\s+/gu, ' ').replace(/[^\x20-\x7e]/gu, '?').trim() || fallback;
+    return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
+  };
+  return { version: 1, requesterName: printable(requesterName, 48, 'Unknown requester'),
+    batchName: printable(batchName, 96, 'Print list') };
+}
+
 export function planPrintSheets(cards) {
   if (!Array.isArray(cards) || !cards.length || cards.length > MAX_PRINT_COPIES) {
     throw new Error(`PDF generation requires 1–${MAX_PRINT_COPIES} physical card copies`);
@@ -56,8 +71,9 @@ export function createPrintGenerator(options = {}) {
   return {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
-    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES, batchLabel = 'CLC' }) {
+    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES, batchLabel = 'CLC', requesterName, batchName }) {
       const plan = planPrintSheets(cards);
+      const printedIdentification = printPageIdentification({ requesterName, batchName });
       if (!path.isAbsolute(outputDir || '')) throw new Error('PDF output directory must be absolute');
       if (typeof batchLabel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$/.test(batchLabel)) {
         throw new Error('Batch label must contain 1–24 printable letters, numbers, spaces, hyphens or underscores');
@@ -90,14 +106,19 @@ export function createPrintGenerator(options = {}) {
           const label = group.kind === 'dfc'
             ? `${batchLabel} DFC ${group.packetIndex}/${group.packetCount}` : `${batchLabel} fronts`;
           const parts = [];
+          const pageLabels = [];
           let partBytes = 0;
           for (const [index, chunk] of group.chunks.entries()) {
             if (signal?.aborted) throw signal.reason || new Error('PDF generation canceled');
             const chunkDirectory = path.join(working, `${group.id}-${index + 1}`);
             await fs.mkdir(chunkDirectory);
             const input = path.join(chunkDirectory, 'input.json');
+            const sheetLabel = group.kind === 'dfc' ? label : `${label} ${index + 1}/${group.chunks.length}`;
+            const chunkLabels = [{ page: 1, phase: 'fronts', label: sheetLabel },
+              ...(group.kind === 'dfc' ? [{ page: 2, phase: 'backs', label: sheetLabel }] : [])];
+            pageLabels.push(...chunkLabels.map(item => ({ ...item, page: pageLabels.length + item.page })));
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
-              label: group.kind === 'dfc' ? label : `${label} ${index + 1}/${group.chunks.length}`,
+              label: sheetLabel, printedIdentification, pageLabels: chunkLabels,
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
@@ -125,7 +146,8 @@ export function createPrintGenerator(options = {}) {
           const sha256 = hash.digest('hex');
           artifacts.push({ id: group.id, kind: group.kind, path: path.join(outputDir, `${group.id}.pdf`),
             sha256, size, pageCount, cardCount: group.cards.length, sheetCount: group.chunks.length, slotMap: group.slotMap,
-            label, ...(group.kind === 'dfc' ? { packetIndex: group.packetIndex, packetCount: group.packetCount } : {}) });
+            label, printedIdentification, pageLabels,
+            ...(group.kind === 'dfc' ? { packetIndex: group.packetIndex, packetCount: group.packetCount } : {}) });
           slots.push(...group.slotMap.map(slot => ({ ...slot, artifactId: group.id })));
         }
         if (signal?.aborted) throw signal.reason || new Error('PDF generation canceled');
@@ -134,7 +156,7 @@ export function createPrintGenerator(options = {}) {
           await fs.link(path.join(working, `${artifact.id}.pdf`), artifact.path);
           published.push(artifact.path);
         }
-        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe: PRINT_RECIPE, artifacts, slots, images };
+        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe: PRINT_RECIPE, printedIdentification, artifacts, slots, images };
       } catch (error) {
         // Any published paths belong to this invocation; existing artifacts were checked before generation.
         for (const filename of published) await fs.rm(filename, { force: true });

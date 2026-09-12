@@ -809,7 +809,7 @@ class BoundaryTests(unittest.TestCase):
         request = opener.open.call_args.args[0]
         self.assertEqual(request.full_url, self.config["server_url"] + "/api/print-station/claim")
         self.assertEqual(request.get_method(), "POST")
-        self.assertEqual(json.loads(request.data), {"maxArtifacts": 37})
+        self.assertEqual(json.loads(request.data), {"maxArtifacts": 37, "deferredBacks": True})
 
     def test_checksums_stream_and_promote_download_atomically(self):
         opener = mock.Mock()
