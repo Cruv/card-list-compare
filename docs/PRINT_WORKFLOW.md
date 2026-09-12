@@ -191,6 +191,12 @@ are preserved in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
   Upstream draws this label in its existing right margin on the front, followed by its
   sheet/template text. Card positions, registration marks and crop are unchanged.
 
+Every newly generated page also carries **Queued by**, the saved **Batch** label, its exact
+sheet/packet identity and **FRONT** or **BACK** in the top margin. These values are frozen
+when the job is created, so saved backs still match their requester and labeled front
+sheets later. Long labels are bounded to fit the margin. Existing PDFs are not rewritten;
+the added identification preserves the card artwork, registration marks and v6 geometry.
+
 The historical Windows command was:
 
 ```bash

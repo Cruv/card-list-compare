@@ -44,7 +44,7 @@ server/lib/deckToText.js       Server mirror of archidektToText()
 server/lib/enrichDeckText.js   Adds printing metadata (carry-forward + Scryfall)
 server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
-server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
+server/lib/print{Generator,Queue,Workflow}*  Cached Silhouette runtime, PDF jobs, deferred backs/station protocol
 companion/mac/           Native station/controls, versioned installer/updater, local Epson options/receipts
 server/routes/           auth, owners, decks, snapshots, share, admin, integrations, print(-station-management)
 server/lib/{manasyncBridge,deckProposals,sourceSync,sourceTracking}.js  Inventory, review, provider tracking
