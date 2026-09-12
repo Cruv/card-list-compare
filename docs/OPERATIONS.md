@@ -179,9 +179,9 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The household server is now **v2.50.0**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `b9b05fc`. The local image is
-`clc-household:2.50.0-b9b05fc`; its saved service configuration lives at
+The household server is now **v2.51.0**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `abd0595`. The local image is
+`clc-household:2.51.0-abd0595`; its saved service configuration lives at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
 existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
 UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
@@ -276,6 +276,39 @@ The pre-patch stopped-data backup is
 `update-2.49.1.json` records the image and preserved data counts. The installed native
 companion stays at v2.49.0, continuously running and Enabled; no printer changes or
 native installation were required. No household deck or print job was created by testing.
+
+The **v2.51.0** server update adds printing directly from captured comparisons and snapshot
+history, a three-step print workflow, and per-card Scryfall art picking with paired DFC
+previews. Exact printing IDs, row quantities and comparison texts remain frozen through
+review and retry recovery. Draft replacement preserves both the existing draft and incoming
+comparison if browser storage fails. Compact ownership review links directly to Settings
+when no ManaSync connection exists.
+
+The source is committed and pushed at `abd0595`. Validation passed 1,009 app/server tests,
+121 native tests and 101 isolated browser assertions, including desktop/mobile artwork
+review, filtered shopping, art selection, login/draft recovery and uncertain-request replay.
+Lint passed with zero errors and seven existing warnings; production/Docker builds and both
+dependency audits passed. Live Scryfall search and image preparation verified an exact DFC
+printing with both faces, and a disposable Docker instance verified authenticated comparison
+plans and art overrides. No validation created a household print job or sent a printer or
+Discord action. The branch has no matching GitHub Actions run; deployment uses the tested
+local image rather than a claimed registry build.
+
+The complete stopped-data backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T021234Z-before-2.51.0/data-complete`.
+`cardlistcompare-deployment/update-2.51.0.json` records the image, backup and checks. The
+update preserved three users, two tracked owners, 14 decks, 72 snapshots and one existing
+completed print batch. Database integrity passed and existing foreign-key findings stayed
+unchanged. Public/local health checks passed and their frontend assets exactly matched the
+tested build. The signed-in Print Station page showed **Online**, **Enabled** and **Ready**
+with the installed native v2.49.0 companion. Its configuration and ledger were retained;
+there was no companion reinstall or pause.
+
+At this checkpoint, CLC had no saved outbound ManaSync inventory connection. A separate
+active CLC deck-access token does not establish the reverse connection. The URL and error
+from the owner are still needed to verify the actual ManaSync deployment; source contract
+inspection found no endpoint or scope mismatch. Do not substitute an assumed backend URL
+or treat unknown ownership as missing inventory.
 
 The **v2.50.0** server update adds standalone lists, removable suggestions and extra
 cards, default basic-land exclusion, default-off printing replacement, and view-only
