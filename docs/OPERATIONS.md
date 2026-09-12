@@ -179,9 +179,9 @@ belongs to the `mtg` Compose project, publishes host port 8080, and mounts
 origin is `https://clc.blackbeardsvault.com/`. Keep this local data directory intact;
 the repository's default `./data` is not the household deployment path.
 
-The household server is now **v2.49.1**, deployed through the Mac's Docker CLI from
-`codex/project-audit-print-workflow` at `b406832`. The local image is
-`clc-household:2.49.1-b406832`; its saved service configuration lives at
+The household server is now **v2.50.0**, deployed through the Mac's Docker CLI from
+`codex/project-audit-print-workflow` at `b9b05fc`. The local image is
+`clc-household:2.50.0-b9b05fc`; its saved service configuration lives at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml`. It retains the
 existing `mtg` project/service, `CardListCompare` name, external `mtg_default` network,
 UID/GID 1000, time zone, JWT secret and data mount. `pull_policy: never` keeps this local
@@ -277,9 +277,40 @@ The pre-patch stopped-data backup is
 companion stays at v2.49.0, continuously running and Enabled; no printer changes or
 native installation were required. No household deck or print job was created by testing.
 
+The **v2.50.0** server update adds standalone lists, removable suggestions and extra
+cards, default basic-land exclusion, default-off printing replacement, and view-only
+search/side/ownership filters with a Mana Pool buy list. It was committed and pushed as
+`b9b05fc`; the branch has no matching GitHub Actions run, so delivery used the local
+verified image. Validation passed 969 app/server tests, 121 native tests, 68 isolated
+browser assertions, lint (zero errors, seven existing warnings), production/Docker builds
+and both dependency audits (zero vulnerabilities). A separate disposable Docker instance
+also exercised the new authenticated routes and edited plans against live Scryfall.
+
+The stopped-data backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20260912T005142Z-before-2.50.0/data-complete`.
+`cardlistcompare-deployment/update-2.50.0.json` records the image and backup. Migration
+preserved all three users, two tracked owners, 14 decks and 71 snapshots; there were no
+print jobs at deployment. Database integrity passed and existing foreign-key findings
+were unchanged. Local/public health checks passed and both served the exact tested
+frontend bytes. The signed-in **Print List** page showed the checked basic-land default,
+extra-card input and ready generator (`4d4aa73a`). The native v2.49.0 companion was never
+stopped or paused; it remains Online, Enabled and Ready with the same configuration,
+credentials and test-printing opt-in. No household print job or notification was sent.
+Its brief HTTP 502 during the server restart resolved on the next heartbeat.
+
+Browser proof is `/tmp/clc-standalone-review-qa-irvvFe/results.json`, with desktop/phone
+screenshots in that directory. It covers real-planner edits, per-account draft recovery,
+unknown/incoming ownership, sorted/filtered one-original shopping, stale-review guards,
+exact same-key retry after a lost response, standalone downloads/confirmation scoping and
+tracked-deck defaults. The new source/native package version is 2.50.0 for future builds;
+this server feature requires no companion installation or printer change.
+
 #### Queue operation
 
-Open **Print List** for a standalone batch, or a tracked deck's Printing tab for snapshot plans. Both show artwork review, editable card selections, PDF downloads and job status. Standalone jobs store a null tracked-deck ID; startup migrates the old non-null column while retaining existing job IDs, requests, manifests and events. Set a
+Open **Print List** for a standalone batch, or a tracked deck's Printing tab for snapshot
+plans. Both show artwork review, editable card selections, PDF downloads and job status.
+Standalone jobs store a null tracked-deck ID; startup migrates the old non-null column
+while retaining existing job IDs, requests, manifests and events. Set a
 separate random `PRINT_STATION_TOKEN` to enable physical queue requests; administrators
 can queue by default, and `PRINT_ALLOWED_USER_IDS` grants access to other household accounts.
 These environment variables are forwarded by the supplied Compose file. Keep the same
