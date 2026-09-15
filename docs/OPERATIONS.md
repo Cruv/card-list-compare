@@ -171,42 +171,40 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 ### Household print jobs
 
-#### Household installation checkpoint — 2026-09-12
+#### Household installation checkpoint — 2026-09-14
 
-Updated 2026-09-12. The permanent `CardListCompare` container belongs to the `mtg` Compose
+Updated 2026-09-14 (household local time). The permanent `CardListCompare` container belongs to the `mtg` Compose
 project, publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistcompare`
 at `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The repository's
 `./data` is not the household deployment path.
 
-The deployed server is **v2.55.1**, source `a4bbce9`, local image
-`clc-household:2.55.1-a4bbce9` with image ID
-`sha256:0d8f47dbb07184c2842cfc28b44f849a6fe7e4669b2da185c4d1c3f0f13194f1`.
+The deployed server is **v2.56.0**, source `78d70e7`, local image
+`clc-household:2.56.0-78d70e7` with image ID
+`sha256:cf2d6d486ec67c0f865a181758ec91827039608f59c6fd17550bdd63a5dc5581`.
 Source changes after this checkpoint are not a deployment claim. Private configuration is
 in `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and `runtime.env`.
 It preserves the container name, external `mtg_default` network, UID/GID, timezone, signing
 secret and data mount. `pull_policy: never` selects the local image; Watchtower is disabled
 for CLC. The registry's `latest` does not contain this feature branch. Do not prune its image.
 
-Deployment preserved all seven print jobs and their immutable plans/manifests, along with
-three users, two tracked-deck owners, 15 tracked decks and 74 snapshots. The new 91-copy
-"Print list" batch (`456b56ee-2936-4f78-9509-7c9ea94f3db8`, Epson job 15) remained active;
-the native worker was left running and unpaused. All 38 frontend files match the image
-through localhost and the household HTTPS origin (76 responses). The signed-in browser
-confirmed server v2.55.1, all seven household batches and native v2.53.3 online and enabled.
-Release checks passed 1,157 JavaScript tests, 195 native tests, five PDF generator tests,
-lint (five existing warnings), the production build and both dependency audits. Eight
-disposable desktop/mobile browser scenarios verified deferred backs, cancellation and
-packet-bound paper confirmation. A real server-to-companion test using fake CUPS verified
-seven unique submissions through front completion, another job, out-of-order saved backs,
-lost-reply recovery, cancellation and paper clearance. Isolated container restart and native
-repeat-install checks preserved fixture history/configuration, including safely saved backs.
-Offline PDF rendering verified requester/batch/sheet labels and unchanged v6 geometry.
-Tests used mocked delivery; no Discord test ping or physical print was sent. This
-feature-branch push does not trigger the main/PR/tag CI workflow, so local validation is
-not a claim of a passing GitHub run.
+Deployment preserved all nine print jobs and their immutable plans/manifests, along with
+three users, two tracked-deck owners, 15 tracked decks and 75 snapshots. The six-copy Jin
+Sakai comparison (`e463906f-b52d-4c67-9ebd-a90f70cb3d8a`) was active at the initial check;
+the native worker stayed running until that job finished. The guarded native update then
+ran while idle. All 38 frontend files match the image through localhost and the household
+HTTPS origin (76 responses). The signed-in browser confirmed server/native **v2.56.0**,
+all nine household batches, no active batch, an enabled station and connected Discord.
+Release checks passed 1,174 JavaScript tests, 211 native tests, lint (five existing warnings),
+the production build and both dependency audits. A real server-to-companion HTTP test
+verified four queue notices while busy/paused, queue retries, lost acknowledgements and
+restart recovery, disconnected-channel skipping and ambiguous delivery without retries.
+Isolated container restart and native repeat-install checks preserved fixture history and
+configuration, including safely saved backs. No real Discord message or physical test print
+was sent. This feature-branch push does not trigger the main/PR/tag CI workflow, so local
+validation is not a claim of a passing GitHub run.
 
 The latest complete stopped-container backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20260912T163936Z-before-2.55.1/data-complete`.
+`/Users/cruv/docker/Backups/cardlistcompare/20260915T021629Z-before-2.56.0/data-complete`.
 The private deployment folder retains dated `update-*.json` checkpoints and rollback
 configurations. Preserve generator-cache symlinks as links when copying Linux venvs on the
 Mac. Take a fresh backup before another update, including newer jobs and user changes;
@@ -214,7 +212,7 @@ never restore an older database over new queued work merely to roll back fronten
 Never run two backends against the live database. Recreate only the CLC service; do not use
 `down` or `--remove-orphans` against the partial household Compose definition.
 
-The **v2.53.3 arm64 native companion** is installed under
+The **v2.56.0 arm64 native companion** is installed under
 `~/Library/Application Support/CLC Print Station/app`, with private configuration in
 `~/.config/clc-print-station`. `~/Library/LaunchAgents/local.clc.print-station.plist` keeps
 it running at login. It uses `EPSON_ET_8550_Series`, its saved 66 Epson driver options,
@@ -225,7 +223,7 @@ The accepted color/orientation recipe and remaining cutting/duplex checks are re
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). The installed version and queue state
 are runtime observations; new source features require an actual companion update.
 
-The installed v2.53.3 arm64 companion package is retained at
+The previous v2.53.3 arm64 companion package is retained at
 `~/Downloads/CLC Print Station 2.53.3`, archive SHA-256
 `d0fdec6d709a4fd65828ab9cefde74e93c1439c66970104c08389bc77ec10042`.
 It passed isolated self-check and repeat installation with history/configuration preserved.
@@ -241,19 +239,25 @@ No background upgrade watcher is installed. The native update includes the new P
 Balboa wording and exact Epson ink-tank reminder classification. See
 [NOTIFICATION_VOICE.md](NOTIFICATION_VOICE.md).
 
-The **v2.55.1 native update is prepared but not installed** at this checkpoint. Its package
-is `~/Downloads/CLC Print Station 2.55.1/CLC-Print-Station`; the adjacent
+The installed **v2.56.0** package is
+`~/Downloads/CLC Print Station 2.56.0/CLC-Print-Station`; the adjacent
 `clc-print-station-macos-arm64.tar.gz` archive has SHA-256
-`43222b2d68d39bac74f07a7010cd110175807af3112ca022bbc6d0b100d94148`.
-It passed isolated self-check and repeat installation. The one-shot idle guard declined
-installation because the 91-copy batch was active; it did not stop or change the worker.
-There is no background watcher or queued automatic upgrade. Install at an idle point,
-preserving the ledger, configuration and enabled state, then verify the live version.
-Saved backs, packet reservations, exact paper clearance, and named, unmentioned completion
-announcements require this native update. Completion waits for every required pass,
-including all DFC backs; existing completed jobs are not replayed. The active legacy job
-keeps its existing sequence and PDFs. Requester/batch/page identification applies to newly
-generated PDFs. Alert delivery is best effort and never blocks the next front job.
+`a16b035af543c59b69699fae36b4c4488c81e40516d49f7e325eb8f1a4d17c12`.
+It passed isolated self-check and repeat installation before replacing v2.53.3 while idle.
+The worker was enabled before restart. The immediate post-restart verification could not
+open SQLite; a fresh independent read verified database integrity and exact preservation of
+eight native jobs/passes, seven control receipts, managed Discord settings, private config
+and token files against the stopped-worker backup at
+`/Users/cruv/docker/Backups/cardlistcompare/20260915T021657Z-native-before-2.56.0`.
+The private `native-update-2.56.0.json` checkpoint records that successful verification.
+No historical queue or completion notifications were created. The 66 Epson driver options
+and test-printing permission are unchanged. No background upgrade watcher is installed.
+
+This native release activates saved backs, packet reservations, exact paper clearance,
+named completion announcements without mentions, and queued-job channel messages. Completion
+waits for every required pass, including DFC backs. Existing PDFs remain immutable;
+requester/batch/page identification applies to newly generated PDFs. Alert delivery is best
+effort and never blocks the next front job. Physical cutter/duplex proof remains pending.
 
 The initial cached generator was verified at upstream
 `4d4aa73a95e93b09676c863a1861765863398c63`; normal startup still checks for a compatible newer

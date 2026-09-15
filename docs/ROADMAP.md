@@ -5,7 +5,7 @@ briefly for rationale, not as a queue. (Replaces the untracked `CLAUDE.local.md`
 which was nowhere on a fresh clone.) Private/sensitive plans may still live in
 `CLAUDE.local.md`; the default belongs here.
 
-## Next — physical cutter/duplex proof and native rollout
+## Next — physical cutter/duplex proof
 
 Source implements the current [print workflow](PRINT_WORKFLOW.md): exact snapshot/delta
 or standalone plans, editable paired artwork, actual cached Silhouette v6 generation,
@@ -22,8 +22,9 @@ Companion v2.56.0 also announces newly queued batches in Discord with requester,
 copy count and queue time, without mentions. Queue notices run independently of printing;
 retries and restarts do not duplicate delivery attempts.
 The deployed server/native versions are separately recorded in
-[the household checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-12).
-A companion update must wait for its active physical work to finish; preserve Enabled and
+[the household checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-14).
+Both server and companion are deployed at v2.56.0. Future companion updates must wait for
+active physical work to finish; preserve Enabled and
 all private receipts/settings during the household rollout. Never pause the running
 household station for interface testing. Reconcile Portainer's saved service definition
 before its next controller redeploy.
