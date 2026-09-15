@@ -335,6 +335,16 @@ Native v2.55.0 adds unmentioned fronts-finished messages explaining that backs a
 Only a selected packet asks for a flip; returning blank paper after its backs is also a
 help-needed alert. Canceling backs never produces a false whole-job completion message.
 
+Native v2.56.0 adds unmentioned **Print job queued** messages for newly accepted batches.
+Both Generate & print and queueing a ready PDF create one durable notice, atomically with
+the queue transition. The frozen batch/requester labels, copy count, queue time and job ID
+travel through the authenticated management heartbeat, independently of active printing
+or pause state. PDF-only generation, queue retries and saved-back requests do not create
+another notice. Preserve the server outbox and native delivery receipts with their usual
+database backups. Existing jobs are not backfilled. Events observed while Discord is
+disconnected are skipped; an offline Mac delays delivery. Failed or uncertain sends are
+not automatically retried and never authorize or block a physical print pass.
+
 Back up `.print-station-notifications-key` beside the server database along with the
 private Mac ledger. The key is user-owned mode 0600 and encrypts pending webhook commands;
 without it a pending connection must be entered again. Completed/expired commands remove

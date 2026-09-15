@@ -318,7 +318,7 @@ then use **Send test**. **Disconnect** stores an explicit disabled override so a
 webhook in `config.json` cannot reactivate it. The Mac ledger stores managed settings
 privately; keep it in the existing protected state directory and include it in backups.
 The server only delivers fixed configuration/test commands; the Mac sends the notification.
-Discord completion, flip, printer-error and test messages use the webhook name **Proxy Balboa** and
+Discord queue, completion, flip, printer-error and test messages use the webhook name **Proxy Balboa** and
 original Rocky-inspired phrasing: plain, slightly hesitant and encouraging, with occasional
 “Yo”, “y'know” or “ya”. A factual event headline comes first for phone previews. A separate
 plain-language details block retains the printer, full batch ID, numbered packet, printed
@@ -337,7 +337,7 @@ webhook URL is empty. A configured canonical
 link. A nonempty `refeed_discord_user_id` must be a Discord user ID; the message can mention
 only that configured user, with role/everyone mentions disabled. From 2.54.0, the ID is used
 only for alerts that need operator help, such as a selected paper flip, returning blank paper,
-or a printer error. Fronts-finished, whole-job completion and test messages never directly
+or a printer error. Queued-job, fronts-finished, whole-job completion and test messages never directly
 mention a user, even when an ID is configured. Omitting
 the user ID sends all messages without a personal mention. Use a normal text-channel webhook; forum/thread query
 options are not supported. Keep the webhook out of environment variables, repositories and
@@ -361,6 +361,22 @@ No paper was printed. Physical v6 cutting and manual duplex proof are still requ
 Upgrade the companion before large packet jobs. The claim request advertises its supported
 artifact count (37 in v2.48.0); older clients default to eight. A larger waiting job stays
 queued with an upgrade error before a new durable claim or print attempt is made.
+
+### New-job queue messages (2.56.0+)
+
+When a prepared batch enters CLC's physical print queue, the configured Discord channel
+gets a **Print job queued** message with its frozen label, requester, card count, queue
+time, batch ID and printer. All mentions are disabled. The message confirms acceptance
+by CLC, not submission to Epson or permission to change the paper. Generating PDFs without
+queueing, replaying a queue request and selecting saved backs do not create new-job alerts.
+
+Notices arrive through the management heartbeat, independently of print claims, while
+the Mac is busy or paused. An offline Mac receives pending notices after reconnecting;
+the timestamp records when the job joined CLC. Existing jobs are not backfilled on upgrade.
+Events observed with Discord disconnected are skipped rather than replayed on reconnect.
+Delivery intent is committed locally before the webhook request. Restarts and lost
+acknowledgements cannot duplicate an attempt; failed or ambiguous delivery is not retried.
+These informational messages request no Mac notification or sound and never alter printing.
 
 ### Job completion messages (2.54.0+)
 

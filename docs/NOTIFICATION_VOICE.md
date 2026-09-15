@@ -28,6 +28,7 @@ operator request:
 
 | Event | What the message means | Direct mention |
 | --- | --- | --- |
+| Print job queued | A new batch joined CLC's queue. Name its requester, saved label, copy count and queue time; Epson may not have started. | No |
 | Fronts printed · backs saved | All fronts completed; keep the labeled sheets for later. Leave blank paper loaded and let other jobs continue. | No |
 | Paper flip needed | The operator selected this exact saved packet and the station now holds its reload reservation. Match the printed batch/packet label before reloading. | Configured operator, if any |
 | Return blank paper | The selected back pass finished. Remove its output, load blanks, then confirm clearance for the current packet in CLC. Other printing waits. | Configured operator, if any |
@@ -52,6 +53,7 @@ any partial output after cancellation instead of claiming the sheets were never 
 
 Example voice lines from the templates:
 
+- Queued: “Yo, we got another one lined up, y'know? We'll get to it.”
 - Flip: “Yo. So, uh... we got the other side to do, y'know? I need a little help over here.”
 - Fronts saved: “Yo, the fronts are done, y'know? We got the other sides saved for when you're ready.”
 - Return blanks: “Yo, that side's done. I need you over here a second—get the blank paper back in, y'know?”
@@ -76,6 +78,15 @@ failure never changes a job's print state. Fronts-finished and whole-job complet
 separate durable delivery records. Reload and return-blanks alerts have separate records
 per packet, so acknowledging one event cannot suppress the other. Neither a delivered
 message nor a dismissal can authorize printing, satisfy paper clearance, or unpause CLC.
+
+From companion **2.56.0**, new-job queue announcements use the same channel with all
+mentions disabled, including mentions embedded in a requester name or batch label. A
+queue announcement means CLC accepted the prepared job, not that Epson has begun or that
+the operator should change the paper. The Mac receives these independently of print
+claims, including while busy or paused. Queue retries and saved-back requests do not
+create another announcement. Existing jobs are not backfilled on upgrade. Pending events
+survive a server or Mac restart; after a delivery attempt, ambiguous outcomes are not
+automatically retried. Events observed with Discord disconnected are skipped rather than replayed on reconnect.
 
 Routine reminders do not become printer-error pings. In companion 2.53.3+, Epson's exact
 ink-tank-check reminder appears as an informational advisory in CLC. It does not indicate

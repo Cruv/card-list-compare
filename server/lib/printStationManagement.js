@@ -5,6 +5,7 @@ import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, reque
 import { printError, sha256 } from './printQueuePlan.js';
 import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } from './printStationNotifications.js';
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
+import { queueNotificationInput, queueNotificationReceiptChanges, queueNotificationDelivery } from './printQueueNotifications.js';
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
 
 const STATION = 'household';
@@ -431,7 +432,7 @@ function heartbeatInput(body) {
   const events = body.events ?? [], receipts = body.receipts ?? [];
   if (!Array.isArray(events) || events.length > 50 || !Array.isArray(receipts) || receipts.length > 20) throw printError('Heartbeat supports at most 50 events and 20 receipts');
   const eventIds = new Set(), receiptIds = new Set();
-  return { snapshot: { version: version(body.version), paused: bool(body.paused, 'paused'), queue,
+  return { queueNotifications: queueNotificationInput(body), snapshot: { version: version(body.version), paused: bool(body.paused, 'paused'), queue,
     deferredBacks: body.deferredBacks === undefined ? false : bool(body.deferredBacks, 'deferredBacks'),
     recipeVerified: bool(body.recipeVerified, 'recipeVerified'), duplexVerified: bool(body.duplexVerified, 'duplexVerified'),
     testPrintingEnabled: body.testPrintingEnabled === undefined ? false : bool(body.testPrintingEnabled, 'testPrintingEnabled'),
@@ -468,8 +469,9 @@ function invalidDelivery(row, snapshot) {
 
 export function stationManagementHeartbeat(body) {
   const input = heartbeatInput(body);
+  const queueReceipts = queueNotificationReceiptChanges(input.queueNotifications);
   expireCommands();
-  const changes = [], acknowledgedCommandIds = [];
+  const changes = [...queueReceipts.changes], acknowledgedCommandIds = [];
   for (const receipt of input.receipts) {
     const row = get('SELECT * FROM print_station_commands WHERE id = ? AND station_id = ?', [receipt.commandId, STATION]);
     if (!row || !row.delivered_at) throw printError('Unknown or undelivered command receipt', 409);
@@ -513,8 +515,11 @@ export function stationManagementHeartbeat(body) {
       const removal = discardSecret(row.id); if (removal) deliveryChanges.push(removal);
     }
   }
+  const queueDelivery = input.queueNotifications.supported ? queueNotificationDelivery() : null;
+  if (queueDelivery) deliveryChanges.push(...queueDelivery.changes);
   commit(deliveryChanges);
-  return { commands, acknowledgedCommandIds, serverTime: timestamp() };
+  return { commands, acknowledgedCommandIds, serverTime: timestamp(),
+    ...(queueDelivery ? { queueNotifications: queueDelivery.notifications, acknowledgedQueueNotificationIds: queueReceipts.acknowledgedIds } : {}) };
 }
 
 /** Pause blocks only fresh claims; existing durable claims remain recoverable. */

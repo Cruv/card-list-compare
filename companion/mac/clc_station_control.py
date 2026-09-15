@@ -13,10 +13,12 @@ import uuid
 
 from clc_print_station import StationError, checked_id, recipe_fingerprint, clearance_id
 from clc_station_alerts import (DISCORD_SETTING, DISCORD_TEST_SETTING, validate_alert_config,
-                                effective_alert_config, discord_status, discord_test_payload)
+                                effective_alert_config, discord_status, discord_test_payload,
+                                discord_queued_payload)
 
 
 CONTROL_TYPES = {"pause", "unpause", "resume", "clear_paper", "check_update", "update", "rollback", "configure_discord", "test_discord"}
+QUEUE_NOTIFICATION_ID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\Z", re.I)
 
 
 def timestamp():
@@ -46,6 +48,17 @@ class StationControl:
           CREATE TABLE IF NOT EXISTS station_log (
             id TEXT PRIMARY KEY, at TEXT NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL);
         """)
+        # A webhook may have succeeded immediately before a crash. Preserve the
+        # attempt boundary; uncertainty must never send that message a second time.
+        self.queue_notifications_available = True
+        try:
+            self.ledger.write("""CREATE TABLE IF NOT EXISTS queue_notification_receipts (
+                id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, status TEXT NOT NULL,
+                at TEXT NOT NULL, acknowledged INTEGER NOT NULL DEFAULT 0)""")
+            self.ledger.write("UPDATE queue_notification_receipts SET status='failed' WHERE status='attempting'")
+        except Exception:
+            # Optional alert storage must not become a new dependency for printing.
+            self.queue_notifications_available = False
         self.refresh_update()
         # A manager operation may have selected a version just before a crash.
         # Reconcile its durable target instead of executing the command again.
@@ -143,6 +156,7 @@ class StationControl:
                 active["state"] = {"intent": "submitting"}.get(pending["state"], pending["state"])
         else:
             active = None
+        queue_receipts = self.queue_notification_receipts()
         return {"version": self.version, "paused": self.ledger.paused(), "queue": self.config["queue"],
                 "deferredBacks": True,
                 "recipeVerified": bool(self.config.get("recipe_verified")),
@@ -151,6 +165,8 @@ class StationControl:
                 "recipeFingerprint": recipe_fingerprint(self.config), "activeJob": active,
                 "health": self.health, "update": self.update,
                 "discord": discord_status(self.ledger, self.config),
+                "queueNotifications": self.queue_notifications_available,
+                "queueNotificationReceipts": queue_receipts,
                 "events": [dict(row) for row in self.ledger.db.execute("SELECT * FROM station_log ORDER BY rowid DESC LIMIT 20")],
                 "receipts": [{"commandId": row["id"], "status": row["state"], "message": row["message"]}
                              for row in self.ledger.db.execute("SELECT * FROM control_receipts WHERE acknowledged=0 AND state!='processing' ORDER BY rowid LIMIT 20")]}
@@ -322,8 +338,104 @@ class StationControl:
             self.event("warning" if rejection else "info", rejection or
                        ("Discord notifications connected" if settings["enabled"] else "Discord notifications disconnected"))
 
+    def queue_notification_receipts(self):
+        if not self.queue_notifications_available:
+            return []
+        try:
+            return [dict(row) for row in self.ledger.db.execute(
+                "SELECT id,status FROM queue_notification_receipts WHERE acknowledged=0 AND status!='attempting' ORDER BY rowid LIMIT 20")]
+        except Exception:
+            self.queue_notifications_available = False
+            try:
+                self.event("warning", "Queued-job notification receipts are unavailable. Printer work continues.")
+            except Exception:
+                pass
+            return []
+
+    def queued_notification(self, notice):
+        """Persist once, then attempt once. No local print history is consulted."""
+        if not isinstance(notice, dict):
+            raise ValueError("Invalid queued-job notification")
+        notice_id = checked_id(notice.get("id"), "queue notification ID")
+        if not QUEUE_NOTIFICATION_ID.fullmatch(notice_id):
+            raise ValueError("Invalid queued-job notification ID")
+        digest = hashlib.sha256(json.dumps(notice, sort_keys=True, ensure_ascii=True).encode()).hexdigest()
+        prior = self.ledger.db.execute("SELECT * FROM queue_notification_receipts WHERE id=?", (notice_id,)).fetchone()
+        if prior:
+            if prior["payload_hash"] != digest:
+                raise ValueError("Previously seen queued-job notification changed its content")
+            return
+        status, effective, outgoing = "ignored", None, None
+        try:
+            if set(notice) != {"id", "jobId", "deckName", "requesterName", "totalCopies", "queuedAt"}:
+                raise ValueError("Invalid queued-job notification fields")
+            checked_id(notice["jobId"], "queue notification job ID")
+            if not QUEUE_NOTIFICATION_ID.fullmatch(notice["jobId"]):
+                raise ValueError("Invalid queued-job notification job ID")
+            for field, limit in (("deckName", 200), ("requesterName", 120), ("queuedAt", 40)):
+                value = notice[field]
+                if not isinstance(value, str) or not value.strip() or len(value) > limit or re.search(r"[\x00-\x1f\x7f]", value):
+                    raise ValueError("Invalid queued-job notification text")
+            if type(notice["totalCopies"]) is not int or not 1 <= notice["totalCopies"] <= 1_000_000:
+                raise ValueError("Invalid queued-job copy count")
+            queued_at = datetime.datetime.fromisoformat(notice["queuedAt"].replace("Z", "+00:00"))
+            if queued_at.tzinfo is None:
+                raise ValueError("Queued-job notification time needs a timezone")
+            status = "failed"
+            effective, _managed = effective_alert_config(self.ledger, self.config)
+            if effective.get("refeed_discord_webhook_url"):
+                outgoing = discord_queued_payload(notice, effective)
+                status = "attempting"
+            else:
+                status = "disabled"
+        except (ValueError, TypeError, KeyError, StationError):
+            pass
+        # Durable before the only external effect. Keep the digest even when
+        # disconnected or invalid so reconnect/restart cannot replay a backlog.
+        with self.ledger.db:
+            reserved = self.ledger.db.execute("INSERT OR IGNORE INTO queue_notification_receipts(id,payload_hash,status,at) VALUES(?,?,?,?)",
+                                              (notice_id, digest, status, timestamp()))
+        if reserved.rowcount != 1 or status != "attempting":
+            return
+        try:
+            self.station.alerts.discord_transport(effective["refeed_discord_webhook_url"], outgoing, timeout=5)
+            status = "attempted"
+        except Exception:
+            status = "failed"
+        self.ledger.write("UPDATE queue_notification_receipts SET status=? WHERE id=?", (status, notice_id))
+        self.event("info" if status == "attempted" else "warning",
+                   "Queued-job Discord notification requested without a mention." if status == "attempted" else
+                   "Queued-job Discord notification was not confirmed; no automatic resend will be attempted.")
+
+    def queue_notifications(self, result, sent_payload, process):
+        """Optional notification protocol errors must never block printer work."""
+        try:
+            sent = {entry["id"] for entry in sent_payload.get("queueNotificationReceipts", [])}
+            acknowledgements = result.get("acknowledgedQueueNotificationIds", [])
+            if (not isinstance(acknowledgements, list) or len(acknowledgements) > 20
+                    or any(not isinstance(key, str) or key not in sent for key in acknowledgements)):
+                raise ValueError("Unexpected queued-job notification acknowledgement")
+            with self.ledger.db:
+                for key in acknowledgements:
+                    self.ledger.db.execute("UPDATE queue_notification_receipts SET acknowledged=1 WHERE id=?", (key,))
+            if process and not self.restart_needed and self.queue_notifications_available:
+                notices = result.get("queueNotifications", [])
+                if not isinstance(notices, list) or len(notices) > 1:
+                    raise ValueError("Invalid queued-job notification response")
+                for notice in notices:
+                    self.queued_notification(notice)
+        except Exception:
+            try:
+                self.event("warning", "Queued-job Discord notification could not be processed safely. Printer work continues.")
+            except Exception:
+                pass  # Even a failed diagnostic must not become a print control.
+
     def exchange(self, payload, process=True):
-        result = self.station.client.management_heartbeat(payload)
+        # Extra progress exchanges during updates must not deliver notifications.
+        sent_payload = {**payload, "queueNotifications": bool(process and not self.restart_needed and self.queue_notifications_available)}
+        if not sent_payload["queueNotifications"]:
+            sent_payload["queueNotificationReceipts"] = []
+        result = self.station.client.management_heartbeat(sent_payload)
         if not isinstance(result, dict) or not isinstance(result.get("commands"), list) or len(result["commands"]) > 20:
             raise StationError("Invalid station management response")
         sent = {entry["commandId"] for entry in payload["receipts"]}
@@ -338,6 +450,7 @@ class StationControl:
                 self.apply(request)
                 if self.restart_needed:
                     break
+        self.queue_notifications(result, sent_payload, process)
         return result
 
     def sync(self, check_printer=True):

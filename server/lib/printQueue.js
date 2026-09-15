@@ -8,6 +8,7 @@ import { buildPrintPlan, publicPrintPlan, printError, sha256 } from './printQueu
 import { preparePrintImages } from './printQueueImages.js';
 import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from './printGenerator.js';
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
+import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -288,11 +289,13 @@ export async function processNextPrintJob() {
     const queued = !!row.queue_requested && printCapabilities(row.user_id).canQueue;
     assertActive();
     assertPrintStorageCapacity();
-    run(`UPDATE print_jobs SET state = ?, manifest_json = ?, manifest_sha256 = ?, steps_json = ?, progress_json = NULL,
+    const queuedAt = queued ? now() : null;
+    runTransaction([{ sql: `UPDATE print_jobs SET state = ?, manifest_json = ?, manifest_sha256 = ?, steps_json = ?, progress_json = NULL,
       queued_at = ?, expires_at = ?, updated_at = ?, error = ? WHERE id = ? AND state = 'preparing'`,
-    [queued ? 'queued' : 'ready', bytes, hash, json(steps), queued ? now() : null,
+    params: [queued ? 'queued' : 'ready', bytes, hash, json(steps), queuedAt,
       retentionExpiry(), now(),
-      row.queue_requested && !queued ? 'PDF ready; household printing authorization is no longer available' : null, row.id]);
+      row.queue_requested && !queued ? 'PDF ready; household printing authorization is no longer available' : null, row.id] },
+    ...(queued ? [queuedPrintNotificationStatement(row, queuedAt)] : [])]);
     if (get("SELECT name FROM sqlite_master WHERE type='table' AND name='manasync_pending_proxy_plans'")) {
       void import('./pendingProxyPlans.js').then(async bridge => {
         await bridge.stagePreparedPrintJob(row.user_id,row.id);
@@ -314,7 +317,11 @@ export function queuePrintJob(userId, deckId, id) {
   if (row.state !== 'ready') throw printError('Only a ready PDF can be queued. Reprints require a new job.', 409);
   if (row.expires_at <= now()) throw printError('These PDFs have expired. Prepare a new job.', 410);
   for (const artifact of parse(row.manifest_json).artifacts) verifiedPrintArtifact(row, artifact.id);
-  run("UPDATE print_jobs SET state = 'queued', queue_requested = 1, queued_at = ?, updated_at = ? WHERE id = ?", [now(), now(), id]);
+  const queuedAt = now();
+  runTransaction([
+    { sql: "UPDATE print_jobs SET state = 'queued', queue_requested = 1, queued_at = ?, updated_at = ? WHERE id = ? AND state = 'ready'", params: [queuedAt, queuedAt, id] },
+    queuedPrintNotificationStatement(row, queuedAt),
+  ]);
   return getOwnedPrintJob(userId, deckId, id);
 }
 export function cancelPrintJob(userId, deckId, id) {

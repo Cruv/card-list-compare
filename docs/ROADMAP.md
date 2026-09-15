@@ -18,6 +18,9 @@ print records. [UI organization](UI_REDESIGN_INVENTORY.md) is the current capabi
 
 The new native source reports printer/active-pass faults through Mac and optional Discord
 alerts with durable duplicate suppression; it does not pause, resume or retry prints.
+Companion v2.56.0 also announces newly queued batches in Discord with requester, label,
+copy count and queue time, without mentions. Queue notices run independently of printing;
+retries and restarts do not duplicate delivery attempts.
 The deployed server/native versions are separately recorded in
 [the household checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-12).
 A companion update must wait for its active physical work to finish; preserve Enabled and

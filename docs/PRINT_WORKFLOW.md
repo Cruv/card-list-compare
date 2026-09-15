@@ -69,6 +69,14 @@ and unsupported meld layouts block generation before a job is created. Then choo
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
 
+With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
+connected Discord channel, with the requester, saved batch label, card count, queue time
+and batch ID. All mentions are disabled. It confirms CLC accepted the job, even while
+another batch is printing, and does not mean Epson has started. PDF-only generation,
+repeated queue requests and later saved-back requests do not create another announcement.
+The Mac delivers through its regular heartbeat; an offline Mac delays pending notices.
+No historical queue entries are backfilled, and delivery failures do not change printing.
+
 Each job produces `fronts.pdf` for ordinary cards, followed by one-sheet double-faced
 packets: `double-faced-001.pdf`, `double-faced-002.pdf`, and so on. A packet holds at most
 seven copies and exactly two pages: page 1 fronts, page 2 matching backs. It reports its

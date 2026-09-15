@@ -30,9 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.55.1';
+const APP_VERSION = '2.56.0';
 const WHATS_NEW = [
-  'Printer filters and reload labels stay accurate for saved and older batches',
+  'Proxy Balboa announces newly queued print jobs in Discord without mentioning anyone',
 ];
 
 function getResetToken() {

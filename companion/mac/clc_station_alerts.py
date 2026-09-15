@@ -220,6 +220,32 @@ def discord_completion_payload(job, config):
             "allowed_mentions": {"parse": [], "users": [], "roles": []}, "tts": False}
 
 
+def discord_queued_payload(notice, config):
+    """A CLC queue receipt, never a claim that Epson has started printing."""
+    validate_alert_config(config)
+    clean = lambda value, limit: discord_text(printer_text(value, limit, config))
+    content = "**Print job queued · " + clean(notice["deckName"], 70) + "**\n"
+    content += "Yo, we got another one lined up, y'know? We'll get to it.\n\n**Print details**"
+    content += "\nJob: " + clean(notice["deckName"], 200)
+    content += "\nQueued by: " + clean(notice["requesterName"], 120)
+    content += f"\nCard copies: {notice['totalCopies']}"
+    content += "\nQueued at: " + clean(notice["queuedAt"], 40)
+    content += "\nBatch ID: " + clean(notice["jobId"], 96)
+    content += "\nPrinter: " + clean(config.get("queue") or "Household printer", 96)
+    content += "\nStatus: Accepted into the CLC print queue. This does not mean the printer has started."
+    content += "\nAction: None."
+    origin = config.get("server_url", "")
+    if isinstance(origin, str) and origin:
+        parsed = urllib.parse.urlsplit(origin)
+        if (parsed.scheme in {"https", "http"} and parsed.hostname and not parsed.username and not parsed.password
+                and not parsed.query and not parsed.fragment and parsed.path in {"", "/"} and not re.search(r"[\s<>]", origin)):
+            content += "\nOpen Printer in CLC: <" + origin.rstrip("/") + "/#print-station>"
+    if len(content) > 2000:
+        raise ValueError("Queued-job alert exceeds the message limit")
+    return {"username": DISCORD_USERNAME, "content": content,
+            "allowed_mentions": {"parse": [], "users": [], "roles": []}, "tts": False}
+
+
 def discord_fronts_payload(job, config):
     payload = discord_completion_payload(job, config)
     content = payload["content"].replace("Print job complete", "Fronts printed · backs saved", 1)

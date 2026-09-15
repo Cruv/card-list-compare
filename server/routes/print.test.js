@@ -111,6 +111,82 @@ async function packetPdfs({ cards, outputDir, batchLabel }) {
     }) };
 }
 
+describe('durable queued batch announcements', () => {
+  const notices = () => db.all('SELECT * FROM print_queue_notifications ORDER BY queued_at, id');
+  it('announces successful queue-on-ready preparation once and freezes the batch summary', async () => {
+    const plan = await preview(), request = { queueOnReady: true, idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash };
+    const created = await queue.createPrintJob(1, 1, request);
+    expect(notices()).toEqual([]); // Preparation is not a physical queue entry yet.
+    await queue.processNextPrintJob();
+    const notice = notices()[0];
+    expect(notices()).toHaveLength(1);
+    expect(notice).toMatchObject({ job_id: created.job.id, station_id: 'household', deck_name: 'Deck 1', requester_name: 'printer', total_copies: 1, delivered_at: null, status: null });
+    expect(notice.queued_at).toBe(db.get('SELECT queued_at FROM print_jobs WHERE id = ?', [created.job.id]).queued_at);
+    db.run("UPDATE users SET username = 'renamed' WHERE id = 1");
+    await queue.createPrintJob(1, 1, request); await queue.processNextPrintJob();
+    queue.queuePrintJob(1, 1, created.job.id);
+    expect(notices()).toEqual([notice]);
+    expect(Object.keys(notice)).not.toContain('plan_json');
+  });
+  it('does not announce download-only preparation until that exact PDF is explicitly queued', async () => {
+    const job = await ready();
+    expect(notices()).toEqual([]);
+    queue.queuePrintJob(1, 1, job.id); queue.queuePrintJob(1, 1, job.id);
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0]).toMatchObject({ job_id: job.id, total_copies: 1 });
+  });
+  it('also announces ad hoc batches with their user label and no tracked deck', async () => {
+    const options = { mode: 'adhoc', cardText: '2 Lightning Bolt (M10) [146]', listName: 'Weekend extras', queueOnReady: true };
+    const plan = await planModule.buildPrintPlan(1, null, options);
+    const created = await queue.createPrintJob(1, null, { ...options, idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash });
+    await queue.processNextPrintJob();
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0]).toMatchObject({ job_id: created.job.id, deck_name: 'Weekend extras', requester_name: 'printer', total_copies: 2 });
+  });
+  it('never announces failed preparation or a job that loses queue authorization', async () => {
+    services.generatePrintPdfs.mockRejectedValueOnce(new Error('fixture PDF failure'));
+    await create({ queueOnReady: true }); await queue.processNextPrintJob();
+    const { job } = await create({ queueOnReady: true });
+    db.run('UPDATE users SET is_admin = 0 WHERE id = 1'); await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('ready');
+    expect(notices()).toEqual([]);
+  });
+  it('atomically rolls back queue acceptance when its outbox cannot be persisted', async () => {
+    const job = await ready(), previous = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    db.run("CREATE TRIGGER reject_notice BEFORE INSERT ON print_queue_notifications BEGIN SELECT RAISE(ABORT, 'fixture outbox unavailable'); END");
+    expect(() => queue.queuePrintJob(1, 1, job.id)).toThrow('fixture outbox unavailable');
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(previous);
+    expect(notices()).toEqual([]);
+    db.run('DROP TRIGGER reject_notice');
+    queue.queuePrintJob(1, 1, job.id);
+    expect(notices()).toHaveLength(1);
+  });
+  it('normalizes display labels without rewriting immutable plans and falls back for blank labels', async () => {
+    const job = await ready();
+    const plan = JSON.parse(db.get('SELECT plan_json FROM print_jobs WHERE id = ?', [job.id]).plan_json);
+    Object.assign(plan, { deckName: '  Deck\n\twith\u0000 spaces  ', requesterName: '  Household\u0085 user  ' });
+    const immutable = JSON.stringify(plan);
+    db.run('UPDATE print_jobs SET plan_json = ? WHERE id = ?', [immutable, job.id]);
+    queue.queuePrintJob(1, 1, job.id);
+    expect(notices()[0]).toMatchObject({ deck_name: 'Deck with spaces', requester_name: 'Household user' });
+    expect(db.get('SELECT plan_json FROM print_jobs WHERE id = ?', [job.id]).plan_json).toBe(immutable);
+    const next = await ready();
+    const nextPlan = JSON.parse(db.get('SELECT plan_json FROM print_jobs WHERE id = ?', [next.id]).plan_json);
+    Object.assign(nextPlan, { deckName: '\u0000\n', requesterName: '\t\r' });
+    db.run('UPDATE print_jobs SET plan_json = ? WHERE id = ?', [JSON.stringify(nextPlan), next.id]);
+    queue.queuePrintJob(1, 1, next.id);
+    expect(db.get('SELECT deck_name, requester_name FROM print_queue_notifications WHERE job_id = ?', [next.id])).toEqual({ deck_name: 'Card batch', requester_name: 'printer' });
+  });
+  it('retains one notice across startup and cascades it when its account print jobs are purged', async () => {
+    const job = await ready({ queueOnReady: true }), notice = notices()[0];
+    stopQueue = queue.initPrintQueue();
+    expect(notices()).toEqual([notice]);
+    await queue.purgeUserPrintJobs(1);
+    expect(db.get('SELECT id FROM print_jobs WHERE id = ?', [job.id])).toBeNull();
+    expect(notices()).toEqual([]);
+  });
+});
+
 describe('global print batch history', () => {
   function seed(userId, state, createdAt, extra = {}) {
     const id = crypto.randomUUID();
@@ -863,10 +939,12 @@ describe('deferred back-side scheduling', () => {
   });
   it('reserves a selected later packet before refeed and requires blank-paper reset after backs', async () => {
     const { job } = await packets(); finishFronts(job);
+    const originalNotice = db.all('SELECT * FROM print_queue_notifications');
     queue.preparePrintBacks(row(job), 'double-faced-002', 1);
     const parked = row(job);
     queue.preparePrintBacks(row(job), 'double-faced-002', 1);
     expect(row(job)).toEqual(parked); // retry is not a new physical request
+    expect(db.all('SELECT * FROM print_queue_notifications')).toEqual(originalNotice);
     expect(() => queue.preparePrintBacks(row(job), 'double-faced-001', 1)).toThrow('already requested');
     const reserved = queue.claimPrintJob({ deferredBacks: true });
     expect(reserved).toMatchObject({ id: job.id, state: 'awaiting_refeed', claimToken: job.claimToken });

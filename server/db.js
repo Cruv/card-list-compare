@@ -604,6 +604,15 @@ export async function initDb() {
     event_json TEXT NOT NULL, created_at TEXT NOT NULL,
     PRIMARY KEY(job_id, event_id)
   )`);
+  // New queue transitions only; there is intentionally no history backfill.
+  // Account purges already delete print_jobs, cascading these frozen labels.
+  db.run(`CREATE TABLE IF NOT EXISTS print_queue_notifications (
+    id TEXT PRIMARY KEY, job_id TEXT NOT NULL UNIQUE REFERENCES print_jobs(id) ON DELETE CASCADE,
+    station_id TEXT NOT NULL, deck_name TEXT NOT NULL, requester_name TEXT NOT NULL,
+    total_copies INTEGER NOT NULL, queued_at TEXT NOT NULL,
+    delivered_at TEXT, acknowledged_at TEXT, status TEXT
+  )`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_queue_notifications_pending ON print_queue_notifications(station_id, status, queued_at)');
 
   // Station telemetry stays in memory; commands and acknowledgements survive
   // server restarts. Retain command identities to prevent accidental replay.

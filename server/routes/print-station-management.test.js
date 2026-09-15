@@ -72,6 +72,125 @@ function seedJob(state = 'awaiting_refeed', steps = [
   return id;
 }
 
+describe('queued batch notification heartbeat delivery', () => {
+  async function seedNotice(state = 'queued', extra = {}) {
+    const jobId = seedJob(state);
+    const { queuedPrintNotificationStatement } = await import('../lib/printQueueNotifications.js');
+    const row = db.get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+    db.runTransaction([queuedPrintNotificationStatement(row, row.queued_at)]);
+    const notice = db.get('SELECT * FROM print_queue_notifications WHERE job_id = ?', [jobId]);
+    if (extra.state) db.run('UPDATE print_jobs SET state = ? WHERE id = ?', [extra.state, jobId]);
+    return notice;
+  }
+  const readNotice = id => db.get('SELECT * FROM print_queue_notifications WHERE id = ?', [id]);
+  const noticeBeat = extra => beat(heartbeat({ queueNotifications: true, ...extra }));
+
+  it('opts in explicitly and delivers new work while another batch is active or claims are paused', async () => {
+    const notice = await seedNotice(), activeId = seedJob('submitted');
+    const legacy = await (await beat()).json();
+    expect(legacy).not.toHaveProperty('queueNotifications');
+    expect(legacy).not.toHaveProperty('acknowledgedQueueNotificationIds');
+    expect(readNotice(notice.id).delivered_at).toBeNull();
+    expect(await (await noticeBeat({ queueNotifications: false })).json()).not.toHaveProperty('queueNotifications');
+    const response = await (await noticeBeat({ paused: true, activeJob: { id: activeId, state: 'submitted' } })).json();
+    expect(response.queueNotifications).toEqual([{ id: notice.id, jobId: notice.job_id, deckName: 'Household proof', requesterName: 'admin', totalCopies: 7, queuedAt: new Date().toISOString() }]);
+    expect(response.acknowledgedQueueNotificationIds).toEqual([]);
+    expect(readNotice(notice.id).delivered_at).toBe(new Date().toISOString());
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [notice.job_id]).state).toBe('queued');
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [activeId]).state).toBe('submitted');
+    for (const secret of ['plan_json', 'claimToken', 'downloadUrl', credential, 'artifacts']) expect(JSON.stringify(response.queueNotifications)).not.toContain(secret);
+  });
+
+  it('durably redelivers only the same pending notice after a lost reply and server restart', async () => {
+    const notice = await seedNotice();
+    vi.setSystemTime(instant + 1000); const second = await seedNotice();
+    const firstResponse = await (await noticeBeat()).json();
+    const durableBefore = readFileSync(join(dir, 'db.sqlite'));
+    const reloaded = new (db.getDb().constructor)(durableBefore);
+    try {
+      expect(reloaded.exec('SELECT delivered_at FROM print_queue_notifications WHERE id = ?', [notice.id])[0].values[0][0]).toBeTruthy();
+    } finally { reloaded.close(); }
+    management.resetPrintStationManagement();
+    vi.setSystemTime(instant + 2000);
+    expect((await (await noticeBeat()).json()).queueNotifications).toEqual(firstResponse.queueNotifications);
+    expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(durableBefore); // No poll rewrite.
+    const receipt = { id: notice.id, status: 'attempted' };
+    const accepted = await (await noticeBeat({ queueNotificationReceipts: [receipt] })).json();
+    expect(accepted.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(accepted.queueNotifications.map(item => item.id)).toEqual([second.id]);
+    const saved = readNotice(notice.id);
+    vi.setSystemTime(instant + 3000);
+    expect((await (await noticeBeat({ queueNotificationReceipts: [receipt] })).json()).acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id)).toEqual(saved);
+    const conflicting = await (await noticeBeat({ queueNotificationReceipts: [{ ...receipt, status: 'failed' }] })).json();
+    expect(conflicting.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id)).toEqual(saved);
+  });
+
+  it.each(['attempted', 'failed', 'disabled', 'ignored'])('settles a %s receipt without retrying delivery or changing print state', async receiptStatus => {
+    const notice = await seedNotice(); await noticeBeat();
+    const response = await (await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: receiptStatus }] })).json();
+    expect(response.queueNotifications).toEqual([]);
+    expect(response.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id).status).toBe(receiptStatus);
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [notice.job_id]).state).toBe('queued');
+  });
+
+  it('suppresses batches that finished before first delivery without backfilling old queue history', async () => {
+    const discarded = [];
+    for (const state of ['completed', 'canceled', 'failed', 'expired']) discarded.push(await seedNotice('queued', { state }));
+    const historical = seedJob('queued');
+    const response = await (await noticeBeat()).json();
+    expect(response.queueNotifications).toEqual([]);
+    expect(discarded.map(item => readNotice(item.id).status)).toEqual(Array(4).fill('ignored'));
+    expect(discarded.map(item => readNotice(item.id).delivered_at)).toEqual(Array(4).fill(null));
+    expect(db.get('SELECT id FROM print_queue_notifications WHERE job_id = ?', [historical])).toBeNull();
+  });
+
+  it('accepts a durable receipt after an account/job purge without recreating its labels', async () => {
+    const notice = await seedNotice(); await noticeBeat();
+    db.run('DELETE FROM print_jobs WHERE id = ?', [notice.job_id]);
+    expect(readNotice(notice.id)).toBeNull();
+    const response = await (await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] })).json();
+    expect(response.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(db.all('SELECT * FROM print_queue_notifications')).toEqual([]);
+  });
+
+  it('quarantines a stale restored-server receipt without blocking controls, claims or later announcements', async () => {
+    const notice = await seedNotice(); // Restored backup still says never delivered.
+    vi.setSystemTime(instant + 1000); const next = await seedNotice();
+    await beat();
+    const checkUpdate = await accepted(command('check_update'));
+    const response = await (await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] })).json();
+    expect(response.commands.map(item => item.id)).toContain(checkUpdate.id);
+    expect(response.queueNotifications.map(item => item.id)).toEqual([next.id]);
+    expect(response.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id)).toMatchObject({ status: 'ignored', delivered_at: null });
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [notice.job_id]).state).toBe('queued');
+    expect((await claim()).status).toBe(200);
+    const saved = readNotice(notice.id);
+    expect((await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] })).status).toBe(200);
+    expect(readNotice(notice.id)).toEqual(saved);
+  });
+
+  it('requires the station credential and validates capabilities, receipt bounds, IDs and immutable delivery state', async () => {
+    const notice = await seedNotice();
+    for (const token of [null, tokens[1], 'bad-station-token']) {
+      expect((await request('/api/print-station/heartbeat', { method: 'POST', token, body: heartbeat({ queueNotifications: true }) })).status).toBe(401);
+    }
+    const invalidBodies = [
+      ...[null, 1, 'true', {}, []].map(queueNotifications => ({ queueNotifications })),
+      ...[null, {}, 'receipts', Array.from({ length: 21 }, () => ({ id: crypto.randomUUID(), status: 'attempted' }))].map(queueNotificationReceipts => ({ queueNotificationReceipts })),
+      ...[null, [], {}, { id: notice.id, status: 'sent' }, { id: 'bad-id', status: 'failed' }, { id: notice.id, status: 'failed', secret: 'private' }].map(receipt => ({ queueNotificationReceipts: [receipt] })),
+      { queueNotificationReceipts: [{ id: notice.id, status: 'failed' }, { id: notice.id, status: 'failed' }] },
+      { queueNotifications: false, queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] },
+    ];
+    for (const body of invalidBodies) expect((await noticeBeat(body)).status, JSON.stringify(body)).toBe(400);
+    expect(readNotice(notice.id)).toMatchObject({ status: null, delivered_at: null });
+    expect(db.all('SELECT * FROM print_station_commands')).toEqual([]);
+  });
+});
+
 describe('household station access and telemetry', () => {
   it('shows every persisted household queue entry in scheduler order without private plans or cross-owner links', async () => {
     const first = seedJob('queued'), second = seedJob('queued'), active = seedJob('submitted'), preparing = seedJob('preparing');

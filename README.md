@@ -225,6 +225,10 @@ Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for re
 
 Selected-packet flip, paper-clearance and reported printer-error alerts use a Mac notification and Glass sound by default, with optional Discord delivery
 connected through the administrator's **Print → Printer → Discord printer alerts** controls.
+Companion **2.56.0+** posts a channel message when a new batch joins CLC's queue, including
+its label, requester, card count and queue time, with no mentions. This works while another
+batch is printing or the station is paused; it confirms CLC queue acceptance, not an Epson
+submission. PDF-only generation and later back-packet requests do not announce a new job.
 Companion **2.54.0+** also sends a Discord completion message naming the whole job after all
 required print passes finish in the Mac spooler. Companion **2.55.0+** also announces fronts finished with backs saved for later, without a personal mention. Only newly completed jobs are announced;
 existing completed history is not replayed. Completion describes the spooler result, not

@@ -182,10 +182,15 @@ the request UUID. Tests bind to the acknowledged configuration revision, durably
 intent before networking, and do not automatically retry uncertain sends. Credentials
 stay outside station telemetry and logs.
 Only canonical HTTPS Discord webhook URLs are accepted, redirects are refused, and
-help-needed alerts may mention only the explicitly configured Discord user ID. Completion,
-fronts-finished and delivery-test messages disable all mentions. Enabling the
-webhook shares the deck name, job/packet identity and CLC station link with its channel;
+help-needed alerts may mention only the explicitly configured Discord user ID. Queued-job,
+completion, fronts-finished and delivery-test messages disable all mentions. Enabling the
+webhook shares the saved batch/requester names, copy count, queue time, job/packet identity
+and CLC station link with its channel;
 no PDF, card artwork, station credential or automatic resume action is sent.
+Queue notices are created in the same durable transaction as queue acceptance. Only an
+authenticated, capable companion receives them through its heartbeat. The Mac records
+delivery intent before networking; replayed notices cannot produce a second send. These
+receipts are separate from physical print state and authorize no printer operation.
 
 The [Mac companion](companion/mac/README.md) requires a private user-owned token/config
 and state directory. Downloads stay on the configured server origin and reject redirects.
