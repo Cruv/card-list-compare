@@ -115,6 +115,41 @@ it('the session review route creates exactly one digital snapshot and exposes it
   expect(deck.snapshots).toHaveLength(2);
 });
 
+it('serves the current and paper snapshots only for include=latest, and the whole history by default', async () => {
+  const issued = await issue();
+  db.run("INSERT INTO deck_snapshots (tracked_deck_id,deck_text) VALUES (1,'2 Sol Ring (CMM) 410\r\n')");
+  const [{ id: newest }] = db.all('SELECT id FROM deck_snapshots WHERE tracked_deck_id = 1 ORDER BY created_at DESC, id DESC');
+  db.run('UPDATE tracked_decks SET paper_snapshot_id = 1 WHERE id = 1');
+  const full = (await request(structuredRouter,'GET','/decks',issued.token)).body;
+  expect(full.include).toBeUndefined();
+  expect(full.decks[0].snapshots).toHaveLength(2);
+  expect(full.decks[0].snapshots[0].cards).toBeTruthy();
+  const light = (await request(structuredRouter,'GET','/decks?include=latest',issued.token)).body;
+  expect(light.include).toBe('latest');
+  // Same identity and markers, same exact text and hash, without the history or its parse.
+  expect(light.decks[0]).toMatchObject({id:full.decks[0].id,name:full.decks[0].name,
+    latestSnapshotId:String(newest),paperSnapshotId:'1'});
+  expect(light.decks[0].snapshots.map(snapshot => snapshot.id)).toEqual([String(newest),'1']);
+  for (const snapshot of light.decks[0].snapshots) {
+    expect(snapshot.textHash).toBe(hash(snapshot.deckText));
+    expect(snapshot.cards).toBeUndefined();
+    expect(snapshot.unresolvedLines).toBeUndefined();
+  }
+  expect(light.decks[0].snapshots[0]).toMatchObject({isLatest:true,isPaper:false,deckText:'2 Sol Ring (CMM) 410\r\n'});
+  expect(light.decks[0].snapshots[1]).toMatchObject({isLatest:false,isPaper:true});
+});
+
+it('returns one entry when the paper snapshot is also the latest, and none when a deck has no snapshots', async () => {
+  const issued = await issue();
+  db.run('UPDATE tracked_decks SET paper_snapshot_id = 1 WHERE id = 1');
+  db.run("INSERT INTO tracked_decks (id,user_id,tracked_owner_id,archidekt_deck_id,deck_name) VALUES (9,1,1,9,'Empty deck')");
+  const light = (await request(structuredRouter,'GET','/decks?include=latest',issued.token)).body;
+  const [tracked,empty] = light.decks;
+  expect(tracked.snapshots).toHaveLength(1);
+  expect(tracked.snapshots[0]).toMatchObject({id:'1',isLatest:true,isPaper:true});
+  expect(empty).toMatchObject({latestSnapshotId:null,paperSnapshotId:null,snapshots:[]});
+});
+
 async function creationPayload(token, overrides = {}) {
   const context = (await request(structuredRouter, 'GET', '/context', token)).body;
   return { operationId: randomUUID(), expectedInstanceId: context.instanceId,

@@ -56,24 +56,37 @@ export function structuredCards(text) {
   return { cards, unresolvedLines };
 }
 
-export function serializeSnapshot(snapshot, latestId, paperId) {
+export function serializeSnapshot(snapshot, latestId, paperId, { cards = true } = {}) {
   const proposal = snapshot.origin_proposal_id
     ? get('SELECT id, operation_id FROM deck_proposals WHERE id = ?', [snapshot.origin_proposal_id]) : null;
   return { id: String(snapshot.id), deckId: String(snapshot.tracked_deck_id),
     deckText: snapshot.deck_text, textHash: textHash(snapshot.deck_text),
     isLatest: snapshot.id === latestId, isPaper: snapshot.id === paperId,
     createdAt: snapshot.created_at, nickname: snapshot.nickname,
-    ...structuredCards(snapshot.deck_text),
+    // Parsing every historical snapshot costs more than the whole listing; an integrator
+    // asking for the current state gets the exact text and its hash, and parses if it wants.
+    ...(cards ? structuredCards(snapshot.deck_text) : {}),
     origin: proposal ? { source: 'manasync', proposalId: proposal.id, operationId: proposal.operation_id } : null };
 }
 
-export function serializeDeck(deck) {
-  const snapshots = all('SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC', [deck.id]);
+/**
+ * `include: 'latest'` serializes only the two snapshots a mirror keeps — the current list and
+ * the paper one — with their IDs, text and hashes, and without parsed cards. Every other field
+ * of the deck is unchanged, so a client written against the full listing reads it identically.
+ */
+export function serializeDeck(deck, { include } = {}) {
+  const latestOnly = include === 'latest';
+  const paperRow = deck.paper_snapshot_id == null ? null
+    : get('SELECT * FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?', [deck.paper_snapshot_id, deck.id]);
+  const snapshots = latestOnly
+    ? [latestSnapshot(deck.id), paperRow].filter((row, index, rows) =>
+      row && rows.findIndex(other => other && other.id === row.id) === index)
+    : all('SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC', [deck.id]);
   const latestId = snapshots[0]?.id ?? null;
-  const paperId = snapshots.find(snapshot => snapshot.id === deck.paper_snapshot_id)?.id ?? null;
+  const paperId = paperRow?.id ?? null;
   return { id: String(deck.id), name: deck.deck_name, url: deck.deck_url, sourceLink: trackedDeckSourceLink(deck),
     sourceTracking: sourceTrackingState(deck.user_id, deck.id),
     latestSnapshotId: latestId === null ? null : String(latestId),
     paperSnapshotId: paperId === null ? null : String(paperId),
-    snapshots: snapshots.map(snapshot => serializeSnapshot(snapshot, latestId, paperId)) };
+    snapshots: snapshots.map(snapshot => serializeSnapshot(snapshot, latestId, paperId, { cards: !latestOnly })) };
 }
