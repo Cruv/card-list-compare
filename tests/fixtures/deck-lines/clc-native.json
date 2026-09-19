@@ -1,0 +1,69 @@
+{
+  "source": "clc",
+  "description": "CLC's normative card-line grammar: bare and bracketed collector numbers, the `4x` quantity form, hyphenated collector numbers, an `SB:` prefix, and a set-less bracket that stays part of the card name.",
+  "lines": [
+    {
+      "line": 2,
+      "quantity": 1,
+      "name": "Atraxa, Praetors' Voice",
+      "setCode": "cmr",
+      "collectorNumber": "521",
+      "finish": "nonfoil",
+      "section": "commander"
+    },
+    {
+      "line": 5,
+      "quantity": 4,
+      "name": "Lightning Bolt",
+      "setCode": "m10",
+      "collectorNumber": "227",
+      "finish": "nonfoil",
+      "section": "mainboard"
+    },
+    {
+      "line": 6,
+      "quantity": 4,
+      "name": "Monastery Swiftspear",
+      "setCode": "ktk",
+      "collectorNumber": "118",
+      "finish": "foil",
+      "section": "mainboard"
+    },
+    {
+      "line": 7,
+      "quantity": 1,
+      "name": "Fblthp, the Lost",
+      "setCode": "ddo",
+      "collectorNumber": "DDO-20",
+      "finish": "nonfoil",
+      "section": "mainboard"
+    },
+    {
+      "line": 8,
+      "quantity": 1,
+      "name": "Nazgûl [336p]",
+      "setCode": "",
+      "collectorNumber": "",
+      "finish": "nonfoil",
+      "section": "mainboard"
+    },
+    {
+      "line": 9,
+      "quantity": 2,
+      "name": "Smash to Smithereens",
+      "setCode": "shm",
+      "collectorNumber": "76",
+      "finish": "nonfoil",
+      "section": "sideboard"
+    },
+    {
+      "line": 12,
+      "quantity": 1,
+      "name": "Duress",
+      "setCode": "m19",
+      "collectorNumber": "94",
+      "finish": "nonfoil",
+      "section": "sideboard"
+    }
+  ]
+}
