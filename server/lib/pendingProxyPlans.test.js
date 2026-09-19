@@ -50,7 +50,8 @@ async function fakeManaSync(url,options) {
     if (failure === 'unsupported') return response({error:'Unsupported'},404);
     if (options.method === 'PUT') {
       const body = JSON.parse(options.body);
-      expect(assetHashes.has(body.card.proxyArtwork.front.split('/').at(-1))).toBe(true);
+      // A queue item whose artwork was never retained publishes a plain card.
+      if (body.card.proxyArtwork) expect(assetHashes.has(body.card.proxyArtwork.front.split('/').at(-1))).toBe(true);
       if (!pending.has(id)) pending.set(id,{id,...body,confirmedQuantity:0,dismissedQuantity:0,remainingQuantity:body.quantity,
         status:'pending',revision:1,confirmations:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
       if (failure === 'create-lost') { failure = null; throw new Error('Create response lost'); }
@@ -105,6 +106,32 @@ const confirm = (quantity=1,operationId=randomUUID(),revision=first().pendingPro
 const publish = async () => { await connect(); await plans.processPendingProxyPlans(); return first(); };
 
 describe('native pending proxy plans',() => {
+  it('publishes a plan for an item without retained artwork instead of recording a raw TypeError',async () => {
+    await connect();
+    const item = bridge.queueItem(1,{id:randomUUID(),card:{name:'Sol Ring'},quantity:2});
+    db.run("INSERT INTO manasync_pending_proxy_plans(item_id,user_id,status,created_at) VALUES(?,1,'local',?)",
+      [item.id,new Date().toISOString()]);
+    await plans.syncPendingProxy(1,item.id,true);
+    const row = db.get('SELECT * FROM manasync_pending_proxy_plans WHERE item_id=?',[item.id]);
+    expect(row.last_error).toBeNull();
+    expect(row.status).toBe('published');
+    expect(JSON.parse(row.remote_json)).toMatchObject({quantity:2,remainingQuantity:2,status:'pending'});
+  });
+  it('reports an unreadable plan in words rather than a JavaScript error message',async () => {
+    await connect();
+    const item = bridge.queueItem(1,{id:randomUUID(),card:{name:'Sol Ring'},quantity:1});
+    db.run("INSERT INTO manasync_pending_proxy_plans(item_id,user_id,status,created_at) VALUES(?,1,'local',?)",
+      [item.id,new Date().toISOString()]);
+    const original = fetch.getMockImplementation();
+    vi.stubGlobal('fetch',vi.fn(async (url,options) => options.method === 'PUT' && url.includes('/pending-proxies/')
+      ? response({pending:{id:item.id,source:'clc',sourceRef:null,quantity:1,status:'pending',revision:1,confirmations:[null],
+        confirmedQuantity:0,dismissedQuantity:0,remainingQuantity:1}})
+      : original(url,options)));
+    await plans.syncPendingProxy(1,item.id,true);
+    const row = db.get('SELECT * FROM manasync_pending_proxy_plans WHERE item_id=?',[item.id]);
+    expect(row.last_error).toMatch(/pending print plan/);
+    expect(row.last_error).not.toMatch(/TypeError|undefined/);
+  });
   it('automatically stages ready PDFs disconnected, then publishes actual art without acquiring stock',async () => {
     await plans.processPendingProxyPlans();
     const item = first();
