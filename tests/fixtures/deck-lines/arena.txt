@@ -1,0 +1,9 @@
+About
+Name Mono-Red Aggro
+
+Deck
+4 Monastery Swiftspear (KTK) 118
+20 Mountain (UNF) 244
+
+Sideboard
+2 Smash to Smithereens (SHM) 76

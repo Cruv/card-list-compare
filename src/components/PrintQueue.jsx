@@ -5,6 +5,12 @@ import { createOperationId } from '../lib/operationId';
 import PrintQueueArtwork from './PrintQueueArtwork';
 import './ManaSync.css';
 
+// The bridge names each unrecorded state and whether a person can retry it (manasyncBridge.js).
+const OPERATION_LABELS = {
+  local:'Saved in CLC', pending:'Sending to ManaSync', gave_up:'Automatic delivery stopped',
+  reconnect:'Reconnect required', blocked:'Permission required', rejected:'Refused by ManaSync',
+  review:'Needs review', reported:'Recorded in ManaSync',
+};
 function expectedConnection(connection) {
   return connection?.connected ? {accountId:connection.accountId,actorId:connection.actorId,baseUrl:connection.baseUrl} : null;
 }
@@ -35,7 +41,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
   },[deckId,printJobId]);
   useEffect(() => {refresh().catch(e => setError(e.message));},[refresh,refreshKey]);
   useEffect(() => {
-    if (!printJobId && !items.some(item => item.printJobId || item.operations.some(o => o.status === 'pending' && o.attempts < 6))) return;
+    if (!printJobId && !items.some(item => item.printJobId || item.operations.some(o => o.status === 'pending'))) return;
     const timer = setInterval(() => {refresh(true).catch(e => setError(e.message));},15000);
     return () => clearInterval(timer);
   },[items,printJobId,refresh]);
@@ -94,12 +100,13 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
         <button className="btn btn-primary btn-sm" type="button" disabled={busy || (item.pendingProxy && item.pendingProxy.status !== 'legacy' && (!connection?.connected || !['pending','partial'].includes(item.pendingProxy.status) || item.pendingProxy.actionPending)) || !Number.isInteger(Number(quantities[item.id] ?? item.remaining)) || Number(quantities[item.id] ?? item.remaining) < 1 || Number(quantities[item.id] ?? item.remaining) > item.remaining} onClick={() => act(() => confirm(item))}>Confirm printed quantity</button>
         <button className="btn btn-secondary btn-sm" type="button" disabled={busy || item.pendingProxy?.actionPending} onClick={() => act(() => cancelPrintItem(item.id))}>{item.pendingProxy && item.pendingProxy.status !== 'legacy' ? 'Dismiss remaining' : 'Cancel remaining'}</button></div>}
       {item.operations.map(operation => <div className="mana-sync-operation" key={operation.id}>
-        <span>{operation.kind === 'acquire' ? `${operation.quantity} usable copies` : operation.kind === 'dismiss' ? 'Dismiss remaining copies' : `${operation.kind} correction`} · <strong>{operation.status === 'local' ? 'Saved in CLC' : operation.status}</strong>{operation.attempts >= 6 && operation.status === 'pending' ? ' · automatic retry limit reached' : ''}</span>
+        <span>{operation.kind === 'acquire' ? `${operation.quantity} usable copies` : operation.kind === 'dismiss' ? 'Dismiss remaining copies' : `${operation.kind} correction`} · <strong>{OPERATION_LABELS[operation.status] || operation.status}</strong></span>
         <small>Operation {operation.id}{operation.lotId ? ` · holding ${operation.lotId}` : ''}</small>
         {operation.error && <p>{operation.error}</p>}
+        {operation.reasonDetail && operation.status !== 'pending' && <p>{operation.reasonDetail}</p>}
         <div className="mana-sync-actions">
           {operation.status === 'local' && connection?.connected && <button className="btn btn-primary btn-sm" type="button" disabled={busy} onClick={() => act(() => bindPrintReport(operation.id,destination,expectedConnection(connection)))}>Report to {connection.username}</button>}
-          {['pending','reconnect','review'].includes(operation.status) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => act(() => retryPrintReport(operation.id))}>Retry original operation</button>}
+          {(operation.canRetry ?? ['pending','reconnect','review'].includes(operation.status)) && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => act(() => retryPrintReport(operation.id))}>Retry original operation</button>}
           {operation.status !== 'local' && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => act(() => inspect(operation))}>{operation.kind === 'dismiss' ? 'Inspect decision receipt' : 'Inspect receipt and holding'}</button>}
         </div>
       </div>)}

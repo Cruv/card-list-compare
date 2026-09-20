@@ -78,6 +78,10 @@ describe('invariant: card-line pattern single source', () => {
     // Formerly-divergent inputs, now unified (v2.40.2):
     ['2 Atraxa (C20) 215 *F*', { qty: '2', name: 'Atraxa', set: 'C20', cn: '215', foil: true }],
     ['1 Nazgul [336p]', { qty: '1', name: 'Nazgul [336p]', set: '', cn: '', foil: false }],
+    // Collector charset widened to the star/dagger promo marks so ManaSync's "(5DN) [17★]" lines
+    // are not read as part of the card name. Pinned by tests/fixtures/deck-lines/collector-numbers.
+    ['1 Serra Angel (5DN) [17★]', { qty: '1', name: 'Serra Angel', set: '5DN', cn: '17★', foil: false }],
+    ['1 Serra Angel (5DN) 17★', { qty: '1', name: 'Serra Angel', set: '5DN', cn: '17★', foil: false }],
   ])('pins behavior for %j', (line, expected) => {
     expect(captures(line)).toEqual(expected);
   });

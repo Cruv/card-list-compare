@@ -1,0 +1,10 @@
+# Commander
+1 Kenrith, the Returned King (ELD) [303]
+
+# Mainboard
+1 Sol Ring (LTC) [284] *F*
+1 Arcane Signet (LTC) [285] *E*
+10 Forest
+
+# Sideboard
+2 Deflecting Palm (C19) [22]

@@ -1,7 +1,8 @@
 /** Native PDFs publish plans, never inventory. Only reviewed confirmations create holdings. */
 import { randomUUID } from 'node:crypto';
 import { all, get, run, transaction } from '../db.js';
-import { BridgeError, connectionFor, remote, artworkCard, assertExpectedConnection, listQueue, isBridgeUserActive } from './manasyncBridge.js';
+import { BridgeError, connectionFor, remote, artworkCard, assertExpectedConnection, listQueue, isBridgeUserActive,
+  markGaveUp, MAX_AUTOMATIC_ATTEMPTS, OPERATION_REASONS, RETRYABLE_STATUSES } from './manasyncBridge.js';
 import { stagePrintJob, uploadOperationArtwork } from './printJobBridge.js';
 
 const activePlans = new Set(), activeActions = new Set();
@@ -14,17 +15,31 @@ const itemFor = (userId,id) => get('SELECT * FROM manasync_print_items WHERE id=
 const matches = (connection, plan) => connection?.connected && (!plan.account_id || (connection.account_id === plan.account_id && connection.base_url === plan.base_url));
 const publicAction = operation => ({ id:operation.id,itemId:operation.item_id,kind:operation.kind,quantity:operation.quantity,
   status:operation.status,attempts:operation.attempts,error:operation.last_error,lotId:operation.lot_id,
-  receipt:operation.receipt_json ? JSON.parse(operation.receipt_json) : null,accountId:operation.account_id,createdAt:operation.created_at });
+  receipt:operation.receipt_json ? JSON.parse(operation.receipt_json) : null,accountId:operation.account_id,createdAt:operation.created_at,
+  reason:(OPERATION_REASONS[operation.status] || {}).reason ?? 'unknown',
+  reasonDetail:(OPERATION_REASONS[operation.status] || {}).detail ?? null,
+  canRetry:RETRYABLE_STATUSES.includes(operation.status) });
 
 function validatePending(plan, value) {
+  try { return checkPending(plan, value); }
+  catch (error) {
+    // A household user must never read a raw JavaScript stack message as a plan's status.
+    if (error instanceof BridgeError) throw error;
+    throw new BridgeError('ManaSync returned an unreadable pending print plan. Refresh this plan before making another quantity decision.',502);
+  }
+}
+function checkPending(plan, value) {
   const original = JSON.parse(plan.create_payload);
+  // A queue item without retained artwork has no proxyArtwork at all; compare the absence.
+  const wanted = original.card?.proxyArtwork ?? null;
+  const returned = value?.card?.proxyArtwork ?? null;
   if (!value || value.id !== plan.item_id || value.source !== 'clc' || value.sourceRef !== original.sourceRef
     || value.quantity !== original.quantity || !['pending','partial','confirmed','dismissed'].includes(value.status)
     || !Number.isSafeInteger(value.revision) || value.revision < 1 || !Array.isArray(value.confirmations)
     || ['quantity','confirmedQuantity','dismissedQuantity','remainingQuantity'].some(field => !Number.isSafeInteger(value[field]) || value[field] < 0)
     || value.confirmedQuantity + value.dismissedQuantity + value.remainingQuantity !== value.quantity
-    || value.card?.proxyArtwork?.front !== original.card.proxyArtwork.front
-    || (value.card?.proxyArtwork?.back || null) !== (original.card.proxyArtwork.back || null)) {
+    || (returned?.front ?? null) !== (wanted?.front ?? null)
+    || (returned?.back ?? null) !== (wanted?.back ?? null)) {
     fail('ManaSync returned an invalid pending print plan. Refresh or reconcile its outcome before making another quantity decision.',502);
   }
   for (const entry of value.confirmations) if (typeof entry.operationId !== 'string' || !entry.operationId.length || entry.operationId.length > 200 || typeof entry.actorId !== 'string'
@@ -144,7 +159,7 @@ export async function confirmPendingProxy(userId,itemId,data) {
     const connection = assertExpectedConnection(userId,data.expectedConnection);
     if (!matches(connection,plan) || !plan.remote_json) fail('Wait for this print plan to publish to its original ManaSync account, then refresh before confirming.');
     const pending = JSON.parse(plan.remote_json);
-    if (plan.cancel_requested || get("SELECT id FROM manasync_print_operations WHERE pending_id=? AND status IN ('pending','reconnect')",[itemId])) fail('Resolve the outstanding quantity decision before confirming more copies.');
+    if (plan.cancel_requested || get("SELECT id FROM manasync_print_operations WHERE pending_id=? AND status IN ('pending','reconnect','gave_up')",[itemId])) fail('Resolve the outstanding quantity decision before confirming more copies.');
     if (data.expectedRevision !== pending.revision || data.quantity > pending.remainingQuantity) fail('This pending print quantity changed. Refresh and review the remaining copies.');
     const destinations = JSON.parse(connection.containers_json || '[]').filter(value => !['list','incoming'].includes(value.kind));
     const destination = data.containerId ? destinations.find(value => value.id === data.containerId) : destinations.find(value => value.kind === 'unassigned');
@@ -159,8 +174,12 @@ export async function confirmPendingProxy(userId,itemId,data) {
 export async function reportPendingAction(userId,id,manual=false) {
   if (!isBridgeUserActive(userId)) return;
   const operation = get('SELECT * FROM manasync_print_operations WHERE id=? AND user_id=? AND pending_id IS NOT NULL',[id,userId]);
-  if (!operation || activeActions.has(id) || operation.status === 'reported'
-    || (!manual && (operation.status !== 'pending' || operation.next_attempt > Date.now() || operation.attempts >= 6))) return;
+  if (!operation || activeActions.has(id) || operation.status === 'reported') return;
+  if (!manual) {
+    if (operation.status !== 'pending' || operation.next_attempt > Date.now()) return;
+    // The ceiling is a state, not silence: mark it so the queue can offer a manual retry.
+    if (operation.attempts >= MAX_AUTOMATIC_ATTEMPTS) { markGaveUp(id); return; }
+  }
   const connection = connectionFor(userId), plan = planFor(userId,operation.pending_id);
   if (!matches(connection,plan)) return;
   if (connection.actor_id !== operation.actor_id) {
@@ -188,6 +207,7 @@ export async function reportPendingAction(userId,id,manual=false) {
   } catch (error) {
     const status = error.status === 401 ? 'reconnect' : error.status >= 400 && error.status < 500 && ![408,429].includes(error.status) ? 'review' : 'pending';
     run('UPDATE manasync_print_operations SET status=?,last_error=? WHERE id=?',[status,error.message,id]);
+    if (status === 'pending' && get('SELECT attempts FROM manasync_print_operations WHERE id=?',[id]).attempts >= MAX_AUTOMATIC_ATTEMPTS) markGaveUp(id);
     if (status === 'review') {
       // A definitive rejection did not consume copies. Refresh before a new reviewed decision.
       if (operation.kind === 'dismiss') run('UPDATE manasync_pending_proxy_plans SET cancel_requested=0,cancel_operation_id=NULL WHERE item_id=?',[plan.item_id]);

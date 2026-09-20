@@ -3,7 +3,7 @@ import { requireAuth } from '../middleware/auth.js';
 import {
   initBridgeSchema, connectionStatus, connect, disconnect, readRemote, containers,
   queueItem, queueItems, listQueue, cancelItem, confirmIncrement, bindLocalIncrement, reportOperation,
-  processPending, reconcile, correctLot, markOwnershipRead,
+  processPending, reconcile, correctLot, markOwnershipRead, operationStatus,
 } from '../lib/manasyncBridge.js';
 
 const router = Router();
@@ -56,7 +56,13 @@ router.get('/print-queue/:id/artwork/:face',async (req,res,next) => {
 });
 router.post('/print-queue/:id/cancel',handle(async req => { await cancelItem(req.user.userId,req.params.id);return {ok:true}; }));
 router.post('/print-queue/:id/confirm',handle(async req => ({operation:await confirmIncrement(req.user.userId,req.params.id,req.body)})));
-router.post('/operations/:id/retry',handle(async req => {await reportOperation(req.user.userId,req.params.id,true);return {ok:true};}));
+// A retry that cannot run fails loudly (reportOperation throws) instead of answering ok; a
+// retry that did run answers with the outcome, including why it stopped again.
+router.post('/operations/:id/retry',handle(async req => {
+  await reportOperation(req.user.userId,req.params.id,true);
+  const operation = operationStatus(req.user.userId,req.params.id);
+  return {ok:operation?.status === 'reported',operation};
+}));
 router.post('/operations/:id/bind',handle(async req => {await bindLocalIncrement(req.user.userId,req.params.id,req.body.containerId,req.body.expectedConnection);return {ok:true};}));
 router.get('/operations/:id/reconcile',handle(req => reconcile(req.user.userId,req.params.id)));
 router.post('/operations/:id/correct',handle(async req => ({operation:await correctLot(req.user.userId,req.params.id,req.body)})));

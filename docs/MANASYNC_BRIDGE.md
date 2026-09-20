@@ -37,6 +37,26 @@ so receipt recovery still uses the original identity.
    settings with `decks:read`. Add `decks:propose` only if sending edits back for review.
    Enter that token in ManaSync's CLC connection. See [proposal workflow](MANASYNC_PROPOSALS.md).
 
+### The two tokens, and which app holds which
+
+The bridge is two independent one-way connections. Each application issues one token, holds
+the other application's token, and can revoke either side alone. They are never interchangeable:
+each is rejected by the other app's routes.
+
+| | **Outbound: CLC → ManaSync** | **Inbound: ManaSync → CLC** |
+| --- | --- | --- |
+| Issued by | ManaSync (its API tokens screen) | CLC (Settings → integration access) |
+| Held by | CLC, in `manasync_connections.token_cipher` | ManaSync, in its encrypted credential store |
+| Scopes | exactly `inventory:read` + `proxies:write` — a token carrying anything else is refused at connect time | `decks:read`, plus `decks:propose` to send edits for review, plus `decks:create` only for immediate deck creation and provider-source tracking |
+| Used for | ownership/shortage reads, `POST /api/v1/inventory/commands`, proxy artwork upload, pending-plan publish and confirm | `GET /api/integrations/v1/context` and `/decks`, `POST /decks`, `/decks/track-source`, proposals |
+| Storage | AES-256-GCM under `.manasync-bridge-key` beside `DB_PATH`, or `MANASYNC_BRIDGE_KEY` | AES-256-GCM under ManaSync's `ENCRYPTION_KEY` |
+| Revoking it | CLC stops reading ownership and stops delivering confirmations; saved confirmations wait for a reconnect of the **same** account | ManaSync stops importing decks and marks the connection `needs_auth` with a Reconnect action |
+
+Rotating a token within the same account is safe: pending work is pinned to the account and
+backend, not to the token string. Connecting a **different** account leaves existing saved work
+untouched and refuses to deliver it through the replacement — reconnect the original account, or
+reconcile each confirmation's receipt.
+
 ## Ownership and buying originals
 
 After **Review print list** in the Printing tab, the selected print list shows ManaSync
@@ -88,9 +108,31 @@ Disconnected confirmations stay in CLC and can later be explicitly reported to t
 Each connected increment freezes its UUID, exact command, card metadata, destination, original
 encrypted token, account, and backend. Known printing/oracle IDs are preserved. A lost response
 retries identical bytes with the original actor. Only a valid ManaSync receipt marks it reported;
-its lot identity is retained. Transport/server errors retry with backoff, capped at six automatic
-attempts; **Retry original operation** uses the same UUID after that. Authentication problems
-request reconnection, malformed/scope failures stay visible, and conflicts require review.
+its lot identity is retained. The destination list is refreshed from ManaSync before a
+confirmation is recorded, so a renamed or deleted binder is caught before the copies are
+committed; while ManaSync is unreachable the last known locations are used and the confirmation
+still saves offline.
+
+Every confirmation that has not been recorded carries a status, the reason behind it, and
+whether a person can retry it:
+
+| Status | Meaning | Retry |
+| --- | --- | --- |
+| `local` | Saved with no connection; never submitted. | Attach it to a connection (**bind**) instead. |
+| `pending` | Transport or server error; retrying automatically with backoff. | Automatic, up to six attempts. |
+| `gave_up` | The automatic attempts are exhausted. | **Retry original operation** — the same UUID, and the automatic budget starts over. |
+| `reconnect` | ManaSync rejected the token (401). | Reconnect the original account, then retry. |
+| `blocked` | The token is not allowed to record proxies (403). | Grant `proxies:write`, then retry. |
+| `rejected` | ManaSync refused the request itself (other 4xx). | Fix the cause (quantity, destination), then retry. |
+| `review` | A conflict (409) or a changed connection; delivery is uncertain. | Inspect the receipt and holding first. |
+
+A retry that cannot run says why — it never reports success for a confirmation it skipped. An
+unresolved confirmation of any of these kinds still holds its copies: it keeps blocking further
+decisions on that item until it is retried, dismissed, or reconciled.
+
+Finished items are pruned after 90 days (`MANASYNC_PRINT_RETENTION_DAYS`): an item is removed
+only when it is dismissed or fully confirmed and delivered, and no confirmation of its own is
+still waiting for a decision. The holdings themselves live in ManaSync and are untouched.
 
 If the connection changes, old increments stop delivering. **Inspect receipt and holding** uses
 the current token to read the same account's historical receipt for the original actor and
@@ -139,6 +181,19 @@ confirmations without a print-manifest attachment keep their normal card artwork
 version without the artwork/pending endpoints leaves the batch waiting with an update
 message; CLC never silently discards the art or changes its operation ID. Native pending
 decisions require a connection to the originally selected account and backend.
+
+## Reading decks from CLC
+
+`GET /api/integrations/v1/context` answers what this token may do — `capabilities`
+(`proposals`, `deckCreation`, `sourceLinks`, `sourceTracking`) plus its `scopes`, `instanceId`
+and `accountId`. Ask it before offering an action; it never lists decks.
+
+`GET /api/integrations/v1/decks` returns every deck with **every** snapshot: its exact text,
+hash and parsed cards. `GET /api/integrations/v1/decks?include=latest` returns the same decks
+and markers but only the current and paper snapshots, with their IDs, text and hashes and
+without the parsed cards — the response echoes `include: "latest"`. That is what a collection
+mirror keeps, and it is the listing ManaSync polls; an older CLC ignores the parameter and
+returns the full listing, which reads identically.
 
 ## Validation
 

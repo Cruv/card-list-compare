@@ -26,7 +26,7 @@ async function fakeManaSync(url,options) {
   if (url.endsWith('/inventory/commands')) {
     writes.push({url,...options});
     const request = JSON.parse(options.body);
-    if (nextFailure === 401 || nextFailure === 403 || nextFailure === 409) {const code=nextFailure;nextFailure=null;return json({error:'denied'},code);}
+    if (Number.isInteger(nextFailure)) {const code=nextFailure;nextFailure=null;return json({error:'denied'},code);}
     const key = `${actor}:${request.operationId}`;
     if (receipts.has(key)) return json({...receipts.get(key),replayed:true});
     const input = request.command.input;
@@ -149,7 +149,9 @@ describe('ManaSync durable physical-print bridge',() => {
     expect(writes).toHaveLength(1);expect(bridge.listQueue(2)).toEqual([]);
     await expect(confirm(2,item.id,request)).rejects.toMatchObject({status:409});
     await expect(confirm(2,item.id,{operationId:randomUUID(),quantity:1})).rejects.toMatchObject({status:404});
-    await bridge.reportOperation(2,request.operationId,true);expect(writes).toHaveLength(1);
+    // Another CLC user's retry says the confirmation is not theirs instead of answering ok.
+    await expect(bridge.reportOperation(2,request.operationId,true)).rejects.toMatchObject({status:404});
+    expect(writes).toHaveLength(1);
   });
   it('replays identical bytes and the same actor after a lost response',async () => {
     await connect();const item=queue();const operationId=randomUUID();nextFailure='timeout';
@@ -182,8 +184,11 @@ describe('ManaSync durable physical-print bridge',() => {
   it('pauses on replacement credentials and reconciles the old actor receipt without repeating acquisition',async () => {
     await connect();const item=queue();const operationId=randomUUID();nextFailure='timeout';
     await confirm(1,item.id,{operationId,quantity:2});
-    await connect(1,'user-a-replacement');await bridge.reportOperation(1,operationId,true);
-    expect(writes).toHaveLength(1);expect(bridge.listQueue(1)[0].operations[0].status).toBe('review');
+    await connect(1,'user-a-replacement');
+    await expect(bridge.reportOperation(1,operationId,true)).rejects.toThrow('Reconnect the original');
+    expect(writes).toHaveLength(1);
+    const paused = bridge.listQueue(1)[0].operations[0];
+    expect(paused).toMatchObject({status:'review',reason:'conflict',canRetry:true});
     const inspection=await bridge.reconcile(1,operationId);
     expect(inspection.operation.status).toBe('reported');expect(inspection.lots).toHaveLength(1);
     expect(writes).toHaveLength(1);
@@ -197,7 +202,7 @@ describe('ManaSync durable physical-print bridge',() => {
     await confirm(1, item.id, { operationId, quantity: 2 });
     const original = db.get('SELECT * FROM manasync_print_operations WHERE id=?', [operationId]);
     await bridge.connect(1, { baseUrl: 'mana.example:8443', token: 'user-a-original' });
-    await bridge.reportOperation(1, operationId, true);
+    await expect(bridge.reportOperation(1, operationId, true)).rejects.toThrow('Reconnect the original');
     expect(writes).toHaveLength(1);
     expect(db.get('SELECT * FROM manasync_print_operations WHERE id=?', [operationId])).toMatchObject({
       status: 'review', base_url: original.base_url, payload_json: original.payload_json,
@@ -214,13 +219,64 @@ describe('ManaSync durable physical-print bridge',() => {
   });
   it('distinguishes auth, scope, and conflict failures without acquiring extra prints',async () => {
     await connect();const item=queue();
-    for (const [failure,status] of [[401,'reconnect'],[403,'failed'],[409,'review']]) {
+    for (const [failure,status,reason] of [[401,'reconnect','auth'],[403,'blocked','permission'],[409,'review','conflict']]) {
       nextFailure=failure;
       const operation=await confirm(1,item.id,{operationId:randomUUID(),quantity:1});
-      expect(operation.status).toBe(status);
+      expect(operation).toMatchObject({status,reason,canRetry:true});
+      expect(operation.reasonDetail).toBeTruthy();
     }
     expect(lots).toHaveLength(0);
     await bridge.processPending();expect(writes).toHaveLength(3);
+  });
+  it('retries a refused confirmation by hand once its cause is fixed, and refuses what it cannot retry',async () => {
+    await connect();const item=queue();
+    nextFailure=400;
+    const operation=await confirm(1,item.id,{operationId:randomUUID(),quantity:2,containerId:physical.id});
+    expect(operation).toMatchObject({status:'rejected',reason:'rejected',canRetry:true});
+    // The automatic worker leaves a definitive rejection alone; only a person retries it.
+    await bridge.processPending();
+    expect(bridge.listQueue(1)[0].operations[0].status).toBe('rejected');
+    await bridge.reportOperation(1,operation.id,true);
+    expect(bridge.listQueue(1)[0].operations[0]).toMatchObject({status:'reported',attempts:1,canRetry:false});
+    expect(lots).toEqual([expect.objectContaining({quantity:2,isProxy:true})]);
+    await expect(bridge.reportOperation(1,operation.id,true)).rejects.toThrow('already recorded');
+    await expect(bridge.reportOperation(1,randomUUID(),true)).rejects.toMatchObject({status:404});
+  });
+  it('refuses to retry a never-submitted local confirmation instead of reporting success',async () => {
+    const item=queue();
+    const local=await confirm(1,item.id,{operationId:randomUUID(),quantity:1});
+    expect(local).toMatchObject({status:'local',reason:'offline',canRetry:false});
+    await expect(bridge.reportOperation(1,local.id,true)).rejects.toThrow('Attach it to a ManaSync connection');
+    expect(writes).toHaveLength(0);
+  });
+  it('confirms against ManaSync current locations, not a cached list',async () => {
+    await connect();const item=queue();
+    const moved={id:'00000000-0000-4000-8000-00000000000f',name:'New shelf',kind:'box'};
+    const original=fakeManaSync;
+    vi.stubGlobal('fetch',vi.fn(async (url,options) => url.endsWith('/containers')
+      ? json({containers:[location,moved]}) : original(url,options)));
+    await expect(confirm(1,item.id,{operationId:randomUUID(),quantity:1,containerId:physical.id}))
+      .rejects.toThrow('no longer in ManaSync');
+    expect(writes).toHaveLength(0);
+    const confirmed=await confirm(1,item.id,{operationId:randomUUID(),quantity:1,containerId:moved.id});
+    expect(confirmed.status).toBe('reported');
+    expect(JSON.parse(writes[0].body).command.input.containerId).toBe(moved.id);
+  });
+  it('prunes finished print items after their retention window and keeps unresolved ones',async () => {
+    await connect();
+    const done=queue(1),open=queue(1),abandoned=queue(1);
+    await confirm(1,done.id,{operationId:randomUUID(),quantity:1,containerId:physical.id});
+    nextFailure=403;
+    await confirm(1,abandoned.id,{operationId:randomUUID(),quantity:1,containerId:physical.id});
+    const old=new Date(Date.now()-200*86400000).toISOString();
+    db.run('UPDATE manasync_print_items SET created_at=?',[old]);
+    expect(bridge.pruneResolvedPrintItems(true)).toBe(1);
+    expect(bridge.listQueue(1).map(v=>v.id).sort()).toEqual([abandoned.id,open.id].sort());
+    // A blocked attempt is terminal but its copies were never recorded: cancelling resolves it.
+    bridge.cancelItem(1,abandoned.id);
+    db.run('UPDATE manasync_print_items SET created_at=?',[old]);
+    expect(bridge.pruneResolvedPrintItems(true)).toBe(1);
+    expect(bridge.listQueue(1).map(v=>v.id)).toEqual([open.id]);
   });
   it('confirms physical prints during transport outages and bounds automatic retries',async () => {
     await connect();const item=queue();const operationId=randomUUID();
@@ -229,6 +285,12 @@ describe('ManaSync durable physical-print bridge',() => {
     expect(result.status).toBe('pending');expect(bridge.listQueue(1)[0].confirmed).toBe(2);
     db.run('UPDATE manasync_print_operations SET attempts=6,next_attempt=0 WHERE id=?',[operationId]);
     const attempts=fetch.mock.calls.length;await bridge.processPending();expect(fetch.mock.calls).toHaveLength(attempts);
+    // Abandonment is a visible state with a retry, not a row nothing will ever pick up again.
+    expect(bridge.listQueue(1)[0].operations[0]).toMatchObject({status:'gave_up',reason:'exhausted',canRetry:true});
+    vi.stubGlobal('fetch',vi.fn(fakeManaSync));
+    await bridge.reportOperation(1,operationId,true);
+    expect(bridge.listQueue(1)[0].operations[0]).toMatchObject({status:'reported',attempts:1});
+    expect(lots).toHaveLength(1);
   });
   it('rejects a new confirmation when another tab changed the displayed account',async () => {
     await connect();const item=queue();const shown=expected();await connect(1,'user-b-new');

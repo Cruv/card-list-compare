@@ -3,20 +3,92 @@ import {
   SIDEBOARD_HEADER,
   MAINBOARD_HEADER,
   COMMANDER_HEADER,
+  MAYBEBOARD_HEADER,
+  ABOUT_HEADER,
+  COMMENT_PREFIX,
   SB_PREFIX,
   COMMENT_LINE,
+  ARCHIDEKT_FLAGS,
+  MOXFIELD_TAG,
+  PROVIDER_BRACKET,
+  PRINTING_BRACKET_BODY,
+  ETCHED_MARKER,
 } from './constants.js';
 import { cardIdentityKey } from './cardIdentity.js';
 
+// NFC so a decomposed name (a macOS paste, some provider exporters) matches the composed spelling
+// the catalogs use. NFC and not NFKC: compatibility folding would rename real cards.
+// Mirrors normalizeCardName() in ManaSync's shared/deck-text.ts; the pair is pinned by the shared
+// corpus in tests/fixtures/deck-lines/.
 function normalizeName(name) {
   return name
+    .normalize('NFC')
     .replace(/\s+/g, ' ')
     .replace(/['\u2018\u2019`\u2032]/g, "'")
     .trim();
 }
 
 // Deckcheck and Archidekt command-zone tags, including our own text export.
-const INLINE_COMMANDER_RE = /\s*(?:\(Commander\)|\[Commander(?:\{top\})?\])\s*$/i;
+const INLINE_COMMANDER_RE = /\s*(?:\(Commander\)|\[Commander(?:\{[^}]*\})*\]|\*CMDR\*)\s*$/i;
+
+/**
+ * Peel trailing provider decorations off a line, right to left, before the card-line grammar runs.
+ * Archidekt category brackets and colour flags and Moxfield tags all sit after the finish marker,
+ * so without this every line of those exports reached the deck as one long card name.
+ */
+function stripDecorations(line) {
+  let text = line;
+  let isCommander = false;
+  for (let guard = 0; guard < 16; guard += 1) {
+    const flags = text.match(ARCHIDEKT_FLAGS);
+    if (flags) {
+      text = text.slice(0, flags.index).trimEnd();
+      continue;
+    }
+    const tag = text.match(MOXFIELD_TAG);
+    if (tag) {
+      text = text.slice(0, tag.index).trimEnd();
+      continue;
+    }
+    const commander = text.match(INLINE_COMMANDER_RE);
+    if (commander) {
+      isCommander = true;
+      text = text.slice(0, commander.index).trimEnd();
+      continue;
+    }
+    const bracket = text.match(PROVIDER_BRACKET);
+    if (bracket) {
+      // A printing number keeps its meaning; anything else is a provider category.
+      if (PRINTING_BRACKET_BODY.test(bracket[1]) && /\d/.test(bracket[1])) break;
+      text = text.slice(0, bracket.index).trimEnd();
+      continue;
+    }
+    break;
+  }
+  return { text, isCommander };
+}
+
+/**
+ * Lines this deck-text format cannot express. The only case today is the etched marker: ManaSync
+ * writes `*E*`, CARD_LINE_PATTERN knows only `*F*`. Report them by line rather than letting the
+ * marker become part of a card name.
+ */
+export function deckTextIncompatibilities(rawText) {
+  const problems = [];
+  for (const [index, rawLine] of String(rawText || '').split(/\r?\n/).entries()) {
+    const line = rawLine.trim();
+    if (!line || COMMENT_LINE.test(line)) continue;
+    const { text } = stripDecorations(line.replace(SB_PREFIX, ''));
+    if (!ETCHED_MARKER.test(text)) continue;
+    problems.push({
+      line: index + 1,
+      raw: rawLine,
+      code: 'etched_unsupported',
+      reason: `Line ${index + 1} is marked etched (*E*), which this card-line format cannot express.`,
+    });
+  }
+  return problems;
+}
 
 export function parseLine(line) {
   if (COMMENT_LINE.test(line)) return null;
@@ -29,12 +101,14 @@ export function parseLine(line) {
     isSB = true;
   }
 
-  // Check for inline (Commander) tag — strip it and flag the card
-  let isCommander = false;
-  if (INLINE_COMMANDER_RE.test(line)) {
-    isCommander = true;
-    line = line.replace(INLINE_COMMANDER_RE, '').trim();
-  }
+  // Strip provider decorations, including the inline (Commander)/[Commander{top}] tag.
+  const decorated = stripDecorations(line);
+  line = decorated.text;
+  const isCommander = decorated.isCommander;
+
+  // Refuse an etched line instead of reading "*E*" as part of the card name. Callers already treat
+  // a line that yields nothing as unresolved, and deckTextIncompatibilities() names the reason.
+  if (ETCHED_MARKER.test(line)) return null;
 
   for (const pattern of LINE_PATTERNS) {
     const match = line.match(pattern);
@@ -180,7 +254,10 @@ function splitSections(rawText) {
   const lines = rawText.split(/\r?\n/);
   // Commander exports often separate card groups with blank lines. Check the
   // whole list because some exports put the command zone after the mainboard.
-  const hasExplicitCommander = lines.some(line => COMMANDER_HEADER.test(line.trim()));
+  // ManaSync writes its board headers as comments ("# Commander"); Archidekt, MTGO and Arena write
+  // the bare word. Test the marker-stripped spelling so both round-trip.
+  const heading = (line) => line.trim().replace(COMMENT_PREFIX, '');
+  const hasExplicitCommander = lines.some(line => COMMANDER_HEADER.test(heading(line)));
   const mainLines = [];
   const sideLines = [];
   const commanderLines = [];
@@ -188,25 +265,39 @@ function splitSections(rawText) {
   let foundExplicitSideboard = false;
   let blankLineCount = 0;
   let hasSeenContent = false;
+  // Maybeboard cards are not in the deck, and Arena's About block is deck metadata, not cards.
+  // Without this the header itself became a one-copy card through the bare-name fallback.
+  let skipping = false;
 
   for (const line of lines) {
     const trimmed = line.trim();
+    const header = heading(line);
 
-    if (COMMANDER_HEADER.test(trimmed)) {
+    if (COMMANDER_HEADER.test(header)) {
+      skipping = false;
       currentTarget = commanderLines;
       continue;
     }
 
-    if (SIDEBOARD_HEADER.test(trimmed) || /^#\s*sideboard\s*$/i.test(trimmed)) {
+    if (SIDEBOARD_HEADER.test(header)) {
+      skipping = false;
       currentTarget = sideLines;
       foundExplicitSideboard = true;
       continue;
     }
 
-    if (MAINBOARD_HEADER.test(trimmed)) {
+    if (MAINBOARD_HEADER.test(header)) {
+      skipping = false;
       currentTarget = mainLines;
       continue;
     }
+
+    if (MAYBEBOARD_HEADER.test(header) || ABOUT_HEADER.test(header)) {
+      skipping = true;
+      continue;
+    }
+
+    if (skipping) continue;
 
     if (trimmed === '') {
       if (hasSeenContent && !foundExplicitSideboard && !hasExplicitCommander) {
@@ -268,17 +359,20 @@ function parseLines(lines) {
 
 export function parse(rawText) {
   if (!rawText || !rawText.trim()) {
-    return { mainboard: new Map(), sideboard: new Map(), commanders: [] };
+    return { mainboard: new Map(), sideboard: new Map(), commanders: [], problems: [] };
   }
 
   // Try CSV first
   if (isCSV(rawText)) {
     const result = parseCSV(rawText);
-    if (result) return result;
+    if (result) return { ...result, problems: [] };
   }
 
   const { mainLines, sideLines, commanderLines } = splitSections(rawText);
 
+  // Surfaced rather than silently dropped: parseLine() refuses an etched line instead of reading
+  // the marker as part of the card name, so the caller needs the reason to show the sender.
+  const problems = deckTextIncompatibilities(rawText);
   const mainResult = parseLines(mainLines);
   const sideResult = parseLines(sideLines);
   const cmdResult = parseLines(commanderLines);
@@ -337,5 +431,5 @@ export function parse(rawText) {
     }
   }
 
-  return { mainboard, sideboard, commanders };
+  return { mainboard, sideboard, commanders, problems };
 }

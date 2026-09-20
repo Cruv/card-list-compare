@@ -1,0 +1,42 @@
+{
+  "source": "mtgo",
+  "description": "MTGO .txt export: quantity and name only, with an unadorned `Sideboard` header. No printing is ever named.",
+  "lines": [
+    {
+      "line": 1,
+      "quantity": 4,
+      "name": "Lightning Bolt",
+      "setCode": "",
+      "collectorNumber": "",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 2,
+      "quantity": 4,
+      "name": "Monastery Swiftspear",
+      "setCode": "",
+      "collectorNumber": "",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 3,
+      "quantity": 12,
+      "name": "Mountain",
+      "setCode": "",
+      "collectorNumber": "",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 6,
+      "quantity": 2,
+      "name": "Smash to Smithereens",
+      "setCode": "",
+      "collectorNumber": "",
+      "finish": "nonfoil",
+      "section": "sideboard"
+    }
+  ]
+}

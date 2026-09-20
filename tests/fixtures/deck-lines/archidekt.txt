@@ -1,0 +1,5 @@
+1x Kenrith, the Returned King (eld) 303 [Commander{top}]
+1x Sol Ring (ltc) 284 [Artifact{noDeck}{noPrice}] ^Have,#7289da^
+1x Command Tower (ltc) 302 [Land] ^Have,#7289da^
+9x Forest (unf) 235 [Land]
+1x Lim-Dûl's Vault (c20) 190 [Instant]

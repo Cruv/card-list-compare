@@ -226,7 +226,9 @@ function publicPendingProxy(plan, item, operations) {
   const remote = plan.remote_json ? JSON.parse(plan.remote_json) : null;
   const connection = connectionFor(item.user_id);
   const connected = connection?.connected && (!plan.account_id || (connection.account_id === plan.account_id && connection.base_url === plan.base_url));
-  const actionPending = remote?.remainingQuantity !== 0 && (!!plan.cancel_requested || operations.some(o => o.pending_id && ['pending','reconnect'].includes(o.status)));
+  // An exhausted decision still holds its copies: it keeps blocking until a person retries or
+  // reconciles it, exactly as an endlessly 'pending' one used to - but now it is visible.
+  const actionPending = remote?.remainingQuantity !== 0 && (!!plan.cancel_requested || operations.some(o => o.pending_id && ['pending','reconnect','gave_up'].includes(o.status)));
   let status = remote?.status || 'publishing';
   if (plan.status === 'dismissed') status = 'dismissed';
   else if (!['confirmed','dismissed'].includes(status)) {
@@ -239,10 +241,33 @@ function publicPendingProxy(plan, item, operations) {
     revision:remote?.revision ?? null, actionPending, error:plan.last_error || null,
     baseUrl:plan.base_url || null, accountId:plan.account_id || null, confirmations:remote?.confirmations || [] };
 }
+// Every non-delivered status names why it stopped and whether a person can act on it, so the
+// queue can say "reconnect", "grant permission" or "review" instead of a bare "failed".
+export const OPERATION_REASONS = {
+  local:{reason:'offline',detail:'Saved on this device only. Attach it to a ManaSync connection to record it.'},
+  pending:{reason:'transient',detail:'Delivery is still being retried automatically.'},
+  reconnect:{reason:'auth',detail:'ManaSync rejected the saved token. Reconnect the original account, then retry.'},
+  blocked:{reason:'permission',detail:'The saved token is not allowed to record proxies. Grant proxies:write, then retry.'},
+  review:{reason:'conflict',detail:'ManaSync refused this decision as out of date. Refresh the queue and review it before retrying.'},
+  rejected:{reason:'rejected',detail:'ManaSync rejected the request itself. Review the quantity and destination, then retry.'},
+  gave_up:{reason:'exhausted',detail:'Automatic delivery stopped after repeated failures. Retry when ManaSync is reachable.'},
+  reported:{reason:null,detail:null},
+};
+// Everything except a never-submitted local confirmation and an already-recorded one can be
+// retried by hand; the automatic worker is stricter (see reportOperation).
+export const RETRYABLE_STATUSES = ['pending','reconnect','review','blocked','rejected','gave_up'];
+export const MAX_AUTOMATIC_ATTEMPTS = 6;
 function publicOperation(o) {
+  const explained = OPERATION_REASONS[o.status] || {reason:'unknown',detail:null};
   return { id:o.id,itemId:o.item_id,kind:o.kind,quantity:o.quantity,status:o.status,attempts:o.attempts,error:o.last_error,
     lotId:o.lot_id,receipt:o.receipt_json ? JSON.parse(o.receipt_json) : null,accountId:o.account_id,
-    createdAt:o.created_at };
+    createdAt:o.created_at,reason:explained.reason,reasonDetail:explained.detail,
+    canRetry:RETRYABLE_STATUSES.includes(o.status) };
+}
+/** The public view of one confirmation, for a caller that just acted on it. */
+export function operationStatus(userId, id) {
+  const o = get('SELECT * FROM manasync_print_operations WHERE id=? AND user_id=?',[id,userId]);
+  return o ? publicOperation(o) : null;
 }
 export function cancelItem(userId, id) {
   if (get('SELECT item_id FROM manasync_pending_proxy_plans WHERE item_id = ? AND user_id = ?', [id,userId])) {
@@ -286,12 +311,10 @@ export async function confirmIncrement(userId, itemId, data) {
   }
   const item = get('SELECT * FROM manasync_print_items WHERE id=? AND user_id=?',[itemId,userId]);
   if (!item || item.cancelled) throw new BridgeError('Print item not found or cancelled.',404);
-  const c = assertExpectedConnection(userId,data.expectedConnection);
+  let c = assertExpectedConnection(userId,data.expectedConnection);
   let destination;
   if (c?.connected) {
-    const options = JSON.parse(c.containers_json || '[]').filter(v => !['list','incoming'].includes(v.kind));
-    destination = data.containerId ? options.find(v => v.id === data.containerId) : options.find(v => v.kind === 'unassigned');
-    if (!destination) throw new BridgeError('Choose a physical destination for these printed proxies.');
+    ({ connection: c, destination } = await currentDestination(userId,data.expectedConnection,data.containerId));
   }
   // Persist the confirmation before any network write; cached destinations allow offline confirmation.
   transaction(() => {
@@ -313,14 +336,34 @@ export async function confirmIncrement(userId, itemId, data) {
   await reportOperation(userId,data.operationId);
   return publicOperation(get('SELECT * FROM manasync_print_operations WHERE id=?',[data.operationId]));
 }
+/**
+ * Resolve the destination against ManaSync's *current* locations, not a cached list that may
+ * name a renamed or deleted binder. The cache remains the offline fallback: a confirmation
+ * must stay possible while ManaSync is unreachable, and its command carries the ID either way.
+ */
+async function currentDestination(userId, expectedConnection, containerId) {
+  let refreshFailure = null;
+  try { await containers(userId); }
+  catch (error) { refreshFailure = error; }
+  // The account can change while the refresh is in flight; re-check what the screen showed.
+  const connection = assertExpectedConnection(userId,expectedConnection);
+  const options = JSON.parse(connection?.containers_json || '[]').filter(v => !['list','incoming'].includes(v.kind));
+  const destination = containerId ? options.find(v => v.id === containerId) : options.find(v => v.kind === 'unassigned');
+  if (!destination) {
+    throw new BridgeError(refreshFailure
+      ? `Choose a physical destination for these printed proxies. ManaSync could not confirm its locations: ${refreshFailure.message}`
+      : 'Choose a physical destination for these printed proxies. This location is no longer in ManaSync; refresh and pick another.',
+    refreshFailure?.status === 401 ? 409 : 400);
+  }
+  return { connection, destination, refreshFailure };
+}
 export async function bindLocalIncrement(userId, id, containerId, expectedConnection) {
   const o = get('SELECT * FROM manasync_print_operations WHERE id=? AND user_id=?',[id,userId]);
   if (!o || o.status !== 'local') throw new BridgeError('Only local, never-submitted confirmations can be attached to a connection.',409);
-  const c = assertExpectedConnection(userId,expectedConnection);
+  let c = assertExpectedConnection(userId,expectedConnection);
   if (!c?.connected) throw new BridgeError('Connect ManaSync before attaching this local confirmation.',409);
-  const options = JSON.parse(c.containers_json || '[]').filter(v => !['list','incoming'].includes(v.kind));
-  const destination = options.find(v => v.id === containerId) || (!containerId && options.find(v => v.kind === 'unassigned'));
-  if (!destination) throw new BridgeError('Choose a physical destination.');
+  let destination;
+  ({ connection: c, destination } = await currentDestination(userId,expectedConnection,containerId));
   const item = get('SELECT * FROM manasync_print_items WHERE id=?',[o.item_id]);
   const payload = JSON.stringify({ operationId:id,command:{ type:'acquire',input:{ card:artworkCard(item,c.account_id),quantity:o.quantity,
     containerId:destination.id,isProxy:true,unitCost:null,currency:'USD',source:'clc',
@@ -329,17 +372,47 @@ export async function bindLocalIncrement(userId, id, containerId, expectedConnec
     WHERE id=? AND user_id=? AND status='local'`,[payload,c.base_url,c.token_cipher,c.account_id,c.actor_id,id,userId]);
   await reportOperation(userId,id);
 }
+/** Automatic retries have a ceiling; reaching it is a state a person can see and act on. */
+export function markGaveUp(id) {
+  run("UPDATE manasync_print_operations SET status='gave_up',last_error=COALESCE(last_error,?) WHERE id=? AND status='pending'",
+    ['ManaSync could not be reached after repeated attempts. Retry this confirmation when it is back.',id]);
+}
+/** A manual retry either does something or says why it cannot; it never answers ok silently. */
+function assertManuallyRetryable(o) {
+  if (!o) throw new BridgeError('Confirmation not found.',404);
+  if (o.status === 'reported') throw new BridgeError('This confirmation is already recorded in ManaSync.',409);
+  if (!RETRYABLE_STATUSES.includes(o.status)) {
+    throw new BridgeError(o.status === 'local'
+      ? 'This confirmation was saved offline. Attach it to a ManaSync connection to record it.'
+      : 'This confirmation cannot be retried.',409);
+  }
+}
 export async function reportOperation(userId, id, manual = false) {
   if (active.has(id) || !isBridgeUserActive(userId)) return;
   let o = get('SELECT * FROM manasync_print_operations WHERE id=? AND user_id=?',[id,userId]);
-  if (o?.pending_id) return (await import('./pendingProxyPlans.js')).reportPendingAction(userId,id,manual);
-  if (!o || !['pending','reconnect','review'].includes(o.status) || (!manual && (o.status !== 'pending' || o.next_attempt > Date.now() || o.attempts >= 6))) return;
+  if (o?.pending_id) {
+    if (manual) assertManuallyRetryable(o);
+    return (await import('./pendingProxyPlans.js')).reportPendingAction(userId,id,manual);
+  }
+  if (manual) {
+    assertManuallyRetryable(o);
+  } else {
+    if (!o || o.status !== 'pending' || o.next_attempt > Date.now()) return;
+    if (o.attempts >= MAX_AUTOMATIC_ATTEMPTS) { markGaveUp(id); return; }
+  }
   const c = connectionFor(userId);
-  if (!c?.connected) return;
-  if (c.actor_id !== o.actor_id || c.account_id !== o.account_id || c.base_url !== o.base_url) {
-    run("UPDATE manasync_print_operations SET status='review',last_error=? WHERE id=?",['Connection changed. Reconnect the original token or reconcile the recorded holding; this operation will not be sent through a replacement token.',id]);
+  if (!c?.connected) {
+    if (manual) throw new BridgeError('Connect ManaSync in Settings before retrying this confirmation.',409);
     return;
   }
+  if (c.actor_id !== o.actor_id || c.account_id !== o.account_id || c.base_url !== o.base_url) {
+    run("UPDATE manasync_print_operations SET status='review',last_error=? WHERE id=?",['Connection changed. Reconnect the original token or reconcile the recorded holding; this operation will not be sent through a replacement token.',id]);
+    if (manual) throw new BridgeError('Reconnect the original ManaSync account and token to retry this confirmation.',409);
+    return;
+  }
+  // An explicit retry is operator action: give the automatic schedule its full budget back
+  // so a recovered connection keeps delivering without another manual press.
+  if (manual) { run('UPDATE manasync_print_operations SET attempts=0 WHERE id=?',[id]); o = get('SELECT * FROM manasync_print_operations WHERE id=?',[id]); }
   active.add(id);
   try {
     run("UPDATE manasync_print_operations SET attempts=attempts+1,status='pending',next_attempt=? WHERE id=?",[Date.now()+Math.min(3600000,15000*2**o.attempts),id]);
@@ -358,15 +431,47 @@ export async function reportOperation(userId, id, manual = false) {
     if (o.kind === 'acquire' && !lot?.id) throw new BridgeError('The command receipt is missing the acquired proxy holding.',502);
     run("UPDATE manasync_print_operations SET status='reported',receipt_json=?,lot_id=?,last_error=NULL WHERE id=?",[JSON.stringify(receipt),lot?.id || o.lot_id,id]);
   } catch (error) {
-    const status = error.status === 401 ? 'reconnect' : error.status === 409 ? 'review' : error.status >= 400 && error.status < 500 && ![408,429].includes(error.status) ? 'failed' : 'pending';
+    // Separate what a person must fix from what will never be accepted as sent, and from a
+    // transport problem worth retrying. Every one of these stays manually retryable.
+    const definite = error.status >= 400 && error.status < 500 && ![408,429].includes(error.status);
+    const status = error.status === 401 ? 'reconnect'
+      : error.status === 403 ? 'blocked'
+      : error.status === 409 ? 'review'
+      : definite ? 'rejected' : 'pending';
     run('UPDATE manasync_print_operations SET status=?,last_error=? WHERE id=?',[status,error.message,id]);
+    if (status === 'pending' && get('SELECT attempts FROM manasync_print_operations WHERE id=?',[id]).attempts >= MAX_AUTOMATIC_ATTEMPTS) markGaveUp(id);
   } finally { active.delete(id); }
 }
 export async function processPending() {
   await (await import('./pendingProxyPlans.js')).processPendingProxyPlans();
+  // Anything past the ceiling stops being invisible: it becomes a state the queue shows
+  // with a Retry action, rather than a 'pending' row nothing will ever pick up again.
+  for (const o of all("SELECT id FROM manasync_print_operations WHERE status='pending' AND attempts>=? AND next_attempt<=? LIMIT 50",[MAX_AUTOMATIC_ATTEMPTS,Date.now()])) markGaveUp(o.id);
+  // A suspended account's operations wait untouched: neither retried nor given up on.
   const rows = all(`SELECT o.id,o.user_id FROM manasync_print_operations o JOIN users u ON u.id=o.user_id
-    WHERE u.suspended=0 AND o.status='pending' AND o.attempts<6 AND o.next_attempt<=? ORDER BY o.created_at LIMIT 20`,[Date.now()]);
+    WHERE u.suspended=0 AND o.status='pending' AND o.attempts<? AND o.next_attempt<=? ORDER BY o.created_at LIMIT 20`,[MAX_AUTOMATIC_ATTEMPTS,Date.now()]);
   for (const o of rows) await reportOperation(o.user_id,o.id);
+  pruneResolvedPrintItems();
+}
+// Retention: a print queue is a work list, not a permanent ledger — the holdings themselves
+// live in ManaSync. Drop only items that are finished (dismissed, or fully confirmed and
+// delivered) and long past, and only when no operation of theirs still needs a decision.
+// Their attempt rows go with them through ON DELETE CASCADE.
+export const PRINT_ITEM_RETENTION_DAYS = Number(process.env.MANASYNC_PRINT_RETENTION_DAYS || 90);
+let lastPrune = 0;
+export function pruneResolvedPrintItems(force = false) {
+  if (!force && Date.now() - lastPrune < 3600000) return 0;
+  lastPrune = Date.now();
+  const cutoff = new Date(Date.now() - PRINT_ITEM_RETENTION_DAYS * 86400000).toISOString();
+  const stale = all(`SELECT i.id FROM manasync_print_items i WHERE i.created_at < ?
+    AND NOT EXISTS (SELECT 1 FROM manasync_print_operations o WHERE o.item_id=i.id AND o.status NOT IN ('reported','gave_up','rejected','blocked'))
+    AND NOT EXISTS (SELECT 1 FROM manasync_pending_proxy_plans p WHERE p.item_id=i.id AND p.status<>'dismissed')
+    AND (i.cancelled=1 OR i.quantity <= (SELECT COALESCE(SUM(o.quantity),0) FROM manasync_print_operations o
+      WHERE o.item_id=i.id AND o.kind='acquire' AND o.status='reported'))
+    LIMIT 200`,[cutoff]);
+  if (!stale.length) return 0;
+  transaction(() => { for (const item of stale) run('DELETE FROM manasync_print_items WHERE id=?',[item.id]); });
+  return stale.length;
 }
 export async function reconcile(userId,id) {
   const o = get('SELECT * FROM manasync_print_operations WHERE id=? AND user_id=?',[id,userId]);
