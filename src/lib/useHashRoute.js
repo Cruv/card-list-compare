@@ -24,6 +24,9 @@ export function useHashRoute() {
   if (hash === '#settings') {
     return { route: 'settings' };
   }
+  if (hash === '#print-station') {
+    return { route: 'printStation' };
+  }
   if (hash === '#guide') {
     return { route: 'guide' };
   }

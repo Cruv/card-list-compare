@@ -1,9 +1,9 @@
 # Review the ManaSync integration
 
-This branch starts from `codex/project-audit-print-workflow` at
-`f527e0ac34e0dbdcf854693d0407381d0a5717e0` (v2.44.1). It carries forward the local
-ManaSync ownership, print confirmation, deck creation/proposal, and protected Archidekt
-refresh work while retaining the native PDF/Mac print workflow and full printing identity.
+PR #5 brings ManaSync ownership, pending proxy artwork, deck creation/proposals, and
+protected provider refresh into `codex/project-audit-print-workflow`. Its original base was
+v2.44.1; the integrated branch also retains the v2.46 Mac station dashboard, managed
+installer/update/rollback, and the accepted Epson landscape/color recipe.
 
 The paired ManaSync server needs the scoped inventory/deck integration APIs, persistent
 proxy artwork, and pending-proxy APIs described in [the bridge contract](MANASYNC_BRIDGE.md).
@@ -60,5 +60,28 @@ docker build -t clc-review .
 The paired ManaSync checkout's `scripts/verify-clc-bridge.mjs` runs both real servers against
 disposable databases. Set `CLC_BRIDGE_BROWSER=1` to include browser interaction, custom-art
 checks, partial confirmation/dismissal across apps, and desktop/phone layout captures.
-Its native print manifest uses synthetic images; physical Epson printing and cutting still
-need a hardware proof.
+Its native print manifest uses synthetic images. The household Adobe color test and corrected
+native landscape sheet have passed; v6 cutter geometry and manual DFC refeed alignment
+still need physical proof. See [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+
+## Integrated follow-up verification — 2026-09-10
+
+The v2.47 integration retains the current Mac station controls and accepted household
+recipe. Follow-up v2.47.1 addresses proposal draft/retry loss, provider collector-number
+identity loss, manually assigned commander loss on source review, suspended-account
+outbox delivery, and database exports disabling foreign-key cleanup. The integration also
+permits authenticated artwork blob previews under the production image policy.
+
+Validation: 784 app tests and 68 companion tests pass; lint has zero errors and seven
+existing warnings; both dependency audits are clean. The production frontend and Docker
+image build. An isolated container with disposable accounts and synthetic artwork passed
+46 API checks for scoped access, account isolation, private artwork, and fake-station
+pause/receipt replay. No real print job was claimed, queued, or submitted.
+
+Browser checks verified private artwork under production CSP, draft retention through
+refresh/switch, preservation during a concurrent-client change, explicit re-review, and
+committing the reviewed digital snapshot without changing the paper marker. Recovery
+regressions cover authentication failures, uncertain responses, malformed receipts, and
+multiple saved operations. The paired ManaSync server harness remains outstanding until
+its repository and matching API implementation are available; CLC fixtures are not proof
+of cross-app compatibility.

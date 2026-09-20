@@ -239,6 +239,7 @@ export default function PrintPanel({ deck, snapshots }) {
         {generator?.fallbackReason && <p className="print-panel-meta">{generator.fallbackReason}</p>}
         {!capabilities.stationConfigured && <p className="print-panel-meta">PDF downloads work without a printer. Configure the Mac companion to enable the household queue.</p>}
         {capabilities.stationConfigured && !capabilities.canQueue && <p className="print-panel-meta">Your administrator can enable household queue access for your account. You can still download PDFs.</p>}
+        <p><a href="#print-station">Open Print Station</a> to check the Mac, pause new work, or resume a reloaded batch.</p>
       </section>
 
       <section className="print-panel-jobs" aria-label="Print batches">
@@ -250,7 +251,7 @@ export default function PrintPanel({ deck, snapshots }) {
           <p className="print-panel-meta">{job.source ? `Snapshot #${job.source.id} → ` : ''}Snapshot #{job.target?.id} · {job.artSource === 'saved-mpc' ? 'Saved MPC artwork' : 'Scryfall printings'}{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets generated` : ''}</p>
           {job.error && <div className="print-panel-error" role="alert">{job.error}</div>}
           {job.proxyStagingError && <p className="print-panel-error" role="alert">Pending proxy review: {job.proxyStagingError}</p>}
-          {job.state === 'awaiting_refeed' && <p>Flip and reload this batch at the rear feeder, then resume it using the Mac companion. Other CLC batches wait until this batch is finished.</p>}
+          {job.state === 'awaiting_refeed' && <p>Flip and reload this batch at the rear feeder, then confirm the matching batch in <a href="#print-station">Print Station</a>. Other CLC batches wait until this batch is finished.</p>}
           {job.state === 'uncertain' && <p>The Mac needs to reconcile this batch with Epson’s queue. Check the companion before creating another batch.</p>}
           {job.state === 'completed' && <p className="print-panel-meta">The spooler reports completion. Check the sheets before laminating; update your paper-deck marker after assembly.</p>}
           <div className="print-panel-actions">

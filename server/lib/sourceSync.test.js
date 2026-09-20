@@ -126,6 +126,33 @@ it.each(['source', 'merge'])('atomically applies %s once and replays the origina
   expect(count()).toBe(4);
 });
 
+it.each(['source', 'merge'])('preserves a manually assigned commander when reviewing untagged %s text', action => {
+  observe(); acceptProposal(); observe(changedText);
+  db.run('UPDATE tracked_decks SET commanders = ? WHERE id = 1', [JSON.stringify(['Chosen commander'])]);
+  const operation = review(action, action === 'merge' ? { reviewedText: `${changedText}\n1 Mountain` } : {});
+  const result = source.reviewSource(1, 1, operation);
+  expect(result.resultSnapshotId).not.toBeNull();
+  expect(db.get('SELECT commanders FROM tracked_decks WHERE id = 1').commanders).toBe('["Chosen commander"]');
+  expect(source.reviewSource(1, 1, operation).replayed).toBe(true);
+  expect(count()).toBe(3);
+});
+
+it.each([
+  ['source', 'replace', 'Commander\n1 New Leader\n\n2 Sol Ring', ['New Leader']],
+  ['merge', 'replace', 'Commander\n1 New Leader\n\n2 Sol Ring', ['New Leader']],
+  ['source', 'clear explicitly', 'Commander\n\nMainboard\n2 Sol Ring', []],
+  ['merge', 'clear explicitly', 'Commander\n\nMainboard\n2 Sol Ring', []],
+  ['source', 'remove previous tagged', changedText, []],
+  ['merge', 'remove previous tagged', changedText, []],
+])('lets %s review %s commander metadata', (action, _change, text, expected) => {
+  observe();
+  addSnapshot(`Commander\n1 Old Leader\n\n${localText}`);
+  db.run('UPDATE tracked_decks SET commanders = ? WHERE id = 1', [JSON.stringify(['Old Leader'])]);
+  observe(text);
+  source.reviewSource(1, 1, review(action, action === 'merge' ? { reviewedText: text } : {}));
+  expect(JSON.parse(db.get('SELECT commanders FROM tracked_decks WHERE id = 1').commanders)).toEqual(expected);
+});
+
 it('rejects changed source revisions, changed current snapshot pins, foreign accounts and invalid merge requests', () => {
   observe(); acceptProposal(); observe(changedText);
   const stale = review('source');

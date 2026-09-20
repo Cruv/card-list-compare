@@ -132,6 +132,19 @@ physical validation remains. The production runtime uses
 Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
 The adapter keeps 600 PPI while generating one sheet at a time and merging compressed PDFs.
 
+**Management extension (2026-09-10).** Keep the validated native Epson submission path and
+make CLC the station management interface. The Mac polls outbound for health/control work;
+no shared CUPS listener or generic command endpoint is introduced. Household operators can
+pause and acknowledge the exact DFC back batch; only administrators request managed version
+changes. Version changes wait for an idle ledger, preserve durable receipts and leave the
+station paused. This supplies centralized operation without replacing the accepted native
+rendering path. Source checkouts remain supported for development; managed packaging uses
+versioned installations instead of depending on a moving Git checkout.
+The managed installer bundles a pinned standalone Python runtime. A stable launchd entry
+selects the complete installed version; GitHub release assets from the fixed CLC publisher
+are checksum-verified and startup-checked before switching. Network/update failure retains
+the working version. No release is published automatically by a feature-branch push.
+
 ## D10 — Optional ManaSync bridge with a durable physical-print outbox
 
 **Decision.** CLC remains responsible for artwork, printing plans,
@@ -162,7 +175,8 @@ without claiming planned copies were printed. A batch and account identify one i
 pending plan, even after disconnects, restarts, source-art cleanup, or lost responses.
 
 **Cost.** The CLC database contains encrypted credential copies on pending operations and a
-small print outbox. The separate CLC key must survive database restores. Six automatic attempts
+small print outbox. Account suspension pauses each remote request and worker retry, preserving
+original operation identities for reinstatement. The separate CLC key must survive database restores. Six automatic attempts
 use exponential backoff; users can retry the same operation or inspect a blocked receipt.
 Corrections require explicit quantities, reasons where applicable, and current lot revisions.
 Manual creation stores an immutable receipt per account and operation ID so token rotation

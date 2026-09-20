@@ -364,6 +364,13 @@ class StationTests(unittest.TestCase):
         with self.assertRaisesRegex(station.StationError, "changed during"):
             self.station.poll_once()
 
+    def test_fixed_orientation_change_blocks_an_already_adopted_job(self):
+        self.station.adopt(copy.deepcopy(self.client.job))
+        with mock.patch.dict(station.FIXED_OPTIONS, {"orientation-requested": "3"}):
+            with self.assertRaisesRegex(station.StationError, "changed during"):
+                self.station.poll_once()
+        self.assertEqual(self.cups.submissions, [])
+
     def test_worker_lock_serializes_processes(self):
         other = station.Ledger(self.config["state_dir"])
         try:
@@ -442,6 +449,25 @@ class BoundaryTests(unittest.TestCase):
         self.assertNotIn("media=A3", args)
         self.assertEqual(args[-1], str(self.directory / "a file.pdf"))
 
+    def test_every_print_pass_uses_explicit_landscape_actual_size_and_one_copy(self):
+        for kind, phase in (("ordinary", "fronts"), ("dfc", "fronts"), ("dfc", "backs")):
+            with self.subTest(kind=kind, phase=phase):
+                artifact = job(kind)["artifacts"][0]
+                # Even a direct API caller bypassing load_config cannot replace
+                # the fixed orientation with a conflicting driver value.
+                config = {**self.config, "driver_options": {**self.config["driver_options"], "orientation-requested": "3"}}
+                args = station.Cups(config).args(artifact, phase, "CLC-proof", self.directory / "page.pdf")
+                self.assertEqual(args.count("orientation-requested=4"), 1)
+                self.assertNotIn("orientation-requested=3", args)
+                self.assertFalse(any(item.lower() == "landscape" or item.lower().startswith("landscape=") for item in args))
+                self.assertEqual(args.count("-n"), 1)
+                self.assertEqual(args[args.index("-n") + 1], "1")
+                self.assertIn("media=Letter", args)
+                self.assertIn("number-up=1", args)
+                self.assertIn("print-scaling=none", args)
+                self.assertIn("fit-to-page=false", args)
+                self.assertIn("sides=one-sided", args)
+
     def test_ipptool_job_states_and_titles_are_parsed_without_inferring_absence(self):
         body = {"Tests": [{"Successful": True, "ResponseAttributes": [
             {"attributes-charset": "utf-8"},
@@ -475,6 +501,19 @@ class BoundaryTests(unittest.TestCase):
         path.chmod(0o600)
         with self.assertRaisesRegex(station.StationError, "controls option"):
             station.load_config(path)
+
+    def test_orientation_and_landscape_alias_cannot_override_the_fixed_recipe(self):
+        token = self.directory / "token"
+        token.write_text("t" * 40)
+        token.chmod(0o600)
+        path = self.directory / "config.json"
+        for key, value in (("orientation-requested", "3"), ("landscape", "false"), ("Landscape", "true")):
+            with self.subTest(option=key):
+                config = {**self.config, "station_token_file": str(token), "driver_options": {key: value}}
+                path.write_text(json.dumps(config))
+                path.chmod(0o600)
+                with self.assertRaisesRegex(station.StationError, "controls option"):
+                    station.load_config(path)
 
     def test_proof_flags_require_real_booleans_not_truthy_strings(self):
         path = self.directory / "config.json"

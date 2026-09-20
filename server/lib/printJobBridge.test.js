@@ -276,6 +276,22 @@ describe('native print job artwork bridge', () => {
     expect(uploads).toHaveLength(1); expect(commands).toHaveLength(0);
   });
 
+  it('stops remaining artwork and acquisition when the user is suspended during an upload', async () => {
+    const item = legacyStage().items.find(item => item.quantity === 2); await connect();
+    afterUpload = () => db.run('UPDATE users SET suspended=1 WHERE id=1');
+    const operation = await confirm(item.id);
+    expect(operation).toMatchObject({status:'pending',error:expect.stringContaining('suspended')});
+    expect(uploads).toHaveLength(1); expect(commands).toHaveLength(0);
+    const original = db.get('SELECT * FROM manasync_print_operations WHERE id=?',[operation.id]);
+    fetch.mockClear(); await bridge.reportOperation(1,operation.id,true);
+    expect(fetch).not.toHaveBeenCalled();
+    db.run('UPDATE users SET suspended=0 WHERE id=1');
+    await bridge.reportOperation(1,operation.id,true);
+    expect(commands).toHaveLength(1); expect(receipts.size).toBe(1);
+    expect(commands[0].body).toBe(original.payload_json);
+    expect(commands[0].headers.Authorization).toBe('Bearer original-actor');
+  });
+
   it('verifies retained bytes before upload and removes private copies with account print cleanup', async () => {
     const item = legacyStage().items.find(item => item.quantity === 2);
     const retained = join(artwork.BRIDGE_ARTWORK_DIR, '1', `${item.artwork.front.sha256}.png`);

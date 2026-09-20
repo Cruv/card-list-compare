@@ -103,7 +103,14 @@ export function validateBaseUrl(value) {
   // Keep a reverse-proxy prefix: remote() appends /api/v1/... to this base.
   return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }
+export function isBridgeUserActive(userId) {
+  const user = get('SELECT suspended FROM users WHERE id = ?', [userId]);
+  return !!user && !user.suspended;
+}
 export async function remote(connection, path, options = {}) {
+  // Recheck after each awaited upload/read as well as at worker entry: suspension
+  // may happen while a request is in flight. Keep the frozen outbox retryable.
+  if (!isBridgeUserActive(connection.user_id)) throw new BridgeError('ManaSync delivery is paused because this CLC account is suspended or unavailable.', 503);
   const { contentType = 'application/json', ...requestOptions } = options;
   const response = await fetch(`${connection.base_url}${path}`, {
     ...requestOptions, redirect: 'error', signal: AbortSignal.timeout(12000),
@@ -126,7 +133,7 @@ export function connectionStatus(userId) {
 }
 export async function connect(userId, { baseUrl, token }) {
   if (typeof token !== 'string' || !token.trim() || token.length > 8192) throw new BridgeError('Enter a user-granted ManaSync token.');
-  const c = { base_url: validateBaseUrl(baseUrl), token_cipher: encryptToken(token.trim()) };
+  const c = { user_id: userId, base_url: validateBaseUrl(baseUrl), token_cipher: encryptToken(token.trim()) };
   const context = await remote(c, '/api/v1/integration/context');
   if (!context.user?.id || !context.actorId || !Array.isArray(context.scopes)) throw new BridgeError('Update ManaSync to a version supporting integration context.', 400);
   if (!['inventory:read', 'proxies:write'].every(scope => context.scopes.includes(scope))) throw new BridgeError('Grant inventory:read and proxies:write to this ManaSync token.');
@@ -381,7 +388,7 @@ function assertManuallyRetryable(o) {
   }
 }
 export async function reportOperation(userId, id, manual = false) {
-  if (active.has(id)) return;
+  if (active.has(id) || !isBridgeUserActive(userId)) return;
   let o = get('SELECT * FROM manasync_print_operations WHERE id=? AND user_id=?',[id,userId]);
   if (o?.pending_id) {
     if (manual) assertManuallyRetryable(o);
@@ -440,7 +447,9 @@ export async function processPending() {
   // Anything past the ceiling stops being invisible: it becomes a state the queue shows
   // with a Retry action, rather than a 'pending' row nothing will ever pick up again.
   for (const o of all("SELECT id FROM manasync_print_operations WHERE status='pending' AND attempts>=? AND next_attempt<=? LIMIT 50",[MAX_AUTOMATIC_ATTEMPTS,Date.now()])) markGaveUp(o.id);
-  const rows = all("SELECT id,user_id FROM manasync_print_operations WHERE status='pending' AND attempts<? AND next_attempt<=? ORDER BY created_at LIMIT 20",[MAX_AUTOMATIC_ATTEMPTS,Date.now()]);
+  // A suspended account's operations wait untouched: neither retried nor given up on.
+  const rows = all(`SELECT o.id,o.user_id FROM manasync_print_operations o JOIN users u ON u.id=o.user_id
+    WHERE u.suspended=0 AND o.status='pending' AND o.attempts<? AND o.next_attempt<=? ORDER BY o.created_at LIMIT 20`,[MAX_AUTOMATIC_ATTEMPTS,Date.now()]);
   for (const o of rows) await reportOperation(o.user_id,o.id);
   pruneResolvedPrintItems();
 }

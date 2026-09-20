@@ -1,8 +1,8 @@
 # Household PDF and printing workflow
 
-Status: CLC v2.44.1 includes print planning, PDF generation, artifact downloads, the household
-station API and a native Mac companion. Physical color, manual duplex and cutter calibration
-still require the household proof below.
+Status: CLC v2.44.2 includes print planning, PDF generation, artifact downloads, the household
+station API and a native Mac companion. The owner accepted the Mac Adobe color test and
+corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
 
 ## Using the Printing tab
 
@@ -153,6 +153,9 @@ The [Mac companion setup guide](../companion/mac/README.md) covers private confi
 station credentials, read-only driver checks, a local dry run, foreground operation and an
 optional start-at-login agent. It uses Python 3.9+ with no extra Python packages. The example
 leaves both physical-proof flags off and requires the actual installed queue/options.
+The managed package bundles Python, installs its own copy outside the checkout, and starts
+paused at login. Its versioned installer/update/rollback workflow is described in that guide;
+software updates preserve the local print ledger and cannot interrupt an unresolved batch.
 
 The companion streams and verifies PDFs, maintains a durable local SQLite submission ledger,
 and reconciles exact CUPS titles/job IDs before reporting outcomes. `status`, `pause`,
@@ -160,9 +163,38 @@ and reconciles exact CUPS titles/job IDs before reporting outcomes. `status`, `p
 abandons an unresolved batch only after the operator has inspected and cleared its paper.
 Setup and dry-run commands do not print; `run` and `run --once` may submit authorized jobs.
 The Mac must stay awake, with the user logged in when using the optional LaunchAgent.
+Every pass explicitly requests landscape Letter at actual size; a landscape PDF alone does
+not ensure the Mac command-line filter rotates it onto the loaded sheet. Fixed page settings
+are included in the durable recipe fingerprint so they cannot change during an active batch.
+
+### Station management in CLC
+
+The **Print Station** page (`#print-station`) shows the companion's most recent heartbeat,
+printer checks, active batch, proof flags, version, recent events and control receipts.
+Only administrators and authorized household print users can view/control it. Version
+changes are administrator-only and available only for a managed installation.
+
+The Mac makes outbound authenticated heartbeat requests; no incoming Mac web service or
+printer sharing is required. Heartbeats are live observations, not evidence that a page
+printed. A station becomes offline after 20 seconds without a heartbeat, and server restart
+starts offline until the next observation. Printer checks are cached for up to 60 seconds;
+every actual pass still checks the configured queue before submission.
+
+**Pause** stops new claims and submissions while existing spooler work continues.
+**Confirm paper reload** is tied to the current job and back-pass artifact. It cannot
+release a different batch or change print settings. Expiring commands carry durable IDs;
+the Mac records a receipt atomically with local pause/refeed changes, so reconnects do not
+repeat those actions. New physical submissions wait when the management connection is
+unavailable. Existing passes continue through the original reconciliation logic.
+
+The companion can run while its recipe is unverified to report setup health; it will not
+claim new jobs or print until local proof requirements pass. The dashboard displays those
+requirements but cannot override them. Software updates and rollback require an idle local
+ledger and preserve pause, configuration, PDFs and submission receipts. Uncertain outcomes
+and manual DFC waits count as active batches, not idle time.
 
 The Mac must be awake and use the actual Epson driver with explicitly tested local options.
-The supplied Adobe settings enable **Let printer determine colors**; Epson uses **EPSON
+The supplied Windows Adobe settings enable **Let printer determine colors**; Epson uses **EPSON
 Vivid**, Ultra Premium Photo Paper Glossy, Best quality, rear feed and Actual Size. No
 custom ICC profile is selected in the screenshots. The source PDF is untagged DeviceRGB.
 The adapter preserves upstream's RGB composition without adding an ICC transform; the
@@ -172,13 +204,22 @@ Epson documents [EPSON Vivid on Mac](https://files.support.epson.com/docid/cpd5/
 Its presence does not prove a Windows/Mac color match. Adobe GUI presets are not inherited
 by `lp`; inspect the actual driver's options with [CUPS](https://www.cups.org/doc/options.html).
 Keep manual Adobe printing available until the unattended path matches an accepted proof.
+On this Mac, Reader 26.002.21901 forces Print As Image and disables Adobe's own color
+controls. Its native Printer dialog still exposes EPSON Color Controls and the saved Vivid
+preset. See the [verified Reader setup and comparison](HOUSEHOLD_PRINT_RECIPE.md#adobe-reader-on-the-mac--2026-09-09);
+do not assume the Windows Adobe checkboxes can be reproduced on this Reader version.
 
 Before enabling unattended printing:
 
-1. Install/configure the Mac Epson queue. It had no printer destinations during the review.
-2. Print the same reference PDF from Adobe on Mac and compare with the Windows result.
-3. Compare the companion's rendering with that Mac Adobe proof, keeping PDF bytes, paper,
-   source, quality, scaling and color settings fixed. Record the approved local recipe.
+1. The household Mac now has Epson driver 13.45, queue `EPSON_ET_8550_Series`, and the
+   **CLC Uinkit 54lb - Fronts** preset. On another Mac, install/configure its queue first.
+   See the [recorded Mac setup](HOUSEHOLD_PRINT_RECIPE.md#mac-installation-and-saved-preset--2026-09-09).
+2. The owner accepted the Mac Adobe reference on 2026-09-09 after clearing nozzle clogs.
+   Repeat this comparison if the reference driver, media or color settings change.
+3. The owner accepted the corrected companion sheet on 2026-09-10 after 2.44.2 added
+   explicit landscape. Preserve its recorded recipe and repeat the comparison if the
+   renderer, source, quality, scaling or color settings change. This accepts visual
+   color/orientation, not measured v6 cutting geometry.
 4. Verify v6 cut geometry, registration/Studio settings and the 1 mm crop on actual stock.
 5. Separately prove DFC front/back page order, flip direction, rotation and alignment.
    The supplied two-sided preset was visible but its settings were not opened.

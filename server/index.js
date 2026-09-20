@@ -21,6 +21,8 @@ import structuredDeckRoutes from './routes/structuredDecks.js';
 import proposalRoutes from './routes/proposals.js';
 import manasyncRouter, { startManaSyncRetryWorker } from './routes/manasync.js';
 import { initIntegrationSchema } from './lib/integrationSchema.js';
+import printStationManagementRoutes from './routes/print-station-management.js';
+import { resetPrintStationManagement } from './lib/printStationManagement.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 import { initDownloadQueue } from './lib/downloadQueue.js';
 import { initializePrintGenerator } from './lib/printGenerator.js';
@@ -52,7 +54,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "https://cards.scryfall.io", "https://*.scryfall.io", "https://drive.google.com", "data:"],
+      imgSrc: ["'self'", "https://cards.scryfall.io", "https://*.scryfall.io", "https://drive.google.com", "data:", "blob:"],
       connectSrc: ["'self'", "https://api.scryfall.com", "https://archidekt.com", "https://www.archidekt.com", "https://mpcfill.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
@@ -91,6 +93,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/mpc', mpcRoutes);
 // Station credentials are deliberately separate from user sessions.
 app.use('/api/print-station', printStationRoutes);
+app.use('/api/print-station-management', printStationManagementRoutes);
 app.use('/api/decks', printRoutes);
 app.use('/api/manasync', manasyncRouter);
 
@@ -98,6 +101,7 @@ async function start() {
   await initDb();
   initIntegrationSchema();
   startManaSyncRetryWorker();
+  resetPrintStationManagement();
   initDownloadQueue();
   initPrintQueue();
   // Preparing/updating Python must not delay the web app or break offline startup.

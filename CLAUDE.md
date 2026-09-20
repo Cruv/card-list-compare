@@ -37,7 +37,7 @@ src/lib/fetcher.js       URL imports (Archidekt/Moxfield/Deckcheck/…) → deck
 src/lib/scryfall.js      Client Scryfall batch (images, types; exact printings)
 src/lib/cardIdentity.js  Card name/set/collector/foil keys + DFC name normalization
 src/lib/api.js           Client HTTP layer for all /api calls
-src/lib/useHashRoute.js  Routing: #admin #settings #guide #library #library/{id} #share/{id} #deck/{id}
+src/lib/useHashRoute.js  Routing: #admin #settings #guide #print-station #library #library/{id} #share/{id} #deck/{id}
 src/lib/{powerLevel,recommendations,edhrec,analytics}.js  Deck analysis heuristics
 server/db.js             sql.js init + migrations + run/get/all helpers + persist()
 server/lib/deckToText.js       Server mirror of archidektToText()
@@ -45,8 +45,8 @@ server/lib/enrichDeckText.js   Adds printing metadata (carry-forward + Scryfall)
 server/lib/scryfall.js         Server Scryfall batch (metadata, prices)
 server/lib/               also: email, notificationScheduler, downloadQueue, priceCalculator, imageCache
 server/lib/print{Generator,Queue}*  Cached Silhouette runtime, immutable PDF jobs, station protocol
-companion/mac/           Native Python print station, local Epson options, durable recovery
-server/routes/           auth, owners, decks, snapshots, share, admin, mpcautofill, print(-station)
+companion/mac/           Native station/controls, versioned installer/updater, local Epson options/receipts
+server/routes/           auth, owners, decks, snapshots, share, admin, integrations, print(-station-management)
 server/lib/{manasyncBridge,deckProposals,sourceSync,sourceTracking}.js  Inventory, review, provider tracking
 src/components/          UI components; admin/ subdir is the full-page admin panel
 ```
@@ -57,6 +57,7 @@ src/components/          UI components; admin/ subdir is the full-page admin pan
    direct `getDb().run()` writes are silently lost. `persist()` is atomic
    (temp+fsync+rename) with `.bak` recovery (v2.40.3) — keep it that way. Write
    via helpers only; `runTransaction()` persists related statements and restores memory on failure.
+   Export only through `exportDatabase()` — raw sql.js export disables foreign-key cleanup.
 2. **Card-line regex is single-sourced** — `CARD_LINE_PATTERN` in
    `src/lib/constants.js`, consumed by parser.js and server enrichment. Never
    fork a local copy (two forks drifted and corrupted data; test-guarded).

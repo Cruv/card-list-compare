@@ -1,3 +1,6 @@
+import { parseLine } from '../../src/lib/parser.js';
+import { normalizedName } from '../../src/lib/cardIdentity.js';
+
 const fail = (code = 'incomplete_source') => {
   const error = new Error(code === 'unsupported_finish' ? 'CLC cannot yet track etched source cards without changing their finish.' : 'The complete provider list cannot be represented safely. The saved deck is preserved.');
   error.code = code; throw error;
@@ -14,7 +17,13 @@ const cardLine = (name, quantity, card = {}, finish = 'nonfoil') => {
   const set = card.set || '', collector = card.cn || '';
   if (set && (typeof set !== 'string' || !/^[a-z0-9]+$/i.test(set))) fail();
   if (collector && (typeof collector !== 'string' || !set || /[\]\s]/.test(collector))) fail();
-  return `${quantity} ${name.trim()}${set ? ` (${set})` : ''}${collector ? ` [${collector}]` : ''}${finish === 'foil' ? ' *F*' : ''}`;
+  const line = `${quantity} ${name.trim()}${set ? ` (${set})` : ''}${collector ? ` [${collector}]` : ''}${finish === 'foil' ? ' *F*' : ''}`;
+  // The shared text grammar can interpret unsupported collector punctuation as
+  // part of the name. Reject any identity that cannot survive its round trip.
+  const parsed = parseLine(line);
+  if (!parsed || normalizedName(parsed.name) !== normalizedName(name) || parsed.quantity !== quantity ||
+      parsed.setCode !== set || parsed.collectorNumber !== collector || parsed.isFoil !== (finish === 'foil')) fail();
+  return line;
 };
 
 function result(name, commanders, main, side) {

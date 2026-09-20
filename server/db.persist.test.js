@@ -72,6 +72,18 @@ describe.each(Object.entries(transactionHelpers))('%s durable transactions', (_n
 });
 
 describe('transaction() callback contract', () => {
+  it('rejects a read export inside a transaction without discarding its writes', async () => {
+    const db = await import('./db.js');
+    await db.initDb();
+    db.transaction(() => {
+      db.run("INSERT INTO server_settings (key, value) VALUES ('before-export', 'preserved')");
+      expect(() => db.exportDatabase()).toThrow('Cannot export the database during a transaction');
+      db.run("INSERT INTO server_settings (key, value) VALUES ('after-export', 'preserved')");
+    });
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'before-export'")?.value).toBe('preserved');
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'after-export'")?.value).toBe('preserved');
+  });
+
   it('returns the callback result and persists helper writes together after the callback completes', async () => {
     const db = await import('./db.js');
     await db.initDb();

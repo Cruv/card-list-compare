@@ -202,6 +202,14 @@ commit explicitly reviewed replacement text, or reject it. When the basis has
 changed, review all three texts and use **Commit reviewed revision** or reject.
 The original proposed text is preserved as evidence.
 
+Reviewed drafts are saved separately for each account, deck, and proposal in this browser.
+Refreshing or switching proposals keeps edited text; a changed basis requires another
+explicit review. If another window edits the same draft, preserve the open text before
+loading its saved version. An uncertain decision blocks new decisions until its immutable
+saved request is retried. Recovery stays available even if the server already accepted the
+proposal, and concurrent windows cannot overwrite each other’s pending request records.
+Clearing browser data also removes these local drafts and recovery records.
+
 Only a CLC login session can list and review proposals. The review endpoint is
 `POST /api/decks/:deckId/proposals/:proposalId/review`:
 

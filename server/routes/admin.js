@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import { all, get, run, getDb } from '../db.js';
+import { all, get, run, exportDatabase } from '../db.js';
 import { requireAuth, requireAdmin, invalidateAuthCache, invalidateAllAuthCache } from '../middleware/auth.js';
 import { validatePassword } from '../middleware/validate.js';
 import { purgeUserPrintJobs } from '../lib/printQueue.js';
@@ -31,9 +31,7 @@ router.get('/stats', (_req, res) => {
   const suspendedUsers = get('SELECT COUNT(*) as count FROM users WHERE suspended = 1');
   const recentLogins = get("SELECT COUNT(*) as count FROM users WHERE last_login_at > datetime('now', '-7 days')");
 
-  const db = getDb();
-  const dbData = db.export();
-  const dbSizeBytes = dbData.length;
+  const dbSizeBytes = exportDatabase().length;
 
   const mem = process.memoryUsage();
 
@@ -373,9 +371,7 @@ router.get('/audit-log', (req, res) => {
 // --- Database Backup ---
 
 router.get('/backup', (req, res) => {
-  const db = getDb();
-  const data = db.export();
-  const buffer = Buffer.from(data);
+  const buffer = exportDatabase();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename = `cardlistcompare-${timestamp}.db`;
 
