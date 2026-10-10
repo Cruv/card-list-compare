@@ -311,6 +311,16 @@ also needs an explicit matching-front-sheet reload confirmation. Unknown or conf
 CUPS history fails closed. A manually stopped Mac queue still needs operator attention
 on the Mac; recovery does not enable the whole queue or restart a job from page one.
 
+**Stale paper status correction (companion v2.57.1).** An idle, accepting local CUPS queue
+may retain its earlier paper-needed/empty/Epson paper error after the device itself is
+ready. The companion can make a read-only direct device check only when every job in that
+queue is terminal and no other local fault is present. The device must return fresh idle,
+healthy status and the same printer UUID as the configured DNS-SD queue. Paused/rejecting
+queues, driver/storage errors, unknown status and identity mismatches remain blocked. This check
+does not clear CUPS history, change queue settings or resume a job; the operator still
+confirms the exact interrupted attempt and first unprinted sheet. This describes the
+correction's behavior; the installation checkpoint above records what is deployed.
+
 Incoming Discord commands require a Discord application in addition to the alert
 webhook. Configure **Printer settings → Discord printer commands**, set the public
 HTTPS interaction endpoint shown there, install the application commands, and register

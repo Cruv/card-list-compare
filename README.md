@@ -222,6 +222,12 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Print → Printer** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, select saved back packets, confirm their reload and restore blank paper after printing or cancellation. The status shows its reason directly, distinguishing confirmed faults, unavailable status and informational reminders. Companion 2.53.3+ recognizes Epson's routine ink-tank reminder without presenting it as an empty-ink error. Administrators also see managed version controls when the station supports them.
 - **Recover interrupted printing (2.57.0+)** — after fixing the printer, continue an exact retained pass or select the first unprinted sheet from the displayed physical order when the spooler canceled/stopped it. The Mac checks the original receipt and paper confirmation; remaining sheets use the same frozen PDF with a separate attempt receipt. Back-side recovery requires checking the matching fronts in CLC. New CLC passes use a positive, job-scoped CUPS timeout of 2,147,483,647 seconds (about 68 years) and `stop-printer`, preventing the default three-hour timeout without changing the global scheduler.
 
+Companion **2.57.1** can verify the physical printer directly when an idle, accepting
+Mac queue retains only a stale paper fault after its jobs are terminal. The device must
+report idle, healthy status and match the queue's saved printer UUID. Active jobs, paused queues,
+driver/storage faults and unknown device status still block this fallback. The check is
+read-only; continuing an interrupted print still requires its exact recovery confirmation.
+
 Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active jobs and unfinished saved backs are protected from expiry, including across restarts and days of waiting; they still count against the storage quota. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
 
 Selected-packet flip, paper-clearance and reported printer-error alerts use a Mac notification and Glass sound by default, with optional Discord delivery

@@ -30,11 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.57.0';
+const APP_VERSION = '2.57.1';
 const WHATS_NEW = [
-  'Continue interrupted print jobs or print only the sheets still needed',
-  'Connect Proxy Balboa commands to check printer status and request recovery in Discord',
-  'Paper-out jobs stay available instead of expiring after three hours',
+  'Cleared paper errors no longer block recovery when the Epson reports ready',
 ];
 
 function getResetToken() {

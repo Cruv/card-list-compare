@@ -43,8 +43,8 @@ MESSAGES = [
 ]
 
 
-def parse_printer_health(data, active_job_state=None):
-    """Require a complete successful reply; unknown status cannot clear an alert."""
+def printer_attributes(data):
+    """Require a complete successful, bounded read-only IPP response."""
     if not isinstance(data, (str, bytes, bytearray)):
         raise ValueError("Cannot read authoritative CUPS printer status")
     if len(data) > 256 * 1024:
@@ -75,6 +75,36 @@ def parse_printer_health(data, active_job_state=None):
             raise ValueError()
     except (ValueError, KeyError, TypeError, plistlib.InvalidFileException):
         raise ValueError("Cannot read authoritative CUPS printer status") from None
+    return {**attributes, "printer-state-reasons": reasons, "printer-state-message": message}
+
+
+def stale_paper_status(data):
+    """Only the observed idle, accepting paper-out residue is eligible."""
+    attributes = printer_attributes(data)
+    if attributes["printer-state"] != 3 or not attributes["printer-is-accepting-jobs"]:
+        return False
+    allowed = {"media-empty", "media-needed", "com-epson-er06-005"}
+    reasons = []
+    for value in attributes["printer-state-reasons"]:
+        reason = value.lower().replace(".", "-").replace("_", "-")
+        if reason.startswith("com-epson-") and reason != "com-epson-er06-005-error":
+            return False
+        reason = re.sub(r"-(?:error|warning|report)$", "", reason)
+        if reason not in allowed and reason != "none":
+            return False
+        reasons.append(reason)
+    health = parse_printer_health(data)
+    return (any(reason in allowed for reason in reasons) and health["known"]
+            and bool(health["reasons"]) and set(health["reasons"]).issubset(allowed))
+
+
+def parse_printer_health(data, active_job_state=None):
+    """Unknown status cannot clear an alert; job faults remain independent."""
+    attributes = printer_attributes(data)
+    state = attributes["printer-state"]
+    accepting = attributes["printer-is-accepting-jobs"]
+    reasons = attributes["printer-state-reasons"]
+    message = attributes["printer-state-message"]
     faults, unknown, advisories = {}, False, []
     for raw_reason in reasons:
         advisory = ADVISORIES.get(raw_reason.lower())

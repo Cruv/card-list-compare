@@ -186,6 +186,17 @@ receipts and deterministic unique titles preserve the original outcome and preve
 command replay or lost replies from becoming blind duplicate submissions. CUPS counters
 are not used to infer how many physical sheets survived an interruption.
 
+Companion 2.57.1 adds a narrow read-only check for stale local paper status. It may accept
+a fresh idle, healthy response from the physical printer only when the local queue is
+idle and accepting, its nonempty job history is entirely terminal, and its remaining faults are
+exclusively the recognized paper-needed/empty condition, including Epson `er06-005`.
+The discovered device's UUID must match the configured DNS-SD queue's printer UUID.
+Paused/rejecting queues, driver or storage errors, other faults, unknown status and
+mismatched identity cannot use this fallback. Local job and queue status are checked again
+after the device reply; a new fault takes precedence. It changes neither CUPS history nor
+queue settings and does not authorize recovery or printing itself. Canceled/aborted pass
+status remains separate from device readiness.
+
 The companion advertises `printRecovery: true` when claiming jobs. A companion without
 that capability cannot claim work containing a recovery `attemptId`. Managed rollback
 below 2.57.0 is blocked while any unresolved job contains such an attempt, preserving

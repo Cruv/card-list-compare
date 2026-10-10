@@ -24,11 +24,11 @@ import urllib.request
 import uuid
 
 from clc_station_alerts import RefeedAlerts, validate_alert_config
-from clc_printer_health import parse_printer_health
+from clc_printer_health import parse_printer_health, printer_attributes, stale_paper_status
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.57.0"
+COMPANION_VERSION = "2.57.1"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -436,6 +436,67 @@ def command(args, timeout=30):
     return result.stdout
 
 
+def dns_sd_lookup(service, kind):
+    """Resolve only the installed queue's exact service; dns-sd stays running."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CUPS_") and key not in {"LPDEST", "PRINTER"}}
+    env.update({"LC_ALL": "C", "LANG": "C"})
+    process = subprocess.Popen(["/usr/bin/dns-sd", "-L", service, kind, "local."],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, env=env, text=True)
+    try:
+        output, _ = process.communicate(timeout=4)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        output, _ = process.communicate(timeout=2)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=2)
+    if len(output) > 64 * 1024:
+        raise StationError("Printer service discovery response exceeds its limit")
+    return output
+
+
+def discovered_printer(device_uri, discovery):
+    """Bind direct health to the configured Bonjour service and saved UUID."""
+    if not isinstance(device_uri, str) or len(device_uri) > 2048:
+        raise StationError("Cannot verify the installed printer identity")
+    uri = urllib.parse.urlsplit(device_uri)
+    query = urllib.parse.parse_qs(uri.query, strict_parsing=True)
+    if (uri.scheme != "dnssd" or uri.path != "/" or uri.fragment or set(query) != {"uuid"}
+            or len(query["uuid"]) != 1):
+        raise StationError("Direct status requires a saved Bonjour printer UUID")
+    expected_uuid = str(uuid.UUID(query["uuid"][0]))
+    name = urllib.parse.unquote(uri.netloc, errors="strict")
+    match = re.fullmatch(r"(.+)\.(_ipps?\._tcp)\.local\.", name)
+    if (not match or len(match[1].encode("utf-8")) > 63 or match[1].startswith("-")
+            or any(ord(char) < 32 or ord(char) == 127 for char in match[1])):
+        raise StationError("Direct status requires the installed local printer service")
+    output = discovery(match[1], match[2])
+    if not isinstance(output, str) or len(output) > 64 * 1024:
+        raise StationError("Cannot read the installed printer service")
+    endpoints = set()
+    for resolved, host, port in re.findall(r"(?m)^(?:[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]+\s+)?(.+?) can be reached at ([A-Za-z0-9.-]+):([0-9]+)(?=\s|$)", output):
+        # dns-sd renders spaces as decimal \032, including in service names.
+        def unescape(match):
+            number = int(match[1]) if match[1] else None
+            if number is not None and number > 255:
+                raise StationError("Invalid printer service name escape")
+            return bytes([number]) if number is not None else match[2]
+        resolved = re.sub(rb"\\(?:([0-9]{3})|(.))", unescape, resolved.encode("utf-8")).decode("utf-8")
+        if resolved == name:
+            endpoints.add((host, port))
+    paths = set(re.findall(r"(?:^|\s)rp=([A-Za-z0-9][A-Za-z0-9/_-]{0,199})(?=\s|$)", output))
+    if len(endpoints) != 1 or len(paths) != 1:
+        raise StationError("Cannot uniquely resolve the installed printer service")
+    host, port = next(iter(endpoints))
+    if (not re.fullmatch(r"(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+local\.?", host, re.IGNORECASE)
+            or not 1 <= int(port) <= 65535):
+        raise StationError("Printer discovery did not resolve a local device")
+    scheme = "ipps" if match[2] == "_ipps._tcp" else "ipp"
+    return scheme + "://" + host + ":" + port + "/" + next(iter(paths)), expected_uuid
+
+
 def parse_ipp_jobs(text, queue):
     try:
         document = plistlib.loads(text.encode() if isinstance(text, str) else text)
@@ -460,8 +521,8 @@ def parse_ipp_jobs(text, queue):
 
 
 class Cups:
-    def __init__(self, config, runner=command):
-        self.config, self.runner = config, runner
+    def __init__(self, config, runner=command, discovery=dns_sd_lookup):
+        self.config, self.runner, self.discovery = config, runner, discovery
 
     def doctor(self):
         queue = self.config["queue"]
@@ -498,11 +559,52 @@ class Cups:
             if match:
                 state = match["state"]
         health = parse_printer_health(data, state)
+        if stale_paper_status(data):
+            health = self.verified_device_health(health, state)
         if spooler_id and state is None and health["ok"]:
             return {**health, "ok": False, "known": False, "reasons": [], "message": "Active print pass is not visible in CUPS; reconcile its receipt in CLC"}
         return health
 
-    def jobs(self):
+    def verified_device_health(self, original, active_job_state):
+        # A terminal backend can leave paper-out reasons cached indefinitely.
+        # Never bypass scheduler faults, active physical work, or unknown device
+        # identity; a live device reply is only evidence about that same Epson.
+        try:
+            history = self.jobs(require_complete=True)
+            if not history or any(item.get("state") not in {7, 8, 9} for item in history):
+                return original
+            prefix = "device for " + self.config["queue"] + ": "
+            listing = self.runner(["/usr/bin/lpstat", "-h", "localhost", "-v", self.config["queue"]])
+            lines = listing.splitlines()
+            if len(lines) != 1 or not lines[0].startswith(prefix):
+                return original
+            uri, expected_uuid = discovered_printer(lines[0][len(prefix):], self.discovery)
+            data = self.runner(["/usr/bin/ipptool", "-X", "-T", "8", uri, str(HERE / "get-printer.test")], timeout=10)
+            attributes = printer_attributes(data)
+            identity = attributes.get("printer-uuid")
+            if (not isinstance(identity, str) or not identity.lower().startswith("urn:uuid:")
+                    or str(uuid.UUID(identity[9:])) != expected_uuid
+                    or attributes["printer-state"] != 3 or not attributes["printer-is-accepting-jobs"]):
+                return original
+            device_health = parse_printer_health(data)
+            if not device_health["known"] or not device_health["ok"]:
+                return original
+            # Recheck all local jobs after network I/O, including non-CLC jobs.
+            history = self.jobs(require_complete=True)
+            if not history or any(item.get("state") not in {7, 8, 9} for item in history):
+                return original
+            current = self.runner(["/usr/bin/ipptool", "-X", "-T", "15",
+                                   "ipp://localhost/printers/" + self.config["queue"], str(HERE / "get-printer.test")])
+            if not stale_paper_status(current):
+                return parse_printer_health(current, active_job_state)
+            health = parse_printer_health(data, active_job_state)
+            health["message"] = ("Printer device is ready (verified directly)" if health["ok"]
+                                 else health["message"] + "; printer device is ready (verified directly)")
+            return health
+        except (StationError, ValueError, TypeError, OSError, subprocess.TimeoutExpired):
+            return original
+
+    def jobs(self, require_complete=False):
         queue = self.config["queue"]
         # macOS lpstat does not reliably expose job-name. Cross-check IDs there,
         # then use native ipptool's structured, read-only Get-Jobs for exact titles.
@@ -511,6 +613,8 @@ class Cups:
         data = self.runner(["/usr/bin/ipptool", "-X", "-T", "15", "-d", "clc_user=" + pwd.getpwuid(os.getuid()).pw_name,
                             "ipp://localhost/printers/" + queue, str(HERE / "get-jobs.test")])
         jobs = parse_ipp_jobs(data, queue)
+        if require_complete and ids.difference(item["id"] for item in jobs):
+            raise StationError("CUPS job history changed during printer health inspection")
         for job in jobs:
             # A newly completed job can disappear between reads; the IPP state
             # remains authoritative. Active mismatches must be reconciled later.

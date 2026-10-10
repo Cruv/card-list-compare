@@ -230,6 +230,14 @@ token is used only to register `/proxy`, then discarded; private, mention-free r
 and durable interaction/command receipts prevent replayed printing. Testing uses mocked
 transports and signed fixtures, with no real Discord sends or printer submissions.
 
+**Stale paper status (v2.57.1).** After paper was loaded and the physical printer reported
+ready, the idle Mac queue retained its earlier paper-needed/empty/Epson paper error. Add
+a read-only device check only for this narrow condition: the queue must be accepting,
+all its jobs terminal, and the fresh device response idle and healthy with the same printer
+UUID as the configured DNS-SD queue. Other faults, paused/rejecting queues, unknown status
+and identity mismatches remain blocked. Do not reset queue settings or erase old receipts
+to make health appear ready. The existing explicit, exact-pass recovery remains required.
+
 **Artwork review (2026-09-11).** Resolve selected printings and physical faces before PDF
 creation. Show actual thumbnails, source, exact printing, missing faces and separate DFC
 packet counts in both full-snapshot and difference plans. Hash the resolved selections,

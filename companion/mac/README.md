@@ -438,6 +438,20 @@ an unpaused station and explicit
 paper-ready confirmation. Pending/processing passes continue in place; an exact held pass
 can be released with its original spooler ID. This path does not submit another PDF copy.
 
+From **2.57.1**, the companion can distinguish stale local paper status from a current
+device fault. This fallback runs only when the local queue is idle and accepting, every
+job in that queue is terminal, and only the recognized paper-needed/empty condition remains.
+It discovers the device from the configured DNS-SD queue and requires a fresh idle, healthy
+response with the matching printer UUID. Paused queues, driver/storage faults, unknown
+status, other errors or identity mismatches stay blocked. The read-only check does not
+change printer settings, clear history or issue any resume/reprint action. Exact recovery
+and paper confirmations still apply.
+Discovery is limited to four seconds and the direct IPP probe to eight seconds; responses
+are bounded. Nonempty CUPS job history and scheduler status are rechecked after the probe,
+so newly active jobs or faults take precedence. No ready result is cached. The status says
+**Printer device is ready (verified directly)** while preserving a canceled/aborted pass's
+separate recovery requirement.
+
 Canceled, aborted or stopped passes require inspecting printed labels and selecting the
 first unprinted **position in the displayed physical order**, accounting for reverse
 output. If physical pages are `18, 17, 16, …, 1` and the first two printed, position 3

@@ -414,6 +414,14 @@ status again before accepting recovery.
 The batch owner or a CLC administrator can recover the pass. General household permission
 to control the station does not authorize recovery of another user's batch.
 
+With companion **2.57.1**, an idle, accepting Mac queue that retains only an old paper
+fault can be checked against the physical printer. No jobs in that queue may still be active,
+and the fresh device response must be idle, healthy and match the printer UUID saved in the
+queue's DNS-SD address. This read-only fallback does not clear spooler history, enable a
+paused queue or continue printing. Other faults, including driver/storage errors, and
+unknown or mismatched device responses still block recovery. The normal paper and exact
+pass confirmations below remain required.
+
 New CLC passes explicitly set `job-error-policy=stop-printer` and
 `job-cancel-after=2147483647` seconds (about 68 years), rather than inheriting CUPS' default
 three-hour watchdog. This positive override is limited to CLC's own job; global scheduler
