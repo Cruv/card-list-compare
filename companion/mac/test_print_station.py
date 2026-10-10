@@ -853,7 +853,7 @@ class BoundaryTests(unittest.TestCase):
         artifact = job("dfc")["artifacts"][0]
         artifact["options"] = {"copies": "999", "media": "A3"}  # ignored untrusted server data
         args = station.Cups(self.config).args(artifact, "backs", "CLC-safe", self.directory / "a file.pdf")
-        self.assertEqual(args[0:3], ["/usr/bin/lp", "-h", "localhost"])
+        self.assertEqual(args[0:3], ["/usr/bin/lp", "-h", "/private/var/run/cupsd"])
         self.assertEqual(args[args.index("-n") + 1], "1")
         self.assertEqual(args[args.index("-P") + 1], "2,4")
         self.assertIn("sides=one-sided", args)
@@ -904,9 +904,27 @@ class BoundaryTests(unittest.TestCase):
             "message": "Active print pass is not visible in CUPS; reconcile its receipt in CLC",
             "advisories": ["Regularly check ink levels in the actual ink tanks."],
         })
-        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(runner.call_count, 2)
         self.assertEqual(runner.call_args.args[0][0], "/usr/bin/ipptool")
         cups.jobs.assert_called_once_with()
+
+    def test_cups_commands_ignore_shell_destination_and_port_overrides(self):
+        with mock.patch.dict(os.environ, {"CUPS_SERVER": "remote.test", "IPP_PORT": "9999", "LPDEST": "remote", "PRINTER": "remote"}), \
+                mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "ok", "")) as run:
+            station.command(["/usr/bin/lpstat", "-h", station.LOCAL_CUPS_SERVER, "-e"])
+        environment = run.call_args.kwargs["env"]
+        self.assertTrue({"CUPS_SERVER", "IPP_PORT", "LPDEST", "PRINTER"}.isdisjoint(environment))
+        self.assertEqual(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+
+    def test_cancel_and_resume_target_exact_job_through_local_socket(self):
+        runner = mock.Mock()
+        cups = station.Cups(self.config, runner)
+        cups.cancel("EPSON-42")
+        cups.resume_held("EPSON-42")
+        self.assertEqual(runner.call_args_list, [
+            mock.call(["/usr/bin/cancel", "-h", "/private/var/run/cupsd", "EPSON-42"]),
+            mock.call(["/usr/bin/lp", "-h", "/private/var/run/cupsd", "-i", "EPSON-42", "-H", "resume"]),
+        ])
 
     def test_doctor_rejects_an_option_not_exposed_by_installed_driver(self):
         def runner(args):

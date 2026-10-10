@@ -30,9 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.57.1';
+const APP_VERSION = '2.57.2';
 const WHATS_NEW = [
-  'Cleared paper errors no longer block recovery when the Epson reports ready',
+  'Idle printer checks no longer trigger false attention alerts',
+  'Active print monitoring alerts identify the exact job to check',
 ];
 
 function getResetToken() {

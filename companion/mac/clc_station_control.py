@@ -120,6 +120,7 @@ class StationControl:
         previous = self.health
         job, pending = None, None
         observed = {"ok": False, "known": False, "reasons": [], "message": "Printer status is unavailable", "advisories": []}
+        stage = "status"
         try:
             current = self.ledger.current()
             if current:
@@ -129,6 +130,7 @@ class StationControl:
             observed = self.station.cups.status(pending.get("spooler_id") if pending else None)
             if observed["ok"]:
                 # A healthy device must still pass the original local driver checks.
+                stage = "driver"
                 self.station.cups.doctor()
             self.health = {"ok": observed["ok"], "known": observed.get("known") is True,
                            "message": self.safe_message(observed["message"]),
@@ -136,16 +138,22 @@ class StationControl:
             self.printer_read_failures = 0
         except (StationError, OSError, ValueError, subprocess.TimeoutExpired):
             self.printer_read_failures += 1
-            persistent = self.printer_read_failures >= 2
-            observed = {"ok": False, "known": persistent, "reasons": ["status-unavailable"] if persistent else [],
-                        "message": "Cannot verify local printer status. Check the Mac printer queue.", "advisories": []}
-            self.health = {"ok": False, "known": persistent, "message": observed["message"], "advisories": []}
+            message = ("Cannot verify the Epson driver setup. Check the Mac printer queue." if stage == "driver" else
+                       "Cannot read local printer status. Check the Mac printer queue.")
+            observed = {"ok": False, "known": False, "reasons": [], "message": message, "advisories": []}
+            self.health = {"ok": False, "known": False, "message": message, "advisories": []}
         self.last_doctor = time.monotonic()
         if previous != self.health:
             self.event("info" if self.health["ok"] else "error" if self.health["known"] else "warning", self.health["message"])
         # Notification failures never change pause, spool or paper-handling state.
         try:
-            alert = self.station.alerts.printer_error(observed, job, pending)
+            alert_health = observed
+            if self.printer_read_failures >= 2 and pending and pending.get("spooler_id"):
+                # A confirmed monitoring outage is distinct from a device fault.
+                # Idle status loss stays in telemetry; physical work needs help
+                # because its completion cannot currently be verified.
+                alert_health = {**observed, "known": True, "reasons": ["status-unavailable"], "category": "monitoring"}
+            alert = self.station.alerts.printer_error(alert_health, job, pending)
             if alert.get("message"):
                 self.event(alert.get("level") or "warning", alert["message"])
         except Exception:

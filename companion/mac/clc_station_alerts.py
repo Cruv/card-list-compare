@@ -563,7 +563,7 @@ class RefeedAlerts:
                             raise ValueError("Notification failed")
                     else:
                         self.discord_transport(effective["refeed_discord_webhook_url"],
-                                               printer_discord_payload(title, subtitle, body, effective, job=job, fault=health["message"]), timeout=5)
+                                               printer_discord_payload(title, subtitle, body, effective, job=job, fault=health["message"], category=health.get("category")), timeout=5)
                     channels[channel] = result("attempted", name + " printer-error notification requested: " + subtitle + ". " + body, "info")
                 except Exception:
                     channels[channel] = result("failed", name + " printer-error notification was not confirmed and will not be retried automatically. Check Printer in CLC.", "warning")
@@ -589,17 +589,22 @@ def printer_text(value, limit, config):
 def printer_alert_text(health, job, pending, config):
     def clean(value, limit):
         return printer_text(value, limit, config)
-    title = "CLC: printer needs attention"
+    monitoring = health.get("category") == "monitoring"
+    title = "CLC: print status unavailable" if monitoring else "CLC: printer needs attention"
     subtitle = "Household printer"
     if job:
         subtitle = clean(job.get("deckName") or "Print batch", 60) + " · " + clean(job.get("id", ""), 12)
-    body = clean(health["message"], 450) + ". "
+    body = clean(health["message"], 450).rstrip(". ") + ". "
     if pending:
         artifact = next((item for item in (job or {}).get("artifacts", []) if item.get("id") == pending["artifact_id"]), {})
         label = artifact.get("label") or pending["artifact_id"]
         body += "Packet: " + clean(label, 80) + "; pass: " + ("backs" if pending.get("phase") == "backs" else "fronts") + ". "
-    body += "Check the printer and Printer in CLC. This alert does not pause, resume or retry printing."
-    if pending and pending.get("spooler_id"):
+    if monitoring:
+        body += "Spooler job: " + clean(pending["spooler_id"], 128) + ". Completion is not confirmed. Check the Mac printer queue and Printer in CLC."
+    else:
+        body += "Check the printer and Printer in CLC."
+    body += " This alert does not pause, resume or retry printing."
+    if not monitoring and pending and pending.get("spooler_id"):
         body += " After fixing the fault, use Continue interrupted print in CLC. If CUPS canceled the pass, inspect the output and choose the first unprinted sheet in that attempt's displayed print order."
         if pending.get("phase") != "backs":
             body += " When the Discord command app is connected, use /proxy continue batch:" + clean((job or {}).get("id", ""), 96) + "; supply sheet: only for a canceled or stopped attempt."
@@ -608,12 +613,15 @@ def printer_alert_text(health, job, pending, config):
     return title, subtitle, body
 
 
-def printer_discord_payload(title, subtitle, body, config, *, job=None, fault=None):
+def printer_discord_payload(title, subtitle, body, config, *, job=None, fault=None, category=None):
     validate_alert_config(config)
     mention = config.get("refeed_discord_user_id", "")
     summary = discord_text(printer_text(fault or title, 120, config))
-    content = (f"<@{mention}> " if mention else "") + "**Printer needs attention · " + summary + "**\n"
-    content += "Hey, somethin' ain't right over here. Come take a look for me, all right?\n\n**Printer details**\n"
+    monitoring = category == "monitoring"
+    heading = "Print status unavailable" if monitoring else "Printer needs attention"
+    content = (f"<@{mention}> " if mention else "") + "**" + heading + " · " + summary + "**\n"
+    content += ("Yo, I can't see where this one's at. Check that queue for me, all right?" if monitoring else
+                "Hey, somethin' ain't right over here. Come take a look for me, all right?") + "\n\n**Printer details**\n"
     content += "Printer: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
     content += "\n" + discord_text(subtitle)
     if job:

@@ -422,6 +422,14 @@ paused queue or continue printing. Other faults, including driver/storage errors
 unknown or mismatched device responses still block recovery. The normal paper and exact
 pass confirmations below remain required.
 
+Companion **2.57.2** first probes the Mac's fixed local CUPS socket with a read-only queue
+check, letting its print service wake after a normal idle exit before health polling.
+Failed reads remain **status unavailable** and preserve submission/completion receipts.
+Idle read failures stay in CLC. Two consecutive failed checks while a physical pass with
+a saved spooler ID is pending may send a deduplicated **Print status unavailable** alert
+with the job/pass/ID and an operator mention. That monitoring alert does not establish a
+physical fault or authorize a retry; confirmed paper, ink and stopped-queue alerts remain.
+
 New CLC passes explicitly set `job-error-policy=stop-printer` and
 `job-cancel-after=2147483647` seconds (about 68 years), rather than inheriting CUPS' default
 three-hour watchdog. This positive override is limited to CLC's own job; global scheduler

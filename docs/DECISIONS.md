@@ -186,8 +186,9 @@ Records remain available for review; usable-copy confirmation stays separate in 
 
 Default Mac notifications with Glass sound and optional Discord delivery are reminders,
 never print authorization. Fronts-finished and whole-job completion messages name the job
-without a personal mention. Selected reloads, required paper clearance and real printer
-faults may mention the configured operator. Dismissal and delivery failure cannot resume a
+without a personal mention. Selected reloads, required paper clearance, real printer
+faults or lost monitoring of an already-spooled pass may mention the configured operator.
+Dismissal and delivery failure cannot resume a
 job. Administrators configure Discord in Printer; delivery remains native. Pending server
 secrets are encrypted, browser recovery stores nonsecret request identity, and the private
 Mac ledger atomically stores settings and command receipts. Disconnect overrides local
@@ -237,6 +238,15 @@ all its jobs terminal, and the fresh device response idle and healthy with the s
 UUID as the configured DNS-SD queue. Other faults, paused/rejecting queues, unknown status
 and identity mismatches remain blocked. Do not reset queue settings or erase old receipts
 to make health appear ready. The existing explicit, exact-pass recovery remains required.
+
+**Idle scheduler and unavailable status (v2.57.2).** macOS can cleanly unload idle cupsd;
+its launchd service listens on `/private/var/run/cupsd`, and localhost TCP health polls
+alone do not wake it. Use the fixed Unix socket for local `lp` commands and a read-only
+queue probe before IPP status reads. Preserve every submission/completion receipt.
+Read failures remain unknown. Idle failures stay in CLC; two consecutive failures while
+an already-spooled physical pass is pending may send a deduplicated **Print status
+unavailable** monitoring alert with the job/pass/ID and an operator mention. The alert
+does not reclassify unknown telemetry as a physical fault or change printing state.
 
 **Artwork review (2026-09-11).** Resolve selected printings and physical faces before PDF
 creation. Show actual thumbnails, source, exact printing, missing faces and separate DFC
@@ -396,6 +406,12 @@ advisories. The overview shows the current explanation directly; a routine ink-t
 reminder must not look like an empty-ink fault. Recognize only vendor codes whose meanings
 have been verified, and retain simultaneous faults. Physical proof flags describe testing,
 not printer health, and remain in their separate settings section.
+
+Unreadable status always remains unknown, including repeated failures. Idle monitoring
+failures do not mention an operator. A repeated inability to verify an already-spooled
+pass may request help under **Print status unavailable**, with the exact job/pass/ID;
+keep that monitoring alert distinct from a confirmed physical fault and retain completion
+evidence. Confirmed paper, ink, paused-queue and other errors retain their alerts.
 
 Connections separates collection access from optional deck sharing by direction. Account
 owns personal settings/invitations; Administration separates informational Overview from

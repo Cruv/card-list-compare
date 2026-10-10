@@ -420,6 +420,12 @@ history, multiple matching titles or conflicting job ID stops the station; absen
 treated as success or permission to reprint. Keep CUPS job history available long enough
 for recovery. [Apple CUPS source](https://github.com/apple/cups/blob/master/systemv/lpstat.c)
 
+From **2.57.2**, local `lp` commands use macOS's fixed CUPS Unix socket at
+`/private/var/run/cupsd`. A read-only queue probe through that socket precedes local IPP
+health polling, waking the on-demand scheduler after a clean idle exit. A localhost TCP
+poll alone does not wake this Mac's socket-activated service. This does not alter saved
+submission or completion receipts.
+
 ### Recover interrupted pages (2.57.0+)
 
 New CLC submissions explicitly use `job-error-policy=stop-printer` and positive
@@ -590,11 +596,19 @@ the native IPP test is skipped when `/usr/bin/ipptool` is unavailable or not exe
 ## Printer-error alerts (2.53.0+)
 
 The same Mac/Discord connection used for flips also reports printer errors from structured
-local CUPS status and the active CLC pass. Paper empty/jam, stopped/held/aborted passes,
-reported offline/filter faults and repeated status-read failures identify the batch and
-pass that needs attention. Status checks run about once a minute. Unknown Epson warning
+local CUPS status and the active CLC pass. Paper empty/jam, stopped/held/aborted passes and
+reported offline/filter faults identify the batch and pass that needs attention.
+Status checks run about once a minute. Unknown Epson warning
 codes are displayed as unconfirmed status; low-supply warnings alone do not send alerts.
 Driver/CUPS visibility and an awake Mac are required.
+
+From **2.57.2**, failed telemetry/driver reads always remain `known: false`. Idle failures
+stay in CLC's status/log without an operator mention. After two consecutive failed checks
+with an existing physical pass and saved spooler ID, a deduplicated **Print status
+unavailable** monitoring alert may mention the operator and includes the batch, pass and
+spooler ID. It reports that completion cannot currently be verified, not a confirmed
+physical printer fault. Unknown reads neither clear an existing fault episode nor change
+job state, retry printing or erase saved completion evidence.
 
 From 2.53.3, health telemetry includes `known` and a separate `advisories` array. The exact
 `com.epson.INKCHECKALERT_005-warning` code is a routine ink-tank reminder, verified against

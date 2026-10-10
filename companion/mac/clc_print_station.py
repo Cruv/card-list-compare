@@ -28,7 +28,10 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.57.1"
+COMPANION_VERSION = "2.57.2"
+# launchd owns this socket while idle cupsd is stopped. A TCP-only request to
+# localhost cannot wake the service; the fixed socket also ignores shell hosts.
+LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -427,7 +430,7 @@ def checked_job(job, config):
 
 def command(args, timeout=30):
     # Do not inherit a remote CUPS_SERVER or printer override from the shell.
-    env = {key: value for key, value in os.environ.items() if not key.startswith("CUPS_") and key not in {"LPDEST", "PRINTER"}}
+    env = {key: value for key, value in os.environ.items() if not key.startswith("CUPS_") and key not in {"LPDEST", "PRINTER", "IPP_PORT"}}
     env.update({"LC_ALL": "C", "LANG": "C"})
     result = subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             timeout=timeout, check=False, env=env, text=True)
@@ -526,12 +529,12 @@ class Cups:
 
     def doctor(self):
         queue = self.config["queue"]
-        destinations = self.runner(["/usr/bin/lpstat", "-h", "localhost", "-e"])
+        destinations = self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-e"])
         if queue not in destinations.splitlines():
             raise StationError("Configured Epson queue is not installed: " + queue)
-        status_text = self.runner(["/usr/bin/lpstat", "-h", "localhost", "-p", queue, "-l"])
-        accepting = self.runner(["/usr/bin/lpstat", "-h", "localhost", "-a", queue])
-        options = self.runner(["/usr/bin/lpoptions", "-h", "localhost", "-p", queue, "-l"])
+        status_text = self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-p", queue, "-l"])
+        accepting = self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-a", queue])
+        options = self.runner(["/usr/bin/lpoptions", "-h", LOCAL_CUPS_SERVER, "-p", queue, "-l"])
         supported = {}
         for line in options.splitlines():
             match = re.match(r"([^/:\s]+)(?:/[^:]+)?:\s*(.*)", line)
@@ -551,6 +554,9 @@ class Cups:
 
     def status(self, spooler_id=None):
         # Fixed local destination and operation; no printer settings or job changes.
+        # Wake launchd's idle print service through its socket first. Only the
+        # structured IPP response below is evidence of health or completion.
+        self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-p", self.config["queue"], "-l"])
         data = self.runner(["/usr/bin/ipptool", "-X", "-T", "15",
                             "ipp://localhost/printers/" + self.config["queue"], str(HERE / "get-printer.test")])
         state = None
@@ -574,7 +580,7 @@ class Cups:
             if not history or any(item.get("state") not in {7, 8, 9} for item in history):
                 return original
             prefix = "device for " + self.config["queue"] + ": "
-            listing = self.runner(["/usr/bin/lpstat", "-h", "localhost", "-v", self.config["queue"]])
+            listing = self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-v", self.config["queue"]])
             lines = listing.splitlines()
             if len(lines) != 1 or not lines[0].startswith(prefix):
                 return original
@@ -608,7 +614,7 @@ class Cups:
         queue = self.config["queue"]
         # macOS lpstat does not reliably expose job-name. Cross-check IDs there,
         # then use native ipptool's structured, read-only Get-Jobs for exact titles.
-        listing = self.runner(["/usr/bin/lpstat", "-h", "localhost", "-W", "all", "-o", queue])
+        listing = self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-W", "all", "-o", queue])
         ids = {line.split()[0] for line in listing.splitlines() if line.strip() and not line[0].isspace()}
         data = self.runner(["/usr/bin/ipptool", "-X", "-T", "15", "-d", "clc_user=" + pwd.getpwuid(os.getuid()).pw_name,
                             "ipp://localhost/printers/" + queue, str(HERE / "get-jobs.test")])
@@ -630,7 +636,7 @@ class Cups:
         # partial sheets or aborting a paper-out pass loses the safe checkpoint.
         options = {**self.config["driver_options"], **FIXED_OPTIONS, "outputorder": order,
                    "job-error-policy": "stop-printer", "job-cancel-after": "2147483647"}
-        args = ["/usr/bin/lp", "-h", "localhost", "-d", self.config["queue"], "-n", "1", "-t", title,
+        args = ["/usr/bin/lp", "-h", LOCAL_CUPS_SERVER, "-d", self.config["queue"], "-n", "1", "-t", title,
                 "-P", ",".join(str(page) for page in pages)]
         for key, value in sorted(options.items()):
             args.extend(["-o", key + "=" + value])
@@ -646,12 +652,12 @@ class Cups:
     def cancel(self, spooler_id):
         if not isinstance(spooler_id, str) or not re.fullmatch(re.escape(self.config["queue"]) + r"-[1-9]\d*", spooler_id):
             raise StationError("Invalid CUPS job cancellation target")
-        self.runner(["/usr/bin/cancel", "-h", "localhost", spooler_id])
+        self.runner(["/usr/bin/cancel", "-h", LOCAL_CUPS_SERVER, spooler_id])
 
     def resume_held(self, spooler_id):
         if not isinstance(spooler_id, str) or not re.fullmatch(re.escape(self.config["queue"]) + r"-[1-9]\d*", spooler_id):
             raise StationError("Invalid CUPS job resume target")
-        self.runner(["/usr/bin/lp", "-h", "localhost", "-i", spooler_id, "-H", "resume"])
+        self.runner(["/usr/bin/lp", "-h", LOCAL_CUPS_SERVER, "-i", spooler_id, "-H", "resume"])
 
 
 class Station:

@@ -132,12 +132,35 @@ class PrinterHealthTests(unittest.TestCase):
         cups = native.Cups({"queue": "EPSON"}, runner)
         self.assertTrue(cups.status()["ok"])
         self.assertEqual(runner.call_args.args[0], ["/usr/bin/ipptool", "-X", "-T", "15", "ipp://localhost/printers/EPSON", str(native.HERE / "get-printer.test")])
+        self.assertEqual(runner.call_args_list[0], mock.call(["/usr/bin/lpstat", "-h", "/private/var/run/cupsd", "-p", "EPSON", "-l"]))
         template = (native.HERE / "get-printer.test").read_text()
         self.assertEqual([line.strip() for line in template.splitlines() if line.strip().startswith("OPERATION")], ["OPERATION Get-Printer-Attributes"])
         cups.jobs = mock.Mock(return_value=[])
         self.assertFalse(cups.status("EPSON-7")["known"], "Missing active job is not completion or healthy evidence")
         cups.jobs.return_value = [{"id": "EPSON-7", "state": 8}]
         self.assertIn("job-aborted", cups.status("EPSON-7")["reasons"])
+
+    def test_sleeping_local_service_is_woken_before_authoritative_status(self):
+        awake = False
+        def runner(args):
+            nonlocal awake
+            if args == ["/usr/bin/lpstat", "-h", "/private/var/run/cupsd", "-p", "EPSON", "-l"]:
+                awake = True
+                return "printer EPSON is idle"
+            if not awake:
+                raise native.StationError("localhost connection refused while cupsd is idle")
+            return reply(["media-jam"])
+        health = native.Cups({"queue": "EPSON"}, runner).status()
+        self.assertTrue(awake)
+        self.assertFalse(health["ok"], "Waking the service is not evidence that the printer is ready")
+        self.assertEqual(health["reasons"], ["media-jam"])
+
+    def test_failed_socket_probe_does_not_infer_readiness_or_query_tcp(self):
+        runner = mock.Mock(side_effect=native.StationError("local socket unavailable"))
+        with self.assertRaises(native.StationError):
+            native.Cups({"queue": "EPSON"}, runner).status()
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(runner.call_args.args[0][0], "/usr/bin/lpstat")
 
 
 class PrinterAlertTests(unittest.TestCase):
@@ -335,7 +358,7 @@ class PrinterControlTests(unittest.TestCase):
             finally:
                 station.ledger.db.close()
 
-    def test_two_read_failures_alert_once_without_claiming_recovery_or_changing_queue(self):
+    def test_idle_read_failures_remain_unknown_without_attention_ping_or_queue_change(self):
         with tempfile.TemporaryDirectory() as temp:
             cfg = config(Path(temp)); cfg["refeed_notifications"] = True
             cups = FakeCups()
@@ -349,14 +372,71 @@ class PrinterControlTests(unittest.TestCase):
                 self.assertFalse(control.snapshot()["health"]["known"])
                 control.last_doctor = None
                 control.check_printer()
-                self.assertTrue(control.snapshot()["health"]["known"])
+                self.assertFalse(control.snapshot()["health"]["known"])
                 self.assertEqual(control.snapshot()["health"]["advisories"], [])
-                self.assertEqual(station.alerts.runner.call_count, 1)
+                self.assertEqual(station.alerts.runner.call_count, 0)
                 control.last_doctor = None
                 control.check_printer()
-                self.assertEqual(station.alerts.runner.call_count, 1)
+                self.assertEqual(station.alerts.runner.call_count, 0)
                 self.assertEqual(cups.submissions, [])
                 self.assertFalse(control.health["ok"])
+            finally:
+                station.ledger.db.close()
+
+    def test_active_read_outage_alert_names_monitoring_loss_and_receipt_once(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cfg = config(Path(temp)); cfg["refeed_notifications"] = True
+            cfg.update(refeed_discord_webhook_url="https://discord.com/api/webhooks/123/fixture", refeed_discord_user_id="456")
+            cups = FakeCups()
+            station = native.Station(cfg, FakeClient(job()), cups)
+            try:
+                station.adopt(job())
+                station.ledger.set_pass(station.ledger.passes("job1")[0], "submitted", spooler_id="EPSON-9")
+                station.alerts.runner = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+                station.alerts.discord_transport = mock.Mock()
+                control = StationControl(station, "2.57.2", manager=mock.Mock(managed_status=lambda _config: {"supported": False}))
+                cups.status = mock.Mock(side_effect=native.StationError("private driver diagnostic https://secret.invalid/PRIVATE"))
+                control.check_printer()
+                station.alerts.discord_transport.assert_not_called()
+                for _ in range(3):
+                    control.last_doctor = None
+                    control.check_printer()
+                self.assertFalse(control.health["known"], "A monitoring outage is not a confirmed device fault")
+                self.assertEqual(station.alerts.discord_transport.call_count, 1)
+                payload = station.alerts.discord_transport.call_args.args[1]
+                self.assertIn("Print status unavailable", payload["content"])
+                self.assertIn("Spooler job: EPSON-9", payload["content"])
+                self.assertIn("Completion is not confirmed", payload["content"])
+                self.assertNotIn("Printer needs attention", payload["content"])
+                self.assertNotIn("PRIVATE", payload["content"])
+                self.assertNotIn("Continue interrupted print", payload["content"])
+                self.assertEqual(payload["allowed_mentions"]["users"], ["456"])
+                self.assertEqual(station.ledger.passes("job1")[0]["state"], "submitted")
+                self.assertEqual(cups.submissions, [])
+                self.assertFalse(station.ledger.paused())
+                # Once this job completes, the same outage is quiet and cannot
+                # demote the durable completion or name it as a current fault.
+                station.ledger.set_pass(station.ledger.passes("job1")[0], "completed")
+                station.ledger.set_job("job1", "completed")
+                control.last_doctor = None
+                control.check_printer()
+                self.assertEqual(station.alerts.discord_transport.call_count, 1)
+                self.assertEqual(station.ledger.current(), None)
+            finally:
+                station.ledger.db.close()
+
+    def test_driver_check_failure_stays_unknown_and_retains_specific_diagnostic(self):
+        with tempfile.TemporaryDirectory() as temp:
+            station = native.Station(config(Path(temp)), FakeClient(job()), FakeCups())
+            try:
+                station.alerts.printer_error = mock.Mock(return_value={"status": "unknown"})
+                station.cups.status = mock.Mock(return_value=parse_printer_health(reply()))
+                station.cups.doctor = mock.Mock(side_effect=native.StationError("private option details"))
+                control = StationControl(station, "2.57.2", manager=mock.Mock(managed_status=lambda _config: {"supported": False}))
+                control.check_printer()
+                self.assertFalse(control.health["known"])
+                self.assertIn("Epson driver setup", control.health["message"])
+                self.assertNotIn("private", control.health["message"])
             finally:
                 station.ledger.db.close()
 

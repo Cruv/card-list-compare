@@ -228,6 +228,12 @@ report idle, healthy status and match the queue's saved printer UUID. Active job
 driver/storage faults and unknown device status still block this fallback. The check is
 read-only; continuing an interrupted print still requires its exact recovery confirmation.
 
+Companion **2.57.2** checks the local queue before polling health so macOS can wake its
+idle print service. Unreadable status stays unknown and preserves saved submission and
+completion receipts. Idle read failures stay in CLC; two consecutive failed checks of an
+already-spooled pass may send a **Print status unavailable** monitoring alert with job/pass
+details and an operator mention. Confirmed paper, ink and stopped-queue alerts still apply.
+
 Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active jobs and unfinished saved backs are protected from expiry, including across restarts and days of waiting; they still count against the storage quota. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
 
 Selected-packet flip, paper-clearance and reported printer-error alerts use a Mac notification and Glass sound by default, with optional Discord delivery
