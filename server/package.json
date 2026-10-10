@@ -14,7 +14,7 @@
     "express-rate-limit": "^8.2.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
-    "nodemailer": "^9.0.5",
+    "nodemailer": "~10.0.16",
     "sql.js": "^1.12.0"
   }
 }
