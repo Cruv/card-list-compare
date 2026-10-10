@@ -178,9 +178,9 @@ publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistcompare` a
 `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The
 repository's `./data` is not the household deployment path.
 
-The deployed server is **v2.57.0**, source `21526a4`, local image
-`clc-household:2.57.0-21526a4`, image ID
-`sha256:8f1e68610effe7d4f5fb79ec81bd4de176c8ec0d06e363a24f334efd312fda7f`.
+The deployed server is **v2.57.1**, source `f2cc595`, local image
+`clc-household:2.57.1-f2cc595`, image ID
+`sha256:02c84f50c2fed1979f9ad11911adaef2388fd04b34fc26fbfc0994d0e7c319e8`.
 Private configuration lives in
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and
 `runtime.env`. It preserves the container name, external `mtg_default` network,
@@ -191,25 +191,27 @@ contain this feature branch. Do not prune its image.
 Deployment preserved all **16 print jobs**, their immutable plans/manifests and
 submission steps, three users, two tracked-deck owners, 15 tracked decks and 78
 snapshots. All 38 frontend files match the image through localhost and household
-HTTPS (76 responses). The household browser displays v2.57.0 but is signed out;
+HTTPS (76 responses). The household browser displays v2.57.1 but is signed out;
 authenticated recovery UI was exercised in Chrome with disposable data and fake
-printer effects. An authenticated live API check confirms the fresh v2.57.0 native
-heartbeat, enabled station and exact canceled CUPS23 recovery boundary. No
-recovery command, physical print or Discord test message was sent.
+printer effects. An authenticated live API check confirmed the fresh v2.57.1 native
+heartbeat, enabled station and exact canceled CUPS23 recovery boundary before recovery.
+The identity-verified device check confirmed readiness; the old canceled-pass reason
+remained separate. After the authorized recovery below, the fresh heartbeat reported
+healthy processing. No Discord test message was sent.
 
 The complete stopped-container backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20261010T203541Z-before-2.57.0/data-complete`.
-The first rollout verification encountered a SQLite read error during atomic
+`/Users/cruv/docker/Backups/cardlistcompare/20261010T210959Z-before-2.57.1/data-complete`.
+The earlier v2.57.0 rollout verification encountered a SQLite read error during atomic
 sql.js persistence and restored the previous server image without restoring the
 live database. A fresh captured-export integrity check passed; the subsequent
 backed-up rollout verified all original jobs. For read-only inspection of the
 server database while running, inspect a captured file export rather than letting
 SQLite reopen the live bind-mounted path across sql.js atomic replacements.
 
-The **v2.57.0 arm64 native companion** is installed under
+The **v2.57.1 arm64 native companion** is installed under
 `~/Library/Application Support/CLC Print Station/app`, with private configuration
-in `~/.config/clc-print-station`. The current version is `versions/2.57.0`; previous
-is `versions/2.56.0`. `~/Library/LaunchAgents/local.clc.print-station.plist` keeps it
+in `~/.config/clc-print-station`. The current version is `versions/2.57.1`; previous
+is `versions/2.57.0`. `~/Library/LaunchAgents/local.clc.print-station.plist` keeps it
 running at login. It uses `EPSON_ET_8550_Series` and the saved **66 Epson driver
 options**. Configuration/token files, 14 native jobs and original pass receipts
 were preserved exactly. The fresh live heartbeat and running LaunchAgent PID
@@ -219,27 +221,33 @@ user jobs without claiming proof. Color/orientation results and remaining
 cutting/duplex checks are in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
 
 The installed package is
-`~/Downloads/CLC Print Station 2.57.0/CLC-Print-Station`; adjacent archive
+`~/Downloads/CLC Print Station 2.57.1/CLC-Print-Station`; adjacent archive
 `clc-print-station-macos-arm64.tar.gz` has SHA-256
-`b29dbc5f717790cb8020ea837b2e8929085446d95b1c8edd9ab042f4d617ddf9`.
+`5791a8cc8ec470794c19576893003402a01993d1aca8b92e9accc09ea850bfac`.
 Manifest, bundled runtime self-check and source-file parity passed before install.
 The native backup is
-`/Users/cruv/docker/Backups/cardlistcompare/20261010T203636Z-native-before-2.57.0`.
-The one-time offline upgrade proved exact CUPS23 terminal cancellation and no other
+`/Users/cruv/docker/Backups/cardlistcompare/20261010T211111Z-native-before-2.57.1`.
+The offline recovery-code updates proved exact CUPS23 terminal cancellation and no other
 physical work, stopped and locked the worker, preserved the uncertain incident,
 then verified unchanged CUPS history and original records. It did not clear the
 ledger or bypass recovery confirmation. No background upgrade watcher is installed.
 
-The interrupted **getting right with paper** batch remains available for operator
-recovery. The operator confirmed one complete sheet; select physical sheet 2
-(PDF page 17) to request the remaining 17 fronts in reverse order. The device still
-reported paper-needed/empty and `com-epson-er06-005` at this checkpoint; resolve
-that condition at the printer before requesting recovery. The existing Discord
-webhook remains connected. Incoming `/proxy` commands are implemented but **not
-configured**: the operator must create/link a Discord application under Printer
+The **getting right with paper** batch resumed with a remaining-sheet attempt after the
+operator confirmed one complete sheet, loaded paper and a cleared printer panel. Recovery command
+`c40a9ae6-44a4-489e-b17c-70c78a1054e7` was applied for physical sheet 2 of the original
+interrupted attempt. It queued the remaining **17 front sheets**, PDF pages 1–17 in
+reverse physical order 17 through 1, preserving the already printed PDF page 18.
+At 21:12:34 UTC, exact CUPS submission `EPSON_ET_8550_Series-25` was processing (state 5),
+the native/server pass was submitted, and the enabled station reported healthy processing.
+The original failed CUPS23 receipt remains archived intact. This confirms spooler progress,
+not physical completion. A startup alert about old canceled CUPS23 preceded recovery;
+the new attempt reported no fault at verification.
+
+The existing Discord webhook remains connected. Incoming `/proxy` commands are implemented
+but **not configured**: the operator must create/link a Discord application under Printer
 settings. The webhook alone cannot receive commands.
 
-Release verification passed **1,200 JavaScript tests**, **228 native tests**, lint
+Release verification passed **1,200 JavaScript tests**, **242 native tests**, lint
 (zero errors, five existing warnings), production build and both dependency audits
 (zero findings). Nodemailer 10.0.16 is included; live email testing was omitted at
 the owner's request. Browser tests verified sheet-order mapping, confirmation reset
@@ -248,9 +256,10 @@ restart/security smoke checks use disposable data and no household credentials.
 This feature-branch push does not trigger main/PR/tag CI, so these local checks
 are not a claim of a passing GitHub workflow.
 
-Private dated `update-*.json`, `native-update-*.json` and
-`verification-2.57.0.json` retain the rollout evidence and rollback paths. Older
-2.56.0 and 2.53.3 packages/backups remain available. Preserve generator-cache
+Private dated `update-*.json`, `native-update-*.json` and `verification-*.json` retain
+the rollout evidence and rollback paths. `recovery-7acd98db-fronts.json` and
+`recovery-7acd98db-verification.json` retain the authorized recovery receipt and observation.
+Older 2.57.0, 2.56.0 and 2.53.3 packages/backups remain available. Preserve generator-cache
 symlinks as links when copying Linux venvs on the Mac. Take a fresh backup before
 another update, including newer jobs and user changes; never restore an older
 database over newly queued work just to roll back frontend code. Never run two
@@ -298,9 +307,11 @@ The October 10 incident (`getting right with paper`, batch
 was submitted at 03:10 local time, reported paper out at 03:22, and was canceled at
 06:22 with `job-cancel-after=10800`. CUPS' generic `job-canceled-by-user` reason does
 not identify a human cancellation. The operator confirmed one complete sheet printed.
-The saved pass has 18 sheets in reverse order; recovery sheet 2 is PDF page 17,
-followed by pages 16 through 1. CUPS reported zero completed impressions for this
-failed job, so its counters must not override the physical checkpoint.
+The original interrupted pass had 18 sheets in reverse order; its recovery selected
+physical sheet 2, PDF page 17, followed by pages 16 through 1. CUPS reported zero completed
+impressions for that failed job, so its counters did not override the physical checkpoint.
+The recovered attempt contains only those 17 remaining sheets: any later interruption
+must use positions within that attempt, not the original 18-sheet pass.
 
 Resolve device faults before using **Printer → Continue printer job** or
 **Print remaining sheets**. Owner/admin recovery is bound to the exact batch, pass,
