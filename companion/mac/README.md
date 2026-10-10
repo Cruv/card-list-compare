@@ -74,6 +74,7 @@ a companion older than 2.55.0 until finished or canceled. An explicitly abandone
 terminal batch retains its receipt history without blocking future updates. Code/runtime
 rollback preserves configuration, the token, PDFs and the ledger. The first installation
 has no previous version to roll back to. No version change prints a test sheet automatically.
+An unresolved job containing a recovery attempt also blocks rollback below 2.57.0.
 
 For migration from a running checkout, pause it and unload its existing LaunchAgent first.
 Move that old plist to a backup path before installing; a conflicting existing LaunchAgent
@@ -419,9 +420,45 @@ history, multiple matching titles or conflicting job ID stops the station; absen
 treated as success or permission to reprint. Keep CUPS job history available long enough
 for recovery. [Apple CUPS source](https://github.com/apple/cups/blob/master/systemv/lpstat.c)
 
-Canceled/aborted CUPS jobs also block the station for paper inspection. After checking the
-physical output, clearing the feeder and manually canceling any remaining unsafe CUPS jobs,
-stop the foreground worker (or unload its login agent) and explicitly release the blocked job:
+### Recover interrupted pages (2.57.0+)
+
+New CLC submissions explicitly use `job-error-policy=stop-printer` and positive
+`job-cancel-after=2147483647` seconds (about 68 years). This prevents CUPS' default
+three-hour watchdog from discarding a paper-out pass. It changes only that CLC job, not
+global scheduler configuration or another application's submissions. Do not replace the
+value with per-job zero: Apple's scheduler sets an existing attribute's deadline to the
+current time plus its value. See [Apple CUPS scheduler](https://github.com/apple/cups/blob/v2.3.3/scheduler/job.c)
+and [documented scheduler defaults](https://www.cups.org/doc/man-cupsd.conf.html).
+
+Use **CLC → Print → Printer** after fixing the device and loading correct paper. The
+companion exposes the exact batch/artifact/pass, CUPS ID, attempt and current physical
+page order. Recovery requires the batch owner or a CLC administrator; household station
+control permission alone does not grant access. It also requires a known healthy device,
+an unpaused station and explicit
+paper-ready confirmation. Pending/processing passes continue in place; an exact held pass
+can be released with its original spooler ID. This path does not submit another PDF copy.
+
+Canceled, aborted or stopped passes require inspecting printed labels and selecting the
+first unprinted **position in the displayed physical order**, accounting for reverse
+output. If physical pages are `18, 17, 16, …, 1` and the first two printed, position 3
+means start at PDF page 16. A stopped pass must be confirmed canceled before replacement.
+Positions always refer to the current interrupted attempt, including an earlier recovery's
+remaining-page subset. If the queue itself is paused, inspect and resume it on the Mac;
+recovery never enables a whole queue that may also contain unrelated jobs.
+The selected remaining pages use the same frozen PDF/hash and recipe with a new attempt
+ID/title; archived attempt receipts preserve the earlier outcome. Lost replies and repeated
+commands reconcile against durable authorization rather than printing twice. CUPS counters
+do not prove which physical sheets survived, and missing/ambiguous title or ID history
+cannot authorize recovery. Back passes additionally require checking/reloading the matching
+front sheet and confirming it in CLC; blank-paper clearance still follows completed backs.
+
+The native companion advertises `printRecovery: true` when claiming jobs. Older companions
+cannot claim a job containing a recovery `attemptId`; keep 2.57.0 or newer installed
+until that work is finished or canceled.
+
+To deliberately abandon an unresolved batch instead, inspect its output, clear the feeder
+and manually cancel any remaining unsafe CUPS job. Stop the foreground worker (or unload
+its login agent), then explicitly release the blocked job:
 
 ```bash
 python3 companion/mac/clc_print_station.py release JOB_ID --paper-cleared
@@ -429,9 +466,9 @@ python3 companion/mac/clc_print_station.py release JOB_ID --paper-cleared
 
 This records an abandoned reconciliation with explicit paper clearance and releases the
 station; it never resubmits the uncertain job. A rejected request with no physical passes
-is recorded as a pre-submission failure. Any replacement printing must be an
-explicit new CLC request after inspecting what actually
-printed. Network/report retries reuse durable event IDs. Recipe or queue changes during an
+is recorded as a pre-submission failure. Recovery within a saved batch uses the explicit
+remaining-page controls above; printing an abandoned batch requires a new reviewed request.
+Network/report retries reuse durable event IDs. Recipe or queue changes during an
 active job are rejected; restore the original settings to finish that job consistently.
 The fingerprint includes the companion's fixed page settings as well as local driver
 options. Finish or reconcile active batches before updating the companion. Versions before
@@ -491,12 +528,25 @@ pause/unpause, select saved backs, confirm the exact packet reload, and confirm 
 clearance. Batch cancellation respects owner/admin permissions. Administrators have
 version controls when a managed installation is available; a source checkout reports those
 as unsupported. The existing CLI controls remain available.
+From 2.57.0, exact interrupted-pass recovery is also available here. It preserves submitted
+attempt history and cannot clear another job's paper reservation.
 
 `run` now reports setup health even with `recipe_verified: false`. It does not claim jobs
 or submit pages until the local recipe is verified and the station is unpaused. A failed
 management heartbeat blocks fresh claims/submissions; submitted jobs retain their original
 reconciliation path. The Mac has no inbound control listener and does not enable printer
 sharing. Proof flags, queue and Epson options cannot be changed remotely.
+
+Administrators can separately connect **Discord printer commands** in Printer. The existing
+Discord webhook is send-only. Inbound `/proxy status` and `/proxy continue batch:UUID`
+use a Discord application's raw signed interactions endpoint on CLC, not a Mac listener.
+The configured server/channel/operator must match and the linked CLC account must remain
+an active administrator. For canceled/stopped fronts, `sheet:N` names the first unprinted
+position in status's physical order. Continue explicitly confirms printer/paper readiness;
+backs still require the matching-front check in CLC. Replies are private, mention-free and
+acknowledge a queued request, not print completion. The one-time bot token is discarded
+after command registration. See [application setup](../../docs/PRINT_WORKFLOW.md#continue-from-discord).
+Tests use signed fixtures and mocked transports, with no real Discord sends.
 
 Controls arrive through `POST /api/print-station/heartbeat` alongside status, recent bounded
 events and durable receipts. Pause/refeed changes and their receipts commit together in the

@@ -1,0 +1,4 @@
+.station-bot-steps { padding-left: 1.4rem; display: grid; gap: .8rem; }
+.station-bot-endpoint { overflow-wrap: anywhere; user-select: all; }
+.station-bot-register { margin-top: 1.25rem; border-top: 1px solid var(--border-color); padding-top: 1rem; }
+.station-discord-bot code { font-size: .9em; }

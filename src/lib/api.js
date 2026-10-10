@@ -1,4 +1,10 @@
 const API_BASE = '/api';
+
+// Incoming Discord commands use a separate signed application connection.
+export const getDiscordPrintBotSettings = signal => apiFetch('/print-station-management/discord-bot', { signal });
+export const saveDiscordPrintBotSettings = body => apiFetch('/print-station-management/discord-bot', { method: 'PUT', body: JSON.stringify(body) });
+export const registerDiscordPrintBotCommands = botToken => apiFetch('/print-station-management/discord-bot/register', { method: 'POST', body: JSON.stringify({ botToken }) });
+export const disconnectDiscordPrintBot = () => apiFetch('/print-station-management/discord-bot/disconnect', { method: 'POST', body: '{}' });
 const DEFAULT_TIMEOUT = 15_000; // 15 seconds
 
 function getToken() {

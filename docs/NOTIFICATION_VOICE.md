@@ -36,6 +36,8 @@ operator request:
 | Print job complete | Every required pass completed and the final paper clearance is recorded. | No |
 | Printer fault | The identified printer/pass needs inspection. | Configured operator, if any |
 | Delivery test | An explicit notification test with no printer action. | No |
+| `/proxy status` reply | Private response with exact batch/pass, device condition and available recovery instructions. | No |
+| `/proxy continue` reply | Private acknowledgement of a durable recovery request. It does not claim printing resumed or completed. | No |
 
 Saving backs never sends an unsolicited flip request. A requested packet that is still
 waiting for other printing must not tell someone to load its sheets yet. A reload prompt
@@ -79,6 +81,18 @@ separate durable delivery records. Reload and return-blanks alerts have separate
 per packet, so acknowledging one event cannot suppress the other. Neither a delivered
 message nor a dismissal can authorize printing, satisfy paper clearance, or unpause CLC.
 
+From **2.57.0**, signed application commands provide an explicit control path separate
+from webhook notifications. Keep their voice line short and preserve the full batch UUID,
+exact pass, physical page order, required first-unprinted-sheet option and control receipt.
+`/proxy continue` confirms that the operator fixed the printer and loaded the correct paper;
+it may release an exact retained pass or request only inspected remaining fronts. Back-side
+recovery still requires the matching-front paper check in CLC. A private acknowledgement
+must say the request was queued and the Mac still checks its exact spooler state. Never
+promise that a canceled pass can resume its old spooler ID or infer printed pages from
+flavor text, counters or a generic “fixed” message. The existing webhook cannot receive
+commands. Only the configured Discord application/operator/server/channel and active
+linked CLC administrator can authorize these requests. Replies disable all mentions.
+
 From companion **2.56.0**, new-job queue announcements use the same channel with all
 mentions disabled, including mentions embedded in a requester name or batch label. A
 queue announcement means CLC accepted the prepared job, not that Epson has begun or that
@@ -94,5 +108,6 @@ empty ink. Unknown vendor warnings remain unconfirmed, while simultaneous confir
 faults still produce their normal useful alerts.
 
 Implementation: [native alerts](../companion/mac/clc_station_alerts.py) and
-[deck/price alerts](../server/lib/notificationScheduler.js). Operating instructions:
+[deck/price alerts](../server/lib/notificationScheduler.js), plus
+[signed command replies](../server/lib/discordPrintBot.js). Operating instructions:
 [printing workflow](PRINT_WORKFLOW.md).

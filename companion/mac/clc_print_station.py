@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.56.0"
+COMPANION_VERSION = "2.57.0"
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -36,7 +36,7 @@ VALUE = re.compile(r"[A-Za-z0-9_.:/+-]{1,100}\Z")
 FIXED_OPTIONS = {"media": "Letter", "sides": "one-sided", "number-up": "1",
                  "print-scaling": "none", "fit-to-page": "false", "orientation-requested": "4"}
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
-                                       "job-name", "job-hold-until", "job-sheets", "landscape"}
+                                       "job-name", "job-hold-until", "job-sheets", "landscape", "job-error-policy", "job-cancel-after"}
 TERMINAL = {"completed", "failed", "canceled"}
 PASS_TERMINAL = {"completed", "canceled"}
 DEFERRED_WORKFLOW = "deferred-backs-v1"
@@ -185,7 +185,7 @@ class Client:
         return result
 
     def claim(self):
-        return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True}).get("job")
+        return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True}).get("job")
 
     def management_heartbeat(self, status):
         return self.json("/api/print-station/heartbeat", status)
@@ -270,10 +270,17 @@ class Ledger:
           CREATE TABLE IF NOT EXISTS events (
             event_key TEXT PRIMARY KEY, payload TEXT NOT NULL, reply TEXT);
           CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+          CREATE TABLE IF NOT EXISTS pass_attempts (
+            job_id TEXT NOT NULL, artifact_id TEXT NOT NULL, phase TEXT NOT NULL,
+            attempt_id TEXT NOT NULL, receipt TEXT NOT NULL,
+            PRIMARY KEY(job_id,artifact_id,phase,attempt_id));
         """)
         if "cups_started" not in {row[1] for row in self.db.execute("PRAGMA table_info(passes)")}:
             # Older ambiguous passes have no proof that CUPS was never called.
             self.write("ALTER TABLE passes ADD COLUMN cups_started INTEGER")
+        for name, definition in (("attempt_id", "TEXT"), ("pages_json", "TEXT")):
+            if name not in {row[1] for row in self.db.execute("PRAGMA table_info(passes)")}:
+                self.write("ALTER TABLE passes ADD COLUMN " + name + " " + definition)
         os.chmod(self.directory / "station.sqlite3", 0o600)
 
     @contextlib.contextmanager
@@ -321,6 +328,11 @@ class Ledger:
 
     def event(self, job, entry, state, renew=False, **extra):
         base = "/".join([job["id"], entry["artifact_id"], entry["phase"], state, extra.get("resolution", "event")])
+        if entry["attempt_id"]:
+            base += "/attempt:" + entry["attempt_id"]
+            extra.setdefault("attemptId", entry["attempt_id"])
+        if state == "recovery":
+            base += "/recovery:" + str(extra.get("commandId"))
         if state in {"canceled", "paper_ready"}:
             base += "/" + str(extra.get("clearanceId"))
         prefix = base + "/"
@@ -354,6 +366,8 @@ def checked_job(job, config):
     packets = [item for item in artifacts if "packetIndex" in item or "packetCount" in item]
     ids, size = set(), 0
     for artifact in artifacts:
+        if "_selected_pages" in artifact:
+            raise StationError("Remote artifacts cannot supply private recovery page selections")
         checked_id(artifact.get("id"), "artifact ID")
         if artifact["id"] in ids or artifact.get("kind") not in {"ordinary", "dfc"}:
             raise StationError("Duplicate artifact ID or unsupported artifact kind")
@@ -387,6 +401,17 @@ def checked_job(job, config):
                 raise StationError("Invalid double-sided packet identity or page count")
     if size > config["max_job_bytes"]:
         raise StationError("Job PDF size exceeds the local storage limit")
+    for step in job.get("steps", []):
+        if step.get("attemptId") is not None:
+            checked_id(step["attemptId"], "print attempt ID")
+            artifact = next((item for item in artifacts if item["id"] == step.get("artifactId")), None)
+            pages = step.get("pages")
+            available = artifact.get("backPages" if step.get("phase") == "backs" else "frontPages", []) if artifact else []
+            if (not isinstance(pages, list) or not pages
+                    or any(type(page) is not int or page not in available for page in pages)
+                    or len(set(pages)) != len(pages)
+                    or not isinstance(step.get("attempts"), list) or not step["attempts"]):
+                raise StationError("Recovery pages or prior attempt receipt are invalid")
     request = job.get("backRequest")
     if request is not None:
         if (job.get("workflow") != DEFERRED_WORKFLOW or not isinstance(request, dict)
@@ -494,10 +519,13 @@ class Cups:
         return jobs
 
     def args(self, artifact, phase, title, path):
-        pages = artifact["backPages"] if phase == "backs" else artifact["frontPages"]
+        pages = artifact.get("_selected_pages") or (artifact["backPages"] if phase == "backs" else artifact["frontPages"])
         order = (self.config["ordinary_output_order"] if artifact["kind"] == "ordinary"
                  else self.config["dfc_back_output_order" if phase == "backs" else "dfc_front_output_order"])
-        options = {**self.config["driver_options"], **FIXED_OPTIONS, "outputorder": order}
+        # Preserve an interrupted pass for explicit operator recovery. Retrying
+        # partial sheets or aborting a paper-out pass loses the safe checkpoint.
+        options = {**self.config["driver_options"], **FIXED_OPTIONS, "outputorder": order,
+                   "job-error-policy": "stop-printer", "job-cancel-after": "2147483647"}
         args = ["/usr/bin/lp", "-h", "localhost", "-d", self.config["queue"], "-n", "1", "-t", title,
                 "-P", ",".join(str(page) for page in pages)]
         for key, value in sorted(options.items()):
@@ -515,6 +543,11 @@ class Cups:
         if not isinstance(spooler_id, str) or not re.fullmatch(re.escape(self.config["queue"]) + r"-[1-9]\d*", spooler_id):
             raise StationError("Invalid CUPS job cancellation target")
         self.runner(["/usr/bin/cancel", "-h", "localhost", spooler_id])
+
+    def resume_held(self, spooler_id):
+        if not isinstance(spooler_id, str) or not re.fullmatch(re.escape(self.config["queue"]) + r"-[1-9]\d*", spooler_id):
+            raise StationError("Invalid CUPS job resume target")
+        self.runner(["/usr/bin/lp", "-h", "localhost", "-i", spooler_id, "-H", "resume"])
 
 
 class Station:
@@ -590,10 +623,14 @@ class Station:
                     # Server submission intent survives even loss of this Mac's
                     # ledger. Recover from CUPS, never treat it as a fresh pass.
                     local = "intent" if state_value == "submitting" else state_value
-                    title = "CLC-" + hashlib.sha256((job["id"] + "/" + artifact["id"] + "/" + phase).encode()).hexdigest()[:32]
-                    self.ledger.db.execute("INSERT INTO passes(job_id,artifact_id,phase,state,title,spooler_id,cups_started) VALUES(?,?,?,?,?,?,?)",
+                    identity = job["id"] + "/" + artifact["id"] + "/" + phase
+                    if step.get("attemptId"):
+                        identity += "/" + checked_id(step["attemptId"], "print attempt ID")
+                    title = "CLC-" + hashlib.sha256(identity.encode()).hexdigest()[:32]
+                    self.ledger.db.execute("INSERT INTO passes(job_id,artifact_id,phase,state,title,spooler_id,cups_started,attempt_id,pages_json) VALUES(?,?,?,?,?,?,?,?,?)",
                                            (job["id"], artifact["id"], phase, local, title, step.get("spoolerId"),
-                                            0 if state_value in {"pending", "canceled"} and not step.get("spoolerId") else 1))
+                                            0 if state_value in {"pending", "canceled"} and not step.get("spoolerId") else 1,
+                                            step.get("attemptId"), json.dumps(step["pages"]) if step.get("pages") else None))
 
     def retire_canceled_before_cups(self, original, fresh):
         """Release only a verified cancellation with durable proof of no CUPS attempt."""
@@ -679,6 +716,9 @@ class Station:
         remote = {(step["artifactId"], step["phase"]): step for step in job.get("steps", [])}
         for entry in self.ledger.passes(job["id"]):
             step = remote.get((entry["artifact_id"], entry["phase"]), {})
+            if step.get("attemptId") and step["attemptId"] != entry["attempt_id"]:
+                self.adopt_recovery_attempt(job, entry, step)
+                continue
             if entry["state"] != "completed" and step.get("state") == "completed" and step.get("spoolerId"):
                 if entry["spooler_id"] and entry["spooler_id"] != step["spoolerId"]:
                     raise StationError("CLC completion and local spooler ID disagree; reconcile the paper")
@@ -837,6 +877,103 @@ class Station:
         except (StationError, OSError):
             pass  # Durable local state still blocks every later physical job.
 
+    def recovery_summary(self, job=None, entry=None):
+        """Read-only identity and physical print order; never infer progress from CUPS counters."""
+        current = self.ledger.current()
+        if current is None or current["state"] in {"awaiting_clearance", "awaiting_paper_reset"}:
+            return None
+        job = job or json.loads(current["payload"])
+        entry = entry if entry is not None else self.ledger.pending(job)
+        if (not entry or not entry["spooler_id"] or job.get("cancelRequested")
+                or entry["state"] not in {"submitted", "uncertain", "failed", "intent"}):
+            return None
+        matches = [item for item in self.cups.jobs() if item["title"] == entry["title"]]
+        if len(matches) != 1 or matches[0]["id"] != entry["spooler_id"] or matches[0]["state"] not in {3, 4, 5, 6, 7, 8}:
+            return None
+        artifact = next(item for item in job["artifacts"] if item["id"] == entry["artifact_id"])
+        pages = json.loads(entry["pages_json"]) if entry["pages_json"] else artifact["backPages" if entry["phase"] == "backs" else "frontPages"]
+        order = (self.config["ordinary_output_order"] if artifact["kind"] == "ordinary"
+                 else self.config["dfc_back_output_order" if entry["phase"] == "backs" else "dfc_front_output_order"])
+        physical = sorted(pages, reverse=order == "reverse")
+        mode = "resume" if matches[0]["state"] in {3, 4, 5} else "reprint_remaining"
+        identity = [job["id"], entry["artifact_id"], entry["phase"], entry["title"], entry["spooler_id"],
+                    matches[0]["state"], entry["attempt_id"], physical]
+        boundary = "recover-" + hashlib.sha256(json.dumps(identity, separators=(",", ":")).encode()).hexdigest()[:24]
+        return {"recoveryId": boundary, "artifactId": entry["artifact_id"], "phase": entry["phase"],
+                "spoolerId": entry["spooler_id"], "mode": mode, "cupsState": matches[0]["state"],
+                "physicalPages": physical, "totalSheets": len(physical), "attemptId": entry["attempt_id"]}
+
+    def recover_print(self, request):
+        """Resume an existing held job or explicitly submit only inspected remaining sheets."""
+        if request.get("paperReady") is not True or self.ledger.paused():
+            raise StationError("Confirm paper is ready and the station is unpaused")
+        current = self.ledger.current()
+        if not current or current["id"] != request.get("jobId"):
+            raise StationError("Recovery belongs to a different active batch")
+        original = json.loads(current["payload"])
+        job = self.refresh_job(original)
+        if job.get("cancelRequested") or job.get("state") in TERMINAL:
+            raise StationError("This batch has ended or has an explicit cancellation pending")
+        entry = self.ledger.pending(job)
+        boundary = self.recovery_summary(job, entry)
+        if not boundary or any(boundary.get(key) != request.get(key) for key in ("recoveryId", "artifactId", "phase", "spoolerId")):
+            raise StationError("Printer recovery no longer matches the exact interrupted pass")
+        if entry["phase"] == "backs" and request.get("paperReloaded") is not True:
+            raise StationError("Confirm only the matching front sheet is flipped and reloaded for this back pass")
+        # Device-only health excludes the old terminal job's canceled reason.
+        health = self.cups.status()
+        if not health.get("ok") or health.get("known") is not True:
+            raise StationError("The printer still reports a fault. Clear it on the printer before continuing.")
+        if boundary["mode"] == "resume":
+            if request.get("firstUnprintedSheet") is not None:
+                raise StationError("An existing CUPS job must resume in place without a new sheet range")
+            if boundary["cupsState"] == 4:
+                self.cups.resume_held(entry["spooler_id"])
+            self.observe(job, entry)
+            return "Existing printer job continues with its original spooler ID"
+        first = request.get("firstUnprintedSheet")
+        if type(first) is not int or not 1 <= first <= boundary["totalSheets"]:
+            raise StationError("Choose the first unprinted sheet in the displayed physical print order")
+        remaining = sorted(boundary["physicalPages"][first - 1:])
+        if boundary["cupsState"] == 6:
+            # A stopped backend can restart from page one when enabled. End only
+            # this exact attempt before creating the explicitly selected range.
+            self.cups.cancel(entry["spooler_id"])
+            matches = [item for item in self.cups.jobs() if item["title"] == entry["title"]]
+            if len(matches) != 1 or matches[0]["id"] != entry["spooler_id"] or matches[0]["state"] not in {7, 8}:
+                raise StationError("Wait until the stopped print pass is confirmed canceled before trying recovery again")
+        command_id = checked_id(request.get("id"), "recovery command ID")
+        # Authorization is durable on the server before changing the local
+        # attempt. A lost reply is reconciled from that exact command on restart.
+        try:
+            fresh = self.report(job, entry, "recovery", commandId=command_id,
+                                oldSpoolerId=entry["spooler_id"], pages=remaining,
+                                detail="Operator inspected output and selected the first unprinted physical sheet")["job"]
+        except (StationError, OSError):
+            fresh = self.refresh_job(job)
+            saved = next(item for item in fresh["steps"] if item["artifactId"] == entry["artifact_id"] and item["phase"] == entry["phase"])
+            if saved.get("attemptId") != command_id:
+                raise
+        step = next(item for item in fresh["steps"] if item["artifactId"] == entry["artifact_id"] and item["phase"] == entry["phase"])
+        self.adopt_recovery_attempt(fresh, entry, step)
+        return "Selected remaining sheets are ready as a separate print attempt"
+
+    def adopt_recovery_attempt(self, job, entry, step):
+        attempt_id = checked_id(step.get("attemptId"), "print attempt ID")
+        if entry["attempt_id"] == attempt_id:
+            return
+        if (step.get("state") != "pending" or not step.get("pages") or not step.get("attempts")
+                or step["attempts"][-1].get("spoolerId") != entry["spooler_id"]):
+            raise StationError("Recovery attempt does not preserve the exact original receipt")
+        title = "CLC-" + hashlib.sha256((job["id"] + "/" + entry["artifact_id"] + "/" + entry["phase"] + "/" + attempt_id).encode()).hexdigest()[:32]
+        with self.ledger.db:
+            self.ledger.db.execute("INSERT OR IGNORE INTO pass_attempts VALUES(?,?,?,?,?)",
+                (job["id"], entry["artifact_id"], entry["phase"], entry["attempt_id"] or "original", json.dumps(dict(entry))))
+            self.ledger.db.execute("UPDATE passes SET attempt_id=?,pages_json=?,state='pending',title=?,spooler_id=NULL,detail=NULL,cups_started=0 WHERE job_id=? AND artifact_id=? AND phase=?",
+                (attempt_id, json.dumps(step["pages"]), title, job["id"], entry["artifact_id"], entry["phase"]))
+            self.ledger.db.execute("UPDATE jobs SET payload=?,state='active',detail=?,updated=? WHERE id=?",
+                (json.dumps(job), "Operator selected remaining sheets for recovery", time.time(), job["id"]))
+
     def observe(self, job, entry):
         remote = next((step for step in job.get("steps", []) if step["artifactId"] == entry["artifact_id"]
                        and step["phase"] == entry["phase"]), {})
@@ -850,7 +987,7 @@ class Station:
             return
         state_value = match["state"]
         if state_value in {7, 8}:
-            detail = "CUPS canceled or aborted " + match["id"] + "; clear the paper before releasing this station"
+            detail = "CUPS canceled or aborted " + match["id"] + "; inspect printed output and select remaining sheets in Printer to recover"
             self.ledger.set_pass(entry, "failed", detail, match["id"])
             self.ledger.set_job(job["id"], "uncertain", detail)
             # Even a confirmed cancellation may have left partially printed
@@ -956,6 +1093,10 @@ class Station:
                 self.report(job, pending, "refeed", detail="Operator explicitly confirmed flip/reload on this Mac")
             self.ledger.set_job(job["id"], "active")
         self.cups.doctor()
+        health = self.cups.status()
+        if not health.get("ok") and health.get("known") is True:
+            self.ledger.set_job(job["id"], "active", "Waiting for printer paper or another device fault to be cleared; no submission was made")
+            return "waiting for printer attention"
         directory = private_directory(self.ledger.directory / job["id"])
         path = directory / (artifact["id"] + ".pdf")
         if not path.exists() and shutil.disk_usage(directory).free < artifact["size"] + 64 * 1024 * 1024:
@@ -972,6 +1113,9 @@ class Station:
             self.management.sync(check_printer=False)
         if self.ledger.paused():
             return "paused"
+        health = self.cups.status()
+        if not health.get("ok") and health.get("known") is True:
+            return "waiting for printer attention"
         # This transaction commits before the network submission authorization,
         # and both are durable before the local spooler is contacted.
         self.ledger.set_pass(pending, "intent")
@@ -984,7 +1128,8 @@ class Station:
             # always a possible physical attempt, even without a spooler ID.
             self.ledger.write("UPDATE passes SET cups_started=1 WHERE job_id=? AND artifact_id=? AND phase=?",
                               (job["id"], pending["artifact_id"], pending["phase"]))
-            spooler_id = self.cups.submit(artifact, pending["phase"], pending["title"], path)
+            selected = {**artifact, "_selected_pages": json.loads(pending["pages_json"])} if pending["pages_json"] else artifact
+            spooler_id = self.cups.submit(selected, pending["phase"], pending["title"], path)
             self.ledger.set_pass(pending, "submitted", spooler_id=spooler_id)
         except (StationError, OSError, subprocess.TimeoutExpired) as error:
             if all(entry["cups_started"] == 0 for entry in self.ledger.passes(job["id"])):

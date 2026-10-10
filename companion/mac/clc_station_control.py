@@ -17,7 +17,7 @@ from clc_station_alerts import (DISCORD_SETTING, DISCORD_TEST_SETTING, validate_
                                 discord_queued_payload)
 
 
-CONTROL_TYPES = {"pause", "unpause", "resume", "clear_paper", "check_update", "update", "rollback", "configure_discord", "test_discord"}
+CONTROL_TYPES = {"pause", "unpause", "resume", "recover_print", "clear_paper", "check_update", "update", "rollback", "configure_discord", "test_discord"}
 QUEUE_NOTIFICATION_ID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\Z", re.I)
 
 
@@ -66,6 +66,17 @@ class StationControl:
             request = json.loads(row["payload"])
             if request.get("type") == "test_discord":
                 self.complete_discord_test(row["id"], request.get("revision"), False)
+                continue
+            if request.get("type") == "recover_print":
+                saved = self.ledger.db.execute("SELECT payload FROM jobs WHERE id=?", (request.get("jobId"),)).fetchone()
+                value = json.loads(saved["payload"]) if saved else {}
+                accepted = next((step for step in value.get("steps", []) if step.get("attemptId") == row["id"]
+                                 and step.get("artifactId") == request.get("artifactId") and step.get("phase") == request.get("phase")), None)
+                if accepted:
+                    self.station.sync_steps(value)
+                self.finish(row["id"], "applied" if accepted else "rejected",
+                            "Saved recovery authorization reconciled; its physical attempt will not be duplicated" if accepted else
+                            "Print recovery was interrupted. Check the current pass before requesting recovery again.")
                 continue
             if request.get("type") == "clear_paper":
                 # Local/network acknowledgements can be lost. Do not replay a
@@ -150,6 +161,10 @@ class StationControl:
             pending = self.ledger.pending(job)
             if pending:
                 active.update(artifactId=pending["artifact_id"], phase=pending["phase"])
+                try:
+                    active["recovery"] = self.station.recovery_summary(job, pending)
+                except (StationError, OSError, ValueError, subprocess.TimeoutExpired):
+                    active["recovery"] = None
             elif (job.get("backRequest") or {}).get("artifactId"):
                 active.update(artifactId=job["backRequest"]["artifactId"], phase="backs")
             if pending and pending["state"] in {"intent", "submitted", "uncertain"} and current["state"] not in {"awaiting_clearance", "awaiting_paper_reset"}:
@@ -159,6 +174,7 @@ class StationControl:
         queue_receipts = self.queue_notification_receipts()
         return {"version": self.version, "paused": self.ledger.paused(), "queue": self.config["queue"],
                 "deferredBacks": True,
+                "printRecovery": True,
                 "recipeVerified": bool(self.config.get("recipe_verified")),
                 "duplexVerified": bool(self.config.get("duplex_verified")),
                 "testPrintingEnabled": self.config.get("allow_unverified_printing") is True,
@@ -185,6 +201,8 @@ class StationControl:
         payload_keys = ("type", "jobId", "artifactId", "paperReloaded", "targetVersion")
         if kind == "clear_paper":
             payload_keys += ("paperCleared", "clearanceId")
+        if kind == "recover_print":
+            payload_keys += ("phase", "spoolerId", "recoveryId", "paperReady", "firstUnprintedSheet", "paperReloaded")
         payload = json.dumps({key: request.get(key) for key in payload_keys}, sort_keys=True)
         prior = self.ledger.db.execute("SELECT * FROM control_receipts WHERE id=?", (command_id,)).fetchone()
         if prior:
@@ -256,6 +274,13 @@ class StationControl:
                     raise StationError("Explicit confirmation that printed paper was removed and blank paper loaded is required")
                 self.station.clear_paper(request.get("jobId"), request.get("clearanceId"))
                 self.finish(command_id, "applied", "Paper clearance confirmed; the station may continue")
+            except (StationError, OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
+                rejection = self.safe_message(error)
+                self.finish(command_id, "rejected", rejection)
+        if not rejection and kind == "recover_print":
+            try:
+                summary = self.station.recover_print(request)
+                self.finish(command_id, "applied", summary)
             except (StationError, OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
                 rejection = self.safe_message(error)
                 self.finish(command_id, "rejected", rejection)

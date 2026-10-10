@@ -3,13 +3,16 @@ import { useAuth } from '../context/AuthContext';
 import Icon from './Icon';
 import PrintBatchList from './PrintBatchList';
 import DeferredPrintBacks from './DeferredPrintBacks';
+import PrintRecoveryCard from './PrintRecoveryCard';
+import DiscordPrintBotSettings from './DiscordPrintBotSettings';
 import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand, preparePrintJobBacks, cancelPrintJobBacks } from '../lib/api';
-import { PRINT_JOB_STATES as JOB_STATES, printerHealthPresentation, printStationSummary, paperClearanceIdentity } from '../lib/printStationStatus';
+import { PRINT_JOB_STATES as JOB_STATES, printerHealthPresentation, printStationSummary, paperClearanceIdentity, printRecoveryIdentity } from '../lib/printStationStatus';
 import './PrintStationPage.css';
 
 const COMMAND_NAMES = {
   pause: 'Pause station', unpause: 'Unpause station', resume: 'Print reloaded backs',
   clear_paper: 'Confirm paper cleared',
+  recover_print: 'Continue interrupted print',
   configure_discord: 'Save Discord settings', test_discord: 'Send Discord test',
   check_update: 'Check for updates', update: 'Update companion', rollback: 'Roll back companion',
 };
@@ -166,6 +169,10 @@ export default function PrintStationPage() {
   const commandWaiting = commands.some(command => command.status === 'pending');
   const canControl = online && data?.permissions.canControl && !busy && !pendingRequest && !commandWaiting;
   const activeJob = station?.activeJob;
+  const recoveryBoundary = printRecoveryIdentity(activeJob);
+  const canRecoverBatch = data?.permissions.canUpdate || data?.jobs?.pending?.some(job => job.id === activeJob?.id && job.canOpen);
+  const showPrintRecovery = recoveryBoundary && (activeJob.recovery.mode === 'reprint_remaining'
+    || activeJob.recovery.cupsState === 4 || (station?.health?.known === true && station.health.ok === false));
   const deferredWorkflow = activeJob?.workflow === 'deferred-backs-v1';
   const packet = activeJob?.packet;
   const packetName = packet?.label ? `Packet ${packet.packetIndex} of ${packet.packetCount}` : 'Legacy double-faced PDF';
@@ -289,6 +296,7 @@ export default function PrintStationPage() {
     if (!canControl || pendingRef.current) return;
     if (type === 'resume' && (!canResume || !paperReloaded || !matchingResume)) return;
     if (type === 'clear_paper' && !canClearPaper) return;
+    if (type === 'recover_print' && (!recoveryBoundary || !canRecoverBatch || station.paused || activeJob.cancelRequested)) return;
     if (type === 'check_update' && !canCheckUpdate) return;
     if (['update', 'rollback'].includes(type) && !canUpdate) return;
     submit({ idempotencyKey: requestId(), type, ...extra });
@@ -355,7 +363,7 @@ export default function PrintStationPage() {
           {commandWaiting && <p className="station-small" role="status">A request is waiting for the Mac. Controls return when it is applied, rejected or expires.</p>}
         </section>
 
-        {needsPaperClearance ? <section className="station-card station-refeed" aria-label="Clear the printer paper">
+        {showPrintRecovery && !needsPaperClearance ? <PrintRecoveryCard key={recoveryBoundary} job={activeJob} canControl={canControl && canRecoverBatch} canRecoverBatch={canRecoverBatch} paused={station?.paused} onRecover={fields => command('recover_print', fields)} /> : needsPaperClearance ? <section className="station-card station-refeed" aria-label="Clear the printer paper">
           <h2>{activeJob.state === 'awaiting_clearance' ? 'Remove canceled-job paper' : 'Backs finished — restore blank paper'}</h2>
           <h3>{activeJob.deckName || 'Card batch'}</h3><p className="station-batch-id">Batch {activeJob.id}</p>
           <p>{activeJob.state === 'awaiting_clearance' ? 'Wait for the printer to stop. Remove any partially printed or flipped sheets from this job and clear the rear feeder.' : 'Remove the finished double-sided sheet and any remaining flipped paper from the rear feeder.'} Load only blank paper before releasing the next front job.</p>
@@ -408,7 +416,7 @@ export default function PrintStationPage() {
           <p>With companion 2.56.0 or newer, Proxy Balboa posts new queued jobs to this channel with the batch label, requester and card count. Queue messages never mention anyone. They confirm the job joined CLC’s queue, even while another batch is printing; they do not mean Epson has started.</p>
           <p>With companion 2.54.0 or newer, get completion updates naming the job after the Mac confirms all its print passes are complete. Completion and test messages never mention you directly; personal mentions are reserved for alerts that need your help. Earlier completed jobs are not announced again.</p>
           <p>With companion 2.55.0 or newer, fronts-finished updates say when backs are saved for later without mentioning you. A packet you select alerts you when it is safe to reload; after its backs print, an alert asks you to restore blank paper. Those paper tasks and reported printer errors may directly mention you.</p>
-          <p>Reload only the matching selected packet and confirm before its backs print. Repeated faults are quiet until the printer recovers; unknown or unavailable status does not count as recovery. Completion confirms the spooler result; check the physical sheets before using the cards.</p>
+          <p>Reload only the matching selected packet and confirm before its backs print. Repeated faults are quiet until the printer recovers; unknown or unavailable status does not count as recovery. Completion confirms the spooler result; check the physical sheets before using the cards. To receive commands in Discord, configure Discord printer commands below; the alert webhook only sends messages.</p>
           {discord?.configured && <p className="station-small">{discord.managed ? 'Settings are managed here.' : 'The Mac is using its local Discord configuration.'} {discord.userId ? `Discord user ${discord.userId} is mentioned only when help is needed (companion 2.54.0 or newer).` : 'Messages do not mention a specific user.'}{!online && ' This is the last reported configuration; the Mac is not currently confirmed online.'}</p>}
           {discord?.lastTest && <p className={`station-message${discord.lastTest.status === 'confirmed' ? '' : ' station-message--warning'}`} role="status">{discord.lastTest.status === 'confirmed' ? 'Discord confirmed the test message.' : 'The test was not confirmed. Check Discord before requesting another test; it will not retry automatically.'} <span className="station-small">{timestamp(discord.lastTest.at)}</span></p>}
           {!discord?.supported && <p className="station-small">Install a companion version that supports managed Discord settings, then refresh this page.</p>}
@@ -423,6 +431,8 @@ export default function PrintStationPage() {
           </> : <p className="station-small">An administrator can connect Discord, send a test, or disconnect this household station.</p>}
           <details><summary>Where to get the webhook and user ID</summary><p className="station-small">In your Discord server’s settings, open Integrations → Webhooks, create a webhook for the channel, and copy its URL. To receive personal mentions when help is needed, enable Developer Mode in Discord’s Advanced settings, then copy your user ID. Leave the ID empty to send all messages to the channel without personal mentions.</p></details>
         </div></details>
+
+        {data?.permissions.canUpdate && <DiscordPrintBotSettings defaultOperatorDiscordId={discord?.userId || ''} />}
 
         <details className="station-card station-management" aria-label="Companion updates">
           <summary><span className="station-disclosure-title"><Icon name="settings" size={22} /><span>Companion updates<small>Manage the software on your Mac</small></span></span><Badge tone={update?.status === 'failed' ? 'warning' : 'neutral'}>{UPDATE_STATES[update?.status] || 'Not reported'}</Badge></summary>

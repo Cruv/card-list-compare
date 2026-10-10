@@ -67,6 +67,9 @@ the global limit applies to requests actually handled by the Node backend.
 ## JSON request limits
 
 Express retains its default application limit of `512kb` for ordinary JSON routes.
+The separate `POST /api/discord/interactions` route accepts at most **32 KiB** of raw JSON
+before ordinary parsing/sanitization so Ed25519 verification covers Discord's exact bytes
+and timestamp. It remains under the API rate limiter; this is not a larger JSON allowance.
 Only these four POST paths permit a **12 MiB** JSON body:
 
 - `/api/integrations/v1/decks` and `/api/integrations/v1/decks/track-source`, each with an
@@ -168,6 +171,35 @@ exact saved CUPS title and job ID, retains completed receipts and requires confi
 clearance. Missing or ambiguous CUPS outcomes cannot authorize a silent release. Printed
 requester/batch labels are bounded text rendered only in the approved PDF margin.
 
+Companion 2.57.0 recovery binds the job, artifact, phase, saved CUPS title/ID, attempt and
+current recovery boundary at enqueue, delivery and native execution. Only the batch owner
+or a CLC administrator can recover it; household station-control permission alone is
+insufficient. It requires a known
+healthy printer and explicit paper-ready confirmation. A retained active/held pass keeps
+its original spooler ID; only the exact held job is released. Canceled, aborted or stopped
+passes require the operator's first unprinted position in the displayed physical page
+order, including reverse output order. A stopped pass must first be confirmed terminal.
+Backs additionally require checking/reloading the matching front sheet in CLC; Discord
+cannot bypass that confirmation. Unknown/missing/duplicate CUPS history cannot authorize
+printing. The existing PDF/hash and recipe remain frozen. Separate attempt IDs, archived
+receipts and deterministic unique titles preserve the original outcome and prevent
+command replay or lost replies from becoming blind duplicate submissions. CUPS counters
+are not used to infer how many physical sheets survived an interruption.
+
+The companion advertises `printRecovery: true` when claiming jobs. A companion without
+that capability cannot claim work containing a recovery `attemptId`. Managed rollback
+below 2.57.0 is blocked while any unresolved job contains such an attempt, preserving
+the meaning of its retained submission records.
+
+New CLC submissions set `job-error-policy=stop-printer` and a positive job-scoped
+`job-cancel-after=2147483647` seconds (about 68 years). The override addresses the default
+three-hour watchdog without changing global CUPS configuration or other applications'
+jobs. Explicit per-job zero is avoided because Apple CUPS schedules cancellation at the
+current time for an existing zero-valued attribute. These controls preserve an interrupted
+pass for inspection rather than authorizing automatic reprinting. See
+[Apple CUPS scheduler](https://github.com/apple/cups/blob/v2.3.3/scheduler/job.c) and
+[CUPS scheduler defaults](https://www.cups.org/doc/man-cupsd.conf.html).
+
 Flip alerts never authorize printing. The Mac stores an attempt for each job/artifact/channel
 before requesting a local notification or sending an optional Discord webhook. Retries and
 restarts cannot produce repeated pings; delivery failures leave the job waiting. Notification
@@ -191,6 +223,29 @@ Queue notices are created in the same durable transaction as queue acceptance. O
 authenticated, capable companion receives them through its heartbeat. The Mac records
 delivery intent before networking; replayed notices cannot produce a second send. These
 receipts are separate from physical print state and authorize no printer operation.
+
+Incoming Discord control is an independent, administrator-configured application
+connection. A channel webhook is send-only and cannot receive replies or commands.
+`POST /api/discord/interactions` checks Ed25519 over the raw timestamp/body, a five-minute
+clock window and the configured application ID before processing commands. Guild, channel
+and operator user IDs must all match; DMs and other contexts are rejected. Every command
+also rechecks that the bound CLC account is an active administrator. Public-key validation
+alone is not printer authorization. Supported inputs are only `/proxy status` and exact-
+batch `/proxy continue`, with a bounded first-unprinted-sheet option. No shell command,
+printer destination, driver setting or arbitrary URL can be supplied.
+
+Application IDs/public key and the account binding persist server-side. The bot token is
+accepted only for fixed-endpoint Discord command registration, sent with redirects refused,
+then discarded; it is not stored in the database, browser recovery or station telemetry.
+Raw interaction payloads/tokens are not stored. Durable interaction IDs and semantic hashes
+deduplicate requests before station mutation; replies are private with all mentions disabled.
+Disconnecting commands does not alter the separate notification webhook. Tests use signed
+fixtures and mocked registration/delivery; they do not send real Discord messages.
+Changing or disconnecting the application binding rejects its still-undelivered station
+requests atomically. Already delivered/in-flight controls may finish; configuration changes
+do not pretend to cancel a physical submission. Delivery also rechecks the recorded
+Discord binding and active CLC administrator, even if a demoted administrator retains
+ordinary household print permission.
 
 The [Mac companion](companion/mac/README.md) requires a private user-owned token/config
 and state directory. Downloads stay on the configured server origin and reject redirects.
@@ -308,7 +363,9 @@ change with its regression test.
 ### Household batch administration and native polling
 
 Authorized administrators can list sanitized household batch summaries across users and
-cancel a job only before any spooler submission has begun. Owner-scoped PDF/deck routes
+cancel remaining work through the native exact-job and paper-clearance protocol. Pending
+work cancels immediately; submitted work cannot silently release the physical queue.
+Owner-scoped PDF/deck routes
 remain owner-scoped; a summary is not an artifact or deck-content grant. Cancellation
 rechecks persisted steps, preserves artifacts/receipts and refuses ambiguous physical
 states. Session-authenticated library imports derive account/instance identity on the

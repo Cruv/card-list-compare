@@ -220,6 +220,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **Durable jobs** — downloads, manifests, progress, errors, request deduplication, owner access, scoped station claims and submission reconciliation. Printer consolidates saved PDFs, waiting jobs and completed/failed/canceled history across decks and standalone lists. Admins see all users; others see their own, with explicit waiting-in-CLC versus Epson status and links to their exact batch. Owners and administrators can cancel whole batches or only unfinished backs. The Mac stops affected submissions and requires paper clearance when necessary.
 - **Household queue** — administrators or explicitly allowed users can request printing. The Mac owns its Epson driver and verified local recipe; all ordinary and double-faced fronts finish before the job parks its backs. Other front jobs continue. Choose any saved packet later; the Mac reserves the printer before an explicit reload confirmation, then prints its backs and waits for confirmation that blank paper is restored.
 - **Print → Printer** — authorized household users can see live Mac connection/health, recent events and active batches, pause new submissions, select saved back packets, confirm their reload and restore blank paper after printing or cancellation. The status shows its reason directly, distinguishing confirmed faults, unavailable status and informational reminders. Companion 2.53.3+ recognizes Epson's routine ink-tank reminder without presenting it as an empty-ink error. Administrators also see managed version controls when the station supports them.
+- **Recover interrupted printing (2.57.0+)** — after fixing the printer, continue an exact retained pass or select the first unprinted sheet from the displayed physical order when the spooler canceled/stopped it. The Mac checks the original receipt and paper confirmation; remaining sheets use the same frozen PDF with a separate attempt receipt. Back-side recovery requires checking the matching fronts in CLC. New CLC passes use a positive, job-scoped CUPS timeout of 2,147,483,647 seconds (about 68 years) and `stop-printer`, preventing the default three-hour timeout without changing the global scheduler.
 
 Defaults: 250 physical copies per job, 1 GiB per PDF, seven-day retention for ready/terminal artifacts and a 10 GiB retained-job quota. Active jobs and unfinished saved backs are protected from expiry, including across restarts and days of waiting; they still count against the storage quota. Reviewed print lists can check ManaSync ownership and open missing originals in Mana Pool. Drying, lamination and cutting tracking remain outside CLC.
 
@@ -242,6 +243,17 @@ changes/totals and link directly to the deck. See [notification voice](docs/NOTI
 packet stays visible in **Print → Printer**, including while paused. Unselected saved backs never hold the front queue. Once a back packet is selected, its reload and blank-paper confirmation do hold new front submissions. Earlier PDFs remain
 unchanged and may contain several DFC sheets without a job label: preview all pages and
 match the exact waiting packet before reloading. See the [packet sequence and alerts](docs/PRINT_WORKFLOW.md#double-faced-packets-and-flip-alerts).
+
+From **2.57.0**, administrators can also open **Print → Printer → Discord printer commands**
+to connect a Discord application. The existing channel webhook sends notifications;
+incoming `/proxy status` and `/proxy continue batch:FULL-UUID` commands require the
+application's public key, server/channel/operator IDs and signed HTTPS interactions
+endpoint. A bot token is used once to register commands and then discarded. Only the
+configured operator in that server/channel can act, through the linked active CLC admin.
+For canceled fronts, add `sheet:N`, where N is the first unprinted position in the physical
+order shown by `/proxy status`, not necessarily the PDF page number. Continue confirms
+the issue is fixed and correct paper is loaded. Backs require the explicit paper check in
+CLC. Replies are private and disable all mentions. See [recovery and Discord setup](docs/PRINT_WORKFLOW.md#recovering-after-paper-or-printer-errors).
 
 Install the [Mac companion](companion/mac/README.md) on the printer host separately from
 Docker. It uses Python 3.9+ and native CUPS commands, with a scoped token file and local

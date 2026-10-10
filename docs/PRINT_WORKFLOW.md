@@ -403,6 +403,95 @@ deck. See [notification voice](NOTIFICATION_VOICE.md).
 Native Mac messages remain plain.
 The bot name and style do not change notification permissions or paper confirmation.
 
+## Recovering after paper or printer errors
+
+With companion **2.57.0+**, **Print → Printer** keeps an interrupted pass visible with
+its batch, packet, exact Epson submission and recovery action. Fix the actual condition
+on the printer and load the correct paper first. A paper-out notification does not cancel
+a job, and dismissing it does not continue printing. The Mac checks known healthy device
+status again before accepting recovery.
+
+The batch owner or a CLC administrator can recover the pass. General household permission
+to control the station does not authorize recovery of another user's batch.
+
+New CLC passes explicitly set `job-error-policy=stop-printer` and
+`job-cancel-after=2147483647` seconds (about 68 years), rather than inheriting CUPS' default
+three-hour watchdog. This positive override is limited to CLC's own job; global scheduler
+settings and other applications' jobs are untouched. Explicit per-job zero is avoided:
+Apple CUPS adds the supplied value to the current time when that attribute exists. See
+[Apple CUPS scheduler](https://github.com/apple/cups/blob/v2.3.3/scheduler/job.c) and
+[CUPS scheduler defaults](https://www.cups.org/doc/man-cupsd.conf.html).
+
+- **The spooler still has the pass:** continue its original spooler ID. A held job can be
+  released by its exact ID; a pending or processing job continues in place after the
+  printer accepts paper. This does not submit another copy of the PDF.
+- **The spooler canceled, aborted or stopped the pass:** inspect every printed sheet and
+  its label. Select the **first unprinted physical sheet** from the order shown in CLC.
+  The selection is an ordinal position in that order, not automatically a PDF page number.
+  For example, if physical order is PDF pages `18, 17, 16, …, 1` and 18/17 printed fully,
+  choose position **3**, which starts with PDF page 16. If nothing printed, choose 1.
+  Check partial sheets too. The Mac must confirm a stopped attempt is terminal before
+  creating the selected remaining-page attempt.
+- **Interrupted backs:** match and reload only that packet's front sheet, then explicitly
+  confirm the paper in CLC. A general “fixed” message cannot authorize another packet or
+  substitute for this check. After backs finish, the existing blank-paper confirmation
+  still applies.
+
+Recovery keeps the original PDF, page labels, artwork, geometry, hash and local recipe.
+Only the explicitly selected remaining pages receive a new attempt ID and unique CUPS
+title. Old attempt/submission receipts remain available; repeated commands and lost replies
+are reconciled without automatic duplicate printing. Printer page counters cannot establish
+which physical sheets are usable. Missing, duplicate or conflicting CUPS history keeps
+the pass blocked for reconciliation rather than assuming it is safe to repeat. Explicitly
+canceled batches are not revived by this recovery action.
+
+Recovery-capable companions advertise `printRecovery: true` when claiming work. Older
+companions cannot claim jobs containing a recovery `attemptId`, and managed rollback
+below 2.57.0 is blocked while an unresolved job contains a recovery attempt.
+
+### Continue from Discord
+
+Administrators can configure **Print → Printer → Discord printer commands**. A notification
+webhook only sends messages; receiving commands requires a **Discord application** with
+an Ed25519 public key and a public HTTPS CLC endpoint. The Mac still polls CLC outbound;
+it does not expose a listener or share the Epson printer.
+
+1. Open/create Proxy Balboa in the Discord Developer Portal. In CLC save its Application
+   ID, public key, Discord server ID, printer channel ID and operator user ID. This links
+   that Discord operator to the current active CLC administrator account.
+2. Set the application's **Interactions Endpoint URL** to the URL shown by CLC,
+   normally `https://your-clc-host/api/discord/interactions`. Set `APP_URL` to CLC's public
+   HTTPS origin. Save CLC's application settings before Discord verifies the endpoint.
+3. Install the application into the selected Discord server using CLC's link. Register
+   `/proxy` using a one-time bot token from the application's Bot page. The token is used
+   for registration only and then discarded, not saved as a permanent server/Mac secret.
+4. In the configured channel run `/proxy status` or `/proxy status batch:FULL-UUID`.
+   Replies are private and do not mention anyone. Only the configured operator in that
+   server/channel can control the printer; DMs and other users/channels are rejected.
+
+After fixing the device and loading the correct paper, use
+`/proxy continue batch:FULL-UUID`. For a canceled/stopped front pass also provide
+`sheet:N`, the first unprinted position in the physical order reported by status.
+This is an explicit paper-ready confirmation. A retained pass must omit `sheet` so it
+continues its original submission. Back-side recovery directs the operator to CLC for
+the matching-front reload check. The response confirms a queued control request; check
+status/Recent requests for the Mac's result before assuming printing resumed or repeating
+an uncertain request. Recovery never unpauses a deliberately paused station.
+Sheet positions are relative to the **current interrupted attempt**, which may already
+contain only a remainder from an earlier recovery. If the Mac queue itself is paused,
+inspect and resume that queue on the Mac first; recovery does not enable a whole queue
+that could also contain another application's job.
+
+CLC verifies the timestamp and signature over the exact raw request before parsing,
+checks the application/server/channel/operator and current CLC administrator, and stores
+durable interaction/command receipts. Replays cannot submit another attempt. Disconnect
+commands in this panel independently of channel alert delivery. Changing/disconnecting
+the command connection rejects its undelivered requests. Already delivered or running
+controls may still finish; use the batch's explicit cancel controls to stop physical work.
+The saved binding and administrator permission are rechecked before command delivery.
+Automated tests use signed
+fixtures and mocked transports; they do not send real Discord messages or print sheets.
+
 ## Queue, access and retention
 
 PDF preparation and downloads require a user session and ownership. Physical queue access
@@ -464,6 +553,8 @@ The companion streams and verifies PDFs, maintains a durable local SQLite submis
 and reconciles exact CUPS titles/job IDs before reporting outcomes. `status`, `pause`,
 `unpause` and `resume JOB_ID` control operation. Manual `release JOB_ID --paper-cleared`
 abandons an unresolved batch only after the operator has inspected and cleared its paper.
+Use the recovery controls above to finish an interrupted pass without abandoning it;
+`resume JOB_ID` remains the exact DFC reload control, not a generic retry of canceled pages.
 Setup and dry-run commands do not print; `run` and `run --once` may submit authorized jobs.
 The Mac must stay awake, with the user logged in when using the optional LaunchAgent.
 Every pass explicitly requests landscape Letter at actual size; a landscape PDF alone does

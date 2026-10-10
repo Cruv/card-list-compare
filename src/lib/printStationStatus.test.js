@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { printerHealthPresentation, printStationSummary, paperClearanceIdentity } from './printStationStatus';
+import { printerHealthPresentation, printStationSummary, paperClearanceIdentity, printRecoveryIdentity } from './printStationStatus';
 
 const current = { fresh: true, online: true, loading: false };
 const reminder = 'Regularly check ink levels in the actual ink tanks.';
@@ -8,6 +8,28 @@ const station = changes => ({ recipeVerified: true, duplexVerified: true, paused
   activeJob: { state: 'submitted', deckName: 'Jin', id: 'batch-jin' }, health: ready, ...changes });
 
 describe('printer status presentation', () => {
+  it('binds a recovery acknowledgement to the exact spooler attempt and physical sheet order', () => {
+    const job = { id: 'job', state: 'uncertain', recovery: { recoveryId: `recover-${'a'.repeat(24)}`,
+      artifactId: 'ordinary', phase: 'fronts', spoolerId: 'EPSON-23', mode: 'reprint_remaining',
+      cupsState: 7, physicalPages: [18, 17, 16], totalSheets: 3 } };
+    const boundary = printRecoveryIdentity(job);
+    expect(boundary).not.toBeNull();
+    expect(boundary).toBe(printRecoveryIdentity(structuredClone(job)));
+    for (const changed of [
+      { spoolerId: 'EPSON-24' }, { recoveryId: `recover-${'b'.repeat(24)}` },
+      { phase: 'backs' }, { artifactId: 'another-packet' }, { cupsState: 8 }, { physicalPages: [16, 17, 18] },
+    ]) expect(printRecoveryIdentity({ ...job, recovery: { ...job.recovery, ...changed } })).not.toBe(boundary);
+    expect(printRecoveryIdentity({ ...job, id: 'another-job' })).not.toBe(boundary);
+    for (const invalid of [
+      { mode: 'resume' }, { cupsState: 9 }, { totalSheets: 2 }, { physicalPages: [18, 18, 16] },
+      { physicalPages: [18, 0, 16] }, { physicalPages: ['18', 17, 16] }, { recoveryId: '' },
+    ]) expect(printRecoveryIdentity({ ...job, recovery: { ...job.recovery, ...invalid } })).toBeNull();
+    expect(printStationSummary(station({ activeJob: job }), current)).toBe('Continue the interrupted print pass');
+    expect(printStationSummary(station({ activeJob: job, paused: true }), current)).toBe('Printing is paused');
+    const processing = { ...job, state: 'submitted', recovery: { ...job.recovery, mode: 'resume', cupsState: 5 } };
+    expect(printStationSummary(station({ activeJob: processing }), current)).toBe('In the Epson queue');
+    expect(printStationSummary(station({ activeJob: processing, health: { known: true, ok: false } }), current)).toBe('Continue the interrupted print pass');
+  });
   it('binds paper acknowledgement to the exact job, state and clearance boundary', () => {
     const first = { id: 'same-job', state: 'awaiting_paper_reset', clearanceId: 'back:first-request' };
     const saved = paperClearanceIdentity(first);

@@ -599,6 +599,12 @@ def printer_alert_text(health, job, pending, config):
         label = artifact.get("label") or pending["artifact_id"]
         body += "Packet: " + clean(label, 80) + "; pass: " + ("backs" if pending.get("phase") == "backs" else "fronts") + ". "
     body += "Check the printer and Printer in CLC. This alert does not pause, resume or retry printing."
+    if pending and pending.get("spooler_id"):
+        body += " After fixing the fault, use Continue interrupted print in CLC. If CUPS canceled the pass, inspect the output and choose the first unprinted sheet in that attempt's displayed print order."
+        if pending.get("phase") != "backs":
+            body += " When the Discord command app is connected, use /proxy continue batch:" + clean((job or {}).get("id", ""), 96) + "; supply sheet: only for a canceled or stopped attempt."
+        else:
+            body += " For backs, reload only the matching front sheet and confirm it in CLC."
     return title, subtitle, body
 
 

@@ -830,3 +830,161 @@ describe('saved back packets and physical clearance controls', () => {
     expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [jobId]).state).toBe('awaiting_paper_reset');
   });
 });
+
+describe('operator recovery of interrupted physical print passes', () => {
+  function interrupted(cupsState = 7, phase = 'fronts') {
+    const steps = phase === 'backs' ? [
+      { artifactId: 'fronts', phase: 'fronts', state: 'completed', spoolerId: 'EPSON_ET_8550_Series-22' },
+      { artifactId: 'fronts', phase: 'backs', state: 'uncertain', spoolerId: 'EPSON_ET_8550_Series-23', requiresRefeed: true, refeedConfirmed: true },
+    ] : [{ artifactId: 'fronts', phase: 'fronts', state: 'uncertain', spoolerId: 'EPSON_ET_8550_Series-23' }];
+    const jobId = seedJob('uncertain', steps);
+    const row = db.get('SELECT manifest_json FROM print_jobs WHERE id = ?', [jobId]);
+    const manifest = JSON.parse(row.manifest_json);
+    Object.assign(manifest.artifacts[0], { kind: phase === 'backs' ? 'dfc' : 'ordinary', pageCount: 4, sheetCount: phase === 'backs' ? 2 : 4 });
+    const manifestJson = JSON.stringify(manifest);
+    db.run('UPDATE print_jobs SET manifest_json = ?, manifest_sha256 = ? WHERE id = ?', [manifestJson, digest(manifestJson), jobId]);
+    const recovery = { recoveryId: `recover-${'a'.repeat(24)}`, artifactId: 'fronts', phase,
+      spoolerId: 'EPSON_ET_8550_Series-23', mode: cupsState < 6 ? 'resume' : 'reprint_remaining', cupsState,
+      physicalPages: phase === 'backs' ? [4, 2] : [4, 3, 2, 1], totalSheets: phase === 'backs' ? 2 : 4, attemptId: null };
+    return { jobId, recovery, snapshot: heartbeat({ printRecovery: true,
+      activeJob: { id: jobId, state: 'uncertain', artifactId: 'fronts', phase, recovery } }) };
+  }
+  const recoverRequest = (item, extra = {}) => command('recover_print', { jobId: item.jobId,
+    ...Object.fromEntries(['artifactId', 'phase', 'spoolerId', 'recoveryId'].map(key => [key, item.recovery[key]])), paperReady: true, ...extra });
+  async function reportRecovery(item, control, extra = {}) {
+    const queue = await import('../lib/printQueue.js');
+    const row = db.get('SELECT * FROM print_jobs WHERE id = ?', [item.jobId]);
+    return request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: queue.formatPrintJob(row, true).claimToken,
+        artifactId: 'fronts', phase: item.recovery.phase, state: 'recovery', commandId: control.id,
+        oldSpoolerId: item.recovery.spoolerId, pages: [1, 2, 3], ...extra } });
+  }
+
+  it('requires an inspected physical-sheet checkpoint for canceled/aborted/stopped passes', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    expect((await (await status()).json()).station.activeJob.recovery).toEqual(item.recovery);
+    for (const extra of [{}, { firstUnprintedSheet: 0 }, { firstUnprintedSheet: 5 }, { firstUnprintedSheet: true }, { firstUnprintedSheet: 2, paperReady: false }]) {
+      expect((await send(recoverRequest(item, extra))).status).toBe(400);
+    }
+    const body = recoverRequest(item, { firstUnprintedSheet: 2 });
+    const saved = await accepted(body);
+    expect(saved).toMatchObject({ type: 'recover_print', jobId: item.jobId, recoveryId: item.recovery.recoveryId, firstUnprintedSheet: 2, paperReady: true });
+    expect((await accepted(body)).id).toBe(saved.id, 'Lost acknowledgement returns the same command');
+    const stored = JSON.parse(db.get('SELECT payload_json FROM print_station_commands WHERE id = ?', [saved.id]).payload_json);
+    expect(stored.pages).toEqual([1, 2, 3], 'PDF page 4 already printed first because physical output order is reverse');
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2, pages: [4] }))).status).toBe(400);
+  });
+
+  it('requires owner/admin authorization and the exact current boundary', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2 }), 2)).status).toBe(403);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2 }), 3)).status).toBe(403);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2, spoolerId: 'EPSON_ET_8550_Series-99' }))).status).toBe(409);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2, recoveryId: `recover-${'b'.repeat(24)}` }))).status).toBe(409);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 }));
+    const changed = { ...item.snapshot, activeJob: { ...item.snapshot.activeJob,
+      recovery: { ...item.recovery, recoveryId: `recover-${'b'.repeat(24)}` } } };
+    const response = await (await beat(changed)).json();
+    expect(response.commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [saved.id]).status).toBe('rejected');
+  });
+
+  it('archives the original physical receipt and rejects reports from an older attempt', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 }));
+    expect((await reportRecovery(item, saved)).status).toBe(409, 'Recovery command must be delivered before execution');
+    await beat(item.snapshot);
+    const response = await reportRecovery(item, saved);
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+    const recovered = await response.json();
+    expect(recovered.job.state).toBe('claimed');
+    expect(recovered.job.steps[0]).toMatchObject({ state: 'pending', attemptId: saved.id, pages: [1, 2, 3],
+      attempts: [{ state: 'uncertain', spoolerId: item.recovery.spoolerId, operatorConfirmedPrintedSheets: 1, recoveryCommandId: saved.id }] });
+    expect(recovered.job.steps[0].spoolerId).toBeUndefined();
+    expect((await request('/api/print-station/claim', { method: 'POST', token: credential,
+      body: { maxArtifacts: 37, deferredBacks: true } })).status).toBe(409, 'Older companions cannot ignore recovery page ranges');
+    expect((await request('/api/print-station/claim', { method: 'POST', token: credential,
+      body: { maxArtifacts: 37, deferredBacks: true, printRecovery: true } })).status).toBe(200);
+    const stale = await request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: recovered.job.claimToken, artifactId: 'fronts', phase: 'fronts', state: 'submitted', spoolerId: item.recovery.spoolerId } });
+    expect(stale.status).toBe(409);
+    const submit = await request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: recovered.job.claimToken, artifactId: 'fronts', phase: 'fronts', attemptId: saved.id, state: 'submitting' } });
+    expect(submit.status).toBe(200);
+  });
+
+  it('does not re-create a pending/held/processing CUPS pass or accept page selection', async () => {
+    const item = interrupted(4); await beat(item.snapshot);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 1 }))).status).toBe(400);
+    const saved = await accepted(recoverRequest(item)); await beat(item.snapshot);
+    expect(saved.firstUnprintedSheet).toBeUndefined();
+    expect((await reportRecovery(item, saved)).status).toBe(409, 'Held jobs must resume in place, never gain a new attempt');
+    const steps = JSON.parse(db.get('SELECT steps_json FROM print_jobs WHERE id = ?', [item.jobId]).steps_json);
+    expect(steps[0].spoolerId).toBe(item.recovery.spoolerId);
+    expect(steps[0].attemptId).toBeUndefined();
+  });
+
+  it('rechecks requester authorization after delivery and before authorizing new printing', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 })); await beat(item.snapshot);
+    db.run('UPDATE users SET suspended = 1 WHERE id = 1');
+    expect((await reportRecovery(item, saved)).status).toBe(403);
+    expect(JSON.parse(db.get('SELECT steps_json FROM print_jobs WHERE id = ?', [item.jobId]).steps_json)[0].spoolerId).toBe(item.recovery.spoolerId);
+  });
+
+  it('requires paper clearance when canceling a confirmed reloaded legacy back before its recovery submits', async () => {
+    const item = interrupted(7, 'backs'); await beat(item.snapshot);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 1, paperReloaded: true })); await beat(item.snapshot);
+    expect((await reportRecovery(item, saved, { pages: [2, 4] })).status).toBe(200);
+    const queue = await import('../lib/printQueue.js');
+    queue.requestPrintCancellation(db.get('SELECT * FROM print_jobs WHERE id = ?', [item.jobId]), 'backs');
+    const row = db.get('SELECT state, cancel_requested FROM print_jobs WHERE id = ?', [item.jobId]);
+    expect(row.cancel_requested).toBe('backs');
+    expect(row.state).toBe('claimed');
+  });
+
+  it('requires a separate explicit matching-front reload confirmation for backs', async () => {
+    const item = interrupted(7, 'backs'); await beat(item.snapshot);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 1 }))).status).toBe(400);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 1, paperReloaded: true }));
+    await beat(item.snapshot);
+    const result = await reportRecovery(item, saved, { pages: [2, 4] });
+    expect(result.status).toBe(200);
+    const { job } = await result.json();
+    expect(job.steps[0].state).toBe('completed');
+    expect(job.steps[1]).toMatchObject({ state: 'pending', pages: [2, 4], refeedConfirmed: true });
+  });
+
+  it('preserves all receipts and selects relative to the current attempt on a second interruption', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    const first = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 })); await beat(item.snapshot);
+    const firstReply = await (await reportRecovery(item, first)).json();
+    const report = body => request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: firstReply.job.claimToken, artifactId: 'fronts', phase: 'fronts', attemptId: first.id, ...body } });
+    expect((await report({ state: 'submitting' })).status).toBe(200);
+    expect((await report({ state: 'submitted', spoolerId: 'EPSON_ET_8550_Series-24' })).status).toBe(200);
+    expect((await report({ state: 'failed', spoolerId: 'EPSON_ET_8550_Series-24' })).status).toBe(200);
+    const second = { ...item, recovery: { ...item.recovery, recoveryId: `recover-${'b'.repeat(24)}`,
+      spoolerId: 'EPSON_ET_8550_Series-24', physicalPages: [3, 2, 1], totalSheets: 3, attemptId: first.id } };
+    second.snapshot = { ...item.snapshot, receipts: [{ commandId: first.id, status: 'applied', message: 'Remaining sheets selected' }],
+      activeJob: { ...item.snapshot.activeJob, recovery: second.recovery } };
+    await beat(second.snapshot);
+    const next = await accepted(recoverRequest(second, { firstUnprintedSheet: 2 }));
+    await beat({ ...second.snapshot, receipts: [] });
+    const response = await reportRecovery(second, next, { attemptId: first.id, pages: [1, 2] });
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+    const step = (await response.json()).job.steps[0];
+    expect(step).toMatchObject({ state: 'pending', attemptId: next.id, pages: [1, 2] });
+    expect(step.attempts.map(attempt => attempt.spoolerId)).toEqual(['EPSON_ET_8550_Series-23', 'EPSON_ET_8550_Series-24']);
+    expect(step.attempts[1].attempts).toBeUndefined();
+  });
+
+  it('hides recovery when the manifest, saved spooler receipt or cancellation no longer agrees', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    db.run('UPDATE print_jobs SET cancel_requested = ?, cancel_request_id = ? WHERE id = ?', ['all', crypto.randomUUID(), item.jobId]);
+    expect((await (await status()).json()).station.activeJob.recovery).toBeNull();
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2 }))).status).toBe(409);
+    db.run('UPDATE print_jobs SET cancel_requested = NULL, cancel_request_id = NULL, manifest_sha256 = ? WHERE id = ?', ['0'.repeat(64), item.jobId]);
+    expect((await (await status()).json()).station.activeJob.recovery).toBeNull();
+  });
+});

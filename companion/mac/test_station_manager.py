@@ -85,6 +85,15 @@ class ManagerTests(unittest.TestCase):
         with self.assertRaisesRegex(manager.ManagerError, 'active print job'):
             manager.assert_idle(self.config)
 
+    def test_recovered_pages_prevent_rollback_to_worker_that_ignores_attempt_ranges(self):
+        payload = {'workflow': 'deferred-backs-v1', 'steps': [{'attemptId': 'recovery-12345678', 'state': 'completed'}]}
+        self.ledger.write("INSERT INTO jobs VALUES('saved',?,'recipe','backs_pending',NULL,0)", (json.dumps(payload),))
+        manager.assert_workflow_compatible(self.config, '2.57.0')
+        with self.assertRaisesRegex(manager.ManagerError, 'Finish or cancel recovered printing'):
+            manager.assert_workflow_compatible(self.config, '2.56.0')
+        self.ledger.write("UPDATE jobs SET state='canceled' WHERE id='saved'")
+        manager.assert_workflow_compatible(self.config, '2.56.0')
+
     def install(self):
         return manager.install_bundle(self.bundle(), self.config_path, load_agent=False, launch_agents=self.root / "agents")
 

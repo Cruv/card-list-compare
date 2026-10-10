@@ -281,6 +281,48 @@ Do not interrupt active sheets or update the native runtime while its ledger own
 
 #### Queue operation
 
+**Paper-out recovery (v2.57.0+).** New native submissions set the job-scoped
+`job-error-policy=stop-printer` and `job-cancel-after=2147483647` (about 68 years)
+instead of inheriting the household Mac's three-hour cancellation timer. No global
+CUPS scheduler setting changes. Do not substitute explicit `job-cancel-after=0`:
+Apple CUPS adds an explicitly supplied value to the current time, so zero can mean
+immediate cancellation. See [CUPS timeout settings](https://www.cups.org/doc/man-cupsd.conf.html)
+and [Apple scheduler source](https://github.com/apple/cups/blob/v2.3.3/scheduler/job.c).
+
+The October 10 incident (`getting right with paper`, batch
+`7acd98db-0771-4bf1-be3a-2f4b4d109f14`) had no CLC cancellation request. CUPS job 23
+was submitted at 03:10 local time, reported paper out at 03:22, and was canceled at
+06:22 with `job-cancel-after=10800`. CUPS' generic `job-canceled-by-user` reason does
+not identify a human cancellation. The operator confirmed one complete sheet printed.
+The saved pass has 18 sheets in reverse order; recovery sheet 2 is PDF page 17,
+followed by pages 16 through 1. CUPS reported zero completed impressions for this
+failed job, so its counters must not override the physical checkpoint.
+
+Resolve device faults before using **Printer → Continue printer job** or
+**Print remaining sheets**. Owner/admin recovery is bound to the exact batch, pass,
+CUPS title/ID and attempt. A canceled/stopped attempt requires the first unprinted
+sheet ordinal **within that interrupted attempt**, preserving the frozen PDF and
+old receipt while creating a distinct remaining-pages attempt. Recovering backs
+also needs an explicit matching-front-sheet reload confirmation. Unknown or conflicting
+CUPS history fails closed. A manually stopped Mac queue still needs operator attention
+on the Mac; recovery does not enable the whole queue or restart a job from page one.
+
+Incoming Discord commands require a Discord application in addition to the alert
+webhook. Configure **Printer settings → Discord printer commands**, set the public
+HTTPS interaction endpoint shown there, install the application commands, and register
+them using a one-time token. Only the configured Discord operator/server/channel and
+current CLC administrator may issue `/proxy continue batch:<UUID> [sheet:<ordinal>]`.
+It acknowledges a durable request; the Mac must still validate and apply it. Saved
+bot settings contain no token. Do not put a bot token or webhook in logs or Git.
+
+Normal companion updates remain blocked while a physical job is unresolved. To
+install recovery code for an already canceled legacy pass, a one-time offline update
+may be performed only after proving its exact CUPS title/ID is terminal, proving no
+other physical jobs are active, stopping and locking the worker, and backing up its
+ledger, artifacts, configuration and current version. Preserve the uncertain job and
+Enabled state; never mark it failed/completed or clear its ledger to bypass the guard.
+Verify the original receipts/configuration and unchanged CUPS history after restart.
+
 Open **Print → New print list** for a standalone batch, or a tracked deck's Print tab for snapshot
 plans. Both show artwork review, editable card selections, PDF downloads and job status.
 Standalone jobs store a null tracked-deck ID; startup migrates the old non-null column

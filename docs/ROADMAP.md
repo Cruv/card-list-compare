@@ -21,9 +21,19 @@ alerts with durable duplicate suppression; it does not pause, resume or retry pr
 Companion v2.56.0 also announces newly queued batches in Discord with requester, label,
 copy count and queue time, without mentions. Queue notices run independently of printing;
 retries and restarts do not duplicate delivery attempts.
+Source v2.57.0 adds explicit printer recovery and signed Discord `/proxy status` / `/proxy
+continue` commands. New CLC passes use a positive, job-scoped CUPS timeout of 2,147,483,647
+seconds (about 68 years) and `stop-printer`, without changing the global scheduler. Retained
+passes keep their spooler ID; canceled/stopped passes require inspecting labels and choosing
+the first unprinted physical-sheet position, respecting reverse output. Frozen PDFs and
+separate attempt receipts retain earlier outcomes and prevent replayed submissions. Backs
+still require matching-front paper confirmation in CLC. Discord commands need a separately
+configured application and exact operator/server/channel binding to an active CLC admin;
+the registration token is discarded. Webhooks remain send-only. See [recovery/setup](PRINT_WORKFLOW.md#recovering-after-paper-or-printer-errors).
 The deployed server/native versions are separately recorded in
 [the household checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-14).
-Both server and companion are deployed at v2.56.0. Future companion updates must wait for
+Source support does not establish that a household rollout or Discord application setup
+is complete; follow that checkpoint for deployment status. Future companion updates must wait for
 active physical work to finish; preserve Enabled and
 all private receipts/settings during the household rollout. Never pause the running
 household station for interface testing. Reconcile Portainer's saved service definition

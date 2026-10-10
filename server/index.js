@@ -28,6 +28,8 @@ import { startNotificationScheduler } from './lib/notificationScheduler.js';
 import { initDownloadQueue } from './lib/downloadQueue.js';
 import { initializePrintGenerator } from './lib/printGenerator.js';
 import { initPrintQueue } from './lib/printQueue.js';
+import discordPrintBotRoutes, { discordPrintInteractionRouter } from './routes/discord-print-bot.js';
+import { initDiscordPrintBotSchema } from './lib/discordPrintBot.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -72,6 +74,7 @@ app.use('/api', apiRateLimiter);
 
 // Input sanitization on /api routes
 app.use('/api', requireJsonContentType);
+app.use('/api/discord', discordPrintInteractionRouter);
 app.use(jsonBody);
 app.use('/api', trimBody);
 
@@ -95,6 +98,7 @@ app.use('/api/mpc', mpcRoutes);
 // Station credentials are deliberately separate from user sessions.
 app.use('/api/print-station', printStationRoutes);
 app.use('/api/print-station-management', printStationManagementRoutes);
+app.use('/api/print-station-management', discordPrintBotRoutes);
 app.use('/api/decks', printRoutes);
 app.use('/api/print-lists', standalonePrintRouter);
 app.use('/api/print-batches', printBatchesRouter);
@@ -103,6 +107,7 @@ app.use('/api/manasync', manasyncRouter);
 async function start() {
   await initDb();
   initIntegrationSchema();
+  initDiscordPrintBotSchema();
   startManaSyncRetryWorker();
   resetPrintStationManagement();
   initDownloadQueue();

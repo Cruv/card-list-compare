@@ -184,17 +184,20 @@ def assert_idle(config, allow_missing=False):
 
 
 def assert_workflow_compatible(config, target_version):
-    """Old workers cannot safely schedule a ledger containing saved backs."""
-    if tuple(map(int, version(target_version).split("."))) >= (2, 55, 0):
+    """Old workers cannot safely schedule saved backs or selected recovery pages."""
+    target = tuple(map(int, version(target_version).split(".")))
+    if target >= (2, 57, 0):
         return
     database = Path(config["state_dir"]).expanduser() / "station.sqlite3"
     if not database.exists():
         return
     try:
         with contextlib.closing(sqlite3.connect(database.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
-            saved = connection.execute("SELECT payload FROM jobs WHERE state NOT IN ('completed','failed','canceled')")
-            if any(json.loads(row[0]).get("workflow") == "deferred-backs-v1" for row in saved):
+            saved = [json.loads(row[0]) for row in connection.execute("SELECT payload FROM jobs WHERE state NOT IN ('completed','failed','canceled')")]
+            if target < (2, 55, 0) and any(job.get("workflow") == "deferred-backs-v1" for job in saved):
                 raise ManagerError("Finish or cancel saved backs before installing a companion older than 2.55.0")
+            if any(any(step.get("attemptId") for step in job.get("steps", [])) for job in saved):
+                raise ManagerError("Finish or cancel recovered printing before installing a companion older than 2.57.0")
     except (sqlite3.Error, ValueError) as error:
         raise ManagerError("Saved print workflow compatibility could not be checked safely") from error
 

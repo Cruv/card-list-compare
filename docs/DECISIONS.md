@@ -195,6 +195,41 @@ configuration. Tests bind to the acknowledged revision and never mention the use
 attempts are recorded before sending, with no automatic replay after an ambiguous response.
 No webhook was configured or sent during implementation.
 
+**Printer recovery and Discord commands (2026-10-10; v2.57.0).** The household's paper-out
+pass was canceled by CUPS' three-hour watchdog while waiting for paper. Preserve future
+CLC jobs with `job-error-policy=stop-printer` and a positive, job-scoped
+`job-cancel-after=2147483647` seconds (about 68 years). No global scheduler configuration
+or other application's jobs change. Do not use explicit per-job zero: Apple's scheduler
+adds that value to the current time when the attribute exists. See
+[Apple CUPS source](https://github.com/apple/cups/blob/v2.3.3/scheduler/job.c) and
+[the documented three-hour default](https://www.cups.org/doc/man-cupsd.conf.html).
+
+Fixing paper alone cannot revive a terminal CUPS pass. Recovery identifies the exact
+job/artifact/pass, CUPS title/ID and current attempt. It requires the batch owner or a CLC
+administrator, not merely household station-control permission. A retained pass continues with its
+existing spooler ID; a held pass is released only by that exact ID. For canceled, aborted
+or stopped work, the operator inspects printed labels and selects the first unprinted
+position in the displayed physical order, respecting reverse output. The Mac confirms
+healthy status and paper readiness, ends an exact stopped attempt before replacement,
+and authorizes only the selected remaining pages. It retains the original PDF/hash and
+old attempt receipt, creates a distinct attempt identity/title and reconciles lost replies
+without blind reprinting. Missing/ambiguous history remains blocked. Back recovery requires
+the matching-front paper confirmation in CLC; it cannot be inferred from a chat message.
+The native claim advertises `printRecovery: true`; older companions cannot claim work
+containing a recovery `attemptId`. Unresolved recovery attempts block managed rollback
+below 2.57.0 so an older worker cannot reinterpret their submission history.
+
+Add signed Discord slash commands as a separate control path to the same durable station
+commands. The existing webhook remains send-only. Administrators bind one Discord
+application, server, channel and operator to their active CLC admin account; CLC verifies
+raw Ed25519-signed interactions before parsing. `/proxy status` reports exact recovery
+instructions. `/proxy continue batch:UUID` confirms printer/paper readiness; canceled
+fronts also need `sheet:N` from the displayed physical order. Back-side recovery stays in
+CLC. Commands cannot change Epson options or silently clear paper reservations. A bot
+token is used only to register `/proxy`, then discarded; private, mention-free replies
+and durable interaction/command receipts prevent replayed printing. Testing uses mocked
+transports and signed fixtures, with no real Discord sends or printer submissions.
+
 **Artwork review (2026-09-11).** Resolve selected printings and physical faces before PDF
 creation. Show actual thumbnails, source, exact printing, missing faces and separate DFC
 packet counts in both full-snapshot and difference plans. Hash the resolved selections,

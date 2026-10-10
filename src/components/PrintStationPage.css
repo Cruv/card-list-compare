@@ -141,3 +141,6 @@
 .station-deferred-packets > li > div { flex: 1 1 230px; min-width: 0; overflow-wrap: anywhere; }
 .station-paper-check { display: flex; align-items: flex-start; gap: 10px; margin: 18px 0; }
 .station-paper-check input { margin-top: 5px; flex-shrink: 0; }
+.station-refeed .station-recovery-sheet { display: grid; gap: 8px; margin-top: 16px; }
+.station-recovery-sheet select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 7px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
+.station-recovery-sheet select:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 2px; }
