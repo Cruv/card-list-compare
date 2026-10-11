@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.57.2';
+const APP_VERSION = '2.57.3';
 const WHATS_NEW = [
-  'Idle printer checks no longer trigger false attention alerts',
-  'Active print monitoring alerts identify the exact job to check',
+  'Proxy Balboa draws from Rocky movie dialogue matched to each print event',
+  'Print alerts keep clear job details and actions alongside the movie lines',
 ];
 
 function getResetToken() {

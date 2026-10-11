@@ -248,6 +248,17 @@ an already-spooled physical pass is pending may send a deduplicated **Print stat
 unavailable** monitoring alert with the job/pass/ID and an operator mention. The alert
 does not reclassify unknown telemetry as a physical fault or change printing state.
 
+**Sourced print voice (v2.57.3).** Native print webhooks use curated pools of short Rocky
+film excerpts with visible movie/speaker attribution. Match readiness to queued work,
+flip requests and tests; success to whole-job/fronts completion and return-blanks prompts;
+setbacks to faults, cancellation and unavailable monitoring. Monitoring retains explicit
+unknown-status wording. SHA-256 selection by event, batch and packet/fault context can
+vary between batches while remaining stable for the same event. Keep the factual
+headline, exact details, mentions and delivery guards; a success excerpt never claims saved
+backs are printed. No new notification or historical replay is added. Deck/price webhooks,
+signed slash replies and plain Mac notifications retain their wording. Keep source
+references in the catalog and avoid duplicating dialogue in documentation.
+
 **Artwork review (2026-09-11).** Resolve selected printings and physical faces before PDF
 creation. Show actual thumbnails, source, exact printing, missing faces and separate DFC
 packet counts in both full-snapshot and difference plans. Hash the resolved selections,

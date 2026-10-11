@@ -248,10 +248,14 @@ existing completed history is not replayed. Completion describes the spooler res
 approval of the physical cards. Completion and test messages never mention a user directly.
 The optional Discord user ID is used only when help is needed, such as a paper flip or printer error.
 Save a channel webhook and optional user ID, wait for the Mac acknowledgement, then send a
-test. The same panel can disconnect it. Discord messages come from **Proxy Balboa**, with
-original Rocky-inspired phrasing between a factual preview headline and precise plain-language
-job, error or flip details. Deck-change and price alerts use the same voice, retain their exact
-changes/totals and link directly to the deck. See [notification voice](docs/NOTIFICATION_VOICE.md). Printer-error alerts require companion 2.53.0 or newer and use persisted per-episode duplicate suppression. Dismissing an alert never resumes printing; the waiting
+test. The same panel can disconnect it. Discord messages come from **Proxy Balboa**.
+Companion **2.57.3** native print webhooks choose a short sourced Rocky film excerpt,
+with movie/speaker attribution, between the factual headline and exact job/error/flip
+details. Pools match readiness, success or setbacks; monitoring keeps its explicit
+unknown-status wording. Selection can vary by batch but stays stable for the same event.
+Mentions and duplicate suppression
+are unchanged. Deck/price alerts and slash replies keep their existing wording; deck and
+price alerts retain exact changes/totals and deck links. See [notification voice](docs/NOTIFICATION_VOICE.md). Printer-error alerts require companion 2.53.0 or newer and use persisted per-episode duplicate suppression. Dismissing an alert never resumes printing; the waiting
 packet stays visible in **Print → Printer**, including while paused. Unselected saved backs never hold the front queue. Once a back packet is selected, its reload and blank-paper confirmation do hold new front submissions. Earlier PDFs remain
 unchanged and may contain several DFC sheets without a job label: preview all pages and
 match the exact waiting packet before reloading. See the [packet sequence and alerts](docs/PRINT_WORKFLOW.md#double-faced-packets-and-flip-alerts).

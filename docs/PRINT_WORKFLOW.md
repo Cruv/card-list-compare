@@ -392,14 +392,19 @@ consume the per-user preparation allowance. Unresolved submission requests keep 
 original payload locked until receipt recovery, preventing duplicates.
 
 Discord messages use **Proxy Balboa**. A factual headline leads the phone preview, then
-an original Rocky-inspired line and a clearly labeled plain-language details block follow.
+a voice line and clearly labeled plain-language details follow. Companion **2.57.3**
+native print webhooks use short sourced Rocky film excerpts with visible movie/speaker
+attribution. Pools match readiness, success or setbacks; monitoring keeps its explicit
+unknown-status explanation. Selection can vary between batches but stays stable for the
+same event; delivery guards are unchanged.
 Flip alerts include the printer, full batch ID, packet number/ID, printed label, physical
 sheet count and exact reload action. Fault alerts retain the error and affected pass; tests
 explicitly state that no printing is requested. Completion messages name the finished job
 and report confirmed completion of all spooler passes. From companion 2.54.0, completion
 and test messages never directly mention a user; personal mentions are reserved for
-alerts that need help. Deck/price alerts preserve their values and link to the corresponding
-deck. See [notification voice](NOTIFICATION_VOICE.md).
+alerts that need help. Fronts-finished messages still state that backs are saved for later.
+Deck/price webhooks and slash replies keep their existing wording; deck/price alerts preserve
+their values and deck links. See [notification voice](NOTIFICATION_VOICE.md).
 Native Mac messages remain plain.
 The bot name and style do not change notification permissions or paper confirmation.
 

@@ -319,13 +319,20 @@ then use **Send test**. **Disconnect** stores an explicit disabled override so a
 webhook in `config.json` cannot reactivate it. The Mac ledger stores managed settings
 privately; keep it in the existing protected state directory and include it in backups.
 The server only delivers fixed configuration/test commands; the Mac sends the notification.
-Discord queue, completion, flip, printer-error and test messages use the webhook name **Proxy Balboa** and
-original Rocky-inspired phrasing: plain, slightly hesitant and encouraging, with occasional
-“Yo”, “y'know” or “ya”. A factual event headline comes first for phone previews. A separate
+Discord queue, completion, flip, printer-error and test messages use the webhook name
+**Proxy Balboa**. From **2.57.3**, native print webhooks use pools of short sourced Rocky
+film excerpts with visible movie/speaker attribution. Readiness fits queued work, flip
+requests and delivery tests; success fits completed jobs/fronts and return-blanks prompts;
+setbacks fit faults, cancellation and unavailable monitoring. Monitoring still explicitly
+reports unknown status. SHA-256 selection uses event, batch and packet identity or fault
+context, so different batches can vary while the same event stays stable across restarts.
+It creates no extra delivery or historical replay. Deck/price webhooks and signed slash
+replies keep their existing wording. A factual event headline comes first for phone previews. A separate
 plain-language details block retains the printer, full batch ID, numbered packet, printed
 label, physical sheet count, error and required action as applicable, plus a link to CLC.
-Flavor never substitutes for instructions. Native Mac notifications keep plain wording.
-See [notification voice and examples](../../docs/NOTIFICATION_VOICE.md).
+Mentions, durable delivery guards and paper confirmations are unchanged; a fronts-finished
+message still says its backs are saved for later. Native Mac notifications keep plain wording.
+See [notification voice](../../docs/NOTIFICATION_VOICE.md).
 An ambiguous test is not automatically replayed. A new button click is a deliberate new test.
 Older companions show setup as unavailable until updated. Rolling back below 2.49.0
 also ignores managed overrides: an older webhook still present in `config.json` would

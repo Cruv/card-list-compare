@@ -13,7 +13,7 @@ import urllib.request
 from unittest import mock
 
 from clc_print_station import Ledger
-from clc_station_alerts import APPLE_SCRIPT, NoDiscordRedirect, RefeedAlerts, post_discord, validate_alert_config, discord_test_payload
+from clc_station_alerts import APPLE_SCRIPT, NoDiscordRedirect, RefeedAlerts, post_discord, validate_alert_config, discord_test_payload, balboa_line
 
 
 def fixture():
@@ -217,7 +217,7 @@ class DiscordAlertTests(unittest.TestCase):
         self.assertIn("Printed label: CLC a12b34c56d78 DFC 1/2", payload["content"])
         self.assertIn("only the 1 printed sheet", payload["content"])
         self.assertEqual(payload["username"], "Proxy Balboa")
-        self.assertIn("Yo. So, uh...", payload["content"])
+        self.assertEqual(payload["content"].splitlines()[1], balboa_line("flip", self.job["id"], self.artifact["id"]))
         self.assertIn("Batch ID: " + self.job["id"], payload["content"])
         self.assertIn("Printer: EPSON\\_ET\\_8550\\_Series", payload["content"])
         self.assertIn("Paper flip needed", payload["content"].splitlines()[0])
@@ -241,7 +241,8 @@ class DiscordAlertTests(unittest.TestCase):
         self.assertIn("Printer has a paper jam", payload["content"].splitlines()[0])
         self.assertIn("**Printer details**", payload["content"])
         self.assertIn("Printer: EPSON\\_ET\\_8550\\_Series", payload["content"])
-        for value in ("somethin' ain't right", "Sauron", "job-123456789abcdef", "Printer has a paper jam", "CLC a12b34c56d78 DFC 1/2", "pass: backs", "does not pause, resume or retry printing"):
+        self.assertEqual(payload["content"].splitlines()[1], balboa_line("fault", self.job["id"], health["message"]))
+        for value in ("Sauron", "job-123456789abcdef", "Printer has a paper jam", "CLC a12b34c56d78 DFC 1/2", "pass: backs", "does not pause, resume or retry printing"):
             self.assertIn(value, payload["content"])
         self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [USER_ID], "roles": []})
         self.assertLessEqual(len(payload["content"]), 2000)
@@ -253,7 +254,8 @@ class DiscordAlertTests(unittest.TestCase):
         self.assertEqual(payload["username"], "Proxy Balboa")
         self.assertIn("Discord delivery test · no printer action", payload["content"].splitlines()[0])
         self.assertIn("**Test details**", payload["content"])
-        for text in ("Yo, it's me, Proxy.", "Discord test confirmed", "sheets to flip", "printer errors", "does not print or resume anything"):
+        self.assertEqual(payload["content"].splitlines()[1], balboa_line("test", self.config["queue"]))
+        for text in ("Discord test confirmed", "sheets to flip", "printer errors", "does not print or resume anything"):
             self.assertIn(text, payload["content"])
         self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [], "roles": []})
         self.assertNotIn("<@", payload["content"])
@@ -427,7 +429,7 @@ class CompletionAlertTests(unittest.TestCase):
         self.assertEqual(self.transport.call_args.kwargs, {"timeout": 5})
         self.assertEqual(payload["content"].splitlines()[0], "**Print job complete · Friday replacements**")
         self.assertEqual(payload["username"], "Proxy Balboa")
-        self.assertIn("Yo, we got it done, y'know?", payload["content"])
+        self.assertEqual(payload["content"].splitlines()[1], balboa_line("completed", self.job["id"]))
         details = payload["content"].split("**Print details**\n", 1)[1]
         for text in ("Job: Friday replacements", "Batch ID: " + self.job["id"], "Printer: EPSON\\_ET\\_8550\\_Series",
                      "Card copies: 6", "All print passes completed in the printer queue", "Action: None.",

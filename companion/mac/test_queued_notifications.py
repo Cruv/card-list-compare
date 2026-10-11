@@ -9,6 +9,7 @@ from unittest import mock
 
 import clc_print_station as native
 from clc_station_control import StationControl
+from clc_station_alerts import balboa_line
 from test_print_station import FakeCups, config, job
 from test_station_control import FakeManager, ManagedClient, control
 
@@ -71,7 +72,8 @@ class QueuedNotificationTests(unittest.TestCase):
             self.assertEqual(payload["username"], "Proxy Balboa")
             self.assertEqual(payload["allowed_mentions"], {"parse": [], "users": [], "roles": []})
             self.assertFalse(payload["tts"])
-            for text in ("Yo, we got another one lined up", "Job: Jin", "Queued by: Cruv", "Card copies: 100",
+            self.assertEqual(payload["content"].splitlines()[1], balboa_line("queued", notice()["jobId"]))
+            for text in ("Job: Jin", "Queued by: Cruv", "Card copies: 100",
                          "Queued at: 2026-09-14T16:45:00.000Z", "Batch ID: " + notice()["jobId"], "Printer: EPSON",
                          "Accepted into the CLC print queue", "does not mean the printer has started", "https://clc.test/#print-station"):
                 self.assertIn(text, payload["content"])

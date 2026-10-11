@@ -26,6 +26,53 @@ WEBHOOK_PATH = re.compile(r"/api/webhooks/([1-9][0-9]{0,19})/[A-Za-z0-9_-]{1,256
 CHANNEL_TABLES = {"mac": "refeed_alerts", "discord": "refeed_discord_alerts"}
 DISCORD_USERNAME = "Proxy Balboa"
 
+# Film excerpts and their provenance live together. The factual message below,
+# never a movie line, is authoritative about print progress and operator actions.
+BALBOA_FILMS = {
+    "rocky": ("Rocky (1976)", "https://www.springfieldspringfield.co.uk/movie_script.php?movie=rocky"),
+    "rocky-ii": ("Rocky II (1979)", "https://www.springfieldspringfield.co.uk/movie_script.php?movie=rocky-ii"),
+    "rocky-iii": ("Rocky III (1982)", "https://www.springfieldspringfield.co.uk/movie_script.php?movie=rocky-iii"),
+    "rocky-iv": ("Rocky IV (1985)", "https://www.springfieldspringfield.co.uk/movie_script.php?movie=rocky-iv"),
+    "rocky-v": ("Rocky V (1990)", "https://www.springfieldspringfield.co.uk/movie_script.php?movie=rocky-v"),
+    "rocky-balboa": ("Rocky Balboa (2006)", "https://www.springfieldspringfield.co.uk/movie_script.php?movie=rocky-balboa"),
+}
+# Short released-film dialogue fragments, including accurately credited trainers.
+# No lyrics or speeches; the whole catalog stays below 90 excerpt characters per film.
+BALBOA_DIALOGUE = (
+    {"film": "rocky", "speaker": "Mickey", "text": "you're gonna eat lightning", "moods": ("training",)},
+    {"film": "rocky-ii", "speaker": "Mickey", "text": "What are we waitin' for?", "moods": ("training",)},
+    {"film": "rocky-iii", "speaker": "Apollo", "text": "There is no tomorrow!", "moods": ("training",)},
+    {"film": "rocky-iv", "speaker": "Duke", "text": "No pain.", "moods": ("training",)},
+    {"film": "rocky-v", "speaker": "Rocky", "text": "Take the shot.", "moods": ("training",)},
+    {"film": "rocky-balboa", "speaker": "Rocky", "text": "keep moving forward.", "moods": ("training",)},
+    {"film": "rocky", "speaker": "Rocky", "text": "Hey, that was terrific.", "moods": ("success",)},
+    {"film": "rocky-ii", "speaker": "Rocky", "text": "Yo, Adrian, I did it!", "moods": ("success",)},
+    {"film": "rocky-iii", "speaker": "Mickey", "text": "I'm proud of ya.", "moods": ("success",)},
+    {"film": "rocky-iv", "speaker": "Rocky", "text": "everybody can change!", "moods": ("success",)},
+    {"film": "rocky-v", "speaker": "Rocky", "text": "You did great, kid!", "moods": ("success",)},
+    {"film": "rocky-balboa", "speaker": "Rocky", "text": "That's how winning is done!", "moods": ("success",)},
+    {"film": "rocky", "speaker": "Rocky", "text": "I can't beat him.", "moods": ("setback",)},
+    {"film": "rocky-ii", "speaker": "Rocky", "text": "I'm sorry.", "moods": ("setback",)},
+    {"film": "rocky-iii", "speaker": "Rocky", "text": "I'm afraid!", "moods": ("setback",)},
+    {"film": "rocky-iv", "speaker": "Rocky", "text": "He's winnin'.", "moods": ("setback",)},
+    {"film": "rocky-v", "speaker": "Rocky", "text": "We been down before.", "moods": ("setback",)},
+    {"film": "rocky-balboa", "speaker": "Rocky", "text": "Scared to death.", "moods": ("setback",)},
+)
+BALBOA_EVENTS = {
+    "queued": "training", "flip": "training", "test": "training",
+    "completed": "success", "fronts_saved": "success", "paper_reset": "success",
+    "fault": "setback", "cancel_clearance": "setback", "monitoring": "setback",
+}
+
+
+def balboa_line(event, job_id="", artifact_id=""):
+    """Vary between events/batches; replaying the same receipt keeps its line."""
+    pool = [entry for entry in BALBOA_DIALOGUE if BALBOA_EVENTS[event] in entry["moods"]]
+    seed = json.dumps([event, str(job_id), str(artifact_id)], ensure_ascii=False,
+                      separators=(",", ":")).encode("utf-8")
+    entry = pool[int.from_bytes(hashlib.sha256(seed).digest()[:4], "big") % len(pool)]
+    return f'“{entry["text"]}” — {entry["speaker"]}, *{BALBOA_FILMS[entry["film"]][0]}*'
+
 
 def valid_snowflake(value):
     return isinstance(value, str) and bool(SNOWFLAKE.fullmatch(value)) and int(value) < 2**64
@@ -125,19 +172,27 @@ def discord_text(value):
     return re.sub(r"([\\`*_~|\[\]])", r"\\\1", value.replace("@", "@\u200b").replace("<", "‹").replace(">", "›"))
 
 
-def discord_payload(job, artifact, config):
+def discord_packet_payload(job, artifact, config, event):
     validate_alert_config(config)
-    _title, _subtitle, body = alert_text(job, artifact)
+    text_builder, heading = {
+        "flip": (alert_text, "Paper flip needed"),
+        "paper_reset": (paper_reset_text, "Return blank paper"),
+        "cancel_clearance": (cancel_clearance_text, "Canceled print needs paper clearance"),
+    }[event]
+    _title, _subtitle, body = text_builder(job, artifact)
     _sheets, index, total = flip_details(job, artifact)
+    show_packet = event != "cancel_clearance" or artifact.get("kind") == "dfc"
     mention = config.get("refeed_discord_user_id", "")
     deck = discord_text(display_text(job.get("deckName") or "Deck print", 70))
-    content = (f"<@{mention}> " if mention else "") + f"**Paper flip needed · {deck} · packet {index}/{total}**\n"
-    content += "Yo. So, uh... we got the other side to do, y'know? I need a little help over here.\n\n**Print details**"
+    packet_heading = f" · packet {index}/{total}" if show_packet else ""
+    content = (f"<@{mention}> " if mention else "") + f"**{heading} · {deck}{packet_heading}**\n"
+    content += balboa_line(event, job["id"], artifact["id"]) + "\n\n**Print details**"
     content += "\nPrinter: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
     content += "\nBatch ID: " + discord_text(display_text(job["id"], 128))
-    content += f"\nPacket {index}/{total}"
+    if show_packet:
+        content += f"\nPacket {index}/{total}"
     # The packet ID remains useful for legacy jobs whose PDF has no job label.
-    content += "\nPacket ID: " + discord_text(display_text(artifact["id"], 96))
+    content += ("\nPacket ID: " if show_packet else "\nPass artifact: ") + discord_text(display_text(artifact["id"], 96))
     content += "\n" + discord_text(body)
     origin = config.get("server_url", "")
     if isinstance(origin, str) and origin:
@@ -149,6 +204,10 @@ def discord_payload(job, artifact, config):
     if len(content) > 2000:
         raise ValueError("Discord flip message exceeds its content limit")
     return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [mention] if mention else [], "roles": []}, "tts": False}
+
+
+def discord_payload(job, artifact, config):
+    return discord_packet_payload(job, artifact, config, "flip")
 
 
 DISCORD_SETTING = "managed_discord_notifications"
@@ -187,27 +246,32 @@ def discord_status(ledger, config):
 def discord_test_payload(config):
     validate_alert_config(config)
     content = "**Discord delivery test · no printer action**\n"
-    content += "Yo, it's me, Proxy. Just makin' sure you can hear me over here, y'know?\n\n**Test details**\n"
+    content += balboa_line("test", config.get("queue", "")) + "\n\n**Test details**\n"
     content += "Discord test confirmed. Future alerts report completed jobs, sheets to flip and printer errors that need attention. Only alerts requiring help mention you.\n"
     content += "Printer: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
     content += "\nPrinter action: None. This test does not print or resume anything."
     return {"username": DISCORD_USERNAME, "content": content, "allowed_mentions": {"parse": [], "users": [], "roles": []}, "tts": False}
 
 
-def discord_completion_payload(job, config):
+def discord_job_payload(job, config, *, fronts_saved=False):
     """Useful completion receipt, with mentions disabled regardless of preferences."""
     validate_alert_config(config)
     name = job.get("deckName") or "Print batch"
-    content = "**Print job complete · " + discord_text(printer_text(name, 70, config)) + "**\n"
-    content += "Yo, we got it done, y'know? That one's all finished.\n\n**Print details**"
+    heading = "Fronts printed · backs saved" if fronts_saved else "Print job complete"
+    content = "**" + heading + " · " + discord_text(printer_text(name, 70, config)) + "**\n"
+    content += balboa_line("fronts_saved" if fronts_saved else "completed", job["id"]) + "\n\n**Print details**"
     content += "\nJob: " + discord_text(printer_text(name, 200, config))
     content += "\nBatch ID: " + discord_text(printer_text(job["id"], 128, config))
     content += "\nPrinter: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
     copies = job.get("totalCopies")
     if type(copies) is int and 0 < copies <= 1_000_000:
         content += f"\nCard copies: {copies}"
-    content += "\nStatus: All print passes completed in the printer queue."
-    content += "\nAction: None. No paper flip is needed for this job."
+    if fronts_saved:
+        content += "\nStatus: All front passes completed. Matching backs are saved for later."
+        content += "\nAction: None right now. Leave blank paper loaded. Choose a saved packet in CLC when you want to print its backs; wait for the reload alert before loading it."
+    else:
+        content += "\nStatus: All print passes completed in the printer queue."
+        content += "\nAction: None. No paper flip is needed for this job."
     origin = config.get("server_url", "")
     if isinstance(origin, str) and origin:
         parsed = urllib.parse.urlsplit(origin)
@@ -220,12 +284,16 @@ def discord_completion_payload(job, config):
             "allowed_mentions": {"parse": [], "users": [], "roles": []}, "tts": False}
 
 
+def discord_completion_payload(job, config):
+    return discord_job_payload(job, config)
+
+
 def discord_queued_payload(notice, config):
     """A CLC queue receipt, never a claim that Epson has started printing."""
     validate_alert_config(config)
     clean = lambda value, limit: discord_text(printer_text(value, limit, config))
     content = "**Print job queued · " + clean(notice["deckName"], 70) + "**\n"
-    content += "Yo, we got another one lined up, y'know? We'll get to it.\n\n**Print details**"
+    content += balboa_line("queued", notice["jobId"]) + "\n\n**Print details**"
     content += "\nJob: " + clean(notice["deckName"], 200)
     content += "\nQueued by: " + clean(notice["requesterName"], 120)
     content += f"\nCard copies: {notice['totalCopies']}"
@@ -247,15 +315,7 @@ def discord_queued_payload(notice, config):
 
 
 def discord_fronts_payload(job, config):
-    payload = discord_completion_payload(job, config)
-    content = payload["content"].replace("Print job complete", "Fronts printed · backs saved", 1)
-    content = content.replace("Yo, we got it done, y'know? That one's all finished.",
-                              "Yo, the fronts are done, y'know? We got the other sides saved for when you're ready.")
-    content = content.replace("All print passes completed in the printer queue.", "All front passes completed. Matching backs are saved for later.")
-    content = content.replace("None. No paper flip is needed for this job.",
-                              "None right now. Leave blank paper loaded. Choose a saved packet in CLC when you want to print its backs; wait for the reload alert before loading it.")
-    payload["content"] = content
-    return payload
+    return discord_job_payload(job, config, fronts_saved=True)
 
 
 def paper_reset_text(job, artifact):
@@ -266,14 +326,7 @@ def paper_reset_text(job, artifact):
 
 
 def discord_paper_reset_payload(job, artifact, config):
-    payload = discord_payload(job, artifact, config)
-    _title, _subtitle, original = alert_text(job, artifact)
-    _title, _subtitle, replacement = paper_reset_text(job, artifact)
-    payload["content"] = payload["content"].replace("Paper flip needed", "Return blank paper", 1).replace(
-        "Yo. So, uh... we got the other side to do, y'know? I need a little help over here.",
-        "Yo, that side's done. I need you over here a second—get the blank paper back in, y'know?").replace(
-        discord_text(original), discord_text(replacement))
-    return payload
+    return discord_packet_payload(job, artifact, config, "paper_reset")
 
 
 def cancel_clearance_text(job, artifact):
@@ -284,16 +337,7 @@ def cancel_clearance_text(job, artifact):
 
 
 def discord_cancel_clearance_payload(job, artifact, config):
-    payload = discord_paper_reset_payload(job, artifact, config)
-    _title, _subtitle, original = paper_reset_text(job, artifact)
-    _title, _subtitle, replacement = cancel_clearance_text(job, artifact)
-    payload["content"] = payload["content"].replace("Return blank paper", "Canceled print needs paper clearance", 1).replace(
-        "Yo, that side's done. I need you over here a second—get the blank paper back in, y'know?",
-        "Yo, you wanted to stop this one. I need a little help checkin' the paper over here, y'know?").replace(
-        discord_text(original), discord_text(replacement))
-    if artifact.get("kind") != "dfc":
-        payload["content"] = payload["content"].replace(" · packet 1/1", "").replace("\nPacket 1/1", "").replace("Packet ID:", "Pass artifact:")
-    return payload
+    return discord_packet_payload(job, artifact, config, "cancel_clearance")
 
 
 class RefeedAlerts:
@@ -620,8 +664,8 @@ def printer_discord_payload(title, subtitle, body, config, *, job=None, fault=No
     monitoring = category == "monitoring"
     heading = "Print status unavailable" if monitoring else "Printer needs attention"
     content = (f"<@{mention}> " if mention else "") + "**" + heading + " · " + summary + "**\n"
-    content += ("Yo, I can't see where this one's at. Check that queue for me, all right?" if monitoring else
-                "Hey, somethin' ain't right over here. Come take a look for me, all right?") + "\n\n**Printer details**\n"
+    content += balboa_line("monitoring" if monitoring else "fault", (job or {}).get("id") or config.get("queue", ""),
+                           fault or title) + "\n\n**Printer details**\n"
     content += "Printer: " + discord_text(printer_text(config.get("queue") or "Household printer", 96, config))
     content += "\n" + discord_text(subtitle)
     if job:

@@ -1,16 +1,20 @@
 # Proxy Balboa notifications
 
-Proxy Balboa is CLC's Discord persona. Messages use original dialogue inspired by Rocky's
-plainspoken, slightly hesitant, earnest manner. Use occasional “Yo”, “y'know”, “ya” or
-“all right”; avoid generic hype, constant boxing metaphors or a catchphrase on every line.
-Do not copy film speeches or let the persona invent job progress, recovery or success.
+Proxy Balboa is CLC's Discord persona. From companion **2.57.3**, native print webhooks
+use curated pools of short, sourced Rocky film excerpts. Each message displays the movie
+and speaker attribution beside its excerpt. Keep excerpts verbatim and attributed; do
+not substitute invented dialogue, long speeches or claims about job progress.
+
+This change applies only to native print webhooks. Deck/price notifications and signed
+`/proxy` replies retain their existing original Rocky-inspired wording. Mac notifications
+remain plain.
 
 Every ping has three parts:
 
 1. **Factual headline first.** Phone previews identify the event, relevant deck or actual
    printer problem before the flavor text.
-2. **One short voice line.** It adds personality without becoming an instruction the
-   operator must interpret.
+2. **One short voice line.** Native print webhooks show a sourced film excerpt and its
+   attribution. It adds personality without becoming an instruction to interpret.
 3. **Plain details and action.** Native printer alerts use a labeled details block. Deck
    and price alerts retain their factual embed and link directly to the affected deck.
 
@@ -35,6 +39,7 @@ operator request:
 | Canceled print needs paper clearance | Check that the exact canceled pass stopped, remove partial output and load blank paper, then confirm this cancellation in CLC. | Configured operator, if any |
 | Print job complete | Every required pass completed and the final paper clearance is recorded. | No |
 | Printer fault | The identified printer/pass needs inspection. | Configured operator, if any |
+| Print status unavailable | Repeated reads cannot verify an already-spooled pass; inspect its exact job/pass/ID. Status remains unknown. Idle read failures stay in CLC. | Configured operator, if any |
 | Delivery test | An explicit notification test with no printer action. | No |
 | `/proxy status` reply | Private response with exact batch/pass, device condition and available recovery instructions. | No |
 | `/proxy continue` reply | Private acknowledgement of a durable recovery request. It does not claim printing resumed or completed. | No |
@@ -53,19 +58,26 @@ ready for cutting. Canceling pending backs does not make a partly printed job an
 all-passes-completed job. Preserve completed-pass receipts, and tell the operator to inspect
 any partial output after cancellation instead of claiming the sheets were never printed.
 
-Example voice lines from the templates:
+Native pools match the event: queued work, delivery tests and flip requests use
+training/readiness; whole-job completion, fronts completed and returning blank paper use
+success; faults, cancellation and unavailable monitoring use setback/defeat. Monitoring
+keeps its explicit unknown-status headline and details. A success excerpt on a
+fronts-finished message does not change its factual **backs saved for later** status.
+The [native catalog](../companion/mac/clc_station_alerts.py) holds 18 short excerpts and
+released-film transcript references across the first five Rocky films and *Rocky Balboa*
+(2006). Messages credit the actual speaker—Rocky, Mickey, Apollo or Duke—and film/year.
+Dialogue stays in the implementation rather than being duplicated in this document.
 
-- Queued: “Yo, we got another one lined up, y'know? We'll get to it.”
-- Flip: “Yo. So, uh... we got the other side to do, y'know? I need a little help over here.”
-- Fronts saved: “Yo, the fronts are done, y'know? We got the other sides saved for when you're ready.”
-- Return blanks: “Yo, that side's done. I need you over here a second—get the blank paper back in, y'know?”
-- Printer fault: “Hey, somethin' ain't right over here. Come take a look for me, all right?”
-- Test: “Yo, it's me, Proxy. Just makin' sure you can hear me over here, y'know?”
+A deterministic SHA-256 selection uses the event and batch identity. Packet events include
+the packet ID; fault/monitoring events include controlled fault context. Tests use the
+printer queue identity. Different batches can select different excerpts; the same event keeps its selection across retries
+and restarts. Finite pools can repeat. Selection uses no clock or randomness and changes
+only message text: it creates no extra notification and does not replay historical events.
 
-The voice applies to Discord only; Mac notifications remain plain. From companion
-**2.54.0**, completion messages and explicit delivery tests never directly mention a user.
+From companion **2.54.0**, completion messages and explicit delivery tests never directly mention a user.
 The configured user ID is reserved for alerts that require help, such as a selected paper
-flip, returning blank paper, clearing canceled output, or a printer fault. From **2.55.0**, the fronts-finished update
+flip, returning blank paper, clearing canceled output, a printer fault or unavailable
+monitoring of an already-spooled pass. From **2.55.0**, the fronts-finished update
 also informs the channel without summoning the operator. Legacy active jobs retain their
 existing alternating front/back flip prompts until finished.
 Role/everyone mentions remain disabled; deck names and other supplied text cannot create
