@@ -174,6 +174,55 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 ### Household print jobs
 
+#### Household server deployment checkpoint — 2026-10-15
+
+The Mac's `CardListCompare` service now runs **v2.57.4**, source `00e89a4`, local arm64
+image `clc-household:2.57.4-00e89a4`, image ID
+`sha256:578b7017359b09d4e7dd32bb706db27a365f2aa147fef3c02583dfbeefde221e`.
+Only CLC was recreated in the existing `mtg` project. Port 8080, data mount, network,
+restart policy and all nine configured environment values were preserved. Watchtower
+remains disabled and the image is pinned with `pull_policy: never`.
+
+The stopped-container backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20261015T205943Z-before-2.57.4/data-complete`;
+its sibling `deployment` directory retains private configuration and the previous container
+description. Symlinks were preserved. Keep the prior `clc-household:2.57.3-f04ad3a` image.
+Do not restore this backup over later user changes merely to roll back application code.
+
+Database integrity passed. All **16 print jobs**, **16,738 print-job events**, 78 snapshots,
+three users and two tracked owners were unchanged by full-row hashes. All 15 saved-art
+records retained their original bytes; the new `mpc_art_revision` column starts at zero.
+All 87 retained print artifact files (465,092,497 bytes) were byte-identical to the backup.
+One pre-existing orphaned deck snapshot was present in both stopped and post-deploy copies;
+the update introduced no new foreign-key violations and did not delete or reassign that row.
+Its investigation is recorded in [ROADMAP](ROADMAP.md).
+
+The native **v2.57.3** companion stayed running and unpaused. Its jobs, passes, recovery
+receipts, settings, configuration/token hashes and selected version were unchanged. An
+authenticated heartbeat returned HTTP 200 at **21:06:42 UTC**. No printer operations,
+physical-proof changes or Discord tests were initiated.
+
+An isolated offline image fixture verified migration, guarded saves, stale-reset 409,
+unversioned 428, unauthorized 401 and persistence after restart. Localhost and household HTTPS
+health passed; all **38 frontend files** matched the image at both origins (76 responses).
+The browser visibly showed v2.57.4, its release notes and conflict-recovery guidance.
+Reload older open tabs before saving artwork; unversioned clients are deliberately rejected.
+The existing v2.57.4 application/release evidence is recorded in [CURRENT_WORK](CURRENT_WORK.md).
+
+Normal startup refreshed the cached upstream generator from `b95e833926d70c29a62a56b2b96cc3bb783c47e0`
+to `0da09b729814aa5aafde024b5a6059624fa87951`; the previous runtime remains available.
+Only upstream workflow/requirements files changed. The PDF script, utilities, adapter and
+v6 cutting template were byte-identical. The upstream requirements changed matplotlib
+3.11.1→3.11.2 and pydantic 2.13.4→2.14.1; five worker tests passed in the activated environment.
+The accepted printing recipe and existing PDFs were not changed; this was not a physical proof.
+
+Private `verification-2.57.4.private.json`, `frontend-verification.private.json`, native and
+generator receipts beside the backup retain the rollout evidence. The private Compose and
+future Portainer service fragment both pin the new image. Portainer's saved controller stack
+still needs that fragment merged before its next redeploy, as described below; this CLI
+activation did not edit the controller. Disposable containers, build files and browser tabs
+were removed after verification.
+
 #### Household installation checkpoint — 2026-10-11
 
 The permanent `CardListCompare` container belongs to the `mtg` Compose project,
@@ -181,7 +230,7 @@ publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistcompare` a
 `/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The
 repository's `./data` is not the household deployment path.
 
-The deployed server is **v2.57.3**, source `f04ad3a`, local image
+At that checkpoint, the deployed server was **v2.57.3**, source `f04ad3a`, local image
 `clc-household:2.57.3-f04ad3a`, image ID
 `sha256:cdbab96a76d795a17162d8d98534088859c90dd24f92c1833c4ba586fade882b`.
 Private configuration lives in

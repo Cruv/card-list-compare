@@ -1,27 +1,29 @@
 # Current work checkpoint
 
-Updated **2026-10-15**. Implementation and verification complete; this is not live production status.
+Updated **2026-10-15**. Authorized household server deployment complete.
 
-- **Scope / status:** v2.57.4 adds revision-checked tracked-deck MPC saves/resets, explicit
-  conflict recovery and account/editor-scoped pending drafts. Docs/version updated. Frozen
-  print jobs, companion, print recipe, history and 612-face cap stay outside this change.
-- **Revision / ownership:** clean baseline `7750bb9` / v2.57.3. The implementation revision
-  is the commit containing this checkpoint (`git log -1 -- docs/CURRENT_WORK.md`). All 20
-  changed paths belong to this task; no foreign tracked edits. Private/paused work untouched.
-- **Validated 2026-10-15:** 1,254 JavaScript tests in 65 files; 254 portable companion tests;
-  full lint has zero errors and five existing warnings; final production build passes;
-  both dependency audits report zero vulnerabilities. Final copy/CSS edits received another
-  build, focused lint and 92 sync/API/invariant tests; other full-suite inputs are unchanged.
-  Node 22.23.2 / Python 3.9.6. Final 14 code/test/lock inputs aggregate SHA-256:
-  `ceca1446aa758eaf6329b3069999a448af23fe3e55c191a037872874b265da46`.
-- **Browser / review:** disposable authenticated HTTP fixtures verified competing tabs,
-  side-by-side art, explicit replacement/adoption, stale reset, home-PDF DFC/default/history
-  preservation, draft reload after another tab saves, Escape/focus, 390px layout, lost replies,
-  blocked failed reads and successful read recovery. Independent read-only review's cache
-  and storage-warning findings are fixed with regressions. 75 affected Markdown links pass.
-- **Limits:** retained foreign/orphan drafts can be offered again in fresh tabs; explicit
-  cleanup/selection is recorded in ROADMAP. No production accounts/jobs, provider writes,
-  Discord messages or physical effects used for QA. Deployment/publication remains separate.
-- **Live handles / next action:** none; disposable servers/files/tabs removed and viewport
-  reset. No implementation remains. Deliver this cohesive commit/push; later deployment
-  follows CONTRIBUTING/OPERATIONS when authorized.
+- **Outcome:** CLC v2.57.4 source `00e89a4` is healthy on the Mac at localhost:8080 and
+  household HTTPS. Image `clc-household:2.57.4-00e89a4` has ID
+  `sha256:578b7017359b09d4e7dd32bb706db27a365f2aa147fef3c02583dfbeefde221e`.
+- **Scope / ownership:** server-only deployment from installed v2.57.3 / `f04ad3a`.
+  Private Compose and future Portainer fragment image pins updated. Public edits are only
+  OPERATIONS, ROADMAP and this checkpoint; no application changes or foreign tracked edits.
+- **Evidence reused:** v2.57.4's 1,254 JavaScript and 254 companion tests, build/lint/audits
+  and conflict browser/review evidence retain their original October 15 scope at `00e89a4`.
+  Exact-archive arm64 Docker build and offline migration/save/reset/auth/restart smoke passed.
+  Five worker tests passed in the activated generator environment. No physical jobs/Discord tests.
+- **Deployment checks:** database integrity passed; 16 jobs, 16,738 job events, 78 snapshots,
+  users/owners and 15 saved-art records unchanged. Revision column migrated correctly.
+  All 87 retained print artifact files matched. All 38 frontend files matched both origins;
+  browser Guide/release notes show v2.57.4. Native v2.57.3 stayed running/unpaused with identical
+  jobs/passes/receipts/settings/configuration/token and successful authenticated heartbeat.
+  Container environment, ports, mount, network and restart policy preserved.
+- **Rollback:** complete stopped data/config backup and private verification receipts at
+  `/Users/cruv/docker/Backups/cardlistcompare/20261015T205943Z-before-2.57.4`.
+  Prior image retained. Details and generator refresh are in [OPERATIONS](OPERATIONS.md#household-print-jobs).
+- **Limits / follow-ups:** one pre-existing orphan snapshot was present before and after;
+  preserved without repair. Investigation and conservative orphan-art-draft cleanup remain in
+  [ROADMAP](ROADMAP.md). Portainer's controller definition still needs the prepared fragment
+  merged before its next redeploy. Reload older tabs before saving artwork.
+- **Live handles / next action:** none; owned smoke container, build files and browser tab removed.
+  Commit/push this deployment record. No deployment work remains; no tag or registry publication.

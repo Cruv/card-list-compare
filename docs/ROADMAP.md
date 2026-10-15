@@ -72,6 +72,9 @@ older detailed security audits remain local.
 
 **Housekeeping**
 
+- Investigate the pre-existing orphaned deck snapshot found in both pre/post v2.57.4
+  deployment copies on 2026-10-15. Trace its intended deck association against backups;
+  preserve the historical text and do not automatically delete or reassign it.
 - Consider an owner-approved routine for release tags (`vX.Y.Z`). The workflow already
   publishes semver images for requested tags; changing the default tagging practice would
   be a policy decision. Follow [CONTRIBUTING.md](../CONTRIBUTING.md).
