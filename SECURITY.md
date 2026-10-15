@@ -134,6 +134,12 @@ Native collection routes have been removed. Legacy collection data remains in th
 and its backups for a future deliberate transfer to ManaSync; no new cross-app access or
 inventory integration is introduced by that removal.
 
+Tracked-deck MPC artwork reads and writes require the owning session. Each save/reset
+compares its reviewed revision and atomically persists the choices with the next revision;
+stale requests receive only that owner's current snapshot and cannot write. Unversioned
+requests are rejected, including from older open tabs. Network failures and queued local
+edits do not authorize rebasing a draft onto newer choices without explicit review.
+
 PDF plans, jobs, manifests and downloads require the owning user. Queue submission also
 requires administrator status or an explicit `PRINT_ALLOWED_USER_IDS` grant. A separate
 `PRINT_STATION_TOKEN` authenticates the station protocol; it cannot create jobs, change

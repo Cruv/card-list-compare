@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { mpcSearch, mpcDownloadXml, mpcDownloadZip, mpcGetSources, mpcGetLanguages, mpcGetTags, mpcGetAlternates, getMpcOverrides, saveMpcOverrides } from '../lib/api';
 import { useModalLayer } from '../lib/useModalLayer';
-import { createMpcOverrideSync, collectPrintArtwork } from '../lib/mpcOverrides';
+import { useAuth } from '../context/AuthContext';
+import { createMpcOverrideSync, collectPrintArtwork, createMpcOverrideCache, getMpcArtworkDifferences } from '../lib/mpcOverrides';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import './MpcOverlay.css';
@@ -17,29 +18,6 @@ const CARDSTOCK_OPTIONS = [
 
 const SETTINGS_KEY = 'clc-mpc-settings';
 const OVERRIDES_KEY_PREFIX = 'clc-mpc-overrides-';
-
-function loadOverrides(deckId) {
-  if (!deckId) return new Map();
-  try {
-    const stored = localStorage.getItem(OVERRIDES_KEY_PREFIX + deckId);
-    if (!stored) return new Map();
-    const entries = JSON.parse(stored);
-    return new Map(entries);
-  } catch {
-    return new Map();
-  }
-}
-
-function saveOverrides(deckId, overridesMap) {
-  if (!deckId) return;
-  try {
-    if (overridesMap.size === 0) {
-      localStorage.removeItem(OVERRIDES_KEY_PREFIX + deckId);
-    } else {
-      localStorage.setItem(OVERRIDES_KEY_PREFIX + deckId, JSON.stringify([...overridesMap]));
-    }
-  } catch { /* ignore quota errors */ }
-}
 
 function getDefaultSettings() {
   return {
@@ -101,7 +79,18 @@ function isNonDefault(settings) {
  * MpcOverlay — search MPC Autofill for proxy card images and download
  * XML project files or image ZIPs. Includes configurable search settings.
  */
-export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
+export default function MpcOverlay(props) {
+  const { user } = useAuth() || {};
+  if (props.deckId && !user) return null;
+  return <ScopedMpcOverlay key={`${user?.id || 'guest'}:${props.deckId || 'adhoc'}`} {...props} userId={user?.id} />;
+}
+
+function ScopedMpcOverlay({ cards, deckName, deckId, userId, onClose }) {
+  const artworkCache = useMemo(() => deckId && userId ? createMpcOverrideCache({
+    storage: localStorage, session: sessionStorage,
+    key: `${OVERRIDES_KEY_PREFIX}${userId}-${deckId}`,
+    legacyKey: OVERRIDES_KEY_PREFIX + deckId,
+  }) : null, [deckId, userId]);
   const [searching, setSearching] = useState(true);
   const [loadingOverrides, setLoadingOverrides] = useState(!!deckId);
   const loading = searching || loadingOverrides;
@@ -134,35 +123,39 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
   const [altPickerCard, setAltPickerCard] = useState(null);
   const [altLoading, setAltLoading] = useState(false);
   const [alternates, setAlternates] = useState([]);
-  const [overrides, setOverrides] = useState(() => loadOverrides(deckId));
-  const overrideSync = useMemo(() => deckId ? createMpcOverrideSync({
-    loadRemote: () => getMpcOverrides(deckId),
-    saveRemote: entries => saveMpcOverrides(deckId, entries),
-  }) : null, [deckId]);
+  const [overrides, setOverrides] = useState(() => new Map(artworkCache?.read().overrides));
+  const [artSyncState, setArtSyncState] = useState({ phase: deckId ? 'loading' : 'ready' });
+  const overrideSync = useMemo(() => {
+    if (!deckId) return null;
+    const session = localStorage.getItem('clc-auth-token');
+    const requireSession = () => {
+      if (localStorage.getItem('clc-auth-token') !== session) throw new Error('Your session changed. Reopen artwork to continue.');
+    };
+    return createMpcOverrideSync({
+      initialCache: artworkCache.read(),
+      loadRemote: () => { requireSession(); return getMpcOverrides(deckId); },
+      saveRemote: (entries, revision) => { requireSession(); return saveMpcOverrides(deckId, entries, revision); },
+      persist: artworkCache.write,
+    });
+  }, [deckId, artworkCache]);
 
   // Persist overrides to both localStorage and server
   const persistOverrides = useCallback((map) => {
-    saveOverrides(deckId, map);
-    overrideSync?.save(map).catch(() => {
-      toast.error('Art choices saved on this device, but server sync failed.');
-    });
-  }, [deckId, overrideSync]);
+    // Recovery is shown inline; a conflict must never look like a successful save.
+    overrideSync?.save(map).catch(() => {});
+  }, [overrideSync]);
 
   // Load overrides from server on mount (migrate localStorage → server if needed)
   useEffect(() => {
     if (!overrideSync) return;
-    let active = true;
-    overrideSync.load(loadOverrides(deckId)).then(map => {
-      if (!active || !map) return;
-      setOverrides(map);
-      saveOverrides(deckId, map); // sync the server's choices to the local cache
-    }).catch(() => {
-      // Server unavailable — localStorage overrides already loaded
-    }).finally(() => {
-      if (active) setLoadingOverrides(false);
+    const unsubscribe = overrideSync.subscribe(state => {
+      setOverrides(state.overrides);
+      setArtSyncState(state);
+      setLoadingOverrides(state.phase === 'loading');
     });
-    return () => { active = false; };
-  }, [deckId, overrideSync]);
+    overrideSync.load().catch(() => {});
+    return unsubscribe;
+  }, [overrideSync]);
 
   // Escape closes the innermost thing first: alt picker → settings → overlay.
   // Runs only while this is the topmost layer, so an Escape here never also
@@ -392,10 +385,13 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
     setAlternates([]);
   }
 
-  function handleResetOverrides() {
+  async function handleResetOverrides() {
     setOverrides(new Map());
-    persistOverrides(new Map());
-    toast.success('Art choices reset');
+    if (!overrideSync) return;
+    try {
+      await overrideSync.save(new Map());
+      toast.success('Saved artwork reset');
+    } catch { /* the preserved draft and recovery actions are shown inline */ }
   }
 
   async function handleSavePrintArtwork() {
@@ -403,13 +399,28 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
     try {
       const next = collectPrintArtwork(overrides, results?.results || [], dfcBackResults);
       setOverrides(next);
-      saveOverrides(deckId, next);
       await overrideSync.save(next);
       toast.success('Artwork saved for home PDFs. Choose Saved MPC artwork in the Print tab.');
     } catch (err) {
       toast.error(err.message || 'Could not save artwork for printing.');
     } finally { setSavingPrintArt(false); }
   }
+
+  async function handleRecoverArtwork(action) {
+    try {
+      await overrideSync[action]();
+      if (action === 'replaceSavedChoices' || action === 'retry') toast.success('Artwork saved');
+    } catch { /* keep the inline recovery state visible */ }
+  }
+
+  const artNeedsRecovery = ['conflict', 'error', 'unavailable'].includes(artSyncState.phase);
+  const artworkDifferences = artSyncState.phase === 'conflict'
+    ? getMpcArtworkDifferences(artSyncState.savedOverrides, overrides) : [];
+  const draftStorageNotice = artSyncState.persistence === 'window'
+    ? 'Browser storage is unavailable. Your draft is only in this open editor; keep it open until resolved.'
+    : artSyncState.persistence === 'tab'
+      ? 'Your draft is kept in this tab only. Keep the tab open until resolved.'
+      : 'Your draft is kept on this device.';
 
   function updateDraft(path, value) {
     setDraftSettings(prev => {
@@ -585,6 +596,11 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
               )}
             </div>
           )}
+          {deckId && <p className="mpc-art-save-status" role="status">
+            {artSyncState.phase === 'loading' ? 'Loading saved artwork…' : artSyncState.phase === 'saving' ? 'Saving artwork…'
+              : artSyncState.phase === 'conflict' ? 'Artwork needs review'
+                : artNeedsRecovery ? 'Artwork is not synced' : 'Saved choices up to date'}
+          </p>}
         </div>
 
         {/* Settings Panel */}
@@ -945,6 +961,51 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
 
             {/* Content */}
             <div className="mpc-overlay-content">
+              {deckId && artNeedsRecovery && (
+                <section className="mpc-art-recovery" role="alert" aria-label="Artwork save recovery">
+                  {artSyncState.phase === 'conflict' ? (
+                    <>
+                      <h3>{artworkDifferences.length === 0 ? 'Saved artwork matches your draft'
+                        : artSyncState.restored ? 'Unsaved artwork restored' : 'Artwork changed in another session'}</h3>
+                      <p>{draftStorageNotice} {artworkDifferences.length ? 'Review the differences, then choose which artwork to keep.' : 'These choices already match saved artwork. Use saved choices to confirm.'}</p>
+                      <details>
+                        <summary>{artworkDifferences.length} face{artworkDifferences.length !== 1 ? 's differ' : ' differs'} between saved choices and your draft</summary>
+                        <ul className="mpc-art-differences">
+                          {artworkDifferences.map(({ name, saved, draft }) => (
+                            <li key={name}>
+                              <strong>{name}</strong>
+                              <div className="mpc-art-diff-choices">
+                                {[['Saved on server', saved], ['Your draft', draft]].map(([label, art]) => (
+                                  <div key={label}>
+                                    <span>{label}</span>
+                                    {art?.thumbnailUrl && <img src={art.thumbnailUrl} alt={`${name}: ${label}`} loading="lazy" />}
+                                    <small>{art ? `${art.sourceName || 'Artwork'} · ${art.identifier}` : 'Default search artwork (no saved choice)'}</small>
+                                  </div>
+                                ))}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                      {artworkDifferences.length > 0 && <p>Replacing saves your entire draft, including removals. Newer choices shown here will be overwritten.</p>}
+                      <div className="mpc-art-recovery-actions">
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleRecoverArtwork('useSavedChoices')}>Use saved choices</button>
+                        {artworkDifferences.length > 0 && <button className="btn btn-ghost-danger btn-sm" type="button" onClick={() => handleRecoverArtwork('replaceSavedChoices')}>Replace saved choices with mine</button>}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3>{artSyncState.phase === 'unavailable' ? 'Cannot load saved artwork' : 'Artwork save could not be confirmed'}</h3>
+                      <p>{artSyncState.error?.message}</p>
+                      {artSyncState.pending && <p>{draftStorageNotice} No further changes will be sent until you retry or review saved choices.</p>}
+                      <div className="mpc-art-recovery-actions">
+                        {artSyncState.phase === 'error' && <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleRecoverArtwork('retry')}>Retry save</button>}
+                        <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleRecoverArtwork('load')}>{artSyncState.phase === 'unavailable' ? 'Load saved artwork' : 'Review saved choices'}</button>
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
               {loading ? (
                 <div className="mpc-loading">
                   <Skeleton lines={6} />
@@ -1046,7 +1107,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
                   {deckId && <button
                     className="btn btn-secondary btn-sm"
                     onClick={handleSavePrintArtwork}
-                    disabled={loading || savingPrintArt || !results?.results?.length}
+                    disabled={loading || savingPrintArt || artNeedsRecovery || !results?.results?.length}
                     type="button"
                     title="Save current artwork for all matched fronts and backs, including default search results"
                   >{savingPrintArt ? 'Saving…' : 'Save art for home PDFs'}</button>}
@@ -1054,6 +1115,7 @@ export default function MpcOverlay({ cards, deckName, deckId, onClose }) {
                     <button
                       className="btn btn-ghost-danger btn-sm"
                       onClick={handleResetOverrides}
+                      disabled={artNeedsRecovery}
                       type="button"
                       title="Reset all custom art selections back to defaults"
                     >

@@ -5,13 +5,13 @@ checkpoint; [CONTRIBUTING.md](../CONTRIBUTING.md) owns workflow, verification an
 procedure. This backlog does not authorize deployment or physical printing. Historical
 results are linked below rather than repeated as work to do.
 
-## Next recommended software work — conflict-safe artwork saves
+## Saved artwork — conflict protection implemented
 
-Saved artwork uses whole-record replacement without a server revision check. Concurrent
-edits on two devices can overwrite each other's selections despite serialization within
-one overlay. Add revision/conflict handling so stale saves cannot silently replace newer
-choices. Preserve frozen artwork in already-generated jobs. Saved-art history and the
-612-entry limit can be considered separately, without expanding the initial fix.
+Tracked-deck artwork saves now check a durable revision; stale edits and resets cannot
+silently overwrite newer choices. The overlay retains an unsaved draft and offers explicit
+conflict recovery. Existing generated jobs keep their frozen artwork. See
+[the saved-art contract](DECISIONS.md#d9--generate-pdfs-in-clc-print-through-a-native-mac-companion).
+Saved-art history and the 612-entry limit remain separate follow-ups.
 
 ## Working printing path and conditional physical checks
 
@@ -58,8 +58,10 @@ older detailed security audits remain local.
   overrides are per card name. The dedicated PDF adapter now preserves physical copies, face
   pairing and immutable art identity. Source-specific crop/bleed calibration remains part
   of the physical proof; the initial adapter preserves the owner’s 1 mm crop.
-- Conflict-safe artwork saves are the next recommended software task above. Saved-art
-  history and the 612-entry limit remain separate follow-ups.
+- Saved-art history and the 612-entry limit remain separate follow-ups; conflict-safe saves
+  are implemented above. Pending drafts belonging to other editors are retained conservatively
+  so recovery cannot erase active work. A fresh tab can offer an older orphan draft again;
+  add explicit draft selection/cleanup with history work rather than guessing another tab is closed.
 
 **UI polish**
 

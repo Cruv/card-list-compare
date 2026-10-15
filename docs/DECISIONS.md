@@ -152,6 +152,19 @@ repeat-front-calibration priority; preserve the working recipe. Unproven cutting
 paths and relevant changes still need their own acceptance, without changing proof flags
 or exact-paper/submission safeguards merely because fronts work.
 
+**Conflict-safe saved artwork (2026-10-15).** MPC selections remain a whole-deck record,
+with a durable monotonic revision shared by all tabs/devices. The owner-scoped GET returns
+`overrides`, `configured` and `revision`; PUT requires `overrides` and `baseRevision`.
+A successful compare-and-save persists both choices and the next revision atomically.
+Stale writes return HTTP 409 / `ARTWORK_CONFLICT` with the current owner snapshot; missing
+revisions return HTTP 428 / `ARTWORK_REVISION_REQUIRED` so older tabs must reload. Existing
+records migrate at revision zero without changing their bytes, and an explicit empty reset
+remains distinct from never-configured NULL. The browser serializes saves, stops after
+conflicts/uncertain replies and retains a pending local draft for explicit review. Choosing
+to replace saved art is deliberate and can conflict again if another save wins first.
+There is no blind rebase or unconditional legacy-write fallback. Previously frozen jobs
+remain unchanged; saved-art history and the 612-face limit are separate future decisions.
+
 **Standalone lists (2026-09-11).** Ad-hoc jobs reuse the print planner, artifact worker,
 station protocol and ManaSync pending-proxy review. They store a named immutable card list
 and a null tracked-deck ID; no placeholder deck or snapshot is created. Their authenticated

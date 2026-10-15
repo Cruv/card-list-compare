@@ -186,6 +186,7 @@ function Reference() {
     </ul>
     <h3>MPCFill artwork</h3>
     <p>Open MPCFill artwork from a deck’s Export menu. Browse card art with DPI, language, ordered sources, tags and fuzzy-search settings. Saved overrides preserve selected artwork; Reset Art clears those choices.</p>
+    <p>If another tab or device updates the saved art first, your draft stays available for review. Use the saved choices or explicitly replace them with yours after checking the differences. If browser storage fails, keep the tab open until you resolve the draft. A failed save does not silently overwrite newer art; already-generated PDFs keep their original choices.</p>
     <p><strong>Download MPCFill XML</strong> prepares the desktop MPC Autofill workflow with the selected cardstock. Download ZIP gathers selected images. <strong>Save art for home PDFs</strong> makes a selection available to CLC print review. Neither XML nor an image ZIP automatically submits a home print job.</p>
     <h3>When a result looks wrong</h3>
     <ul>

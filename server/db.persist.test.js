@@ -27,6 +27,35 @@ const transactionHelpers = {
   runTransaction: (db, statements) => db.runTransaction(statements),
 };
 
+describe('saved artwork revision migration', () => {
+  it('preserves legacy choices, explicit resets and never-configured decks at revision zero across restarts', async () => {
+    let db = await import('./db.js');
+    await db.initDb();
+    db.run("INSERT INTO users (id,username,password_hash) VALUES (1,'fixture','unused')");
+    db.run("INSERT INTO tracked_owners (id,user_id,archidekt_username) VALUES (1,1,'fixture')");
+    const storedArtwork = JSON.stringify([['front', { identifier: 'front-art' }], ['historical reverse', { identifier: 'back-art' }]]);
+    for (const [index, artwork] of [storedArtwork, '[]', null].entries()) {
+      db.run(`INSERT INTO tracked_decks (id,user_id,tracked_owner_id,archidekt_deck_id,deck_name,mpc_art_overrides)
+        VALUES (?,1,1,?,'Fixture',?)`, [index + 1, index + 1, artwork]);
+    }
+    db.run('ALTER TABLE tracked_decks DROP COLUMN mpc_art_revision');
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.all('SELECT mpc_art_overrides,mpc_art_revision FROM tracked_decks ORDER BY id')).toEqual([
+      { mpc_art_overrides: storedArtwork, mpc_art_revision: 0 },
+      { mpc_art_overrides: '[]', mpc_art_revision: 0 },
+      { mpc_art_overrides: null, mpc_art_revision: 0 },
+    ]);
+    expect(db.all('PRAGMA table_info(tracked_decks)').find(column => column.name === 'mpc_art_revision'))
+      .toMatchObject({ type: 'INTEGER', notnull: 1, dflt_value: '0' });
+    db.run('UPDATE tracked_decks SET mpc_art_revision = 4 WHERE id = 1');
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.get('SELECT mpc_art_overrides,mpc_art_revision FROM tracked_decks WHERE id = 1'))
+      .toEqual({ mpc_art_overrides: storedArtwork, mpc_art_revision: 4 });
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    expect(db.get('PRAGMA integrity_check').integrity_check).toBe('ok');
+  });
+});
+
 describe('standalone print storage migration', () => {
   it('preserves legacy job bytes, extension columns, indexes and events while allowing a null deck', async () => {
     let db = await import('./db.js');

@@ -145,6 +145,17 @@ search result or Scryfall artwork. Scryfall determines the required face pairing
 MPC provides the pixels. Name-only snapshot entries use Scryfall's resolved printing;
 record exact set/collector metadata when a particular printing matters.
 
+Tracked-deck MPC saves and resets check a durable server revision. A stale save returns
+a conflict instead of overwriting another tab or device. The overlay retains the local
+draft, including a pending reset, and offers the saved choices or an explicit replacement
+with the local choices. Reopening a pending draft requires review rather than an automatic
+save. Draft caches are account/deck scoped, with separate tab recovery so another tab's
+successful save cannot erase a pending draft. Browser storage must be available for recovery
+after closing/reloading; the overlay warns when storage fails, so keep it open until the
+draft is resolved. A failed initial read cannot establish a safe save revision. Unversioned old tabs
+must reload before saving; there is no unconditional-write fallback. These checks do not
+rewrite artwork frozen in existing plans, jobs or PDFs.
+
 Archidekt URL imports and tracked Archidekt snapshots preserve the user's selected set
 and collector number. The default Scryfall source resolves that exact printing, including
 paired DFC faces; an unavailable exact printing blocks preparation instead of substituting

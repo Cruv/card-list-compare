@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.57.3';
+const APP_VERSION = '2.57.4';
 const WHATS_NEW = [
-  'Proxy Balboa draws from Rocky movie dialogue matched to each print event',
-  'Print alerts keep clear job details and actions alongside the movie lines',
+  'Artwork saves protect newer choices made on another device',
+  'Review conflicting artwork and recover unsaved choices before replacing saved art',
 ];
 
 function getResetToken() {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -29,6 +29,7 @@ beforeEach(async () => {
   app.use('/api/decks', (await import('./decks.js')).default);
   app.use('/api/decks', (await import('./snapshots.js')).default);
   app.use('/api/shared-deck', (await import('./shared-decks.js')).default);
+  app.use((error, _req, res, _next) => res.status(500).json({ error: error.message }));
   server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -178,14 +179,126 @@ describe('download lifetime and deck scope', () => {
   });
 });
 
-describe('saved MPC artwork reset', () => {
+describe('conflict-safe saved MPC artwork', () => {
+  const artwork = identifier => [['sol ring', { identifier, thumbnailUrl: `https://fixture.invalid/${identifier}.png`, dpi: 600 }]];
+  const readArtwork = async (id = 1) => (await request(`/api/decks/${id}/mpc-overrides`)).json();
+  const saveArtwork = (overrides, baseRevision, id = 1) => request(`/api/decks/${id}/mpc-overrides`, 'PUT', { overrides, baseRevision });
+
   it('distinguishes a deliberate empty selection from artwork never configured', async () => {
-    expect(await (await request('/api/decks/1/mpc-overrides')).json())
-      .toEqual({ overrides: [], configured: false });
-    const saved = await request('/api/decks/1/mpc-overrides', 'PUT', { overrides: [] });
+    expect(await readArtwork()).toEqual({ overrides: [], configured: false, revision: 0 });
+    const saved = await saveArtwork([], 0);
     expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({ saved: true, count: 0, revision: 1 });
     expect(db.get('SELECT mpc_art_overrides FROM tracked_decks WHERE id = 1').mpc_art_overrides).toBe('[]');
-    expect(await (await request('/api/decks/1/mpc-overrides')).json())
-      .toEqual({ overrides: [], configured: true });
+    expect(await readArtwork()).toEqual({ overrides: [], configured: true, revision: 1 });
+  });
+
+  it('rejects the stale second client without overwriting the newer saved choices or writing the DB', async () => {
+    const firstClient = await readArtwork();
+    const secondClient = await readArtwork();
+    expect((await saveArtwork(artwork('first'), firstClient.revision)).status).toBe(200);
+    const diskBeforeConflict = readFileSync(join(dir, 'test.db'));
+    const stale = await saveArtwork(artwork('second'), secondClient.revision);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ code: 'ARTWORK_CONFLICT', overrides: artwork('first'), configured: true, revision: 1 });
+    expect(await readArtwork()).toEqual({ overrides: artwork('first'), configured: true, revision: 1 });
+    expect(readFileSync(join(dir, 'test.db'))).toEqual(diskBeforeConflict);
+    expect((await saveArtwork(artwork('reviewed'), 1)).status).toBe(200);
+    expect(await readArtwork()).toEqual({ overrides: artwork('reviewed'), configured: true, revision: 2 });
+  });
+
+  it('guards a deliberate reset against stale artwork and local migration saves', async () => {
+    await saveArtwork(artwork('original'), 0);
+    await saveArtwork([], 1);
+    const staleEdit = await saveArtwork(artwork('stale-edit'), 1);
+    const staleMigration = await saveArtwork(artwork('stale-device-cache'), 0);
+    expect(staleEdit.status).toBe(409);
+    expect(staleMigration.status).toBe(409);
+    expect(await staleMigration.json()).toMatchObject({ code: 'ARTWORK_CONFLICT', overrides: [], configured: true, revision: 2 });
+    expect(await readArtwork()).toEqual({ overrides: [], configured: true, revision: 2 });
+  });
+
+  it('detects intervening saves even when artwork returns to exactly the same bytes', async () => {
+    await saveArtwork(artwork('original'), 0);
+    const staleClient = await readArtwork();
+    await saveArtwork([], 1);
+    await saveArtwork(artwork('original'), 2);
+    const stale = await saveArtwork(artwork('older-client-edit'), staleClient.revision);
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({ overrides: artwork('original'), revision: 3 });
+  });
+
+  it('rejects a same-base replay after a lost response instead of applying it twice', async () => {
+    await saveArtwork(artwork('accepted'), 0); // The client does not consume this response.
+    const replay = await saveArtwork(artwork('accepted'), 0);
+    expect(replay.status).toBe(409);
+    expect(await replay.json()).toMatchObject({ code: 'ARTWORK_CONFLICT', overrides: artwork('accepted'), revision: 1 });
+    expect(await readArtwork()).toEqual({ overrides: artwork('accepted'), configured: true, revision: 1 });
+  });
+
+  it('requires versioned clients rather than silently accepting old unguarded saves', async () => {
+    const response = await request('/api/decks/1/mpc-overrides', 'PUT', { overrides: artwork('old-client') });
+    expect(response.status).toBe(428);
+    expect(await response.json()).toMatchObject({ code: 'ARTWORK_REVISION_REQUIRED', error: expect.stringContaining('Reload CLC') });
+    expect(await readArtwork()).toEqual({ overrides: [], configured: false, revision: 0 });
+  });
+
+  it.each([-1, 0.5, '0', null, true, Number.MAX_SAFE_INTEGER + 1])('rejects malformed revision %s', async baseRevision => {
+    const response = await saveArtwork(artwork('bad-revision'), baseRevision);
+    expect(response.status).toBe(400);
+    expect(await readArtwork()).toEqual({ overrides: [], configured: false, revision: 0 });
+  });
+
+  it.each([null, {}, ['sol ring'], [[null, {}]], [['sol ring', null]], [['sol ring', []]], [['', {}]]])('rejects malformed artwork pairs %j', async overrides => {
+    expect((await saveArtwork(overrides, 0)).status).toBe(400);
+    expect(await readArtwork()).toEqual({ overrides: [], configured: false, revision: 0 });
+  });
+
+  it('retains the existing 612-face limit', async () => {
+    const faces = Array.from({ length: 613 }, (_, index) => [`card ${index}`, { identifier: String(index) }]);
+    expect((await saveArtwork(faces, 0)).status).toBe(400);
+    expect(await readArtwork()).toEqual({ overrides: [], configured: false, revision: 0 });
+  });
+
+  it('does not disclose foreign or deleted artwork/revisions even to malformed or stale writes', async () => {
+    db.run("INSERT INTO users (id, username, password_hash) VALUES (2, 'foreign', 'unused')");
+    db.run("INSERT INTO tracked_owners (id, user_id, archidekt_username) VALUES (2, 2, 'foreign')");
+    db.run(`INSERT INTO tracked_decks (id, user_id, tracked_owner_id, archidekt_deck_id, deck_name, mpc_art_overrides, mpc_art_revision)
+      VALUES (3, 2, 2, 3, 'Foreign deck', ?, 7)`, [JSON.stringify(artwork('private'))]);
+    db.run('DELETE FROM tracked_decks WHERE id = 1');
+    for (const id of [1, 3, 999]) {
+      for (const body of [undefined, { overrides: [] }, { overrides: [], baseRevision: 0 }]) {
+        const response = await request(`/api/decks/${id}/mpc-overrides`, body ? 'PUT' : 'GET', body);
+        expect(response.status).toBe(404);
+        expect(await response.json()).toEqual({ error: 'Deck not found' });
+      }
+    }
+    expect(db.get('SELECT mpc_art_revision FROM tracked_decks WHERE id = 3').mpc_art_revision).toBe(7);
+  });
+
+  it('preserves valid legacy pairs on read while excluding malformed Map entries', async () => {
+    db.run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = 1', [JSON.stringify([...artwork('valid'), null, ['bad', null]])]);
+    expect(await readArtwork()).toEqual({ overrides: artwork('valid'), configured: true, revision: 0 });
+  });
+
+  it('rolls back both artwork and revision after a disk failure and permits a durable retry', async () => {
+    await saveArtwork(artwork('original'), 0);
+    const dbPath = join(dir, 'test.db');
+    const diskBeforeFailure = readFileSync(dbPath);
+    mkdirSync(`${dbPath}.tmp`);
+    const failed = await saveArtwork(artwork('retry'), 1);
+    expect(failed.status).toBe(500);
+    expect(await readArtwork()).toEqual({ overrides: artwork('original'), configured: true, revision: 1 });
+    expect(readFileSync(dbPath)).toEqual(diskBeforeFailure);
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    rmSync(`${dbPath}.tmp`, { recursive: true });
+    const retry = await saveArtwork(artwork('retry'), 1);
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({ saved: true, count: 1, revision: 2 });
+    const persisted = new (db.getDb().constructor)(readFileSync(dbPath));
+    try {
+      expect(persisted.exec('SELECT mpc_art_overrides, mpc_art_revision FROM tracked_decks WHERE id = 1')[0].values)
+        .toEqual([[JSON.stringify(artwork('retry')), 2]]);
+    } finally { persisted.close(); }
   });
 });

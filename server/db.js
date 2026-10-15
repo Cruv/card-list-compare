@@ -639,6 +639,11 @@ export async function initDb() {
   } catch {
     // Column already exists — ignore
   }
+  // Revisions distinguish intervening saves/resets even when artwork returns to
+  // the same bytes. Preserve legacy choices and start their revision at zero.
+  if (!all('PRAGMA table_info(tracked_decks)').some(column => column.name === 'mpc_art_revision')) {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN mpc_art_revision INTEGER NOT NULL DEFAULT 0');
+  }
 
   // One-shot cleanup: email/reset tokens are stored as SHA-256 hashes now, so any
   // rows written before that cutover hold plaintext values that can never match a

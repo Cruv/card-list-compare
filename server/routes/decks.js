@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { all, get, run } from '../db.js';
+import { all, get, run, transaction } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { existsSync, createReadStream } from 'fs';
 import { archidektLimiter } from '../middleware/rateLimit.js';
@@ -703,45 +703,86 @@ function formatJobResponse(job, _deckId) {
 
 // ── MPC Art Overrides ──────────────────────────────────────
 
+function isMpcArtEntry(entry) {
+  return Array.isArray(entry) && entry.length === 2
+    && typeof entry[0] === 'string' && entry[0].trim().length > 0
+    && entry[1] !== null && typeof entry[1] === 'object' && !Array.isArray(entry[1]);
+}
+
+function mpcArtSnapshot(deck) {
+  let overrides = [];
+  if (deck.mpc_art_overrides) {
+    try {
+      const stored = JSON.parse(deck.mpc_art_overrides);
+      if (Array.isArray(stored)) overrides = stored.filter(isMpcArtEntry);
+    } catch { /* Corrupted legacy choices must not break the artwork picker. */ }
+  }
+  return { overrides, configured: deck.mpc_art_overrides != null, revision: deck.mpc_art_revision };
+}
+
 /**
  * GET /api/decks/:id/mpc-overrides — Load saved MPC art choices for a deck.
- * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...], configured }
+ * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...], configured, revision }
  * configured distinguishes a deliberate Reset Art from never-configured local migration.
  */
 router.get('/:id/mpc-overrides', (req, res) => {
   const id = requireIntParam(req, res, 'id');
   if (id === null) return;
-  const deck = get('SELECT id, user_id, mpc_art_overrides FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  const deck = get('SELECT mpc_art_overrides, mpc_art_revision FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
   if (!deck) return res.status(404).json({ error: 'Deck not found' });
-
-  let overrides = [];
-  if (deck.mpc_art_overrides) {
-    try { overrides = JSON.parse(deck.mpc_art_overrides); } catch { /* corrupted — return empty */ }
-  }
-  res.json({ overrides, configured: deck.mpc_art_overrides != null });
+  res.json(mpcArtSnapshot(deck));
 });
 
 /**
  * PUT /api/decks/:id/mpc-overrides — Save MPC art choices for a deck.
- * Body: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
+ * Body: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...], baseRevision }
  */
 router.put('/:id/mpc-overrides', (req, res) => {
   const id = requireIntParam(req, res, 'id');
   if (id === null) return;
-  const deck = get('SELECT id, user_id FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  const deck = get('SELECT mpc_art_overrides, mpc_art_revision FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
   if (!deck) return res.status(404).json({ error: 'Deck not found' });
 
-  const { overrides } = req.body;
+  const { overrides, baseRevision } = req.body || {};
+  if (baseRevision === undefined) {
+    return res.status(428).json({
+      error: 'Reload CLC before saving artwork. This client does not support conflict-safe saves.',
+      code: 'ARTWORK_REVISION_REQUIRED',
+    });
+  }
+  if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) {
+    return res.status(400).json({ error: 'baseRevision must be a nonnegative safe integer' });
+  }
   if (!Array.isArray(overrides)) return res.status(400).json({ error: 'overrides must be an array' });
 
   // Validate and cap size (max 612 cards × ~200 bytes each ≈ 120KB)
   if (overrides.length > 612) return res.status(400).json({ error: 'Too many overrides' });
+  if (!overrides.every(isMpcArtEntry)) {
+    return res.status(400).json({ error: 'overrides must contain card-name and artwork-object pairs' });
+  }
+  if (baseRevision !== deck.mpc_art_revision) {
+    return res.status(409).json({
+      error: 'Artwork changed in another tab or device. Review the saved choices before saving again.',
+      code: 'ARTWORK_CONFLICT',
+      ...mpcArtSnapshot(deck),
+    });
+  }
+  if (baseRevision === Number.MAX_SAFE_INTEGER) {
+    return res.status(409).json({ error: 'Artwork revision limit reached. Contact an administrator.', code: 'ARTWORK_REVISION_EXHAUSTED' });
+  }
 
   // Keep [] as an explicit reset. NULL is reserved for a deck that has never
   // saved choices, so another device cannot restore stale local art after reset.
   const json = JSON.stringify(overrides);
-  run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = ?', [json, id]);
-  res.json({ saved: true, count: overrides.length });
+  const revision = transaction(() => {
+    const { changes } = run(`UPDATE tracked_decks SET mpc_art_overrides = ?, mpc_art_revision = mpc_art_revision + 1
+      WHERE id = ? AND user_id = ? AND mpc_art_revision = ?`, [json, id, req.user.userId, baseRevision]);
+    // Route execution and the transaction are synchronous. A failed conditional
+    // update is an invariant failure, never permission to write without a guard.
+    if (changes !== 1) throw new Error('Artwork changed while saving');
+    return baseRevision + 1;
+  });
+  res.json({ saved: true, count: overrides.length, revision });
 });
 
 export default router;

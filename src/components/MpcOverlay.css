@@ -217,6 +217,29 @@
   padding: var(--space-xl);
 }
 
+.mpc-art-save-status { margin: var(--space-sm) 0 0; color: var(--text-secondary); font-size: var(--fs-xs); }
+
+.mpc-art-recovery {
+  border: 1px solid var(--accent-orange, #c6892f);
+  border-radius: var(--radius);
+  background: var(--bg-primary);
+  padding: var(--space-md);
+  margin-bottom: var(--space-lg);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.mpc-art-recovery h3 { margin: 0 0 var(--space-sm); font-size: var(--fs-md); }
+.mpc-art-recovery p { margin: var(--space-sm) 0; }
+.mpc-art-recovery summary { cursor: pointer; }
+.mpc-art-recovery-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-md); }
+.mpc-art-differences { list-style: none; margin: var(--space-sm) 0; padding: 0; }
+.mpc-art-differences > li { padding: var(--space-sm) 0; border-bottom: 1px solid var(--border-color); }
+.mpc-art-diff-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin-top: var(--space-sm); }
+.mpc-art-diff-choices > div { display: flex; flex-direction: column; gap: var(--space-xs); }
+.mpc-art-diff-choices img { width: 88px; max-width: 100%; height: auto; align-self: flex-start; }
+.mpc-art-diff-choices small { color: var(--text-secondary); overflow-wrap: anywhere; }
+
 /* ── Card grid ───────────────────────────────────── */
 
 .mpc-card-grid {

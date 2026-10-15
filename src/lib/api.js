@@ -59,6 +59,7 @@ async function apiFetch(path, options = {}) {
   if (!res.ok) {
     const error = new Error(data.error || `Request failed: ${res.status}`);
     error.status = res.status;
+    error.data = data;
     throw error;
   }
 
@@ -458,10 +459,10 @@ export async function mpcDownloadZip(cards) {
 
 // MPC art overrides (server-persisted)
 export const getMpcOverrides = (deckId) => apiFetch(`/decks/${deckId}/mpc-overrides`);
-export const saveMpcOverrides = (deckId, overrides) =>
+export const saveMpcOverrides = (deckId, overrides, baseRevision) =>
   apiFetch(`/decks/${deckId}/mpc-overrides`, {
     method: 'PUT',
-    body: JSON.stringify({ overrides }),
+    body: JSON.stringify({ overrides, baseRevision }),
   });
 
 // Image download queue
