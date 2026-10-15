@@ -38,6 +38,11 @@ commands still needed application/operator setup; the existing webhook was conne
 Reconcile Portainer's saved service definition before its next controller redeploy.
 Neither item is a request to interrupt active household work or test with real jobs.
 
+The historical orphaned snapshot was investigated and safely archived on 2026-10-15.
+Its original owner/deck could not be proven; all text and metadata remain in a private recovery
+archive, and the active database now passes foreign-key checks. See
+[the repair record](OPERATIONS.md#historical-snapshot-repair--2026-10-15).
+
 ## Open — reviewed 2026-09-12
 
 These items were recorded by the 2026-09-12 review; reassess the relevant source before
@@ -72,9 +77,6 @@ older detailed security audits remain local.
 
 **Housekeeping**
 
-- Investigate the pre-existing orphaned deck snapshot found in both pre/post v2.57.4
-  deployment copies on 2026-10-15. Trace its intended deck association against backups;
-  preserve the historical text and do not automatically delete or reassign it.
 - Consider an owner-approved routine for release tags (`vX.Y.Z`). The workflow already
   publishes semver images for requested tags; changing the default tagging practice would
   be a policy decision. Follow [CONTRIBUTING.md](../CONTRIBUTING.md).

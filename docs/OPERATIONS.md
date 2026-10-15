@@ -39,6 +39,61 @@ The Collection UI and `/api/collection` routes are removed, but `collection_card
 and rows are retained in database backups. There is no migration/export to ManaSync yet;
 do not drop the table as cleanup. Review any eventual transfer against ManaSync's format.
 
+**Historical orphan snapshots:** a missing parent does not establish an owner or authorize
+assigning the saved list to another deck. Trace dated backups and surviving paper markers,
+proposals, image jobs, print plans and integration receipts first. If provenance cannot be
+established, preserve the complete original row, schema, exact text and hashes in a private
+recovery archive before removing the broken active record. Keep the archive outside Git and
+public APIs; do not infer ownership from similar card lists.
+
+For an authorized repair, rehearse on a disposable copy using the deployed sql.js helpers.
+Stop only the affected backend, take a fresh complete backup, and durably write/fsync the
+archive and its directory. Guard the exact stopped database/row, absent parent and references;
+delete only that row in a transaction. Compare all other table content/schema and verify
+integrity and foreign keys before and after restart. `initDb()` itself persists migrations:
+if initialization or a later check fails, keep the service stopped and preserve the failed
+copy before restoring the untouched stopped backup or investigating. Do not restart a
+failed repair blindly. Later recovery requires proven owner/deck association and a fresh
+repair/import; never disable foreign keys to reinsert an orphan or restore an old whole
+database over newer user writes.
+
+### Historical snapshot repair — 2026-10-15
+
+The orphan found during the v2.57.4 deployment was already unchanged in all **48** inspected
+database copies across 24 dated directories, starting September 11. Its parent deck was absent
+throughout; no surviving reference or exact duplicate identified an original deck or owner.
+The historical deletion time and cause could not be proven. Current persistence exports
+restore foreign-key enforcement, and the scoped code review found no current defect requiring
+an application change.
+
+The owner authorized a safe repair. The complete original row, column/schema definitions,
+exact list text, hashes, provenance and restoration instructions were preserved privately at
+`/Users/cruv/docker/Backups/cardlistcompare/20261015T223359Z-orphan-snapshot-repair/quarantine`.
+The same case contains the fresh stopped `data-complete` backup, private deployment configuration
+and verification receipts. The archive and its directory were fsynced before removing the
+single inaccessible active row. It was **not** assigned to a guessed user or replacement deck.
+
+The deployed v2.57.4 sql.js transaction helper performed the offline repair with networking
+disabled and no server workers. Independent comparison confirmed every other table's rows
+and schema unchanged: **77 active snapshots plus one archived snapshot** preserve the original
+78 records. Integrity passed and foreign-key violations fell from one to zero. All **87** print
+artifact files (465,092,497 bytes), saved artwork, paper markers, proposals and print jobs
+were unchanged. No original provenance was recovered; later import requires a proven owner.
+
+Evidence: 52 persistence/deck-lifecycle tests at `59a915e`, independent history/helper review,
+ten disposable repair cases and a final rehearsal on the fresh stopped bytes. The adverse
+cases rejected changed hashes/rows, a new parent, references in paper markers and integration
+receipts, an extra FK violation and a repeated repair without changing the fixture bytes.
+The same existing v2.57.4 container/image was restarted. No product release, native update,
+print action or Discord test was part of this repair.
+
+After restart, localhost and household HTTPS health returned HTTP 200; integrity and
+foreign-key checks passed again. The surviving deck/snapshot, owner, artwork, paper-marker,
+proposal, integration and print-job rows still matched the stopped backup. Container
+configuration was unchanged. The native v2.57.3 companion stayed running and unpaused with
+identical jobs, passes, receipts, settings, configuration/token and selected version;
+its authenticated heartbeat returned HTTP 200 at **22:52:47 UTC**.
+
 ## §2 — External-API drift (the #1 cause of emergency releases)
 
 Scryfall / Archidekt / Moxfield / MPC Autofill rename fields without notice; fixtures can't
@@ -195,7 +250,8 @@ records retained their original bytes; the new `mpc_art_revision` column starts 
 All 87 retained print artifact files (465,092,497 bytes) were byte-identical to the backup.
 One pre-existing orphaned deck snapshot was present in both stopped and post-deploy copies;
 the update introduced no new foreign-key violations and did not delete or reassign that row.
-Its investigation is recorded in [ROADMAP](ROADMAP.md).
+Its subsequent owner-authorized investigation and lossless quarantine are recorded in
+[the historical snapshot repair](#historical-snapshot-repair--2026-10-15).
 
 The native **v2.57.3** companion stayed running and unpaused. Its jobs, passes, recovery
 receipts, settings, configuration/token hashes and selected version were unchanged. An
@@ -207,7 +263,8 @@ unversioned 428, unauthorized 401 and persistence after restart. Localhost and h
 health passed; all **38 frontend files** matched the image at both origins (76 responses).
 The browser visibly showed v2.57.4, its release notes and conflict-recovery guidance.
 Reload older open tabs before saving artwork; unversioned clients are deliberately rejected.
-The existing v2.57.4 application/release evidence is recorded in [CURRENT_WORK](CURRENT_WORK.md).
+Private deployment receipts below retain the v2.57.4 application/release evidence; the active
+task checkpoint is [CURRENT_WORK](CURRENT_WORK.md).
 
 Normal startup refreshed the cached upstream generator from `b95e833926d70c29a62a56b2b96cc3bb783c47e0`
 to `0da09b729814aa5aafde024b5a6059624fa87951`; the previous runtime remains available.
