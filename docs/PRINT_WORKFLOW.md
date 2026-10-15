@@ -2,7 +2,13 @@
 
 Status: CLC includes comparison-to-print handoff, editable artwork review, PDF generation, artifact downloads, the household
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
-corrected companion sheet; manual duplex and v6 cutter calibration still require the proof below.
+corrected companion sheet.
+
+The current recipe already uses `letter-standard-v6`. The
+[October 15 owner report](HOUSEHOLD_PRINT_RECIPE.md) accepts the working printing path;
+no v6 migration or repeat front calibration is a priority. Cutting/manual-duplex checks
+below apply to unproven setups or relevant changes. Proof flags, exact-paper confirmations
+and uncertain-submission safeguards remain unchanged.
 
 ## Print from comparison results
 
@@ -624,13 +630,14 @@ manifest explicitly records that color was not normalized or assigned a printer 
 Epson documents [EPSON Vivid on Mac](https://files.support.epson.com/docid/cpd5/cpd59879/source/printers/source/printing_software/mac_fy13/references/color_management_options_mac_fy13.html).
 Its presence does not prove a Windows/Mac color match. Adobe GUI presets are not inherited
 by `lp`; inspect the actual driver's options with [CUPS](https://www.cups.org/doc/options.html).
-Keep manual Adobe printing available until the unattended path matches an accepted proof.
+For a new or changed setup, keep manual Adobe printing available until the automated path
+matches an accepted reference. The current household color/orientation comparison is accepted.
 On this Mac, Reader 26.002.21901 forces Print As Image and disables Adobe's own color
 controls. Its native Printer dialog still exposes EPSON Color Controls and the saved Vivid
 preset. See the [verified Reader setup and comparison](HOUSEHOLD_PRINT_RECIPE.md#adobe-reader-on-the-mac--2026-09-09);
 do not assume the Windows Adobe checkboxes can be reproduced on this Reader version.
 
-Before enabling unattended printing:
+Reference checks for new or changed setups (not a requirement to repeat working fronts):
 
 1. The household Mac now has Epson driver 13.45, queue `EPSON_ET_8550_Series`, and the
    **CLC Uinkit 54lb - Fronts** preset. On another Mac, install/configure its queue first.
@@ -641,8 +648,10 @@ Before enabling unattended printing:
    explicit landscape. Preserve its recorded recipe and repeat the comparison if the
    renderer, source, quality, scaling or color settings change. This accepts visual
    color/orientation, not measured v6 cutting geometry.
-4. Verify v6 cut geometry, registration/Studio settings and the 1 mm crop on actual stock.
-5. Separately prove DFC front/back page order, flip direction, rotation and alignment.
+4. When cutting with an unproven setup or after relevant geometry/settings changes, verify
+   v6 cut geometry, registration/Studio settings and the 1 mm crop on actual stock.
+5. When using an unproven manual duplex setup or changing it, separately check DFC front/back
+   page order, flip direction, rotation and alignment.
    The supplied two-sided preset was visible but its settings were not opened.
 
 DFC fronts and backs are separate spooler passes. Only an operator's flip/reload/resume

@@ -139,11 +139,18 @@ reconciliation are needed to avoid duplicate output after interrupted connection
 **Where.** [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md),
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md), and
 [companion/mac](../companion/mac/README.md). The PDF/job API and Mac companion are implemented;
-v6 cutting geometry and manual duplex validation remain. Accepted color/orientation evidence
+separate cutting/manual duplex acceptance is not established by software checks.
+Accepted color/orientation evidence
 and installed status have their own dated [household checkpoint](OPERATIONS.md#household-print-jobs).
 The production runtime uses
 Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
 The adapter keeps 600 PPI while generating one sheet at a time and merging ordinary fronts.
+
+**Working household workflow (2026-10-15).** CLC already uses `household-letter-v6` /
+`letter-standard-v6`. The [owner's printing report](HOUSEHOLD_PRINT_RECIPE.md) supersedes
+repeat-front-calibration priority; preserve the working recipe. Unproven cutting/duplex
+paths and relevant changes still need their own acceptance, without changing proof flags
+or exact-paper/submission safeguards merely because fronts work.
 
 **Standalone lists (2026-09-11).** Ad-hoc jobs reuse the print planner, artifact worker,
 station protocol and ManaSync pending-proxy review. They store a named immutable card list
@@ -282,8 +289,9 @@ reject stale reviews, then generate from the pinned selections. Split/adventure 
 remain single-sided; meld requires a dedicated layout and is explicitly unsupported.
 
 The real cached generator passed offline rendering/pixel checks for one ordinary card and
-eight DFCs split into seven-copy and one-copy packets. No paper was printed; the household
-v6 cutting and manual duplex proofs remain separate pending work.
+eight DFCs split into seven-copy and one-copy packets. That fixture printed no paper and
+did not establish cutting or manual duplex acceptance; see the October 15 household update
+above for the later owner-reported printing experience and scope of conditional checks.
 
 **Interface testing (2026-09-11).** Keep an enabled companion running while the owner
 tests through CLC. A private Mac-only `allow_unverified_printing: true` setting permits

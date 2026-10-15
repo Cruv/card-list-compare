@@ -5,20 +5,30 @@ checkpoint; [CONTRIBUTING.md](../CONTRIBUTING.md) owns workflow, verification an
 procedure. This backlog does not authorize deployment or physical printing. Historical
 results are linked below rather than repeated as work to do.
 
-## Next — physical cutter/duplex proof
+## Next recommended software work — conflict-safe artwork saves
 
-The Epson 13.45 driver and Uinkit fronts recipe have accepted color (after nozzle cleaning)
-and companion landscape output. Remaining physical work is **v6 cutter geometry** and
-**manual DFC page order, flip and alignment**. A real-generator offline fixture verified
-labels and geometry for one ordinary card plus eight DFCs in separate packets, without
-printing paper. The owner's 600 PPI, 1 mm crop and Epson Vivid settings are preserved in
-[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md). Software QA and completed spooler
-passes cannot establish these physical results or enable their proof flags.
+Saved artwork uses whole-record replacement without a server revision check. Concurrent
+edits on two devices can overwrite each other's selections despite serialization within
+one overlay. Add revision/conflict handling so stale saves cannot silently replace newer
+choices. Preserve frozen artwork in already-generated jobs. Saved-art history and the
+612-entry limit can be considered separately, without expanding the initial fix.
 
-Use the implemented [print workflow](PRINT_WORKFLOW.md) for exact-packet reload,
-deferred backs and paper-reset requirements. Drying, lamination and cutting tracking remain
-excluded. Printing never credits usable copies or advances the assembled paper-deck marker
-automatically.
+## Working printing path and conditional physical checks
+
+On **2026-10-15**, the owner reported several dozen pages printed successfully through the
+current workflow. Source and the running container already specify `household-letter-v6` /
+`letter-standard-v6`; the worker validates layout version 6 and its approved geometry.
+There is no pending v6 migration. Repeating front-print calibration is not the next task
+for this working, unchanged recipe. Preserve the accepted 600 PPI, 1 mm crop, Epson Vivid
+and landscape settings in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+
+Cutting/registration and manual DFC flip/alignment results have not been separately
+reported in this update. Keep their existing proof records/flags unchanged; check those
+specific paths when first using an unproven path or changing its recipe/template. This
+is conditional acceptance work, not a reason to replace or interrupt successful printing.
+Use [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for exact-packet selection, reload and paper-reset
+requirements. Printing never credits usable copies or advances the paper-deck marker
+by itself. Drying, lamination and cutting tracking remain excluded.
 
 ## Household follow-ups
 
@@ -48,9 +58,8 @@ older detailed security audits remain local.
   overrides are per card name. The dedicated PDF adapter now preserves physical copies, face
   pairing and immutable art identity. Source-specific crop/bleed calibration remains part
   of the physical proof; the initial adapter preserves the owner’s 1 mm crop.
-- Saved art choices currently use whole-record replacement and a 612-entry limit. The
-  maintenance fixes preserve choices across searches and serialize saves within an overlay;
-  multi-device concurrent edits still need versioning/conflict handling and history management.
+- Conflict-safe artwork saves are the next recommended software task above. Saved-art
+  history and the 612-entry limit remain separate follow-ups.
 
 **UI polish**
 

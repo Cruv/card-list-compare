@@ -1,22 +1,31 @@
-# Household print reference — updated 2026-09-11
+# Household print reference — updated 2026-10-15
 
 **Reference and dated proof evidence:** the settings and September 9–11 observations below
 are retained for reproducibility. They are not a current installation checkpoint or a request
 to rerun physical tests. The [household checkpoint](OPERATIONS.md#household-print-jobs) owns
 installed versions and operating state; [CURRENT_WORK.md](CURRENT_WORK.md) owns the task
-checkpoint. No new physical proof is established by this documentation cleanup.
+checkpoint. The owner report below adds printing experience without rewriting the earlier
+calibration evidence.
+
+**Owner report — 2026-10-15:** several dozen pages have been printed with the current
+workflow, and it works for the household. CLC already uses the `household-letter-v6` recipe
+and `letter-standard-v6` template; no v6 migration or repeat front calibration is a priority.
+Preserve the working recipe. This report does not establish that those pages were cut or
+backs printed. Cutting/manual duplex checks apply when those operations are needed with an
+unproven setup or their relevant settings change; it does not change proof flags or permissions.
 
 Status: the Windows process below is the accepted reference. CLC now implements PDF
 generation and the native Mac companion. The Mac driver and a matching GUI preset were
 configured on 2026-09-09. The first Mac page printed, but the owner rejected its colors;
 the owner subsequently cleared the yellow/magenta clogs and **accepted the Adobe Mac color
-test and corrected companion sheet**. The v6 cutter and manual duplex proofs remain
-outstanding. See
+test and corrected companion sheet**. Separate cutter/manual duplex acceptance is not
+recorded here; use the conditional checks below when needed. See
 [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Preserve this reference across upgrades.
 
-**Updated decision:** the owner has approved adopting **v6** for the new integration.
-Use the matching v6 Studio cutting template and verify a first sheet; reproducing v4 is
-no longer a requirement. The container generates PDFs, and a native Mac companion is the
+**Layout decision:** the current integration uses the owner's approved **v6** layout.
+Keep its matching v6 Studio cutting template; check alignment for an unproven cutting setup
+or a relevant geometry change. Reproducing v4 is not a requirement. The container generates
+PDFs, and a native Mac companion is the
 implemented Epson submission path. The Windows settings below remain the color reference.
 
 ## Equipment and workflow
@@ -106,9 +115,11 @@ EPSON Color Controls and EPSON Vivid for this model's Mac printing software, whi
 us a corresponding mode to test; it does not establish an identical Windows/Mac result.
 [Epson Mac color options](https://files.support.epson.com/docid/cpd5/cpd59879/source/printers/source/printing_software/mac_fy13/references/color_management_options_mac_fy13.html)
 
-First compare the same PDF at Actual Size in Adobe on the target machine using the full
-Epson driver and the captured media/color settings. Then verify the automated rendering
-path against that output. A generic CUPS submission or another PDF renderer must not be
+For a new target machine or changed rendering/color path, compare the same PDF at Actual Size
+in Adobe using the full Epson driver and the captured media/color settings, then verify the
+automated rendering path against that output. The working household path does not need that
+comparison repeated solely because this reference is old. A generic CUPS submission or
+another PDF renderer must not be
 assumed to inherit Adobe's settings or reproduce its output. Keep only one color-conversion
 stage; do not add a printer ICC transform before an already active Vivid driver transform.
 
@@ -119,8 +130,9 @@ the companion connects through `https://clc.blackbeardsvault.com/`. See the
 for installed server/native versions and the local test-printing opt-in. Accepted color and
 orientation results do not enable the still-unverified v6 cutter/manual duplex proof flags.
 
-Remaining physical checks are the matching v6 Studio cutting template, manual rear-feeder
-flip direction and back alignment, and safe packet handling with earlier output present.
+For cutting or manual duplex with a setup not yet accepted, check the matching v6 Studio
+cutting template, manual rear-feeder flip direction/back alignment as applicable, and safe
+packet handling with earlier output present. Recheck affected output after relevant changes.
 The opened Windows two-sided preset can help establish the original binding/flip sequence;
 the new companion submits each face as a separate one-sided pass.
 
@@ -394,9 +406,11 @@ with container-local scratch and the final files were copied to the share. See
 hash-verified private local copy, matching the companion's normal local-spool workflow.
 
 Submitted one front-only sheet as **local job 9**, titled `CLC-PROOF-v6-cutting-20260910`,
-using the accepted landscape recipe and a new durable calibration receipt. The cut proof
-still needs physical measurement (63 × 88 mm), usual drying/lamination, and registration/
-cut checks across both rows using `letter-standard-v6.studio3`. Use the existing proven
-laminated-stock cut settings and the matching physical mat setup; no blade/force/pass
-values were invented or changed. The Alpha's three-mark workflow uses the upstream's
-Cameo 5 Studio selection. No cutter has been operated; manual duplex remains a later test.
+using the accepted landscape recipe and a new durable calibration receipt. At this checkpoint,
+physical measurements (63 × 88 mm) and registration/cut checks across both rows using
+`letter-standard-v6.studio3` had not been accepted. For a needed unproven cutting setup,
+use the usual drying/lamination, existing proven laminated-stock cut settings and matching
+physical mat setup; no blade/force/pass values were invented or changed. The Alpha's
+three-mark workflow uses the upstream's Cameo 5 Studio selection. No cutter was operated
+in this recorded test, and manual duplex was not tested. The October 15 printing report
+does not establish those separate results or require repeating the front-print test.
