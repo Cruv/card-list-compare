@@ -296,8 +296,10 @@ requires physical validation; see [docs/PRINT_WORKFLOW.md](docs/PRINT_WORKFLOW.m
 
 ## When you change auth or security
 
-Update this file in the same commit (it is in CLAUDE.md's doc-sync table), and ship the
-change with its regression test.
+Update the affected security model in the same cohesive change and retain meaningful
+permission/adverse-case regression coverage. [CONTRIBUTING](CONTRIBUTING.md#verification-proportional-to-risk)
+defines the risk-based verification and review procedure; prose-only corrections do not
+require a new application release or artificial regression test.
 
 ## ManaSync bridge and integration access
 

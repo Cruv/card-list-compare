@@ -5,6 +5,8 @@ reviewed proposals, original-ownership queries, and explicit physical-print repo
 [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md) and [MANASYNC_PROPOSALS.md](MANASYNC_PROPOSALS.md)
 for the implemented API and setup. The discussion below remains historical design context;
 its proposed endpoints and companion stack do not define the shipped contract.
+Use [CURRENT_WORK.md](CURRENT_WORK.md) for the task checkpoint and [ROADMAP.md](ROADMAP.md)
+for open CLC product work; this original conversation is neither a checklist nor a backlog.
 
 **Repository supplied 2026-09-11:** [dennysparking/manasync](https://github.com/dennysparking/manasync)
 is now available at `/Users/cruv/GitProjects/manasync`. It uses its own current code and
@@ -20,10 +22,12 @@ original per missing card. Physical print quantities and ManaSync inventory repo
 still record actual produced copies. This supersedes the earlier inventory-reduction and
 reservation ideas below for CLC; they remain historical context rather than CLC backlog.
 
-Captured 2026-09-08 from the owner's supplied Discord proposal and ten conversation
-screenshots (Photos 1–10). This note preserves the product discussion for future work;
-it is not a shipped feature, finalized API contract, or verification of vendor capabilities.
-"ManaSync" is a working name for the proposed companion app. The owner's later instruction
+## Historical discussion — 2026-09-08
+
+Captured from the owner's supplied Discord proposal and ten conversation screenshots
+(Photos 1–10). The following preserves ideas and unresolved questions as they stood then;
+it is not current implementation status, an API contract, or verification of vendor capabilities.
+"ManaSync" was the working name for the proposed companion app. The owner's later instruction
 settles the CLC boundary: ManaSync handles collection management exclusively, and native
 CLC collections and their expansion plans are removed. The vendor/reconciliation details
 below remain proposals.
@@ -122,10 +126,12 @@ database and backups; no migration or export to ManaSync is implemented. If thos
 are useful, agree on an explicit migration/reconciliation when ManaSync's format is ready.
 Do not revive CLC's old matcher or collection manager as a parallel inventory system.
 
-## Engineering implications to carry into design
+## Engineering implications recorded with the original proposal
 
 These are implementation considerations inferred from the discussion, not approved endpoint
-schemas or new standing decisions:
+schemas or new standing decisions. The allocation, reservation and inventory-reduced printing
+ideas below were superseded for CLC by the September 11 owner policy above. Current immutable
+print plans and usable-copy confirmation semantics are defined in the bridge/printing docs.
 
 | Concern | Requirement for a reliable integration |
 | --- | --- |
@@ -142,14 +148,16 @@ schemas or new standing decisions:
 | Offline use | Define cached reads, pending edits, reconnect conflicts and hosted backup behavior before choosing an authoritative source |
 | CLC print jobs | Freeze the inventory revision, selected copies/reservations and proxy-batch reference alongside the proposed immutable deck/art manifest |
 
-## Vendor claims and questions still to validate
+## Vendor claims and questions recorded at capture
 
 The Discord message reports ManaBox CSV import/export without an API, no Moxfield API for
 this purpose, and an account-linked Mana Pool API with order access. Treat these as supplied
 assumptions until checked. In particular, availability of a supported account/order API is
 a different question from CLC's existing ability to import deck URLs.
 
-Before integration, obtain the companion repo/backlog and agree on:
+The original discussion identified the following questions. The repository and CLC bridge
+were subsequently supplied/implemented as described above; resolve vendor or ManaBox questions
+in ManaSync using current evidence rather than treating this historical list as CLC work:
 
 - ManaSync/ManaBox reconciliation authority, initial import/rescan strategy, and an explicit
   migration decision for any retained legacy CLC collection records.
@@ -162,24 +170,28 @@ Before integration, obtain the companion repo/backlog and agree on:
 - What event credits physical proxy inventory, independently of updating a paper-deck marker.
 - Offline PWA expectations and criteria for revisiting native iOS.
 
-## Relationship to the current printing plan
+## Printing plan discussed at capture — superseded implementation status
 
-[PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) remains the PDF/Epson/Silhouette plan. Add an
-inventory-aware planning mode when ManaSync's contract is ready: first reuse available
-real/proxy copies, account for pending orders/reservations, then generate the remaining buy
-or print requirement. Keep a deliberate full-deck/reprint option.
+The initial idea was to reuse available real/proxy copies, account for pending
+orders/reservations, and generate only the remaining buy or print requirement, with a
+deliberate full-deck/reprint option. The September 11 policy supersedes this inventory-reduction
+idea for CLC: ownership affects shopping, never physical print quantities. See
+[PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the implemented PDF/Epson/Silhouette workflow.
 
-The owner's follow-up requires the printing container to run Silhouette Card Maker's actual
-code, clone/fetch the latest version, and retain a working installation in the bind mount
-for fallback when upstream cannot be reached. The print plan records update/validation and
-per-job version handling; this is still future implementation work.
+The owner's follow-up required the printing container to run Silhouette Card Maker's actual
+code, fetch compatible upstream updates, and retain a working installation in the bind mount
+for fallback when upstream cannot be reached. That generator integration is implemented;
+its update/validation and per-job version handling now belong to the print workflow and
+[Operations](OPERATIONS.md#silhouette-runtime), not a future-work item in this note.
 
 **Drying tracking remains out of scope.** The household waits about an hour outside CLC;
 this integration does not add drying, lamination or cutter-queue tracking. Logging produced
 proxy copies is an inventory concern, and should not automatically advance the assembled
 paper-deck snapshot marker.
 
-The original context capture was documentation only. The owner's later instruction removes
-native collection management from CLC; that removal preserves legacy stored rows. No
-companion app, vendor connection, CSV integration, bot, native app, ManaSync inventory
-mutation, PDF generator or printer submission is implemented in this milestone.
+The original September 8 context-capture milestone was documentation only. At that time it
+did not implement a companion app, vendor connection, CSV integration, bot, native app,
+ManaSync inventory mutation, PDF generator or printer submission. Subsequent CLC work removed
+native collection management while preserving legacy rows, and implemented the bridge and
+printing capabilities linked above. This historical milestone does not describe their
+present availability or the latest state of the separate ManaSync app.

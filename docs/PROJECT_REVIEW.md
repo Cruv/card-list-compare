@@ -1,10 +1,12 @@
 # Project review — 2026-09-12
 
-This document describes the current product and review findings. Historical milestone
-reports remain in Git history. [Roadmap](ROADMAP.md) is the committed open backlog;
-[Operations](OPERATIONS.md) distinguishes source implementation from household deployment.
+**Historical review:** the findings below describe the 2026-09-12 review, not a new audit
+or the current task queue. Later deferred-back and printer-recovery work is documented in
+[PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) and the [household checkpoint](OPERATIONS.md#household-print-jobs).
+[Roadmap](ROADMAP.md) owns open product work; [CURRENT_WORK.md](CURRENT_WORK.md) owns the
+task checkpoint. Use [CONTRIBUTING.md](../CONTRIBUTING.md) for verification procedure.
 
-## Current product and boundaries
+## Product and boundaries at this review
 
 CLC uses React 19/Vite 7, Express 5 and sql.js with atomic disk persistence. It compares
 metadata-rich MTG lists, tracks provider decks and local saved versions, reviews source
@@ -19,7 +21,7 @@ receipts, and stages ordinary fronts followed by labeled one-sheet DFC packets. 
 packet must be reloaded before its backs. Generation/spooling does not credit inventory or
 advance the assembled-paper marker. Drying/lamination/cutting tracking remains excluded.
 
-## Current review findings and changes
+## Review findings and changes
 
 | Finding | Result |
 | --- | --- |
@@ -52,3 +54,25 @@ and landscape proofs do not certify those remaining steps. Live vendor restricti
 MPC XML/ZIP copy/back limitations and multi-device art-save conflicts remain documented.
 Software/browser tests use disposable databases and mocked external effects; a new
 companion feature is available on the household Mac only after its native runtime update.
+
+## Earlier milestone — v2.43.0 completeness
+
+This completed prerequisite preceded the v2.44 PDF work; it is retained as historical
+evidence rather than a release checklist.
+
+- Canonical card identity includes name, set, collector number and foil status, with DFC
+  aliases preserved across metadata-rich and bare inputs. Comparisons and display lookups
+  use that identity; absent exact printing data is not replaced by generic art/prices.
+- Scryfall ZIP jobs require every requested copy and face, report failures, count image
+  files consistently, and require regeneration of legacy ZIPs that lack completeness checks.
+- Native collection management was removed from CLC; ManaSync owns that responsibility.
+  Deck overlap and existing collection database data were preserved.
+- Recorded verification: 413 tests, zero lint errors (7 existing warnings), production/Docker
+  builds, live Scryfall checks and disposable browser/API smoke tests. These are the
+  milestone's results, not checks rerun for this documentation cleanup.
+
+Earlier v2.42.x review recorded 30 fixed regressions, including per-printing pricing,
+price-alert zero handling, zero-byte database recovery, container signal forwarding and
+the since-retired collection badges. The v2.40.3–v2.42.2 maintenance/security history remains
+in Git; current persistence, auth, modal, parser and lint requirements belong to the
+invariants and decision log rather than a repeated remediation queue.

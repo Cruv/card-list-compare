@@ -1,9 +1,12 @@
 # UI organization and verification
 
-Current source review: **2026-09-12**. This is the capability map for the reorganized UI,
-not a history of old layouts. Earlier screenshots/checkpoints remain in Git history.
-The owner authorized replacing prior tab decisions and requested browser verification
-instead of iOS Simulator testing. Deployed versions are recorded in [Operations](OPERATIONS.md).
+This is the UI capability map, originally reviewed on **2026-09-12**. The verification
+section preserves that dated evidence; its counts are not a fresh test run. Earlier
+screenshots/checkpoints remain in Git history. The owner replaced iOS Simulator acceptance
+with browser verification on September 12; native device behavior remains unproven, not an
+outstanding release gate. See D12 in [DECISIONS.md](DECISIONS.md), the
+[household checkpoint](OPERATIONS.md#household-print-jobs), and
+[CONTRIBUTING.md](../CONTRIBUTING.md) for current verification procedure.
 
 ## Navigation and terminology
 
@@ -67,21 +70,27 @@ immutable; a draft edit never rewrites already generated or queued PDFs.
 - DFC packets keep printed labels and exact artifact/phase reload confirmation. No alert,
   dismissal, page navigation or printer recovery authorizes a back pass or a reprint.
 - The Mac companion observes printer/active-pass errors and uses existing local/Discord
-  transports with durable per-episode duplicate suppression. Reported CUPS status is the
-  limit of hardware visibility; a Mac that is asleep cannot send a local alert.
+  transports with durable per-episode duplicate suppression. A narrow read-only Epson
+  probe can clear stale paper status only when the queue accepts jobs, all jobs are terminal,
+  and the fresh device response is idle/healthy with the configured printer's UUID. It
+  cannot clear other faults or replace explicit recovery. Unknown/unavailable monitoring
+  remains distinct from confirmed physical faults; a sleeping Mac cannot send a local alert.
 - Real copies are credited only through an explicit usable-copy confirmation. One owned
   original of any printing permits unlimited proxies; incoming avoids duplicate shopping;
   unknown ownership stays unknown. The assembled paper marker is independent.
 
-## Browser and automated verification
+## Verification boundaries
 
 Use isolated static builds and synthetic API/artwork fixtures. Block service workers in
 mocked application tests so intercepted requests cannot escape through a previous worker;
 test the public offline shell separately. Never use household accounts/jobs as disposable
 mutation fixtures. No real printer submissions, Discord sends, inventory changes or deck
-edits are authorized by the QA harness.
+edits are authorized by the QA harness. Use [CONTRIBUTING.md](../CONTRIBUTING.md) for the
+current task-specific verification and review procedure.
 
-The current pass covers desktop and 375px Chrome/WebKit, dark/light layouts, keyboard and
+## Historical browser and automated results — 2026-09-12
+
+The September 12 pass covered desktop and 375px Chrome/WebKit, dark/light layouts, keyboard and
 nested-modal focus, grouped export actions, captured comparisons, source loading races,
 private user switches, durable request recovery, and error/offline/permission states.
 
@@ -103,11 +112,11 @@ Completed focused checks during implementation:
   replay/conflict/deletion and unavailable/reused provider sources.
 
 Release validation for v2.53.0: 1,106 JavaScript tests across 62 files and 150 native
-companion tests passed. Production build and ESLint pass (five existing effect warnings);
-both dependency audits report zero vulnerabilities. Native tests use fake CUPS and Discord
+companion tests passed. Production build and ESLint passed (five existing effect warnings);
+both dependency audits reported zero vulnerabilities. Native tests used fake CUPS and Discord
 transports, including error deduplication and cancellation before a CUPS attempt.
-The built Docker image preserves four synthetic queued/submitted/ready/canceled jobs
-across restart and exposes their admin summaries. The arm64 package passes a repeat-install
+The built Docker image preserved four synthetic queued/submitted/ready/canceled jobs
+across restart and exposed their admin summaries. The arm64 package passed a repeat-install
 check preserving ledger history and private configuration, with no launchd or print calls. Screenshots establish browser layout; they do not prove
 native iOS keyboard behavior, printer color, cutter geometry or manual duplex alignment.
 The accepted household color/landscape results and remaining physical tests are maintained

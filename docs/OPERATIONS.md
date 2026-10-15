@@ -1,7 +1,10 @@
 # Operations runbook
 
-Procedures for the risky/rare operations. The quick verification runbook lives in
-CLAUDE.md; this is the deep version. Mirrors WarSlate's `docs/operations.md`.
+Procedures for risky/rare operations. [CONTRIBUTING.md](../CONTRIBUTING.md) owns
+development/release procedure. Read the section
+needed for the authorized operation; this runbook is not a mandatory startup checklist.
+Dated installation/incident records are evidence at that time, not a live health read or
+permission to repeat production actions. Active task resumption uses [CURRENT_WORK.md](CURRENT_WORK.md).
 
 ## §1 — Database backup & recovery
 

@@ -1,6 +1,5 @@
-// SessionStart hook: surface fresh version/git facts at session boot. Mirrors the sibling
-// app WarSlate's hook, adapted to this repo where the version authority is APP_VERSION in
-// src/App.jsx (see docs/DECISIONS.md D4), NOT a git tag. Neutralizes two failure modes:
+// Advisory session facts; procedural authority is AGENTS.md -> CONTRIBUTING.md.
+// Neutralizes two failure modes without loading history or running verification:
 //   1. versioning from stale knowledge — print APP_VERSION + package.json so a new ship
 //      bumps from the real current version;
 //   2. mistaking a parallel session's WIP for breakage — print the dirty file count.
@@ -31,9 +30,8 @@ const dirtyNote = dirty.length
 
 const additionalContext =
   `CardListCompare context at session start — APP_VERSION: ${appVersion} | package.json: ${pkg} | ` +
-  `last release commit: ${lastRelease} | HEAD: ${head} | ${dirtyNote}. Version any user-visible ship ` +
-  `from APP_VERSION (patch = fix, minor = capability), keeping package.json + WHATS_NEW in sync ` +
-  `(test-enforced). Dirty files you didn't create may be a parallel session's WIP — inspect before ` +
-  `staging. Deploying requires a strong JWT_SECRET or the container refuses to start (SECURITY.md).`;
+  `last release commit: ${lastRelease} | HEAD: ${head} | ${dirtyNote}. ` +
+  `Follow AGENTS.md and the task-relevant CONTRIBUTING.md sections. These facts are advisory; ` +
+  `preserve foreign edits and reuse checks whose inputs remain valid.`;
 
 console.log(JSON.stringify({ hookSpecificOutput: { hookEventName: "SessionStart", additionalContext } }));

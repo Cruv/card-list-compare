@@ -1,18 +1,29 @@
 # Review the ManaSync integration
 
+**Dated acceptance record:** this document preserves the September 10–11, 2026 integration
+checks and their exact revisions/results. They are not current deployment status or an
+unfinished acceptance gate. [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md) and
+[MANASYNC_PROPOSALS.md](MANASYNC_PROPOSALS.md) own the contracts;
+[CONTRIBUTING.md](../CONTRIBUTING.md) owns verification procedure. Resume tasks from
+[CURRENT_WORK.md](CURRENT_WORK.md); see [Operations](OPERATIONS.md#household-print-jobs)
+for the separately verified household installation.
+
 PR #5 was merged into `codex/project-audit-print-workflow` at `8b31811`, bringing ManaSync
 ownership, pending proxy artwork, deck creation/proposals, and protected provider refresh.
 Its original base was v2.44.1; the integrated branch retains the Mac station dashboard,
 managed installer/update/rollback and accepted Epson landscape/color recipe. CLC `7d75fef`
 (v2.48.0) also includes labeled one-sheet DFC packets and explicit flip alerts.
-The current v2.48.1 follow-up aligns large deck-creation/proposal text and transport limits with ManaSync
-and accompanies its explicit rejection of unsupported etched publication.
+The September 11 v2.48.1 follow-up aligned large deck-creation/proposal text and transport
+limits with ManaSync and accompanied its explicit rejection of unsupported etched publication.
 
 The paired ManaSync server needs the scoped inventory/deck integration APIs, persistent
 proxy artwork, and pending-proxy APIs described in [the bridge contract](MANASYNC_BRIDGE.md).
 A server without the new endpoints leaves prepared batches waiting with an update message.
 
-## Try the pending-print workflow
+## Pending-print acceptance scenario
+
+Use disposable accounts, databases and synthetic artwork when repeating this scenario.
+It does not authorize physical printing, production inventory changes or real notifications.
 
 1. Connect CLC to ManaSync in **Connections** with `inventory:read` and `proxies:write`.
    `https://manasync.net` is prefilled; **Using another ManaSync server?** accepts a custom
@@ -38,7 +49,8 @@ decisions retain their account and actor; changing accounts cannot move a batch'
 ## Other integration checks
 
 - Review whole snapshots, changes between versions, and optional sideboard copies. Shopping
-  uses that reviewed list; originals including incoming purchases reduce shortages once.
+  uses that reviewed list and suggests one original per logical card with none owned or incoming;
+  it does not reduce physical print quantities or require matching-printing ownership.
   Proxies and unknown ownership never turn into a false original-card shortage calculation.
 - Create a local ManaSync deck; explicitly grant `decks:create` to create it in CLC. Existing
   deck edits arrive as proposals and require review before changing the digital snapshot.
@@ -49,17 +61,9 @@ decisions retain their account and actor; changing accounts cannot move a batch'
 
 ## Verification commands
 
-```sh
-npm ci
-npm --prefix server ci
-npm test
-python3 -m unittest discover -s companion/mac -p 'test_*.py'
-npm run lint
-npm run build
-npm audit
-npm --prefix server audit
-docker build -t clc-review .
-```
+Use the checks appropriate to the change in [CONTRIBUTING.md](../CONTRIBUTING.md).
+The results below record commands already run at the named revisions; reading this
+acceptance record does not require repeating a full suite.
 
 The actual [ManaSync checkout](https://github.com/dennysparking/manasync)'s
 `scripts/verify-clc-bridge.mjs` runs both real servers against
@@ -144,4 +148,7 @@ errors were recorded. Local evidence is in `browser.log` under the disposable
 
 Earlier dated ManaSync verification remains historical. This acceptance did not merge
 either branch to `main`, deploy an app, submit a physical printer job or operate the cutter.
-Physical v6 cutting/DFC alignment and installed-iPhone acceptance remain separate.
+Physical v6 cutting/DFC alignment remain separate. Installed-iPhone acceptance was still
+outstanding at this September 11 checkpoint; on September 12 the owner replaced simulator
+acceptance with browser verification (D12 in [DECISIONS.md](DECISIONS.md)). That change
+does not establish native iOS keyboard/device behavior or any physical print proof.

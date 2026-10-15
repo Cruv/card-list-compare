@@ -1,5 +1,11 @@
 # Household print reference — updated 2026-09-11
 
+**Reference and dated proof evidence:** the settings and September 9–11 observations below
+are retained for reproducibility. They are not a current installation checkpoint or a request
+to rerun physical tests. The [household checkpoint](OPERATIONS.md#household-print-jobs) owns
+installed versions and operating state; [CURRENT_WORK.md](CURRENT_WORK.md) owns the task
+checkpoint. No new physical proof is established by this documentation cleanup.
+
 Status: the Windows process below is the accepted reference. CLC now implements PDF
 generation and the native Mac companion. The Mac driver and a matching GUI preset were
 configured on 2026-09-09. The first Mac page printed, but the owner rejected its colors;
@@ -109,9 +115,9 @@ stage; do not add a printer ICC transform before an already active Vivid driver 
 The permanent CLC container and native printer companion now reside on the household Mac.
 The container's local data directory is `/Users/cruv/docker/Stacks/mtg/cardlistcompare`;
 the companion connects through `https://clc.blackbeardsvault.com/`. See the
-[installation checkpoint](OPERATIONS.md#household-installation-checkpoint--2026-09-11)
-for the installed companion and connected v2.49.1 household server. Test printing is
-enabled locally for interface testing; physical proof results remain unverified.
+[installation checkpoint](OPERATIONS.md#household-print-jobs)
+for installed server/native versions and the local test-printing opt-in. Accepted color and
+orientation results do not enable the still-unverified v6 cutter/manual duplex proof flags.
 
 Remaining physical checks are the matching v6 Studio cutting template, manual rear-feeder
 flip direction and back alignment, and safe packet handling with earlier output present.
@@ -356,9 +362,10 @@ measurements and v6 cutting alignment remain separate checks; this reference is 
 The accepted native recipe fingerprint is
 `7a917073e9373eb27f7827f06a2fa323bec64c9b01f1ac4d19b1c8c7155b6ee8`
 (the recorded Epson options plus v2.44.2's fixed landscape/actual-size settings and pass
-orders). Keep these settings unchanged for the v6 proof. The production worker remains
-unconfigured and both proof flags remain false until v6 geometry and, separately, manual
-duplex are verified.
+orders). Keep these settings unchanged for the v6 proof. At this calibration checkpoint,
+the production worker was not yet configured. It was subsequently installed and enabled;
+see [Operations](OPERATIONS.md#household-print-jobs). Both proof flags remain false until
+v6 geometry and, separately, manual duplex are physically verified.
 
 ### v6 cutting proof prepared — 2026-09-10
 

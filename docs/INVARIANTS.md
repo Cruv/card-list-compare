@@ -10,6 +10,10 @@ document is the normative home only for knowledge that can't be a test. The
 "anchor integrity" test asserts every symbol cited here still exists; if you
 rename one, update this doc and the test's anchor table in the same change.
 
+Read affected entries and their couplings. [CONTRIBUTING](../CONTRIBUTING.md) owns check
+selection and delivery; this catalog is not a demand to reread or verify every entry for
+an unrelated edit. Preserve executable assertions when updating their documentation.
+
 ---
 
 ## 1. sql.js persistence — the most dangerous thing in this repo
@@ -152,11 +156,15 @@ In `server/middleware/auth.js`:
 
 ## 10. DB migrations pattern
 
-In `server/db.js`: new tables use `CREATE TABLE IF NOT EXISTS`; new columns use
-`ALTER TABLE ... ADD COLUMN` wrapped in try/catch (sql.js has no
-`IF NOT EXISTS` for columns — the catch **is** the idempotency mechanism);
-indexes are created separately (never add UNIQUE via ALTER); data backfills run
-after the column exists. Follow the existing examples verbatim.
+In `server/db.js`, preserve repeatable schema upgrades and existing data from supported
+prior databases. Existing additions use `CREATE TABLE IF NOT EXISTS` and try/catch around
+`ALTER TABLE ... ADD COLUMN` because columns lack `IF NOT EXISTS`; that syntax is an
+implementation pattern, not a requirement to copy a broad catch. Detect an already-applied
+change deliberately without masking unrelated failures. SQLite does not support adding
+UNIQUE with column ALTER, so existing indexes are separate; backfills follow schema creation.
+Use fresh/upgrade/repeated-start and relevant failure cases under
+[CONTRIBUTING](../CONTRIBUTING.md#verification-proportional-to-risk), retaining transaction
+and persistence safeguards. No migration is authorized merely by this procedure cleanup.
 
 ## 11. Server middleware order
 
@@ -203,7 +211,7 @@ reading their current response shape, not by guessing.
 
 `APP_VERSION` and `WHATS_NEW` in `src/App.jsx` drive the user-facing what's-new
 toast; `package.json` version must equal `APP_VERSION` (enforced by test). The
-protocol lives in [CLAUDE.md](../CLAUDE.md); the `/release` skill executes it.
+protocol lives in [CONTRIBUTING.md](../CONTRIBUTING.md#delivery-and-publication); client skills route there.
 WHATS_NEW is **replaced** each release (git log is the historical record).
 
 ---
@@ -219,7 +227,7 @@ WHATS_NEW is **replaced** each release (git log is the historical record).
 | Password/suspension writes | call `invalidateAuthCache(userId)` (bulk ops: `invalidateAllAuthCache()`) | — (review) |
 | New external API host | helmet CSP (`server/index.js`) + vite proxy (`vite.config.js`); nginx only if a new server-side path is proxied | — (review) |
 | `APP_VERSION` | `WHATS_NEW` + `package.json` version | version tests |
-| User-visible feature change | Guide section in `src/components/GuidePage.jsx` (`SECTIONS`) | — (release protocol) |
+| Changed user instructions / feature availability | Affected Guide section in `src/components/GuidePage.jsx` (`SECTIONS`), if its claims changed | — (documentation routing) |
 | Anything in this doc's symbols | anchor table in `src/lib/invariants.test.js` | anchor test |
 
 ---
@@ -263,6 +271,8 @@ Why things are the way they are — context for changes, not rules.
     DRY here.
 14. **`package.json` version was stale (2.16.1) for 23 minor releases**; since
     v2.40.0 it is synced with `APP_VERSION` and test-enforced.
-15. **No component/route test culture** — Vitest runs in node env (no jsdom).
-    Core logic (parser/differ/formatter/enrichment) is tested; UI and routes
-    are verified manually via the runbook in [CLAUDE.md](../CLAUDE.md).
+15. **Verification follows the affected surface** — Vitest runs in Node (no jsdom),
+    covering client/server logic and route/API tests; it does not prove browser layout.
+    Use [CONTRIBUTING](../CONTRIBUTING.md#verification-proportional-to-risk) for browser,
+    compatibility and adverse-case checks. The old absence of a route/component test
+    culture is historical context, not a restriction on useful tests.

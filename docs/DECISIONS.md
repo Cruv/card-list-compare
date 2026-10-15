@@ -1,9 +1,11 @@
 # CardListCompare — decision log
 
-> The load-bearing "why"s. Each entry: what was decided, why, what it costs, and where it
-> lives in code. These are **standing decisions** — revisit deliberately (talk to the
-> owner), don't erode them incidentally. One flat file on purpose: searchable in one place.
-> Mirrors the sibling app WarSlate's `docs/decisions.md` format so both repos read alike.
+> Product/architecture rationale and dated evidence. Read the relevant entry, not every
+> historical milestone. Explicit owner direction may revise procedures; preserve substantive
+> safeguards and record deliberate changes. [CONTRIBUTING](../CONTRIBUTING.md) is the canonical
+> development/release policy; [AGENTS](../AGENTS.md) routes agents. On 2026-10-15 the owner
+> authorized this procedural consolidation, superseding blanket rereading, approval,
+> before/after verification and per-subtask release instructions in earlier local notes.
 
 ## D1 — sql.js for persistence (not better-sqlite3)
 
@@ -35,10 +37,11 @@ express-rate-limit, jsonwebtoken, bcryptjs, nodemailer, archiver, compression, s
 This diverges from WarSlate's zero-dependency-server rule (WarSlate D1).
 **Why.** This app started from the Express ecosystem and sql.js is itself load-bearing;
 rewriting to Node built-ins would be a large, low-reward migration. The trade is accepted.
-**Cost.** Supply-chain surface. Mitigations that this decision REQUIRES: `npm audit` is part
-of the release check, dependency bumps are lockfile-only, and a **new server dependency needs
-explicit justification** (prefer a Node built-in — e.g. `node:crypto` did the token hashing
-in D7, `node:zlib`/compression, `archiver` only where a real zip is needed).
+**Cost.** Supply-chain surface. Audit both dependency trees for product releases and the
+affected tree for dependency changes, per [CONTRIBUTING](../CONTRIBUTING.md). Prefer compatible
+lockfile updates; change a manifest deliberately when its constraint/API must change
+(including the October 2026 Nodemailer 10 fix). A **new server dependency needs explicit
+justification**; prefer a suitable Node built-in. Do not force major migrations as incidental cleanup.
 **Where.** `server/package.json`. Revisit only if supply-chain cost outweighs convenience.
 
 ## D4 — Version authority is APP_VERSION in code, not git tags
@@ -48,17 +51,22 @@ in D7, `node:zlib`/compression, `archiver` only where a real zip is needed).
 Stale `v1.x` git tags are historical and not authoritative.
 **Why.** The version drives an in-app "What's new" toast keyed to `APP_VERSION`; a code
 constant is what the UI reads. The sync is test-enforced, so it can't silently drift.
-**Cost.** Unlike WarSlate (where the git tag is authority), tags here don't gate anything.
-Lightweight release tags MAY be resumed to get pinnable GHCR images (see ROADMAP), but the
-authority stays in code. **Where.** `src/App.jsx`; enforced by `invariants.test.js`.
+**Cost.** Tags are not version authority, but a `v*` push does trigger semver image
+publication. Tag use remains owner-requested; a cohesive outcome, not each subtask, is the
+product release unit. Internal/docs-only work needs no product bump. The canonical
+procedure is [CONTRIBUTING](../CONTRIBUTING.md#delivery-and-publication).
+**Where.** `src/App.jsx`; enforced by `invariants.test.js`.
 
 ## D5 — Publish the image on every push to main (:latest, :sha, :branch)
 
 **Decision.** `.github/workflows/docker-publish.yml` builds and publishes to GHCR on every
-push to `main`, gated on `npm test` and an error-free ESLint run. `:latest` tracks the default branch.
+push to `main`, gated on JavaScript tests, portable companion tests and an error-free ESLint
+run. The image build compiles the frontend. `:latest` tracks the default branch. PRs build
+without publishing; a feature push without a PR does not trigger this workflow.
 **Why.** Simple, hosted-runner CI; the household deploy pulls deliberately (no auto-pull),
 so republishing `:latest` on an internal-only commit is harmless here.
-**Cost.** `:latest` means "last push that passed tests and lint," not "last deliberate release." If
+**Cost.** `:latest` means "last push that passed CI," not "last deliberate release." Even
+docs-only main pushes run this workflow; local prose checks do not alter that boundary. If
 that ever matters, gate `:latest`/semver tags on a `v*` tag or a release-commit condition
 (one workflow line) — recorded here so the choice is explicit, not accidental.
 **Where.** `.github/workflows/docker-publish.yml`.
@@ -79,8 +87,10 @@ panels is a project, not lint cleanup.
 
 ## D7 — Auth: JWT bearer tokens, bcrypt passwords, hashed email/reset tokens
 
-**Decision.** Sessions are stateless HS256 JWTs (7-day expiry) signed with a mandatory
-`JWT_SECRET`; passwords are bcrypt; email-verification and password-reset tokens are stored
+**Decision.** Sessions are stateless HS256 JWTs (7-day expiry), with a mandatory strong
+production `JWT_SECRET` and a persisted random development fallback only when unset.
+Supplied weak secrets are rejected in both environments. Passwords are bcrypt;
+email-verification and password-reset tokens are stored
 as **SHA-256 hashes** (raw token emailed).
 **Why.** The server refuses to start on a weak/missing secret (v2.40.3), so a defaulted
 secret can't sign forgeable tokens. Hashing the email tokens means a DB read can't replay
@@ -120,14 +130,18 @@ three marks; v6 layout adoption does not itself select four marks.
 **Why.** PDF composition does not require a Linux printer driver. Keeping device rendering
 and EPSON Vivid controls on the Mac permits validation against the owner's Adobe/Windows
 output while CLC handles generation, storage and household requests.
-**Cost.** The Mac must be awake/available to submit. Its automated rendering path needs a
-color proof against Adobe; GUI presets cannot be assumed to transfer to CUPS. Double-faced
+**Cost.** The Mac must be awake/available to submit. Its automated rendering path required
+a color proof against Adobe; that recipe's color/orientation were accepted in the dated
+household evidence. Changed rendering/recipe inputs require their affected proof again;
+GUI presets cannot be assumed to transfer to CUPS. Double-faced
 cards use separate one-sheet packets requiring manual flip/reload. Durable job IDs and submission
 reconciliation are needed to avoid duplicate output after interrupted connections.
 **Where.** [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md),
 [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md), and
 [companion/mac](../companion/mac/README.md). The PDF/job API and Mac companion are implemented;
-physical validation remains. The production runtime uses
+v6 cutting geometry and manual duplex validation remain. Accepted color/orientation evidence
+and installed status have their own dated [household checkpoint](OPERATIONS.md#household-print-jobs).
+The production runtime uses
 Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
 The adapter keeps 600 PPI while generating one sheet at a time and merging ordinary fronts.
 
@@ -194,7 +208,9 @@ secrets are encrypted, browser recovery stores nonsecret request identity, and t
 Mac ledger atomically stores settings and command receipts. Disconnect overrides local
 configuration. Tests bind to the acknowledged revision and never mention the user. Delivery
 attempts are recorded before sending, with no automatic replay after an ambiguous response.
-No webhook was configured or sent during implementation.
+No webhook was configured or sent during that initial implementation validation. The
+2026-10-11 household checkpoint records a connected webhook; this dated test statement is
+not a current configuration claim or permission to send a test.
 
 **Printer recovery and Discord commands (2026-10-10; v2.57.0).** The household's paper-out
 pass was canceled by CUPS' three-hour watchdog while waiting for paper. Preserve future
@@ -369,14 +385,16 @@ operations keep their original payload and receipt identity for reconciliation.
 `docs/MANASYNC_BRIDGE.md`. Structured deck reads and proposals are described in
 `docs/MANASYNC_PROPOSALS.md`.
 
-## D11 — Separate Archidekt history from the current digital deck
+## D11 — Separate provider history from the current digital deck
 
-**Decision.** Keep a durable reviewed Archidekt baseline and the latest observed source
+**Decision.** Keep a durable reviewed provider baseline and the latest observed source
 separate from digital snapshots. An unchanged source never replaces local CLC or accepted
 ManaSync edits. A changed source advances the current deck automatically only when it still
 matches the reviewed baseline. Otherwise the source is staged for an owner review: keep the
-current deck, use the source, or commit explicitly merged text. Every Archidekt fetch path
-uses the same coordinator. Older decks with an unknown baseline are handled conservatively.
+current deck, use the source, or commit explicitly merged text. Archidekt, Moxfield and
+DeckCheck refreshes use the shared coordinator. Older decks with an unknown baseline are
+handled conservatively. This began with the Archidekt incident below and now covers all
+tracked providers; the historical incident is not a provider-specific restriction.
 
 **Why.** Comparing Archidekt only with the newest digital snapshot treated an accepted local
 edit as a source change, then undid that edit on refresh. A separate baseline distinguishes
@@ -384,7 +402,7 @@ new upstream changes from intentional local differences and survives snapshot pr
 
 **Cost.** Each tracked deck stores baseline/candidate text plus a revision. Review decisions
 pin both that revision and the current digital snapshot; operation receipts allow exact retry
-after a lost response. Source reviews do not write to Archidekt, set paper markers, or change
+after a lost response. Source reviews do not write to providers, set paper markers, or change
 ManaSync holdings. The source panel explains the distinction and exposes the three texts.
 
 **Where.** `server/lib/sourceSync.js`, `server/routes/sourceSync.js`,
@@ -441,9 +459,12 @@ ManaSync; optional deck authorization is created in CLC. No invented OAuth flow 
 account assumption. The saved-token check performs remote reads and only updates matching
 local connection state; historical deliveries keep their original credentials and account.
 
-**Validation.** Inventory every route and nested surface before redesigning. Use disposable
-browser data and intercepted side effects for responsive, keyboard, theme, recovery and
-permission checks. On 2026-09-12 the owner replaced the requested iOS Simulator validation
+**Validation.** The September 2026 full UI redesign used a route/nested-surface inventory.
+Future local UI edits need only affected surfaces and coupled consumers; another whole-app
+inventory needs a cross-cutting redesign or concrete coverage gap. Use disposable browser
+data and intercepted effects for relevant responsive, keyboard, theme, recovery and permission
+checks under [CONTRIBUTING](../CONTRIBUTING.md#verification-proportional-to-risk).
+On 2026-09-12 the owner replaced the requested iOS Simulator validation
 with browser verification. Desktop Chrome and responsive Chrome/WebKit checks therefore
 satisfy that platform scope; they do not establish native iOS software-keyboard or device
 proof. Physical printing and cutting proofs remain separate.

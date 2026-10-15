@@ -294,7 +294,7 @@ duplicate-submission protection still apply. The default is off, and CLC cannot 
 remotely. Disable it after the physical checks are complete and their results are recorded.
 
 For the household's permanent Mac stack and companion installation status, see the
-[dated deployment checkpoint](docs/OPERATIONS.md#household-installation-checkpoint--2026-09-11).
+[dated deployment checkpoint](docs/OPERATIONS.md#household-print-jobs).
 
 ### Printing Metadata
 
@@ -425,50 +425,35 @@ These exports prepare assets for the next printing step. Scryfall ZIPs created b
 
 ## Building from Source
 
-Use Node 22+. Install both dependency trees before running tests or the backend:
+Use Node 22+ and clone the repository:
 
 ```bash
 git clone --branch main https://github.com/Cruv/card-list-compare.git
 cd card-list-compare
-npm ci
-npm --prefix server ci
-
-# Frontend
-npm run dev
-
-# Backend (separate terminal)
-cd server
-npm run dev
 ```
 
-Open `http://localhost:5173`. Vite proxies `/api` to Express on port 3001. Development data defaults to `server/data/`. With `JWT_SECRET` unset outside production, the backend creates a random development secret in `.jwt-dev-secret` beside the database; it survives restarts when that directory is writable. An explicitly supplied weak secret still prevents startup.
-
-The npm backend scripts do not load `.env` automatically. For optional SMTP or explicit environment settings, export them in the backend shell, or use Node's environment-file support from the repository root:
-
-```bash
-node --env-file=.env --watch server/index.js
-```
-
-Copy `.env.example` to `.env` and configure it before using that command. For admin access on a fresh database, follow the restart step in Application Setup. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
+[CONTRIBUTING — Setup and commands](CONTRIBUTING.md#setup-and-commands) owns dependency
+installation, the two development servers, environment loading and first-admin setup.
+The frontend opens at `http://localhost:5173`, with API requests proxied to Express on :3001.
 
 ### Running Tests
 
-```bash
-npm test            # Client/server unit and invariant tests
-npm run test:watch  # Watch mode
-npm run lint        # Required: zero ESLint errors; warnings are allowed
-npm run build       # Production frontend build
-npm audit           # Frontend dependency audit
-npm --prefix server audit  # Server dependency audit
-```
+Use the [command reference](CONTRIBUTING.md#setup-and-commands) and
+[risk-based verification procedure](CONTRIBUTING.md#verification-proportional-to-risk).
+JavaScript tests, fake-printer companion tests, PDF-worker tests and browser proof cover
+different surfaces; documentation-only work does not require all of them.
 
 ### Building the Docker Image
 
-Set a strong `JWT_SECRET` in the repository-root `.env` first (see `.env.example`).
+Build a local image without starting services:
 
 ```bash
-docker compose up -d --build
+docker build -t card-list-compare-local .
 ```
+
+Running production still requires a strong `JWT_SECRET` and durable data. Follow
+[Operations](docs/OPERATIONS.md) for authorized activation and rollback, or
+[Contributing](CONTRIBUTING.md#verification-proportional-to-risk) for an isolated smoke check.
 
 ## Architecture
 
@@ -511,7 +496,8 @@ These Express limits are per IP. Production's nginx import proxies bypass Expres
 
 ## Project Documentation
 
-- [Contributing](CONTRIBUTING.md) and [coding conventions](CLAUDE.md)
+- [Contributing: canonical development/release procedure](CONTRIBUTING.md) and [agent entrypoint](AGENTS.md)
+- [Current work checkpoint](docs/CURRENT_WORK.md); [Claude adapter](CLAUDE.md) routes to the same instructions
 - [Decisions](docs/DECISIONS.md), [invariants](docs/INVARIANTS.md), and [deck text format](docs/DECK_TEXT_FORMAT.md)
 - [Operations](docs/OPERATIONS.md) and [security](SECURITY.md)
 - [Roadmap](docs/ROADMAP.md), [home printing workflow](docs/PRINT_WORKFLOW.md), and [ManaSync integration context](docs/MANASYNC_INTEGRATION.md)
