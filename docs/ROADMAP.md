@@ -35,7 +35,9 @@ by itself. Drying, lamination and cutting tracking remain excluded.
 The [dated household checkpoint](OPERATIONS.md#household-print-jobs) owns installed versions,
 completed recovery and operational safeguards. At its 2026-10-11 checkpoint, incoming Discord
 commands still needed application/operator setup; the existing webhook was connected.
-Reconcile Portainer's saved service definition before its next controller redeploy.
+Portainer's owner-supplied definition now has a private replacement verified against the
+live deployment. Saving/read-back verification on the controller remains pending access;
+see [the preparation record](OPERATIONS.md#portainer-reconciliation-preparation--2026-10-15).
 Neither item is a request to interrupt active household work or test with real jobs.
 
 The historical orphaned snapshot was investigated and safely archived on 2026-10-15.

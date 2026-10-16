@@ -229,6 +229,33 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 ### Household print jobs
 
+#### Portainer reconciliation preparation — 2026-10-15
+
+The owner supplied the saved single-service `mtg` definition. It still selected GHCR
+`latest` and supplied five environment keys; the working Mac deployment uses the local
+v2.57.4 image and nine explicit keys. A complete corrected candidate is prepared privately at
+`/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/portainer-stack-reconciled.private.yaml`.
+It preserves the live signing/station credentials, data mount, port, restart policy and
+external `mtg_default` network. It also retains the exact local image pin, `pull_policy: never`,
+Watchtower exclusion, 30-second stop grace and current print settings. The file contains
+credentials and must remain outside Git, chat and logs.
+
+The candidate's entire resolved Compose configuration and configuration hash match the
+working local deployment; all nine explicit environment values match the live container.
+Independent read-only review passed. Backups of the owner-supplied definition and private
+local deployment plus preparation/container-identity receipts are at
+`/Users/cruv/docker/Backups/cardlistcompare/20261016T010010Z-portainer-reconciliation`
+(UTC directory date; preparation was October 15 locally).
+
+**Controller save remains pending.** No controller address/session has been supplied, and
+preparing the file does not change Portainer's saved stack. Target the existing `mtg` stack
+on this Mac's endpoint, where the pinned image exists. Preserve the complete stack environment
+variables and keep image re-pull/prune disabled. Portainer's standard stack update also applies
+the stack; a matching local hash does not guarantee another Compose version will avoid
+recreation. Do not treat it as a save-only operation. Read the saved definition back and check
+container IDs/start times, configuration, health and native companion state after application.
+No running service, native station or physical print operation was changed during preparation.
+
 #### Household server deployment checkpoint — 2026-10-15
 
 The Mac's `CardListCompare` service now runs **v2.57.4**, source `00e89a4`, local arm64
@@ -398,9 +425,12 @@ SHA-256 `2284b655758133927bb41e274bbb4fdb4826abd69c7cb7fa000769d9636ed8f7`.
 Run bundled Python with `-B -E -s`; writing bytecode inside an installed bundle changes its
 manifest and correctly fails verification. Private receipts/configuration survive updates.
 
-Docker CLI deployment does not update Portainer's saved controller stack. Before its next
-Portainer redeploy, merge `cardlistcompare-deployment/portainer-service.private.yaml` into
-the saved `mtg` stack, preserving the other services/network. That private fragment contains
+Docker CLI deployment does not update Portainer's saved controller stack. The owner-supplied
+single-service definition has a verified private full-stack candidate; see
+[the reconciliation preparation](#portainer-reconciliation-preparation--2026-10-15).
+If the actual controller definition has gained services/resources, merge only the CLC service
+from `cardlistcompare-deployment/portainer-service.private.yaml` and preserve everything else.
+That private fragment contains
 credentials because the controller cannot read the Mac-local `env_file`. Keep it and all
 runtime/rollback environment files out of Git, chat and logs. No Portainer login is needed
 for service-only deployment from this Mac.
