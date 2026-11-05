@@ -48,6 +48,12 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function metadataUnavailable(kind, cause) {
+  const error = new Error(`MPC Autofill ${kind} metadata is unavailable`, { cause });
+  error.status = 503;
+  return error;
+}
+
 /**
  * Check if MPC Autofill backend is reachable and search engine is online.
  */
@@ -116,9 +122,13 @@ export async function getSources() {
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const sources = Object.values(data.results || {})
+    const entries = data?.results && typeof data.results === 'object' ? Object.values(data.results) : [];
+    if (!entries.length || entries.some(source => !Number.isInteger(source?.pk) || source.pk <= 0)) {
+      throw new Error('Invalid sources response');
+    }
+    const sources = entries
       .map(s => ({
         pk: s.pk,
         key: s.key || '',
@@ -130,8 +140,7 @@ export async function getSources() {
     sourcesCache = { data: sources, ts: Date.now() };
     return sources;
   } catch (err) {
-    console.error('MPC Autofill sources error:', err.message);
-    return [];
+    throw metadataUnavailable('sources', err);
   }
 }
 
@@ -148,17 +157,20 @@ export async function getLanguages() {
       headers: { 'User-Agent': USER_AGENT },
       signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    const languages = (data.languages || []).map(l => ({
+    if (!Array.isArray(data?.languages) || !data.languages.length
+      || data.languages.some(language => typeof language?.code !== 'string' || !language.code.trim())) {
+      throw new Error('Invalid languages response');
+    }
+    const languages = data.languages.map(l => ({
       code: l.code || '',
       name: l.name || '',
     }));
     languagesCache = { data: languages, ts: Date.now() };
     return languages;
   } catch (err) {
-    console.error('MPC Autofill languages error:', err.message);
-    return [];
+    throw metadataUnavailable('languages', err);
   }
 }
 
@@ -233,6 +245,26 @@ function getDefaultSearchSettings() {
   };
 }
 
+async function resolveSearchSettings(searchSettings) {
+  const defaults = getDefaultSearchSettings();
+  const effective = {
+    ...defaults,
+    ...searchSettings,
+    searchTypeSettings: { ...defaults.searchTypeSettings, ...searchSettings?.searchTypeSettings },
+    filterSettings: { ...defaults.filterSettings, ...searchSettings?.filterSettings },
+    sourceSettings: { ...defaults.sourceSettings, ...searchSettings?.sourceSettings },
+  };
+  // CLC's empty filters mean all available options. MPC's API interprets them
+  // as no options, so resolve metadata before both the request and cache lookup.
+  const [sources, languages] = await Promise.all([
+    effective.sourceSettings.sources.length === 0 ? getSources() : null,
+    effective.filterSettings.languages.length === 0 ? getLanguages() : null,
+  ]);
+  if (sources) effective.sourceSettings.sources = sources.map(source => [source.pk, true]);
+  if (languages) effective.filterSettings.languages = languages.map(language => language.code);
+  return effective;
+}
+
 /**
  * Search for card images by name.
  * Accepts array of card name strings and optional searchSettings.
@@ -243,7 +275,8 @@ export async function searchCards(cardNames, searchSettings) {
   if (!cardNames || cardNames.length === 0) return result;
 
   const unique = [...new Set(cardNames.map(n => n.toLowerCase()))];
-  const sHash = settingsHash(searchSettings);
+  const effectiveSettings = await resolveSearchSettings(searchSettings);
+  const sHash = settingsHash(effectiveSettings);
 
   // Check cache first (keyed by name + settings hash)
   const uncached = [];
@@ -263,9 +296,6 @@ export async function searchCards(cardNames, searchSettings) {
     query: name,
     cardType: 'CARD',
   }));
-
-  // Use provided settings or defaults
-  const effectiveSettings = searchSettings || getDefaultSearchSettings();
 
   try {
     const res = await fetch(`${MPC_API}/2/editorSearch/`, {

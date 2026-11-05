@@ -21,6 +21,7 @@ const BAK_PATH = `${DB_PATH}.bak`;
 mkdirSync(dirname(DB_PATH), { recursive: true });
 
 let db;
+let transactionActive = false;
 
 /**
  * Load the database, trying the live file first and falling back to the backup
@@ -192,7 +193,7 @@ export async function initDb() {
     const { parse: parseDeck } = await import('../src/lib/parser.js');
     for (const deck of decksNeedingCommanders) {
       const snap = get(
-        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
         [deck.id]
       );
       if (snap?.deck_text) {
@@ -409,6 +410,30 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_user ON collection_cards(user_id)');
   db.run('CREATE INDEX IF NOT EXISTS idx_collection_name ON collection_cards(user_id, card_name)');
 
+  // Manual decks use an explicit source and negative local IDs in the legacy
+  // non-null Archidekt column. They must never be sent to an upstream fetch.
+  for (const table of ['tracked_owners', 'tracked_decks']) {
+    try {
+      db.run(`ALTER TABLE ${table} ADD COLUMN source_type TEXT NOT NULL DEFAULT 'archidekt'`);
+    } catch {
+      // Column already exists — ignore
+    }
+  }
+
+  db.run(`CREATE TABLE IF NOT EXISTS deck_source_sync (
+    deck_id INTEGER PRIMARY KEY REFERENCES tracked_decks(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL DEFAULT 0,
+    base_raw_text TEXT, base_text TEXT, source_raw_text TEXT, source_text TEXT,
+    pending INTEGER NOT NULL DEFAULT 0, checked_at TEXT
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS deck_source_reviews (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL,
+    deck_id INTEGER NOT NULL REFERENCES tracked_decks(id) ON DELETE CASCADE,
+    payload_hash TEXT NOT NULL, receipt TEXT NOT NULL,
+    PRIMARY KEY(user_id, operation_id)
+  )`);
+
   // Migration: add auto_refresh_hours column to tracked_decks
   try {
     db.run('ALTER TABLE tracked_decks ADD COLUMN auto_refresh_hours INTEGER');
@@ -533,11 +558,91 @@ export async function initDb() {
   db.run('CREATE INDEX IF NOT EXISTS idx_download_jobs_expires ON image_download_jobs(expires_at)');
   db.run(`INSERT OR IGNORE INTO server_settings (key, value) VALUES ('max_image_cache_mb', '500')`);
 
+  // Print jobs retain their own immutable snapshot texts/art selections. No
+  // snapshot/deck foreign keys: pruning or untracking must not mutate a print.
+  db.run(`CREATE TABLE IF NOT EXISTS print_jobs (
+    id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, tracked_deck_id INTEGER,
+    request_key TEXT NOT NULL, request_hash TEXT NOT NULL, plan_json TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'preparing', queue_requested INTEGER NOT NULL DEFAULT 0,
+    manifest_json TEXT, manifest_sha256 TEXT, steps_json TEXT NOT NULL DEFAULT '[]',
+    progress_json TEXT, error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    queued_at TEXT, completed_at TEXT, expires_at TEXT, station_id TEXT,
+    claim_nonce TEXT, lease_expires_at TEXT, UNIQUE(user_id, request_key)
+  )`);
+  // Standalone lists have no tracked deck. Rebuild only the old NOT NULL schema,
+  // keeping every extension column, index, trigger and immutable job byte intact.
+  // Nothing references this table through foreign keys; job history deliberately
+  // survives untracking. Commit atomically and persist once with the other setup.
+  if (all('PRAGMA table_info(print_jobs)').find(column => column.name === 'tracked_deck_id')?.notnull) {
+    const original = get("SELECT sql FROM sqlite_master WHERE type='table' AND name='print_jobs'").sql;
+    const nullable = original.replace(/tracked_deck_id\s+INTEGER\s+NOT\s+NULL/i, 'tracked_deck_id INTEGER')
+      .replace(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["`]?print_jobs["`]?/i, 'CREATE TABLE print_jobs_nullable');
+    if (nullable === original || /tracked_deck_id\s+INTEGER\s+NOT\s+NULL/i.test(nullable)) throw new Error('Could not migrate standalone print-job storage');
+    const definitions = all("SELECT sql FROM sqlite_master WHERE tbl_name='print_jobs' AND type IN ('index','trigger') AND sql IS NOT NULL");
+    db.run('BEGIN IMMEDIATE');
+    try {
+      db.run(nullable);
+      db.run('INSERT INTO print_jobs_nullable SELECT * FROM print_jobs');
+      db.run('DROP TABLE print_jobs');
+      db.run('ALTER TABLE print_jobs_nullable RENAME TO print_jobs');
+      for (const definition of definitions) db.run(definition.sql);
+      db.run('COMMIT');
+    } catch (error) {
+      db.run('ROLLBACK');
+      throw error;
+    }
+  }
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_user_deck ON print_jobs(user_id, tracked_deck_id, created_at)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_jobs_state ON print_jobs(state, queued_at, created_at)');
+  // Optional scheduling metadata upgrades without rewriting old PDF manifests,
+  // pass order, claim identities or spooler receipts.
+  for (const column of ['workflow', 'back_request_json', 'cancel_requested', 'cancel_request_id']) {
+    if (!all('PRAGMA table_info(print_jobs)').some(item => item.name === column)) db.run(`ALTER TABLE print_jobs ADD COLUMN ${column} TEXT`);
+  }
+  db.run(`CREATE TABLE IF NOT EXISTS print_job_events (
+    job_id TEXT NOT NULL, event_id TEXT NOT NULL, request_hash TEXT NOT NULL,
+    event_json TEXT NOT NULL, created_at TEXT NOT NULL,
+    PRIMARY KEY(job_id, event_id)
+  )`);
+  // New queue transitions only; there is intentionally no history backfill.
+  // Account purges already delete print_jobs, cascading these frozen labels.
+  db.run(`CREATE TABLE IF NOT EXISTS print_queue_notifications (
+    id TEXT PRIMARY KEY, job_id TEXT NOT NULL UNIQUE REFERENCES print_jobs(id) ON DELETE CASCADE,
+    station_id TEXT NOT NULL, deck_name TEXT NOT NULL, requester_name TEXT NOT NULL,
+    total_copies INTEGER NOT NULL, queued_at TEXT NOT NULL,
+    delivered_at TEXT, acknowledged_at TEXT, status TEXT
+  )`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_queue_notifications_pending ON print_queue_notifications(station_id, status, queued_at)');
+
+  // Station telemetry stays in memory; commands and acknowledgements survive
+  // server restarts. Retain command identities to prevent accidental replay.
+  db.run(`CREATE TABLE IF NOT EXISTS print_station_commands (
+    id TEXT PRIMARY KEY, station_id TEXT NOT NULL, requester_id INTEGER NOT NULL,
+    request_key TEXT NOT NULL, request_hash TEXT NOT NULL, payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+    delivered_at TEXT, acknowledged_at TEXT, message TEXT, receipt_hash TEXT,
+    UNIQUE(requester_id, request_key)
+  )`);
+  db.run('CREATE INDEX IF NOT EXISTS idx_print_station_commands_pending ON print_station_commands(station_id, status, created_at)');
+  db.run(`CREATE TABLE IF NOT EXISTS print_station_events (
+    id TEXT PRIMARY KEY, at TEXT NOT NULL, level TEXT NOT NULL, message TEXT NOT NULL,
+    event_hash TEXT NOT NULL, received_at TEXT NOT NULL
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS print_station_controls (
+    station_id TEXT PRIMARY KEY, paused INTEGER NOT NULL DEFAULT 0
+  )`);
+  db.run("INSERT OR IGNORE INTO print_station_controls (station_id, paused) VALUES ('household', 0)");
+
   // Migration: store MPC art overrides per deck (JSON blob)
   try {
     db.run('ALTER TABLE tracked_decks ADD COLUMN mpc_art_overrides TEXT');
   } catch {
     // Column already exists — ignore
+  }
+  // Revisions distinguish intervening saves/resets even when artwork returns to
+  // the same bytes. Preserve legacy choices and start their revision at zero.
+  if (!all('PRAGMA table_info(tracked_decks)').some(column => column.name === 'mpc_art_revision')) {
+    db.run('ALTER TABLE tracked_decks ADD COLUMN mpc_art_revision INTEGER NOT NULL DEFAULT 0');
   }
 
   // One-shot cleanup: email/reset tokens are stored as SHA-256 hashes now, so any
@@ -601,7 +706,7 @@ export async function initDb() {
  */
 export function persist() {
   if (!db) return;
-  const data = Buffer.from(db.export());
+  const data = exportDatabase();
   const fd = openSync(TMP_PATH, 'w');
   try {
     writeFileSync(fd, data);
@@ -610,6 +715,18 @@ export function persist() {
     closeSync(fd);
   }
   renameSync(TMP_PATH, DB_PATH);
+}
+
+// sql.js export closes/reopens the SQLite connection, resetting connection
+// pragmas. Restore foreign keys immediately or later account/deck deletions
+// silently leave credentials, outboxes, and other dependent rows behind.
+export function exportDatabase() {
+  if (transactionActive) throw new Error('Cannot export the database during a transaction');
+  try {
+    return Buffer.from(db.export());
+  } finally {
+    db.run('PRAGMA foreign_keys = ON');
+  }
 }
 
 /**
@@ -624,7 +741,7 @@ export function backupDb() {
   try {
     const fd = openSync(`${BAK_PATH}.tmp`, 'w');
     try {
-      writeFileSync(fd, Buffer.from(db.export()));
+      writeFileSync(fd, exportDatabase());
       fsyncSync(fd);
     } finally {
       closeSync(fd);
@@ -663,10 +780,47 @@ export function run(sql, params = []) {
   db.run(sql, params);
   const lastId = db.exec('SELECT last_insert_rowid() as id')[0]?.values[0]?.[0];
   const changes = db.getRowsModified();
-  persist();
+  if (!transactionActive) persist();
   return { lastInsertRowid: lastId, changes };
+}
+
+// Keep related writes in a single SQLite commit and a single durable file
+// replacement, restoring memory if either phase fails. Callbacks must stay
+// synchronous: no network calls while locked.
+export function transaction(callback) {
+  if (transactionActive) throw new Error('Nested transactions are not supported');
+  // Export before BEGIN: sql.js export reopens the connection, so exporting an
+  // active transaction would discard its writes. Restore connection pragmas too.
+  const previous = exportDatabase();
+  try {
+    db.run('BEGIN IMMEDIATE');
+    transactionActive = true;
+    const result = callback();
+    if (result?.then) throw new Error('Transaction callbacks must be synchronous');
+    db.run('COMMIT');
+    transactionActive = false;
+    persist();
+    return result;
+  } catch (error) {
+    // COMMIT may already have succeeded when the atomic file write fails. A
+    // SQL rollback alone cannot undo that state or its idempotency receipts.
+    const Database = db.constructor;
+    db.close();
+    db = new Database(previous);
+    db.run('PRAGMA foreign_keys = ON');
+    throw error;
+  } finally {
+    transactionActive = false;
+  }
 }
 
 export function getDb() {
   return db;
+}
+
+/** Commit related statements and persist once; restore memory if disk persistence fails. */
+export function runTransaction(statements) {
+  return transaction(() => {
+    for (const { sql, params = [] } of statements) db.run(sql, params);
+  });
 }

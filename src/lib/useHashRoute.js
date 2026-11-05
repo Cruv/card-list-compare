@@ -18,18 +18,31 @@ export function useHashRoute() {
     return () => window.removeEventListener('hashchange', handler);
   }, []);
 
+  const [path, query = ''] = hash.split('?');
+  const requestedBatch = new URLSearchParams(query).get(path === '#print-list' ? 'batch' : 'printBatch');
+  const initialPrintJobId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedBatch || '') ? requestedBatch : null;
+
   if (hash === '#admin' || hash.startsWith('#admin/')) {
     return { route: 'admin' };
+  }
+  if (hash === '#connections') {
+    return { route: 'connections' };
   }
   if (hash === '#settings') {
     return { route: 'settings' };
   }
-  if (hash === '#guide') {
+  if (hash === '#print-station') {
+    return { route: 'printStation' };
+  }
+  if (path === '#print-list') {
+    return { route: 'printList', initialPrintJobId };
+  }
+  if (hash === '#guide' || hash.startsWith('#guide/')) {
     return { route: 'guide' };
   }
-  if (hash.startsWith('#library/')) {
-    const deckId = hash.slice(9);
-    return { route: 'libraryDeck', deckId: parseInt(deckId, 10) };
+  if (/^#library\/[1-9]\d*$/.test(path)) {
+    const deckId = Number(path.slice(9));
+    if (Number.isSafeInteger(deckId)) return { route: 'libraryDeck', deckId, initialPrintJobId };
   }
   if (hash === '#library') {
     return { route: 'library' };

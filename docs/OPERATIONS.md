@@ -1,7 +1,10 @@
 # Operations runbook
 
-Procedures for the risky/rare operations. The quick verification runbook lives in
-CLAUDE.md; this is the deep version. Mirrors WarSlate's `docs/operations.md`.
+Procedures for risky/rare operations. [CONTRIBUTING.md](../CONTRIBUTING.md) owns
+development/release procedure. Read the section
+needed for the authorized operation; this runbook is not a mandatory startup checklist.
+Dated installation/incident records are evidence at that time, not a live health read or
+permission to repeat production actions. Active task resumption uses [CURRENT_WORK.md](CURRENT_WORK.md).
 
 ## §1 — Database backup & recovery
 
@@ -10,8 +13,11 @@ bind-mounted to `./data` on the host). `persist()` writes it atomically (temp �
 rename) and keeps `cardlistcompare.db.bak` refreshed at boot and on graceful shutdown.
 
 **Back up (safe while running):** the atomic rename means the live file is never torn, so
-`cp ./data/cardlistcompare.db backup-$(date +%F).db` is safe. For a guaranteed-quiet copy,
-`docker compose stop` first.
+`cp ./data/cardlistcompare.db backup-$(date +%F).db` is safe on the supported local
+filesystem. Administration → System also offers a database download. Verify important copies with
+`sqlite3 backup-YYYY-MM-DD.db "PRAGMA integrity_check;"`. For a quiet restore point,
+`docker compose stop` first. Keep independent dated copies; `.bak` is overwritten on normal
+starts and stops and is not a versioned backup history.
 
 **Recover:** `loadDatabase()` (`server/db.js`) already tries `DB_PATH`, then `.bak`, then
 `.tmp` on boot, and **refuses to start** rather than overwrite a corrupt file with an empty
@@ -21,6 +27,72 @@ file is corrupt and no usable backup was found — restore from an external back
 
 **Never** `getDb().run(...)` directly (bypasses persistence). Write through the `run()`
 helper. See INVARIANTS.md #1.
+
+The default data directory also contains `image-cache/` and `downloads/`. They are
+regenerable image/ZIP artifacts; database backups do not include them. `IMAGE_CACHE_DIR`
+and `DOWNLOADS_DIR` can override those paths. A database restore that references a missing
+ZIP requires a new image download. Never run two backend processes against one `DB_PATH`:
+each process owns an independent in-memory database and can overwrite the other's writes.
+
+Native CLC collections have been retired in favor of the optional ManaSync companion.
+The Collection UI and `/api/collection` routes are removed, but `collection_cards` schema
+and rows are retained in database backups. There is no migration/export to ManaSync yet;
+do not drop the table as cleanup. Review any eventual transfer against ManaSync's format.
+
+**Historical orphan snapshots:** a missing parent does not establish an owner or authorize
+assigning the saved list to another deck. Trace dated backups and surviving paper markers,
+proposals, image jobs, print plans and integration receipts first. If provenance cannot be
+established, preserve the complete original row, schema, exact text and hashes in a private
+recovery archive before removing the broken active record. Keep the archive outside Git and
+public APIs; do not infer ownership from similar card lists.
+
+For an authorized repair, rehearse on a disposable copy using the deployed sql.js helpers.
+Stop only the affected backend, take a fresh complete backup, and durably write/fsync the
+archive and its directory. Guard the exact stopped database/row, absent parent and references;
+delete only that row in a transaction. Compare all other table content/schema and verify
+integrity and foreign keys before and after restart. `initDb()` itself persists migrations:
+if initialization or a later check fails, keep the service stopped and preserve the failed
+copy before restoring the untouched stopped backup or investigating. Do not restart a
+failed repair blindly. Later recovery requires proven owner/deck association and a fresh
+repair/import; never disable foreign keys to reinsert an orphan or restore an old whole
+database over newer user writes.
+
+### Historical snapshot repair — 2026-10-15
+
+The orphan found during the v2.57.4 deployment was already unchanged in all **48** inspected
+database copies across 24 dated directories, starting September 11. Its parent deck was absent
+throughout; no surviving reference or exact duplicate identified an original deck or owner.
+The historical deletion time and cause could not be proven. Current persistence exports
+restore foreign-key enforcement, and the scoped code review found no current defect requiring
+an application change.
+
+The owner authorized a safe repair. The complete original row, column/schema definitions,
+exact list text, hashes, provenance and restoration instructions were preserved privately at
+`/Users/cruv/docker/Backups/cardlistcompare/20261015T223359Z-orphan-snapshot-repair/quarantine`.
+The same case contains the fresh stopped `data-complete` backup, private deployment configuration
+and verification receipts. The archive and its directory were fsynced before removing the
+single inaccessible active row. It was **not** assigned to a guessed user or replacement deck.
+
+The deployed v2.57.4 sql.js transaction helper performed the offline repair with networking
+disabled and no server workers. Independent comparison confirmed every other table's rows
+and schema unchanged: **77 active snapshots plus one archived snapshot** preserve the original
+78 records. Integrity passed and foreign-key violations fell from one to zero. All **87** print
+artifact files (465,092,497 bytes), saved artwork, paper markers, proposals and print jobs
+were unchanged. No original provenance was recovered; later import requires a proven owner.
+
+Evidence: 52 persistence/deck-lifecycle tests at `59a915e`, independent history/helper review,
+ten disposable repair cases and a final rehearsal on the fresh stopped bytes. The adverse
+cases rejected changed hashes/rows, a new parent, references in paper markers and integration
+receipts, an extra FK violation and a repeated repair without changing the fixture bytes.
+The same existing v2.57.4 container/image was restarted. No product release, native update,
+print action or Discord test was part of this repair.
+
+After restart, localhost and household HTTPS health returned HTTP 200; integrity and
+foreign-key checks passed again. The surviving deck/snapshot, owner, artwork, paper-marker,
+proposal, integration and print-job rows still matched the stopped backup. Container
+configuration was unchanged. The native v2.57.3 companion stayed running and unpaused with
+identical jobs, passes, receipts, settings, configuration/token and selected version;
+its authenticated heartbeat returned HTTP 200 at **22:52:47 UTC**.
 
 ## §2 — External-API drift (the #1 cause of emergency releases)
 
@@ -41,7 +113,7 @@ catch it. When an import, price, or proxy feature breaks in the field:
      server: `server/lib/scryfall.js`. Results are keyed by the **requested** deck-text name
      (front-face-normalized, accent-insensitive), NOT Scryfall's echoed canonical name — a
      drift here silently zeroes DFC/accented prices.
-   - **MPC Autofill** — `server/routes/mpcautofill.js`; the API has renamed fields twice
+   - **MPC Autofill** — `server/routes/mpcautofill.js` and `server/lib/mpcautofill.js`; the API has renamed fields twice
      (`cardIdentifiers`, DFC pair shape) → those were emergency patches v2.39.5–.7.
 3. Fix the **mechanism**, not the symptom (don't special-case one card). Add a regression
    test that pins the new shape.
@@ -60,17 +132,704 @@ When adding a `server/routes/*` endpoint:
 
 ## §4 — Deploy & rollback (GHCR)
 
-- CI publishes on push to `main`: `ghcr.io/cruv/card-list-compare:latest`, `:main`, `:sha-…`.
-  The household deploy does **not** auto-pull — deploy deliberately.
-- **Deploy:** ensure `JWT_SECRET` is set in the host `.env` (the container refuses to start
-  without a strong one), then `docker compose pull && docker compose up -d`.
-- **Smoke:** `curl http://localhost:8080/api/health`; load the UI; check the browser console
-  for CSP violations if the release touched external resources.
-- **Rollback:** pin the previous good image by its `:sha-…` tag in `docker-compose.yml` (or
-  redeploy the prior commit). The DB is forward-compatible (additive migrations only), so a
-  rollback of code is safe against a newer DB file.
+- CI gates builds on client/server tests, the deployment contract, portable companion
+  tests, both dependency audits and zero ESLint errors. PRs build without publishing.
+  Main pushes publish `ghcr.io/cruv/card-list-compare:latest`, `:main` and short/full SHA
+  tags; requested `v*` tags additionally publish semver tags without moving `latest` away
+  from main. Builds target amd64 and arm64. Verify the exact published commit/manifest.
+- Use the repository Compose file and private runtime variables. Preserve the existing
+  data path/credentials/project identity, select the desired registry reference with
+  `CLC_IMAGE`, then follow [registry cutover](#repository-deployment-and-registry-cutover).
+  The household does not auto-pull. Generate credentials for a new installation only;
+  a coordinated rotation is separate from a deployment/image change.
+- **Smoke:** verify local/public `/api/health`, frontend bytes and the relevant UI. Check
+  browser CSP evidence when external-resource behavior changes. Server-only activation
+  must retain native printer state and reconnect the existing companion.
+- **Rollback:** select a previous verified registry SHA/digest with `CLC_IMAGE`. Preserve
+  a fresh complete backup first and check code/schema compatibility. Migrations may repair
+  stored data; older code is not automatically compatible. Never overwrite newer user
+  work merely to roll back an image. If a matching DB restore is necessary, stop only the
+  affected service and explicitly account for writes since the backup.
 
 ## §5 — First-run / admin
 
 First registered user (`id = 1`) becomes admin. In dev, register then restart the backend
-once (admin promotion runs at startup). Admin panel: `#admin`.
+once (admin promotion runs at startup). A fresh container installation needs the same
+one-time restart (`docker compose restart`), followed by reloading or signing in again.
+Admin panel: `#admin`.
+
+Production has no default `JWT_SECRET`. Outside production, leaving it unset creates
+`server/data/.jwt-dev-secret` (or beside a custom `DB_PATH`), so dev tokens normally survive
+watch-mode restarts. If that directory is unwritable, the fallback is process-local.
+Supplying a weak secret is an error even in development. The npm server scripts do not load
+`.env`; export variables, or from the repository root run
+`node --env-file=.env --watch server/index.js` after configuring a local `.env`.
+
+## §6 — Image downloads and scheduled updates
+
+The Scryfall image worker processes one queued job at a time. There are at most two pending
+jobs per user and twenty overall. Interrupted processing jobs return to `queued` at startup.
+Completed ZIPs expire after 24 hours; cleanup runs at startup and hourly. Scryfall images
+are cached on disk, cleaned after 30 days by file modification time, and subject to the
+`max_image_cache_mb` server setting. Check `[DownloadQueue]` logs and free disk space when
+downloads stall. A Scryfall job only completes after every requested copy and required
+face has an image and the ZIP finishes writing. Progress is in image files, so a two-faced
+card contributes two files per copy. Missing cards/faces and invalid or failed image responses
+fail the job with details instead of exposing a partial ZIP. Regenerate old ZIP jobs marked
+as predating completeness checks; old completed artifacts are not reused as verified results.
+Each job is limited to 1,000 physical copies, 20 MiB per source image and 256 MiB of unique
+image buffers. PNG validation checks structure, checksums and bounded decompression;
+JPEG validation checks required segments and scan structure, not a full pixel decode.
+Oversized/corrupt inputs fail with an actionable error; split large requests into smaller
+decks. These limits protect the current in-memory ZIP worker and are separate from the
+PDF generator's memory and disk limits below.
+The MPC Autofill ZIP endpoint is a separate request-driven export and still needs its own
+physical-copy/face adapter.
+
+The server scheduler checks for deck changes, due auto-refreshes, and price alerts. Its
+global interval defaults to six hours and is configurable in Admin Settings. Per-deck
+auto-refresh intervals are 6, 12, 24, 48, or 168 hours; due work runs on the next scheduler
+cycle. Email alerts require configured SMTP, a verified address, and enabled per-deck
+notifications. Discord alerts use the configured per-deck webhook. Price alerts measure
+dollar change from a persisted baseline, not crossing an absolute deck-price target.
+
+### Silhouette runtime
+
+The container prepares the real Silhouette Card Maker in the background on startup. The
+working source, Python environment and offline wheel cache live in
+`data/silhouette-card-maker/` in the existing bind mount. Each startup checks upstream main,
+stages a candidate, checks the approved v6 geometry, generates ordinary and double-faced
+smoke PDFs, and selects a successful installation atomically. A failed update leaves the
+previous compatible installation usable. First boot without a usable cache and network
+access leaves PDFs unavailable while the rest of CLC starts normally. Restart to retry.
+Nginx resolves its fixed external proxy hosts on demand through the container's DNS
+servers; an unavailable external site no longer prevents the local web app from starting.
+
+`PRINT_ENABLED=false` disables preparation. For local Node development, install Python with
+venv/pip support and Git, or use the Docker image; `PRINT_PYTHON` can select a local Python.
+Do not copy a Windows or Mac venv into the Linux cache. Runtime compatibility is checked;
+an offline rebuild succeeds only if compatible wheels are already stored. Back up the whole
+data mount, including source and wheels, for offline recovery.
+
+On macOS/OrbStack, keep the live data bind mount on the Docker host's local filesystem.
+An SMB-backed scratch directory under the household's `/Volumes/Storage` share produced
+open-file `.smbdelete*` tombstones held by OrbStack: upstream generated and validated its
+PDF, but the adapter's final directory cleanup failed with `Directory not empty`. This
+does not establish a problem with native local storage. The calibration succeeded using
+container-local scratch and copying finalized artifacts to SMB. Use SMB for finalized
+exports or backups, not this stack's live generation/cache/database directory. Do not
+suppress cleanup errors or move production staging across filesystems without preserving
+its atomic publication guarantees.
+
+The adapter invokes upstream once per seven-card sheet at 600 PPI and merges ordinary
+fronts into `fronts.pdf`. DFC sheets stay in numbered two-page packets
+(`double-faced-001.pdf`, etc.), each holding at most seven copies. Jobs keep decks separate;
+the maximum mixed job has 37 artifacts. Allow at least 2 GiB of container
+memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
+driver is used. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the print API and Mac
+companion work. Drying, lamination and cutting remain outside CLC.
+
+### Repository deployment and registry cutover
+
+`docker-compose.yml` is the canonical deployable definition; `.env.example` describes
+private instance inputs. The default image is `ghcr.io/cruv/card-list-compare:latest`.
+The file has no implicit build/local-image pin. CI builds amd64 and arm64 for PRs and
+publishes on `main` or an approved version tag, with full SHA tags and revision labels.
+A successful local build or feature push does not establish registry publication. Keep
+source delivery, the matching CI result, the published manifest and live activation distinct.
+Portainer can consume the file from Git with runtime environment variables; existing stack
+source conversion must preserve the original stack/project identity and any other services.
+
+For the current Mac, a future registry cutover must preserve all of the following:
+
+- Use the **same existing** data source `/Users/cruv/docker/Stacks/mtg/cardlistcompare` for
+  `/app/data`. Set `CLC_DATA_DIR` to that absolute path, `CLC_CONTAINER_NAME=CardListCompare`,
+  `CLC_PORT=8080`, the existing UID/GID and `TZ=America/Indiana/Indianapolis`. Keep the `mtg`
+  project/stack and its `mtg_default` network with `CLC_NETWORK_NAME=mtg_default` and
+  `CLC_NETWORK_EXTERNAL=true`. Do not add a competing CLC service/backend.
+- Keep the existing JWT and matching station credential as private runtime variables,
+  plus any configured bridge encryption key, access grants, quota, email and public URL
+  values. A credential rotation is a separate coordinated change: JWT rotation signs users
+  out, and station rotation must update both server and native token file together. Do not
+  commit values, paste resolved Compose into chat, or regenerate keys merely to change images.
+- Back up the **whole data directory**, not just its database. It includes hidden signing/
+  encryption keys (`.print-claim-secret`, `.manasync-bridge-key`,
+  `.print-station-notifications-key`), job PDFs/manifests, retained ManaSync artwork, generator
+  source/environments/wheels, caches and downloads. Preserve symlinks. The server's sql.js
+  file is atomically replaced; inspect copied immutable snapshots and never run a competing
+  backend against it. Take a fresh stopped-container complete backup before activation.
+- Preserve the native companion independently: its SQLite ledger/WAL-aware backup, private
+  config/token and settings, cached artifacts, installed bundle/selection and LaunchAgent.
+  A server image switch does not require reinstalling or updating it, resetting CUPS, or
+  changing Epson profiles/physical proof. Leave it running and enabled. Check unresolved
+  server/native/CUPS work before a server restart; do not pause/cancel/retry jobs as a shortcut.
+- Retain the previous image and fresh backup, including runtime-variable/configuration
+  records, until verification completes. Roll application code back deliberately; never
+  overwrite newer user data with an old database merely to reverse an image change.
+
+After owner-authorized source integration, wait for CI for the exact main/tag commit.
+Verify its GHCR revision plus amd64/arm64 manifests, then select its full SHA tag or digest
+through `CLC_IMAGE`. Check `docker compose config --quiet` with the original project's
+private variables; ordinary `config` output can expose secrets. The long bind syntax
+sets `create_host_path: false`; a missing/mistyped data path must fail rather than initialize
+an empty installation. Create a directory explicitly only for a fresh installation.
+
+Update only the existing CLC service through the selected deployment authority. Do not use
+`down`, `--remove-orphans`, a new stack name or automatic image pruning against a partial
+stack. After activation, verify database integrity/FKs, retained jobs/receipts and stable
+keys/artifacts; confirm native reconnection with unchanged pause/profile state and verify
+local/public health plus frontend bytes. Updating a Portainer stack also deploys; it is not
+a save-only operation. Live printer/Discord tests and physical-proof changes remain separate.
+
+**Repository repair (2026-11-05):** [PR #7](https://github.com/Cruv/card-list-compare/pull/7)
+contains the repo-owned published-image contract and multi-architecture workflow. The owner
+authorized merging after CI passes and publishing GHCR; verify the exact main workflow and
+registry revision before selecting an image. This source/publication stage does not change
+Portainer or the Mac, which remains on the
+[v2.57.5 local image](#household-server-deployment-checkpoint--2026-11-05).
+Historical private local-image candidates below are not the intended deployment source of
+truth; they remain rollback/evidence until a separately authorized registry cutover supersedes them.
+
+### Household print jobs
+
+#### ManaSync traffic reduction — v2.57.5
+
+The source fix removes repeated per-card checks for published/terminal pending prints and
+caps automatic publication attempts at six. Existing unpublished plans over that budget
+are held without resetting their saved payloads. Authorization, unsupported-API and artwork
+quota failures hold earlier. No plan, image, receipt or inventory is discarded as traffic cleanup.
+
+Opening a visible confirmation panel or Refresh records uses one account-scoped bulk read;
+requests and failures are shared for one minute per user/grant. Automatic panel ticks read
+CLC only, and hidden/collapsed views stop. Retry sending saved plan deliberately resumes
+one held publication with the reviewed original account/backend and the same request bytes.
+If an artwork allowance is full or requests return 403, resolve that upstream problem first;
+this patch neither increases ManaSync storage nor changes its access rules. Published records
+missing from a bulk response retain their last known state for review.
+
+The owner-authorized Mac deployment is verified in [the v2.57.5 checkpoint](#household-server-deployment-checkpoint--2026-11-05).
+Reload older CLC tabs and compare bridge traffic while idle and while one confirmation panel is open. Expect no background GETs for published records;
+only bounded unpublished/outbox delivery and deliberate remote review should contact ManaSync.
+See [the bridge contract](MANASYNC_BRIDGE.md#refresh-and-delivery-limits) and the current
+[verification checkpoint](CURRENT_WORK.md). The owner-approved Archiver 8 migration updates
+both ZIP exporters and uses a scoped patched Minimatch dependency for its directory matcher.
+MPC downloads now close failed/interrupted streams instead of leaving partial downloads open.
+The queued ZIP exporter waits for file closure before removing failed output, preventing a
+late file-open from leaving temporary ZIPs behind.
+Real ZIP extraction, archive error/warning and client-disconnect checks cover the upgrade;
+both dependency audits are clean on 2026-11-05. Node 22 remains the supported runtime.
+
+#### Household server deployment checkpoint — 2026-11-05
+
+The Mac's `CardListCompare` service runs **v2.57.5**, source `4c6fd80`, local arm64
+image `clc-household:2.57.5-4c6fd80`, image ID
+`sha256:f34fd812eccc120c433e4761df3a0086d9098b8ab70530d474f7d3473f74b3c3`.
+Only CLC was recreated in the existing `mtg` project. All nine configured environment
+values, port 8080, data mount, network, restart policy, signing/station keys, Watchtower
+exclusion and `pull_policy: never` were preserved. The base Node runtime advanced to 22.23.4.
+Other container identities stayed unchanged. No native package, printer setting, pause flag,
+physical job, usable-inventory confirmation or Discord test was changed or requested.
+
+Fresh server/native/CUPS checks found no active or uncertain print work. The complete stopped
+backup, including 11,617 files/links with matching hashes and preserved symlinks, is
+`/Users/cruv/docker/Backups/cardlistcompare/20261105T181218Z-before-2.57.5/data-complete`.
+Its sibling private receipts record the image smoke, database/native comparisons and rollout.
+Keep the previous v2.57.4 image and this backup. Never restore an old database over later
+user changes merely to roll back application code.
+
+Integrity and foreign-key checks passed. Full row hashes for **37 of 38 tables** stayed
+unchanged, including all 16 retained print-job records, 16,738 print-job events, 77 deck
+snapshots, three users and all ManaSync delivery records. Only the rolling station-event
+log changed through normal companion activity. All print artifacts had already expired before
+this update; none were discarded by deployment. Native **v2.57.3** stayed running and unpaused;
+its jobs, passes, attempts, events, settings, configuration and selected bundle stayed unchanged.
+Authenticated native heartbeats returned HTTP 200. The active cached PDF-generator version
+and accepted v6 printing recipe stayed unchanged.
+
+Both localhost and household HTTPS health passed. All **38 frontend files** matched the
+isolated image at both origins (76 responses). Chrome visibly showed v2.57.5, its release
+notes and held-plan/retry guidance. The isolated image used fresh tmpfs, no network or live
+data; its real ZIP contained the expected exact front/back bytes. Final checks passed:
+1,305 JavaScript tests, 254 unchanged portable companion tests reused from the same date,
+lint with zero errors/five baseline warnings, production build and both audits with zero findings.
+ZIP stream/cleanup findings were independently reviewed and closed.
+
+A read-only post-deploy observation found all **821 saved plans'** counters and schedules
+unchanged over 263 seconds, including previously exhausted uploads. This is local delivery-ledger
+evidence, not a measurement of every request in Cloudflare's whole-zone chart. Reload older
+open tabs to activate the new quiet frontend behavior. Upstream permissions/artwork quota
+errors still need their reported ManaSync problem resolved before explicit publication retry.
+
+Private local Compose, the service fragment and the full Portainer candidate now pin v2.57.5;
+the candidate's resolved configuration matches local Compose. **Portainer's saved controller
+stack is still unmodified/unverified** because controller access has not been supplied. The
+CLI activation does not complete that separate reconciliation. No tag or registry publication
+was performed. Owned disposable containers and the temporary QA image were removed.
+
+#### Portainer reconciliation preparation — 2026-10-15
+
+The owner supplied the saved single-service `mtg` definition. It still selected GHCR
+`latest` and supplied five environment keys; the working Mac deployment uses the local
+v2.57.4 image and nine explicit keys at preparation. The candidate now follows the verified
+v2.57.5 local pin above and remains private at
+`/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/portainer-stack-reconciled.private.yaml`.
+It preserves the live signing/station credentials, data mount, port, restart policy and
+external `mtg_default` network. It also retains the exact local image pin, `pull_policy: never`,
+Watchtower exclusion, 30-second stop grace and current print settings. The file contains
+credentials and must remain outside Git, chat and logs.
+
+The candidate's entire resolved Compose configuration and configuration hash match the
+working local deployment; all nine explicit environment values match the live container.
+Independent read-only review passed. Backups of the owner-supplied definition and private
+local deployment plus preparation/container-identity receipts are at
+`/Users/cruv/docker/Backups/cardlistcompare/20261016T010010Z-portainer-reconciliation`
+(UTC directory date; preparation was October 15 locally).
+
+**Controller save remains pending.** No controller address/session has been supplied, and
+preparing the file does not change Portainer's saved stack. Target the existing `mtg` stack
+on this Mac's endpoint, where the pinned image exists. Preserve the complete stack environment
+variables and keep image re-pull/prune disabled. Portainer's standard stack update also applies
+the stack; a matching local hash does not guarantee another Compose version will avoid
+recreation. Do not treat it as a save-only operation. Read the saved definition back and check
+container IDs/start times, configuration, health and native companion state after application.
+No running service, native station or physical print operation was changed during preparation.
+
+#### Household server deployment checkpoint — 2026-10-15
+
+The Mac's `CardListCompare` service now runs **v2.57.4**, source `00e89a4`, local arm64
+image `clc-household:2.57.4-00e89a4`, image ID
+`sha256:578b7017359b09d4e7dd32bb706db27a365f2aa147fef3c02583dfbeefde221e`.
+Only CLC was recreated in the existing `mtg` project. Port 8080, data mount, network,
+restart policy and all nine configured environment values were preserved. Watchtower
+remains disabled and the image is pinned with `pull_policy: never`.
+
+The stopped-container backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20261015T205943Z-before-2.57.4/data-complete`;
+its sibling `deployment` directory retains private configuration and the previous container
+description. Symlinks were preserved. Keep the prior `clc-household:2.57.3-f04ad3a` image.
+Do not restore this backup over later user changes merely to roll back application code.
+
+Database integrity passed. All **16 print jobs**, **16,738 print-job events**, 78 snapshots,
+three users and two tracked owners were unchanged by full-row hashes. All 15 saved-art
+records retained their original bytes; the new `mpc_art_revision` column starts at zero.
+All 87 retained print artifact files (465,092,497 bytes) were byte-identical to the backup.
+One pre-existing orphaned deck snapshot was present in both stopped and post-deploy copies;
+the update introduced no new foreign-key violations and did not delete or reassign that row.
+Its subsequent owner-authorized investigation and lossless quarantine are recorded in
+[the historical snapshot repair](#historical-snapshot-repair--2026-10-15).
+
+The native **v2.57.3** companion stayed running and unpaused. Its jobs, passes, recovery
+receipts, settings, configuration/token hashes and selected version were unchanged. An
+authenticated heartbeat returned HTTP 200 at **21:06:42 UTC**. No printer operations,
+physical-proof changes or Discord tests were initiated.
+
+An isolated offline image fixture verified migration, guarded saves, stale-reset 409,
+unversioned 428, unauthorized 401 and persistence after restart. Localhost and household HTTPS
+health passed; all **38 frontend files** matched the image at both origins (76 responses).
+The browser visibly showed v2.57.4, its release notes and conflict-recovery guidance.
+Reload older open tabs before saving artwork; unversioned clients are deliberately rejected.
+Private deployment receipts below retain the v2.57.4 application/release evidence; the active
+task checkpoint is [CURRENT_WORK](CURRENT_WORK.md).
+
+Normal startup refreshed the cached upstream generator from `b95e833926d70c29a62a56b2b96cc3bb783c47e0`
+to `0da09b729814aa5aafde024b5a6059624fa87951`; the previous runtime remains available.
+Only upstream workflow/requirements files changed. The PDF script, utilities, adapter and
+v6 cutting template were byte-identical. The upstream requirements changed matplotlib
+3.11.1→3.11.2 and pydantic 2.13.4→2.14.1; five worker tests passed in the activated environment.
+The accepted printing recipe and existing PDFs were not changed; this was not a physical proof.
+
+Private `verification-2.57.4.private.json`, `frontend-verification.private.json`, native and
+generator receipts beside the backup retain the rollout evidence. The private Compose and
+future Portainer service fragment both pin the new image. Portainer's saved controller stack
+still needs that fragment merged before its next redeploy, as described below; this CLI
+activation did not edit the controller. Disposable containers, build files and browser tabs
+were removed after verification.
+
+#### Household installation checkpoint — 2026-10-11
+
+The permanent `CardListCompare` container belongs to the `mtg` Compose project,
+publishes port 8080 and mounts `/Users/cruv/docker/Stacks/mtg/cardlistcompare` at
+`/app/data`. The household origin is `https://clc.blackbeardsvault.com/`. The
+repository's `./data` is not the household deployment path.
+
+At that checkpoint, the deployed server was **v2.57.3**, source `f04ad3a`, local image
+`clc-household:2.57.3-f04ad3a`, image ID
+`sha256:cdbab96a76d795a17162d8d98534088859c90dd24f92c1833c4ba586fade882b`.
+Private configuration lives in
+`/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/compose.yaml` and
+`runtime.env`. It preserves the container name, external `mtg_default` network,
+UID/GID, timezone, signing secret and data mount. `pull_policy: never` selects the
+local image; Watchtower is disabled for CLC. The registry's `latest` does not
+contain this feature branch. Do not prune its image.
+
+The healthy server rollout verified all **16 print jobs** unchanged by full-row hashes,
+and database integrity passed. The prior checkpoint recorded
+three users, two tracked-deck owners, 15 tracked decks and 78 snapshots. All 38 frontend
+files match the image through localhost and household HTTPS (76 responses). The in-app
+browser's household Guide visibly shows v2.57.3 and the new voice-pool wording while signed
+out; authenticated recovery UI checks used disposable data and fake printer effects.
+At **04:36:00 UTC on October 11**, the authenticated live API showed native v2.57.3 online,
+unpaused, with no active job and known ready health; its last heartbeat was 04:35:55 UTC.
+No additional printing or Discord test was initiated during the v2.57.3 rollout.
+
+The complete stopped-container backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20261011T043320Z-before-2.57.3/data-complete`;
+the sibling `deployment` directory retains the private deployment-fragment backup.
+The earlier v2.57.0 rollout verification encountered a SQLite read error during atomic
+sql.js persistence and restored the previous server image without restoring the
+live database. A fresh captured-export integrity check passed; the subsequent
+backed-up rollout verified all original jobs. For read-only inspection of the
+server database while running, inspect a captured file export rather than letting
+SQLite reopen the live bind-mounted path across sql.js atomic replacements.
+
+The **v2.57.3 arm64 native companion** is installed under
+`~/Library/Application Support/CLC Print Station/app`, with private configuration
+in `~/.config/clc-print-station`. The current version is `versions/2.57.3`; previous
+is `versions/2.57.2`. `~/Library/LaunchAgents/local.clc.print-station.plist` keeps it
+running at login. It uses `EPSON_ET_8550_Series` and the saved **66 Epson driver
+options**. Configuration/token files, 14 native jobs, all 14 pass records, the archived
+recovery attempt and CUPS history were preserved exactly. At **04:32:43 UTC on October 11**,
+the installed companion was verified running and unpaused.
+**Leave it running and unpaused.** Both physical-proof
+flags remain false; the existing local `allow_unverified_printing: true` permits
+user jobs without claiming proof. Color/orientation results and remaining
+cutting/duplex checks are in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+
+The installed package is
+`~/Downloads/CLC Print Station 2.57.3/CLC-Print-Station`; adjacent archive
+`clc-print-station-macos-arm64.tar.gz` has SHA-256
+`000c6b533889867df68397faf8aa9ae05a0e9bce3892e7cb849cf69328e06d7e`.
+The 1,666-file manifest, bundled runtime self-check and source-file parity passed.
+The native backup is
+`/Users/cruv/docker/Backups/cardlistcompare/20261011T043237Z-native-before-2.57.3`.
+The guarded native update required no active physical work,
+stopped the idle worker, held both worker and manager locks, and backed up full state
+and configuration before switching versions. The unpaused bit was never changed; this
+guarded idle update avoided the installer's normal pause. Earlier recovery-code updates
+preserved the uncertain incident after proving exact CUPS23 terminal cancellation.
+No ledger was cleared or recovery confirmation bypassed. No background upgrade watcher
+is installed.
+
+The **getting right with paper** batch resumed with a remaining-sheet attempt after the
+operator confirmed one complete sheet, loaded paper and a cleared printer panel. Recovery command
+`c40a9ae6-44a4-489e-b17c-70c78a1054e7` was applied for physical sheet 2 of the original
+interrupted attempt. It queued the remaining **17 front sheets**, PDF pages 1–17 in
+reverse physical order 17 through 1, preserving the already printed PDF page 18.
+At **22:47:46 UTC on October 10**, exact CUPS submission `EPSON_ET_8550_Series-25`, title
+`CLC-787d3212a14a5ba6dcce635e0854533d`, was completed (state 9); the matching native/server
+recovery attempt was completed too. All 17 remaining fronts finished in the spooler,
+with no backs required. The temporary completion monitor was removed. The original failed
+CUPS23 receipt remains archived intact. This confirms completed printing passes;
+physical card quality and cutting/duplex proof remain separate. A startup alert about
+old canceled CUPS23 preceded recovery and did not describe the new attempt.
+
+The existing Discord webhook remains connected. Incoming `/proxy` commands are implemented
+but **not configured**: the operator must create/link a Discord application under Printer
+settings. The webhook alone cannot receive commands.
+Native v2.57.3 print webhooks use short sourced Rocky excerpts with visible film/speaker
+attribution and stable event-specific selection. Factual details, mention rules and
+delivery guards are unchanged. No real Discord test was sent during this update.
+
+Source `f04ad3a` passed **1,200 JavaScript tests** and **254 native tests** (1,454 total),
+lint (zero errors, five existing warnings), production build and both dependency audits
+(zero findings). A focused independent review also passed 98 tests.
+Nodemailer 10.0.16 is included; live email testing was omitted at
+the owner's request. Browser tests verified sheet-order mapping, confirmation reset
+on an attempt change, request payload and Discord setup controls. Isolated Docker
+restart/security smoke checks use disposable data and no household credentials.
+This feature-branch push does not trigger main/PR/tag CI, so these local checks
+are not a claim of a passing GitHub workflow.
+
+Private dated `update-*.json`, `native-update-*.json` and `verification-*.json` retain
+the rollout evidence and rollback paths. `recovery-7acd98db-fronts.json` and
+`recovery-7acd98db-verification.json` retain the authorized recovery receipt and observation.
+Older 2.57.2, 2.57.1, 2.57.0, 2.56.0 and 2.53.3 packages/backups remain available. Preserve generator-cache
+symlinks as links when copying Linux venvs on the Mac. Take a fresh backup before
+another update, including newer jobs and user changes; never restore an older
+database over newly queued work just to roll back frontend code. Never run two
+backends against the live database. Recreate only CLC; do not use `down` or
+`--remove-orphans` against the partial household Compose definition.
+
+Saved backs, packet reservations, exact paper clearance, unmentioned completion
+announcements and queued-job messages remain active. Completion waits for every
+required pass, including backs. Existing PDFs stay immutable; requester/batch/page
+identification applies to new PDFs. Alert delivery is best effort and does not
+block the next front job. Physical cutter/duplex proof remains pending.
+
+The initial cached generator was verified at upstream
+`4d4aa73a95e93b09676c863a1861765863398c63`; normal startup still checks for a compatible newer
+version. The original arm64 package is `~/Downloads/CLC Print Station 2.49.0`, archive
+SHA-256 `2284b655758133927bb41e274bbb4fdb4826abd69c7cb7fa000769d9636ed8f7`.
+Run bundled Python with `-B -E -s`; writing bytecode inside an installed bundle changes its
+manifest and correctly fails verification. Private receipts/configuration survive updates.
+
+Docker CLI deployment does not update Portainer's saved controller stack. The owner-supplied
+single-service definition has a verified private full-stack candidate; see
+[the reconciliation preparation](#portainer-reconciliation-preparation--2026-10-15).
+If the actual controller definition has gained services/resources, merge only the CLC service
+from `cardlistcompare-deployment/portainer-service.private.yaml` and preserve everything else.
+That private fragment contains
+credentials because the controller cannot read the Mac-local `env_file`. Keep it and all
+runtime/rollback environment files out of Git, chat and logs. No Portainer login is needed
+for service-only deployment from this Mac.
+
+At the v2.52.1 checkpoint, all 34 frontend files matched the image through localhost and the
+public origin, existing sign-in survived, database integrity passed, and native v2.49.0
+remained Enabled. Browser/automated checks use disposable data and fake side effects;
+actual household prints after that checkpoint are user work, not disposable QA fixtures.
+Do not interrupt active sheets or update the native runtime while its ledger owns a job.
+
+#### Queue operation
+
+**Paper-out recovery (v2.57.0+).** New native submissions set the job-scoped
+`job-error-policy=stop-printer` and `job-cancel-after=2147483647` (about 68 years)
+instead of inheriting the household Mac's three-hour cancellation timer. No global
+CUPS scheduler setting changes. Do not substitute explicit `job-cancel-after=0`:
+Apple CUPS adds an explicitly supplied value to the current time, so zero can mean
+immediate cancellation. See [CUPS timeout settings](https://www.cups.org/doc/man-cupsd.conf.html)
+and [Apple scheduler source](https://github.com/apple/cups/blob/v2.3.3/scheduler/job.c).
+
+The October 10 incident (`getting right with paper`, batch
+`7acd98db-0771-4bf1-be3a-2f4b4d109f14`) had no CLC cancellation request. CUPS job 23
+was submitted at 03:10 local time, reported paper out at 03:22, and was canceled at
+06:22 with `job-cancel-after=10800`. CUPS' generic `job-canceled-by-user` reason does
+not identify a human cancellation. The operator confirmed one complete sheet printed.
+The original interrupted pass had 18 sheets in reverse order; its recovery selected
+physical sheet 2, PDF page 17, followed by pages 16 through 1. CUPS reported zero completed
+impressions for that failed job, so its counters did not override the physical checkpoint.
+That completed recovery attempt contained only those 17 remaining sheets. A later recovery
+always uses positions within its interrupted attempt, not the original whole batch.
+
+Resolve device faults before using **Printer → Continue printer job** or
+**Print remaining sheets**. Owner/admin recovery is bound to the exact batch, pass,
+CUPS title/ID and attempt. A canceled/stopped attempt requires the first unprinted
+sheet ordinal **within that interrupted attempt**, preserving the frozen PDF and
+old receipt while creating a distinct remaining-pages attempt. Recovering backs
+also needs an explicit matching-front-sheet reload confirmation. Unknown or conflicting
+CUPS history fails closed. A manually stopped Mac queue still needs operator attention
+on the Mac; recovery does not enable the whole queue or restart a job from page one.
+
+**Stale paper status correction (companion v2.57.1).** An idle, accepting local CUPS queue
+may retain its earlier paper-needed/empty/Epson paper error after the device itself is
+ready. The companion can make a read-only direct device check only when every job in that
+queue is terminal and no other local fault is present. The device must return fresh idle,
+healthy status and the same printer UUID as the configured DNS-SD queue. Paused/rejecting
+queues, driver/storage errors, unknown status and identity mismatches remain blocked. This check
+does not clear CUPS history, change queue settings or resume a job; the operator still
+confirms the exact interrupted attempt and first unprinted sheet. This describes the
+correction's behavior; the installation checkpoint above records what is deployed.
+
+**Idle scheduler status (companion v2.57.2).** After CUPS25 completed, macOS cupsd exited
+cleanly while idle. Its launchd service owns `/private/var/run/cupsd`; a localhost TCP
+health poll alone did not wake it. The companion now uses that fixed Unix socket for
+local print commands and a read-only queue probe before IPP health polling. Failed reads
+remain unknown and preserve completion evidence. Idle failures stay in CLC's status/log.
+Two consecutive failures with a pending, already-spooled pass may send a deduplicated
+**Print status unavailable** monitoring alert with job/pass/ID and an operator mention;
+that alert does not establish a physical fault, retry printing or change job state.
+Confirmed paper, ink and stopped-queue faults keep their alerts.
+
+Incoming Discord commands require a Discord application in addition to the alert
+webhook. Configure **Printer settings → Discord printer commands**, set the public
+HTTPS interaction endpoint shown there, install the application commands, and register
+them using a one-time token. Only the configured Discord operator/server/channel and
+current CLC administrator may issue `/proxy continue batch:<UUID> [sheet:<ordinal>]`.
+It acknowledges a durable request; the Mac must still validate and apply it. Saved
+bot settings contain no token. Do not put a bot token or webhook in logs or Git.
+
+Normal companion updates remain blocked while a physical job is unresolved. To
+install recovery code for an already canceled legacy pass, a one-time offline update
+may be performed only after proving its exact CUPS title/ID is terminal, proving no
+other physical jobs are active, stopping and locking the worker, and backing up its
+ledger, artifacts, configuration and current version. Preserve the uncertain job and
+Enabled state; never mark it failed/completed or clear its ledger to bypass the guard.
+Verify the original receipts/configuration and unchanged CUPS history after restart.
+
+Open **Print → New print list** for a standalone batch, or a tracked deck's Print tab for snapshot
+plans. Both show artwork review, editable card selections, PDF downloads and job status.
+Standalone jobs store a null tracked-deck ID; startup migrates the old non-null column
+while retaining existing job IDs, requests, manifests and events. Set a
+separate random `PRINT_STATION_TOKEN` to enable physical queue requests; administrators
+can queue by default, and `PRINT_ALLOWED_USER_IDS` grants access to other household accounts.
+These environment variables are forwarded by the supplied Compose file. Keep the same
+station credential on the Mac. Rotating it revokes the old credential; claim identities
+use a separate `data/.print-claim-secret` so existing jobs can recover after rotation.
+Back up that private file with the database and artifacts.
+
+Install [companion/mac](../companion/mac/README.md) on the Mac outside Docker. Use its
+`doctor` and local `dry-run` commands before configuring physical-proof flags. Its private
+state directory contains the submission ledger and downloaded PDFs; preserve that state
+across upgrades and do not run multiple independent stations against one household token.
+The self-contained Mac installer includes Python and installs a user LaunchAgent, initially
+paused. It can report setup health before proof flags are enabled. For source development,
+the optional LaunchAgent writer remains available separately.
+The repository's automated tests use fake submissions and never configure a printer.
+
+For new work claimed by companion v2.55.0+, all ordinary and DFC fronts finish first.
+Matching backs become **Backs for later** and other batches continue. Pending backs and
+their PDFs remain stored until printed or canceled; they are not marked completed to
+release the queue. Newly generated pages include the frozen requester and batch label,
+plus the sheet/packet ID and side. The exact `CLC <job-short-ID> DFC x/y` identity remains
+the link between each sheet, saved artifact and alert.
+
+Select one saved packet to request the printer when its current work finishes. Leave blank
+paper loaded until CLC says that exact packet is ready to reload. Then match and reload
+only that packet, confirm its checkbox and print its backs. This reservation holds other
+CLC work. After the back pass completes, remove printed output, load blank paper and confirm
+again to release the queue. Each confirmation is bound to the exact packet or cancellation;
+an old browser tab cannot clear a later sheet. Opening or dismissing an alert never submits
+anything. Owners can cancel their remaining job or backs; admins can do so across users.
+Native cancellation targets only a uniquely matched CUPS title/ID and needs paper clearance
+after active printing. Existing printed-pass receipts are retained. An ambiguous CUPS outcome
+stays held for reconciliation instead of being treated as canceled.
+
+Already-claimed legacy jobs keep their original alternating sequence. An earlier immutable
+PDF may contain multiple sheets and no job label: inspect all its pages and match job,
+packet and sheet count before reloading. Upgrading does not rewrite those PDFs.
+
+Mac flip notifications and Glass sound default on. Configure `refeed_notifications` and
+`refeed_sound` as JSON booleans in the private mode-0600 Mac config. Optional
+`refeed_discord_webhook_url` and `refeed_discord_user_id` remain legacy local defaults.
+For daily setup, an administrator opens **Print → Printer → Discord printer alerts**,
+saves a webhook and optional user ID, waits for the Mac acknowledgement, then sends a test.
+Disconnect writes a managed disabled setting that overrides any legacy destination.
+On native v2.54.0+, only help-needed alerts (paper flips and printer faults) mention the
+configured user. Completion announcements include the saved job name and batch ID without
+any mentions; delivery tests also contain no mentions. Completion means every print pass
+finished in the spooler, not that drying, lamination or cutting is complete. Existing
+completed jobs are not announced retrospectively. No webhook was configured or sent by
+this release's validation.
+Native v2.55.0 adds unmentioned fronts-finished messages explaining that backs are saved.
+Only a selected packet asks for a flip; returning blank paper after its backs is also a
+help-needed alert. Canceling backs never produces a false whole-job completion message.
+
+Native v2.56.0 adds unmentioned **Print job queued** messages for newly accepted batches.
+Both Generate & print and queueing a ready PDF create one durable notice, atomically with
+the queue transition. The frozen batch/requester labels, copy count, queue time and job ID
+travel through the authenticated management heartbeat, independently of active printing
+or pause state. PDF-only generation, queue retries and saved-back requests do not create
+another notice. Preserve the server outbox and native delivery receipts with their usual
+database backups. Existing jobs are not backfilled. Events observed while Discord is
+disconnected are skipped; an offline Mac delays delivery. Failed or uncertain sends are
+not automatically retried and never authorize or block a physical print pass.
+
+Back up `.print-station-notifications-key` beside the server database along with the
+private Mac ledger. The key is user-owned mode 0600 and encrypts pending webhook commands;
+without it a pending connection must be entered again. Completed/expired commands remove
+the ciphertext, but ordinary database backups may retain encrypted older commands. The
+browser retains only a request UUID for recovery, never the webhook. Status and command
+history do not expose the URL. The companion makes the actual Discord request; a successful
+test confirms Discord accepted it, not that the recipient saw a notification. Ambiguous
+tests are not replayed automatically; send another only as a deliberate new test.
+Mac notification permission/Focus can suppress delivery. Alert failures are logged and
+nonfatal; they leave the same explicit reload wait in place, with no silent printing or
+automatic alert retry. See [Mac flip alerts](../companion/mac/README.md#flip-alerts).
+
+The **Print → Printer** page centralizes health, version, event history, pause/unpause and
+batch-specific DFC reload controls. It requires the same household authorization as
+physical queue requests; only administrators may request version checks/changes. Install
+matching server and companion versions for the heartbeat/control protocol. A companion
+advertises its artifact capacity when claiming (37 from v2.48.0 onward; eight for older clients).
+A larger queued job requires the newer companion and remains unclaimed until it connects;
+the server does not skip the waiting job or create a physical recovery record. A companion
+that cannot contact this protocol stops new submissions while retaining its ledger for
+reconciliation. Starting an unverified companion is supported for setup/telemetry and does
+not enable physical printing. A source checkout reports managed updates as unavailable.
+
+Live health is kept in server memory to avoid rewriting the entire sql.js database every
+five seconds. Server restart correctly resets the station to offline. Control intents and
+receipts are durable database rows; the Mac also retains local idempotency records. Commands
+expire after five minutes if not applied. A late receipt can still settle a command that
+was delivered in time; expiry is not proof that its action did not occur. Do not recreate
+an uncertain request without inspecting its receipt and the current station state.
+
+Managed code/runtime versions live under the local state directory's `app/versions`, with
+`current` and `previous` selections. The installer preserves an existing config/token/ledger
+and refuses to migrate an active station. Restarting launchd selects a complete installed
+version through a stable launcher; moving the original checkout or extracted installer
+does not affect it. Keep these paths on local Mac storage. Back up the entire state and
+private configuration together. Do not restore just an old ledger over newer print receipts.
+
+Companion updates come from stable published GitHub release assets in the fixed CLC repo.
+The updater checks archive/manifest digests, path containment and startup self-check before
+activation. It retains the prior version and does not switch on download/validation failure.
+Updates and rollback wait for no active local job; ambiguous submissions, loaded-paper
+reservations and paper-clearance waits block them. Safe saved backs do not prevent a newer
+compatible update; finish or cancel them before rolling back below v2.55.0. They preserve
+the current ledger/config and leave the station paused. Log files rotate
+at launch when over 5 MiB, keeping three backups. A package's first installation has no
+rollback version. See the companion README for installer migration and the explicit
+build/draft-publication workflow; pushing a feature branch does not publish an update.
+
+Jobs live under `data/print-jobs/`. The default quota is 10 GiB
+(`PRINT_STORAGE_MAX_MB=10240`). Preparation requires 5 GiB of working headroom for the
+retained job and temporary generation files. A retained job is capped at 2 GiB including
+sources; one PDF can be at most 1 GiB. Saved MPC sources stream sequentially to disk with
+a 1.5 GiB total limit and 20 MiB per image. A single worker processes at most 250 copies per job, with
+two pending jobs per user and ten awaiting generation overall. Ready/terminal PDFs expire
+after seven days. Active, queued, uncertain and saved-back jobs never expire automatically. Use
+**Remove PDFs** on a safe batch to release disk space while preserving its manifest/history.
+
+Before sending, configure and prove the Mac's Epson queue, color options and manual DFC
+recipe. Server queue acceptance does not mean the printer is ready. A Mac that is asleep
+leaves jobs queued. A pass that may have reached the spooler holds the station until its
+outcome is reconciled; do not delete database rows to bypass this hold. Inspect the Mac
+queue and physical sheets, then resolve the pass or explicitly clear/abandon the batch.
+The one-ordinary/eight-DFC offline rendering check verified packet labels, five PDF pages
+and unchanged v6 slot geometry without physical output. Household v6 cutting and DFC
+flip/alignment proof remain pending; do not enable those proof flags from software QA alone.
+
+Print state and event receipts use `runTransaction()` to persist together. Back up the
+whole data directory before deployment/schema upgrades. Artifact expiry keeps private
+snapshot text/art identity in the database; deleting an account purges that history and
+its files after active physical submissions have been reconciled. Untracking or pruning
+a source snapshot does not rewrite a frozen print job.
+
+## §9 — ManaSync connection recovery
+
+The actual companion source is [dennysparking/manasync](https://github.com/dennysparking/manasync),
+supplied on 2026-09-11. For local paired verification use separate clones and explicitly set
+`CLC_SOURCE_PATH` to the integrated `codex/project-audit-print-workflow` CLC checkout.
+It selects ManaSync's harness imports/processes and Compose build context; it does not
+configure either running app's API URL. The old `companions/clc` path remains only a fallback.
+See [source selection and disposable verification](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification)
+for install/build commands and database isolation. Record both tested revisions. A passing
+HTTP/browser harness neither deploys these branches nor validates physical printer/cutter
+behavior; a CLC `main` merge and production activation require their own release steps.
+
+Large ManaSync deck transfers use a scoped transport exception: each creation `deckText`,
+proposal `baseText`, `proposedText` or revised `reviewedText` field can contain 500,000
+Unicode code points. These four POST paths allow 12 MiB JSON, including escaped text:
+
+- `/api/integrations/v1/decks` and `/api/integrations/v1/decks/track-source`, requiring an
+  explicit `decks:create` token before larger-body parsing.
+- `/api/decks/:deckId/proposals`, requiring proposal access before parsing.
+- `/api/decks/:deckId/proposals/:proposalId/review`, requiring a CLC login session before parsing.
+
+Express also checks the global API rate limit first. Unrelated routes keep `512kb`;
+nginx's `12m` exception covers only those four paths, with its default 1 MiB elsewhere.
+Configure an external reverse proxy consistently for the same paths rather than raising
+every endpoint's limit. See [deck-transfer limits](MANASYNC_PROPOSALS.md#delivering-a-proposal).
+
+An etched-finish deck rejected by ManaSync with `422 unsupported_clc_finish` has not been
+converted to CLC's simpler foil notation. Preserve the local deck/draft and use its export
+or explicitly choose a supported finish before sending. Do not remove `*E*` automatically
+or alter the payload of an uncertain saved operation to force a retry.
+
+CLC encrypts saved ManaSync credentials, including the original credential retained by each
+pending print report. Back up `.manasync-bridge-key` beside `DB_PATH` as well as the database,
+or retain the separately managed `MANASYNC_BRIDGE_KEY`. A database-only admin export does
+not contain the key. Restore the matching key before retrying operations.
+
+Open **Connections** (under **More** on phones). `https://manasync.net` is prefilled; enter a custom server address only when needed. Create the default CLC personal app token in ManaSync’s **More → Integration access**, then paste it into CLC. Use **Check connection** to verify a saved grant without an inventory write.
+Custom domains, ports, and reverse-proxy base paths need no server allowlist. Compose
+forwards only the optional managed encryption key for this connection.
+See [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md) for connection and receipt recovery. Token
+rotation must reconcile uncertain reports against the original actor's receipts; do not
+resubmit them with replacement operation IDs or credit inventory from print-station status.
+
+Native batches staged for inventory reporting retain exact source faces under
+`manasync-artwork/<userId>/` beside `DB_PATH`. Back up this directory along with the database
+and bridge encryption key. Native print-job expiry does not remove these retained faces.
+Once reported, ManaSync stores its own account-owned image bytes in PostgreSQL and its usual
+database backups. Do not substitute current MPC artwork for a pending batch’s saved hashes.

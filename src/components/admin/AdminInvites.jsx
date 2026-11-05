@@ -45,7 +45,8 @@ export default function AdminInvites() {
   return (
     <div>
       {ConfirmDialog}
-      <h3>Invite Codes</h3>
+      <h3>All invitations</h3>
+      <p className="admin-section-description">Invitation codes created by everyone in this CLC instance. Create your own from <a href="#settings">Account → My invitations</a>.</p>
 
       {loading && invites.length === 0 && <p className="admin-empty">Loading...</p>}
       {!loading && invites.length === 0 && <p className="admin-empty">No invite codes have been created.</p>}

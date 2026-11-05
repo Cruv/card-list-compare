@@ -77,6 +77,12 @@ describe('enrichDeckText()', () => {
   // ── Unified card-line pattern (v2.40.2) ─────────────────────
   // enrichDeckText shares CARD_LINE_PATTERN with the client parser.
 
+  it('keeps plain-F exact printings without replacing them through name lookup', async () => {
+    const text = "1 Sigarda's Aid (sld) [731] F\n1 Rhystic Study (j18) [7] F";
+    expect(await enrichDeckText(text, null)).toBe(text);
+    expect(fetchCardPrintings).not.toHaveBeenCalled();
+  });
+
   it('recognizes Arena-style bare collector numbers as full metadata', async () => {
     fetchCardPrintings.mockResolvedValue(new Map());
 

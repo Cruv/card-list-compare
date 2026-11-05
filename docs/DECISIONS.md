@@ -1,21 +1,22 @@
 # CardListCompare — decision log
 
-> The load-bearing "why"s. Each entry: what was decided, why, what it costs, and where it
-> lives in code. These are **standing decisions** — revisit deliberately (talk to the
-> owner), don't erode them incidentally. One flat file on purpose: searchable in one place.
-> Mirrors the sibling app WarSlate's `docs/decisions.md` format so both repos read alike.
+> Product/architecture rationale and dated evidence. Read the relevant entry, not every
+> historical milestone. Explicit owner direction may revise procedures; preserve substantive
+> safeguards and record deliberate changes. [CONTRIBUTING](../CONTRIBUTING.md) is the canonical
+> development/release policy; [AGENTS](../AGENTS.md) routes agents. On 2026-10-15 the owner
+> authorized this procedural consolidation, superseding blanket rereading, approval,
+> before/after verification and per-subtask release instructions in earlier local notes.
 
 ## D1 — sql.js for persistence (not better-sqlite3)
 
 **Decision.** The database is **sql.js** (SQLite compiled to WASM, held fully in memory),
 persisted to a single file. Not better-sqlite3, not a native module.
-**Why.** Zero native build step — the image is a plain `node:22-alpine` with no compiler
-toolchain, and the DB is one portable file that bind-mounts to the host for trivial backup.
+**Why.** Zero native build step — the DB needs no native addon build and is one portable file that bind-mounts to the host for trivial backup.
 **Cost.** Every write serializes the **entire** database to disk (`persist()` after each
-`run()`), so there are no partial writes and no cross-statement transactions. The whole-file
-rewrite is the accepted cost; it is made crash-safe by an atomic temp+fsync+rename with
+`run()`). `runTransaction()` groups related statements, persists once, and restores memory
+on failure. The whole-file rewrite is the accepted cost; it is made crash-safe by an atomic temp+fsync+rename with
 `.bak` recovery (v2.40.3). See INVARIANTS.md #1 — the most dangerous code in the repo.
-**Where.** `server/db.js` (`persist`, `loadDatabase`, `backupDb`, `run`); pinned by
+**Where.** `server/db.js` (`persist`, `loadDatabase`, `backupDb`, `run`, `runTransaction`); pinned by
 `server/db.persist.test.js`.
 
 ## D2 — Deck text is the product's data contract
@@ -36,10 +37,11 @@ express-rate-limit, jsonwebtoken, bcryptjs, nodemailer, archiver, compression, s
 This diverges from WarSlate's zero-dependency-server rule (WarSlate D1).
 **Why.** This app started from the Express ecosystem and sql.js is itself load-bearing;
 rewriting to Node built-ins would be a large, low-reward migration. The trade is accepted.
-**Cost.** Supply-chain surface. Mitigations that this decision REQUIRES: `npm audit` is part
-of the release check, dependency bumps are lockfile-only, and a **new server dependency needs
-explicit justification** (prefer a Node built-in — e.g. `node:crypto` did the token hashing
-in D7, `node:zlib`/compression, `archiver` only where a real zip is needed).
+**Cost.** Supply-chain surface. Audit both dependency trees for product releases and the
+affected tree for dependency changes, per [CONTRIBUTING](../CONTRIBUTING.md). Prefer compatible
+lockfile updates; change a manifest deliberately when its constraint/API must change
+(including the October 2026 Nodemailer 10 fix). A **new server dependency needs explicit
+justification**; prefer a suitable Node built-in. Do not force major migrations as incidental cleanup.
 **Where.** `server/package.json`. Revisit only if supply-chain cost outweighs convenience.
 
 ## D4 — Version authority is APP_VERSION in code, not git tags
@@ -49,20 +51,32 @@ in D7, `node:zlib`/compression, `archiver` only where a real zip is needed).
 Stale `v1.x` git tags are historical and not authoritative.
 **Why.** The version drives an in-app "What's new" toast keyed to `APP_VERSION`; a code
 constant is what the UI reads. The sync is test-enforced, so it can't silently drift.
-**Cost.** Unlike WarSlate (where the git tag is authority), tags here don't gate anything.
-Lightweight release tags MAY be resumed to get pinnable GHCR images (see ROADMAP), but the
-authority stays in code. **Where.** `src/App.jsx`; enforced by `invariants.test.js`.
+**Cost.** Tags are not version authority, but a `v*` push does trigger semver image
+publication. Tag use remains owner-requested; a cohesive outcome, not each subtask, is the
+product release unit. Internal/docs-only work needs no product bump. The canonical
+procedure is [CONTRIBUTING](../CONTRIBUTING.md#delivery-and-publication).
+**Where.** `src/App.jsx`; enforced by `invariants.test.js`.
 
 ## D5 — Publish the image on every push to main (:latest, :sha, :branch)
 
 **Decision.** `.github/workflows/docker-publish.yml` builds and publishes to GHCR on every
-push to `main`, gated on `npm test`. `:latest` tracks the default branch.
+push to `main`, gated on JavaScript tests, the synthetic Compose contract, dependency audits,
+portable companion tests and an error-free ESLint run. The image build compiles the frontend. `:latest` tracks the default branch. PRs build
+without publishing; a feature push without a PR does not trigger this workflow.
 **Why.** Simple, hosted-runner CI; the household deploy pulls deliberately (no auto-pull),
 so republishing `:latest` on an internal-only commit is harmless here.
-**Cost.** `:latest` means "last push that passed tests," not "last deliberate release." If
+**Cost.** `:latest` means "last push that passed CI," not "last deliberate release." Even
+docs-only main pushes run this workflow; local prose checks do not alter that boundary. If
 that ever matters, gate `:latest`/semver tags on a `v*` tag or a release-commit condition
 (one workflow line) — recorded here so the choice is explicit, not accidental.
-**Where.** `.github/workflows/docker-publish.yml`.
+The publication workflow targets amd64 and arm64 manifests, source revision labels and
+short/full SHA tags; the matching registry result must still be verified. `latest` follows `main` only; a semver tag cannot implicitly move it. The repository
+Compose file consumes GHCR with configurable private runtime values and an existing bind
+path, without implicitly building/tagging local source. This replaces local household image
+pins as the default deployment model; historical installed pins remain facts until an
+explicit registry cutover. Local diagnostics do not authorize a permanent divergent stack.
+**Where.** `.github/workflows/docker-publish.yml`, `docker-compose.yml`, `.env.example`;
+[cutover/preservation](OPERATIONS.md#repository-deployment-and-registry-cutover).
 
 ## D6 — Lint blocks CI (backlog cleared 2026-08)
 
@@ -80,8 +94,10 @@ panels is a project, not lint cleanup.
 
 ## D7 — Auth: JWT bearer tokens, bcrypt passwords, hashed email/reset tokens
 
-**Decision.** Sessions are stateless HS256 JWTs (7-day expiry) signed with a mandatory
-`JWT_SECRET`; passwords are bcrypt; email-verification and password-reset tokens are stored
+**Decision.** Sessions are stateless HS256 JWTs (7-day expiry), with a mandatory strong
+production `JWT_SECRET` and a persisted random development fallback only when unset.
+Supplied weak secrets are rejected in both environments. Passwords are bcrypt;
+email-verification and password-reset tokens are stored
 as **SHA-256 hashes** (raw token emailed).
 **Why.** The server refuses to start on a weak/missing secret (v2.40.3), so a defaulted
 secret can't sign forgeable tokens. Hashing the email tokens means a DB read can't replay
@@ -91,12 +107,409 @@ is mitigated by the CSP (v2.40.x infra). Full model: `SECURITY.md`.
 **Where.** `server/lib/jwtSecret.js`, `server/lib/tokens.js`, `server/middleware/auth.js`,
 `server/routes/auth.js`.
 
-## D8 — Collection matching is by card name, printing-agnostic
+## D8 — ManaSync owns collection management (supersedes native CLC collections)
 
-**Decision.** The "do I own this?" match (Collection → deck views) keys on the **card name**,
-summed across printings and foils, front-face-normalized for DFCs and accent-insensitive.
-**Why.** Owning a card is about the card, not the exact printing; a user's collection and a
-deck rarely agree on printing, and DFC/accented spellings differ across sources.
-**Cost.** Can't answer "do I own THIS printing" — only "do I own this card." If per-printing
-ownership is ever needed, extend the index key, don't replace it.
-**Where.** `src/lib/collectionMatch.js`; pinned by `collectionMatch.test.js`.
+**Decision.** At the owner's request on 2026-09-08, collection management belongs exclusively
+in ManaSync. CLC handles decks, comparisons, artwork and printing preparation, and uses
+an optional scoped ManaSync bridge for inventory-aware buy/proxy planning (D10). Do not add a parallel CLC
+collection manager or extend ownership coverage into deck overlap.
+**Why.** Purchases, receipts, real/proxy counts, storage and allocations need one coordinated
+inventory model. Duplicating it in CLC would create conflicting records and repeated work.
+**Cost.** CLC's Collection tab, ownership badges, collection API and collection-only helpers
+are removed. Existing `collection_cards` rows/schema are retained for recovery and a future
+explicit migration; no ManaSync export or migration is implemented. The optional bridge contract is documented in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md);
+legacy collection migration remains separate work.
+**Where.** [MANASYNC_INTEGRATION.md](MANASYNC_INTEGRATION.md), [ROADMAP.md](ROADMAP.md),
+`server/db.js` (retained legacy schema); collection routes are no longer mounted.
+
+**Superseded history.** The earlier D8 keyed native ownership coverage by card name, summed
+across printings/foils with DFC and accent normalization. Its implementation and tests were
+removed with the native collection feature. Future ManaSync matching must deliberately
+choose gameplay-level versus exact-printing semantics; the old matcher is not a contract.
+
+## D9 — Generate PDFs in CLC; print through a native Mac companion
+
+**Decision.** Adopt the owner's approved v6 layout with its matching cutting template.
+CLC's Linux container runs Silhouette Card Maker and manages immutable PDF jobs; a
+native Mac companion claims authorized print jobs and submits through the installed
+Epson macOS driver and a validated local recipe. The initial registration mode remains
+three marks; v6 layout adoption does not itself select four marks.
+**Why.** PDF composition does not require a Linux printer driver. Keeping device rendering
+and EPSON Vivid controls on the Mac permits validation against the owner's Adobe/Windows
+output while CLC handles generation, storage and household requests.
+**Cost.** The Mac must be awake/available to submit. Its automated rendering path required
+a color proof against Adobe; that recipe's color/orientation were accepted in the dated
+household evidence. Changed rendering/recipe inputs require their affected proof again;
+GUI presets cannot be assumed to transfer to CUPS. Double-faced
+cards use separate one-sheet packets requiring manual flip/reload. Durable job IDs and submission
+reconciliation are needed to avoid duplicate output after interrupted connections.
+**Where.** [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md),
+[HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md), and
+[companion/mac](../companion/mac/README.md). The PDF/job API and Mac companion are implemented;
+separate cutting/manual duplex acceptance is not established by software checks.
+Accepted color/orientation evidence
+and installed status have their own dated [household checkpoint](OPERATIONS.md#household-print-jobs).
+The production runtime uses
+Debian because the required upstream matplotlib wheel is unavailable for Alpine ARM64.
+The adapter keeps 600 PPI while generating one sheet at a time and merging ordinary fronts.
+
+**Working household workflow (2026-10-15).** CLC already uses `household-letter-v6` /
+`letter-standard-v6`. The [owner's printing report](HOUSEHOLD_PRINT_RECIPE.md) supersedes
+repeat-front-calibration priority; preserve the working recipe. Unproven cutting/duplex
+paths and relevant changes still need their own acceptance, without changing proof flags
+or exact-paper/submission safeguards merely because fronts work.
+
+**Conflict-safe saved artwork (2026-10-15).** MPC selections remain a whole-deck record,
+with a durable monotonic revision shared by all tabs/devices. The owner-scoped GET returns
+`overrides`, `configured` and `revision`; PUT requires `overrides` and `baseRevision`.
+A successful compare-and-save persists both choices and the next revision atomically.
+Stale writes return HTTP 409 / `ARTWORK_CONFLICT` with the current owner snapshot; missing
+revisions return HTTP 428 / `ARTWORK_REVISION_REQUIRED` so older tabs must reload. Existing
+records migrate at revision zero without changing their bytes, and an explicit empty reset
+remains distinct from never-configured NULL. The browser serializes saves, stops after
+conflicts/uncertain replies and retains a pending local draft for explicit review. Choosing
+to replace saved art is deliberate and can conflict again if another save wins first.
+There is no blind rebase or unconditional legacy-write fallback. Previously frozen jobs
+remain unchanged; saved-art history and the 612-face limit are separate future decisions.
+
+**Bounded ManaSync traffic (v2.57.5).** Published print records stay idle between explicit
+reviews. Opening a visible confirmation panel or Refresh records uses an owner-scoped bulk
+read shared for one minute; automatic UI ticks read only CLC. Failed publications have a
+six-attempt automatic budget and hold immediately on definitive rejection/quota failure.
+An explicit retry requires the reviewed connection and preserves the original plan/bytes;
+it never creates physical print work or inventory. Missing/invalid remote data remains
+unknown and cannot erase receipts. See [refresh and delivery limits](MANASYNC_BRIDGE.md#refresh-and-delivery-limits).
+
+**Standalone lists (2026-09-11).** Ad-hoc jobs reuse the print planner, artifact worker,
+station protocol and ManaSync pending-proxy review. They store a named immutable card list
+and a null tracked-deck ID; no placeholder deck or snapshot is created. Their authenticated
+API and batch history are scoped to the owner. The nullable job-column migration preserves
+existing jobs and request identities. Saved MPC artwork remains a tracked-deck feature;
+standalone lists resolve Scryfall faces before review. Physical copy limits, separate DFC
+packets, uncertain-request recovery and queue permissions apply unchanged. A reviewed
+order can exclude suggested cards and add explicit copies without rewriting its source.
+Changed-printing replacement defaults off and basic-land exclusion defaults on. The
+review hash and durable creation request cover these choices; ownership does not silently
+remove or limit any copies.
+
+**Comparison handoff and art selection (2026-09-11).** Comparison results carry their
+captured Before/After texts into the standalone workflow, defaulting to positive physical
+changes with a full-After option. Session handoffs survive sign-in and never silently
+replace a saved print draft or unresolved creation request. The three-step print surface
+keeps artwork review central and moves historical batches and detailed guidance into
+expandable sections. Per-row overrides select verified Scryfall IDs for the same logical
+card, preserving original selection keys and quantities. Only explicitly selected rows
+switch away from saved MPC art. Chosen IDs, resolved faces and both comparison texts enter
+the immutable plan/hash; changing them requires a new review. Explicit-ID image downloads
+must not use a set/collector-only cache that could return another language or art variant.
+
+**One-sheet DFC packets (2026-09-10; sequencing revised 2026-09-12).** Keep each batch isolated and print its ordinary fronts
+first. Each subsequent DFC artifact contains at most seven copies on exactly two pages:
+front, then back. Partial sheets are intentional; easier paper handling takes priority over
+filling every position. Numbered packet IDs and the printed `CLC <job-short-ID> DFC x/y`
+label connect the physical sheet to its waiting pass. Labels use upstream's existing front
+margin, preserving the v6 geometry, crop and registration marks. Legacy artifacts are not
+rewritten; their multi-sheet layout and missing job labels require preview/all-page review.
+
+**Deferred backs (2026-09-12).** At the owner's request, new jobs accepted by a compatible
+companion print all ordinary and DFC fronts before parking unfinished backs. A durable
+`backs_pending` state releases the household front queue and preserves the immutable PDFs
+without normal expiry until the backs complete or are canceled. The per-job workflow marker
+keeps already claimed legacy jobs on their original front/back sequence; neither their
+artifacts nor submission receipts are rewritten.
+
+The owner or admin selects one exact back packet for later printing, even days later.
+That selection reserves the printer at a safe boundary before a reload notice permits
+handling paper. Only an explicit matching-job/packet acknowledgement submits the one-sided
+back pass. After it finishes, `awaiting_paper_reset` holds new front work until the operator
+confirms the printed sheets were removed and only blank paper is loaded. Other applications
+are outside this reservation, so the physical Epson queue remains dedicated during reload.
+Unselected backs never hold front work. No automatic back retries or scheduled physical
+reloads are inferred.
+
+Owners and admins can cancel a whole batch or only its unfinished backs. Pending passes can
+be canceled immediately; affected native submissions are stopped by their saved CUPS IDs,
+then `awaiting_clearance` requires physical paper removal before releasing new pages. A
+canceled pass never becomes completed, and canceling backs does not claim both faces printed.
+Records remain available for review; usable-copy confirmation stays separate in ManaSync.
+
+Default Mac notifications with Glass sound and optional Discord delivery are reminders,
+never print authorization. Fronts-finished and whole-job completion messages name the job
+without a personal mention. Selected reloads, required paper clearance, real printer
+faults or lost monitoring of an already-spooled pass may mention the configured operator.
+Dismissal and delivery failure cannot resume a
+job. Administrators configure Discord in Printer; delivery remains native. Pending server
+secrets are encrypted, browser recovery stores nonsecret request identity, and the private
+Mac ledger atomically stores settings and command receipts. Disconnect overrides local
+configuration. Tests bind to the acknowledged revision and never mention the user. Delivery
+attempts are recorded before sending, with no automatic replay after an ambiguous response.
+No webhook was configured or sent during that initial implementation validation. The
+2026-10-11 household checkpoint records a connected webhook; this dated test statement is
+not a current configuration claim or permission to send a test.
+
+**Printer recovery and Discord commands (2026-10-10; v2.57.0).** The household's paper-out
+pass was canceled by CUPS' three-hour watchdog while waiting for paper. Preserve future
+CLC jobs with `job-error-policy=stop-printer` and a positive, job-scoped
+`job-cancel-after=2147483647` seconds (about 68 years). No global scheduler configuration
+or other application's jobs change. Do not use explicit per-job zero: Apple's scheduler
+adds that value to the current time when the attribute exists. See
+[Apple CUPS source](https://github.com/apple/cups/blob/v2.3.3/scheduler/job.c) and
+[the documented three-hour default](https://www.cups.org/doc/man-cupsd.conf.html).
+
+Fixing paper alone cannot revive a terminal CUPS pass. Recovery identifies the exact
+job/artifact/pass, CUPS title/ID and current attempt. It requires the batch owner or a CLC
+administrator, not merely household station-control permission. A retained pass continues with its
+existing spooler ID; a held pass is released only by that exact ID. For canceled, aborted
+or stopped work, the operator inspects printed labels and selects the first unprinted
+position in the displayed physical order, respecting reverse output. The Mac confirms
+healthy status and paper readiness, ends an exact stopped attempt before replacement,
+and authorizes only the selected remaining pages. It retains the original PDF/hash and
+old attempt receipt, creates a distinct attempt identity/title and reconciles lost replies
+without blind reprinting. Missing/ambiguous history remains blocked. Back recovery requires
+the matching-front paper confirmation in CLC; it cannot be inferred from a chat message.
+The native claim advertises `printRecovery: true`; older companions cannot claim work
+containing a recovery `attemptId`. Unresolved recovery attempts block managed rollback
+below 2.57.0 so an older worker cannot reinterpret their submission history.
+
+Add signed Discord slash commands as a separate control path to the same durable station
+commands. The existing webhook remains send-only. Administrators bind one Discord
+application, server, channel and operator to their active CLC admin account; CLC verifies
+raw Ed25519-signed interactions before parsing. `/proxy status` reports exact recovery
+instructions. `/proxy continue batch:UUID` confirms printer/paper readiness; canceled
+fronts also need `sheet:N` from the displayed physical order. Back-side recovery stays in
+CLC. Commands cannot change Epson options or silently clear paper reservations. A bot
+token is used only to register `/proxy`, then discarded; private, mention-free replies
+and durable interaction/command receipts prevent replayed printing. Testing uses mocked
+transports and signed fixtures, with no real Discord sends or printer submissions.
+
+**Stale paper status (v2.57.1).** After paper was loaded and the physical printer reported
+ready, the idle Mac queue retained its earlier paper-needed/empty/Epson paper error. Add
+a read-only device check only for this narrow condition: the queue must be accepting,
+all its jobs terminal, and the fresh device response idle and healthy with the same printer
+UUID as the configured DNS-SD queue. Other faults, paused/rejecting queues, unknown status
+and identity mismatches remain blocked. Do not reset queue settings or erase old receipts
+to make health appear ready. The existing explicit, exact-pass recovery remains required.
+
+**Idle scheduler and unavailable status (v2.57.2).** macOS can cleanly unload idle cupsd;
+its launchd service listens on `/private/var/run/cupsd`, and localhost TCP health polls
+alone do not wake it. Use the fixed Unix socket for local `lp` commands and a read-only
+queue probe before IPP status reads. Preserve every submission/completion receipt.
+Read failures remain unknown. Idle failures stay in CLC; two consecutive failures while
+an already-spooled physical pass is pending may send a deduplicated **Print status
+unavailable** monitoring alert with the job/pass/ID and an operator mention. The alert
+does not reclassify unknown telemetry as a physical fault or change printing state.
+
+**Sourced print voice (v2.57.3).** Native print webhooks use curated pools of short Rocky
+film excerpts with visible movie/speaker attribution. Match readiness to queued work,
+flip requests and tests; success to whole-job/fronts completion and return-blanks prompts;
+setbacks to faults, cancellation and unavailable monitoring. Monitoring retains explicit
+unknown-status wording. SHA-256 selection by event, batch and packet/fault context can
+vary between batches while remaining stable for the same event. Keep the factual
+headline, exact details, mentions and delivery guards; a success excerpt never claims saved
+backs are printed. No new notification or historical replay is added. Deck/price webhooks,
+signed slash replies and plain Mac notifications retain their wording. Keep source
+references in the catalog and avoid duplicating dialogue in documentation.
+
+**Artwork review (2026-09-11).** Resolve selected printings and physical faces before PDF
+creation. Show actual thumbnails, source, exact printing, missing faces and separate DFC
+packet counts in both full-snapshot and difference plans. Hash the resolved selections,
+reject stale reviews, then generate from the pinned selections. Split/adventure images
+remain single-sided; meld requires a dedicated layout and is explicitly unsupported.
+
+The real cached generator passed offline rendering/pixel checks for one ordinary card and
+eight DFCs split into seven-copy and one-copy packets. That fixture printed no paper and
+did not establish cutting or manual duplex acceptance; see the October 15 household update
+above for the later owner-reported printing experience and scope of conditional checks.
+
+**Interface testing (2026-09-11).** Keep an enabled companion running while the owner
+tests through CLC. A private Mac-only `allow_unverified_printing: true` setting permits
+explicitly queued test jobs before physical calibration is complete. It defaults false;
+the station reports **Test printing enabled** without changing either proof result.
+This resolves the circular requirement to prove a sheet before the interface can print
+one. Pause, exact-packet reload, native printer checks, artifact integrity and durable
+submission receipts still apply. Remote controls cannot activate this local opt-in.
+The owner decides when the physical results are accepted; software never infers that
+from a successful spooler submission.
+
+**Management extension (2026-09-10).** Keep the validated native Epson submission path and
+make CLC the station management interface. The Mac polls outbound for health/control work;
+no shared CUPS listener or generic command endpoint is introduced. Household operators can
+pause and acknowledge the exact DFC back batch; only administrators request managed version
+changes. Version changes wait for an idle ledger, preserve durable receipts and leave the
+station paused. This supplies centralized operation without replacing the accepted native
+rendering path. Source checkouts remain supported for development; managed packaging uses
+versioned installations instead of depending on a moving Git checkout.
+The managed installer bundles a pinned standalone Python runtime. A stable launchd entry
+selects the complete installed version; GitHub release assets from the fixed CLC publisher
+are checksum-verified and startup-checked before switching. Network/update failure retains
+the working version. No release is published automatically by a feature-branch push.
+
+## D10 — Optional ManaSync bridge with a durable physical-print outbox
+
+**Decision.** CLC remains responsible for artwork, printing plans,
+Mana Pool purchase links, and reviewing deck proposals. ManaSync owns collection holdings,
+locations, and the shared pending-print quantity review. Each CLC user explicitly connects a scoped ManaSync actor; CLC stores that token
+with its own encryption key. Users configure any reachable HTTP(S) backend domain, port,
+or reverse-proxy base path without an origin allowlist; scheme-less addresses use HTTPS.
+Credentials, query strings, fragments, and redirects are rejected. Ownership unavailable
+from ManaSync is unknown. Existing printing and comparisons continue independently.
+An explicit `decks:create` grant also permits immediate creation of a new manual deck from
+ManaSync. Existing-deck edits retain the reviewed proposal flow. Manual decks carry an
+explicit source type; their legacy non-null Archidekt ID is a unique negative local sentinel,
+never a fabricated upstream ID. Refresh routes and background jobs exclude them.
+
+**Why.** Exports are not evidence that cards were printed. Persisting each actual increment
+before sending an acquire command, with a UUID and immutable credential/payload, permits safe
+retries after lost responses. A replacement token is a new actor, so old operations require
+receipt/holding reconciliation rather than automatic re-submission. The virtual Proxy binder
+is not a second physical destination. The owner's 2026-09-11 ownership policy is a boolean
+check: one original in any printing covers unlimited proxy copies across all decks. CLC
+does not consume ownership across rows, compare requested print counts with inventory,
+require exact-printing ownership, or reserve originals for proxy eligibility. Incoming
+originals prevent duplicate buying and are identified as incoming; proxies do not establish
+original ownership. Unknown ownership remains unknown. Shopping offers one original per
+missing logical card and never changes physical print quantities or confirmation counts.
+
+Prepared native batches automatically publish their exact card/artwork plans to ManaSync's
+Pending prints, outside inventory. The owner can confirm usable quantities or dismiss the
+remainder in either app. ManaSync commits each decision and proxy acquisition atomically with
+a current pending revision; CLC polls the result. This makes unfinished print reviews visible
+without claiming planned copies were printed. A batch and account identify one immutable
+pending plan, even after disconnects, restarts, source-art cleanup, or lost responses.
+
+**Cost.** The CLC database contains encrypted credential copies on pending operations and a
+small print outbox. Account suspension pauses each remote request and worker retry, preserving
+original operation identities for reinstatement. The separate CLC key must survive database restores. Six automatic attempts
+use exponential backoff; users can retry the same operation or inspect a blocked receipt.
+Corrections require explicit quantities, reasons where applicable, and current lot revisions.
+Manual creation stores an immutable receipt per account and operation ID so token rotation
+can recover a lost response. The receipt survives deck deletion to prevent resurrection and
+is removed with its account. Account and instance pins prevent creation in a changed connection.
+Canonical provider identities now connect tracked Archidekt decks and explicitly linked
+manual Moxfield, DeckCheck, or Archidekt decks across the bridge. Creation reuses one existing
+source deck without changing its name, history, or paper marker. Ambiguous legacy duplicates
+stop for review; source identities never authorize an overwrite or infer card ownership.
+Native Archidekt tracking also reuses an explicitly linked manual deck, promoting its
+provider metadata and owner in place. Initial fetched content passes through D11's unknown
+baseline review, preserving the current digital deck, paper marker, and all history.
+The explicit `decks:create` grant also permits native provider tracking from
+TapTogether through ManaSync. Identity and intent commit before network work;
+Archidekt, Moxfield and DeckCheck share source review and scheduled refresh.
+Provider failures have a per-deck status while retaining the last good snapshot.
+Explicit etched finishes remain unavailable until the text/identity contract
+can preserve them; they are never silently mapped to ordinary foil.
+
+**Cross-app text compatibility (2026-09-11).** Match ManaSync at 500,000 Unicode code points
+per creation `deckText` and proposal base/proposed/reviewed text field while preserving exact
+bytes for hashes and replay. Only the two integration creation/source-tracking POST paths
+and proposal/review POST paths accept a 12 MiB JSON envelope, allowing worst-case escaping
+of two full proposal texts. Rate limiting and the original explicit creation grant,
+proposal scope or review-session authentication precede the larger parser; ordinary Express
+routes retain `512kb`, with matching path-specific nginx exceptions. Raising every route's
+limit would unnecessarily expand unauthenticated parsing work. The review editor preserves
+an oversized paste for correction and blocks commit instead of truncating UTF-16 units.
+
+ManaSync retains its richer etched notation locally. Its outbound publication/submission
+guard returns `422 unsupported_clc_finish` before sending unsupported deck text to CLC,
+including newly delivered queued drafts. Local editing and export remain available.
+Silently stripping the marker would change finish; treating it as a name suffix would
+change card identity. An explicit user edit can select a supported finish, while uncertain
+operations keep their original payload and receipt identity for reconciliation.
+
+**Where.** `server/lib/manasyncBridge.js`, `server/routes/manasync.js`,
+`src/components/ManaSyncOwnership.jsx`, `src/components/PrintQueue.jsx`,
+`docs/MANASYNC_BRIDGE.md`. Structured deck reads and proposals are described in
+`docs/MANASYNC_PROPOSALS.md`.
+
+## D11 — Separate provider history from the current digital deck
+
+**Decision.** Keep a durable reviewed provider baseline and the latest observed source
+separate from digital snapshots. An unchanged source never replaces local CLC or accepted
+ManaSync edits. A changed source advances the current deck automatically only when it still
+matches the reviewed baseline. Otherwise the source is staged for an owner review: keep the
+current deck, use the source, or commit explicitly merged text. Archidekt, Moxfield and
+DeckCheck refreshes use the shared coordinator. Older decks with an unknown baseline are
+handled conservatively. This began with the Archidekt incident below and now covers all
+tracked providers; the historical incident is not a provider-specific restriction.
+
+**Why.** Comparing Archidekt only with the newest digital snapshot treated an accepted local
+edit as a source change, then undid that edit on refresh. A separate baseline distinguishes
+new upstream changes from intentional local differences and survives snapshot pruning.
+
+**Cost.** Each tracked deck stores baseline/candidate text plus a revision. Review decisions
+pin both that revision and the current digital snapshot; operation receipts allow exact retry
+after a lost response. Source reviews do not write to providers, set paper markers, or change
+ManaSync holdings. The source panel explains the distinction and exposes the three texts.
+
+**Where.** `server/lib/sourceSync.js`, `server/routes/sourceSync.js`,
+`src/components/SourceSyncReview.jsx`, and `src/lib/sourceSync.js`.
+The real two-server bridge harness also checks refresh after accepted ManaSync changes.
+
+
+## D12 — Organize the workspace by task, with one home for each capability
+
+**Decision (revised 2026-09-12).** The owner explicitly authorized replacing previous UI
+organization decisions. Preserve capabilities and durable recovery, rather than retaining
+every old tab. Main navigation is **Compare / Decks / Print**. Print has New print list
+and Printer destinations. A deck has **Cards / Changes / Print / Settings**. Cards includes
+insights; Changes combines the comparison and version history, Archidekt review and
+ManaSync proposals. Source status becomes a compact attention link outside that view.
+
+Library **Add decks** shows untracked decks and accepts a pasted list or link to start
+tracking. Before/After inputs belong only in Compare. Its saved-version picker is read-only;
+version management belongs in the deck and saving a new version is one explicit action.
+Secondary exports use one accessible disclosure menu rather than repeated toolbar rows.
+
+Print has **Prepare / Batches**, with Choose cards and Review inside Prepare. History is
+explicitly scoped to the current deck or standalone print lists. The current job/packet
+has one attention card on Printer; Discord, recipe and software controls are secondary
+settings. Inventory-only entries are **manual print records**, never a second print queue.
+Owned, incoming and unknown collection states retain their existing meaning.
+
+Printer status distinguishes confirmed faults, unknown/unavailable status and informational
+advisories. The overview shows the current explanation directly; a routine ink-tank
+reminder must not look like an empty-ink fault. Recognize only vendor codes whose meanings
+have been verified, and retain simultaneous faults. Physical proof flags describe testing,
+not printer health, and remain in their separate settings section.
+
+Unreadable status always remains unknown, including repeated failures. Idle monitoring
+failures do not mention an operator. A repeated inability to verify an already-spooled
+pass may request help under **Print status unavailable**, with the exact job/pass/ID;
+keep that monitoring alert distinct from a confirmed physical fault and retain completion
+evidence. Confirmed paper, ink, paused-queue and other errors retain their alerts.
+
+Connections separates collection access from optional deck sharing by direction. Account
+owns personal settings/invitations; Administration separates informational Overview from
+Users, All invitations, App settings, Shared links, Audit log and System maintenance.
+The Guide has seven task topics with aliases for old topic links.
+
+**Why.** Duplicate homes and inconsistent words obscured whether an action changes a deck,
+prepares paper, queues a printer or records inventory. Capabilities now sit beside the task
+they support. Public/read-only access, exact printing metadata, confirmation boundaries,
+retry identities and preserved drafts remain requirements. The desktop sidebar and mobile
+bottom navigation share this structure; drawer/modal focus safety remains unchanged.
+
+**ManaSync boundary.** Default to the actual hosted app, `https://manasync.net`, and guide
+users through its existing personal app tokens. Collection authorization is created in
+ManaSync; optional deck authorization is created in CLC. No invented OAuth flow or shared
+account assumption. The saved-token check performs remote reads and only updates matching
+local connection state; historical deliveries keep their original credentials and account.
+
+**Validation.** The September 2026 full UI redesign used a route/nested-surface inventory.
+Future local UI edits need only affected surfaces and coupled consumers; another whole-app
+inventory needs a cross-cutting redesign or concrete coverage gap. Use disposable browser
+data and intercepted effects for relevant responsive, keyboard, theme, recovery and permission
+checks under [CONTRIBUTING](../CONTRIBUTING.md#verification-proportional-to-risk).
+On 2026-09-12 the owner replaced the requested iOS Simulator validation
+with browser verification. Desktop Chrome and responsive Chrome/WebKit checks therefore
+satisfy that platform scope; they do not establish native iOS software-keyboard or device
+proof. Physical printing and cutting proofs remain separate.
+
+**Offline shell.** Precache the complete public build with final-byte integrity checks
+and a generated revision. Private API responses remain online-only. Retain the actual
+previously active shell for open tabs, including rollback/re-upgrade sequences; failed
+installs must not remove a previously complete build. Transient account-check failures
+keep the credential while the private workspace stays gated until successful validation.
+
+**Where.** `src/components/AppShell.*`, `ConnectionsPage.*`, `ManaSyncSettings.jsx`,
+`src/index.css`, `server/lib/manasyncBridge.js`, `docs/UI_REDESIGN_INVENTORY.md`.

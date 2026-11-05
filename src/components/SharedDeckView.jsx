@@ -1,214 +1,191 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { getSharedDeck, getSharedDeckChangelog, getSharedDeckSnapshot } from '../lib/api';
 import { toast } from './Toast';
 import Skeleton from './Skeleton';
 import CopyButton from './CopyButton';
+import PrintComparisonButton from './PrintComparisonButton';
+import SectionChangelog from './SectionChangelog';
+import { parse } from '../lib/parser';
+import { computeDiff } from '../lib/differ';
 import { formatChangelog, formatReddit, formatJSON } from '../lib/formatter';
+import Icon from './Icon';
+import ActionMenu from './ActionMenu';
+import DeckListView from './DeckListView';
+import { collectDeckIdentifiers, fetchCardData } from '../lib/scryfall';
 import './SharedDeckView.css';
+
+function formatDate(iso) {
+  if (!iso) return '';
+  return new Date(iso + (iso.endsWith('Z') ? '' : 'Z')).toLocaleDateString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+  });
+}
 
 export default function SharedDeckView({ shareId }) {
   const [deckData, setDeckData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  // Changelog state
+  const [activeTab, setActiveTab] = useState('cards');
   const [changelog, setChangelog] = useState(null);
+  const [changelogLoading, setChangelogLoading] = useState(false);
+  const changelogSequence = useRef(0);
+  const invalidateChangelog = useCallback(() => { ++changelogSequence.current; }, []);
   const [compareA, setCompareA] = useState('');
   const [compareB, setCompareB] = useState('');
-
-  // Snapshot text viewer
   const [viewingSnapshot, setViewingSnapshot] = useState(null);
-  const [snapshotText, setSnapshotText] = useState('');
+  const [snapshot, setSnapshot] = useState(null);
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [snapshotError, setSnapshotError] = useState(null);
+  const [snapshotRetry, setSnapshotRetry] = useState(0);
 
   useEffect(() => {
+    let active = true;
+    invalidateChangelog();
+    setChangelog(null);
+    setChangelogLoading(false);
+    setActiveTab('cards');
+    setViewingSnapshot(null);
+    setSnapshot(null);
+    setDeckData(null);
     setLoading(true);
     setError(null);
     getSharedDeck(shareId)
-      .then(setDeckData)
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
+      .then(data => {
+        if (!active) return;
+        setDeckData(data);
+        setCompareA(String(data.snapshots[1]?.id || ''));
+        setCompareB(String(data.snapshots[0]?.id || ''));
+        setViewingSnapshot(data.snapshots[0]?.id || null);
+      })
+      .catch(err => { if (active) setError(err.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; invalidateChangelog(); };
+  }, [shareId, invalidateChangelog]);
+
+  // The selected saved text, card metadata, exports and print action move together.
+  // An older request cannot replace the version selected while it was loading.
+  useEffect(() => {
+    if (!viewingSnapshot) return;
+    let active = true;
+    setSnapshotLoading(true);
+    setSnapshotError(null);
+    getSharedDeckSnapshot(shareId, viewingSnapshot).then(async data => {
+      const text = data.snapshot.deck_text;
+      const parsed = parse(text);
+      let cardMap = new Map();
+      try { cardMap = await fetchCardData(collectDeckIdentifiers(parsed)); } catch { /* Saved text remains usable without artwork. */ }
+      if (active) setSnapshot({ id: viewingSnapshot, text, parsed, cardMap });
+    }).catch(err => { if (active) setSnapshotError(err.message); })
+      .finally(() => { if (active) setSnapshotLoading(false); });
+    return () => { active = false; };
+  }, [shareId, viewingSnapshot, snapshotRetry]);
+
+  const loadChangelog = useCallback(async (a, b) => {
+    const sequence = ++changelogSequence.current;
+    setCompareA(String(a));
+    setCompareB(String(b));
+    setChangelogLoading(true);
+    try {
+      const data = await getSharedDeckChangelog(shareId, a, b);
+      // Use the returned pair, never selectors that may have changed in flight.
+      const [before, after] = await Promise.all([
+        getSharedDeckSnapshot(shareId, data.before.id),
+        getSharedDeckSnapshot(shareId, data.after.id),
+      ]);
+      const beforeText = before.snapshot.deck_text, afterText = after.snapshot.deck_text;
+      if (sequence !== changelogSequence.current) return;
+      setChangelog({ ...data, beforeText, afterText,
+        diff: computeDiff(parse(beforeText), parse(afterText)) });
+    } catch (err) {
+      if (sequence === changelogSequence.current) toast.error(err.message);
+    } finally {
+      if (sequence === changelogSequence.current) setChangelogLoading(false);
+    }
   }, [shareId]);
 
-  async function handleViewChangelog() {
-    try {
-      const data = await getSharedDeckChangelog(shareId);
-      setChangelog(data);
-    } catch (err) {
-      toast.error(err.message);
+  function openChanges() {
+    setActiveTab('changes');
+    if (!changelog && !changelogLoading && deckData.snapshots.length > 1) {
+      void loadChangelog(deckData.snapshots[1].id, deckData.snapshots[0].id);
     }
   }
 
-  async function handleCompare() {
-    if (!compareA || !compareB) return;
-    try {
-      const data = await getSharedDeckChangelog(shareId, compareA, compareB);
-      setChangelog(data);
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleViewSnapshot(snapshotId) {
-    if (viewingSnapshot === snapshotId) {
-      setViewingSnapshot(null);
-      setSnapshotText('');
-      return;
-    }
-    setSnapshotLoading(true);
-    setViewingSnapshot(snapshotId);
-    try {
-      const data = await getSharedDeckSnapshot(shareId, snapshotId);
-      setSnapshotText(data.snapshot.deck_text);
-    } catch {
-      toast.error('Failed to load snapshot');
-      setViewingSnapshot(null);
-    } finally {
-      setSnapshotLoading(false);
-    }
-  }
-
-  function handleCopyLink() {
-    const url = `${window.location.origin}${window.location.pathname}#deck/${shareId}`;
-    navigator.clipboard.writeText(url).then(() => {
-      toast.success('Link copied to clipboard');
-    });
-  }
-
-  function formatDate(iso) {
-    if (!iso) return '';
-    return new Date(iso + 'Z').toLocaleDateString(undefined, {
-      month: 'short', day: 'numeric', year: 'numeric',
-    });
-  }
-
-  if (loading) {
-    return (
-      <div className="shared-deck-page">
-        <Skeleton lines={8} />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="shared-deck-page">
-        <div className="shared-deck-error">
-          <h2>Shared Deck Not Found</h2>
-          <p>{error}</p>
-          <button className="btn btn-primary btn-sm" onClick={() => { window.location.hash = ''; }} type="button">
-            &larr; Back to Compare
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="shared-deck-page"><Skeleton lines={8} /></div>;
+  if (error) return <div className="shared-deck-page"><div className="shared-deck-error">
+    <h2>Shared deck not found</h2><p>{error}</p><a href="#compare" className="btn btn-primary">Back to Compare</a>
+  </div></div>;
 
   const { deckName, commanders, ownerUsername, sharedAt, snapshots } = deckData;
+  const selectedVersion = snapshots.find(item => item.id === viewingSnapshot);
+  const isLatest = viewingSnapshot === snapshots[0]?.id;
+  const readySnapshot = !snapshotLoading && !snapshotError && snapshot?.id === viewingSnapshot;
 
-  return (
-    <div className="shared-deck-page">
-      <button className="settings-back-link" onClick={() => { window.location.hash = ''; }} type="button">
-        &larr; Back to Compare
-      </button>
-
-      <div className="shared-deck-card">
-        <div className="shared-deck-header">
-          <h2 className="shared-deck-title">{deckName}</h2>
-          <div className="shared-deck-meta">
-            {commanders.length > 0 && (
-              <span className="shared-deck-commanders">{commanders.join(' / ')}</span>
-            )}
-            <span className="shared-deck-owner">by {ownerUsername}</span>
-            <span className="shared-deck-shared-date">Shared {formatDate(sharedAt)}</span>
-          </div>
+  return <div className="shared-deck-page">
+    <p className="eyebrow"><Icon name="connections" size={16} /> Shared with your pod</p>
+    <div className="shared-deck-card">
+      <header className="shared-deck-header">
+        <h1 className="shared-deck-title">{deckName}</h1>
+        <div className="shared-deck-meta">
+          {commanders.length > 0 && <span className="shared-deck-commanders">{commanders.join(' / ')}</span>}
+          <span className="shared-deck-owner">by {ownerUsername}</span>
+          <span className="shared-deck-shared-date">Shared {formatDate(sharedAt)} · View only</span>
         </div>
-
-        <div className="shared-deck-actions">
-          <button className="btn btn-primary btn-sm" onClick={handleViewChangelog} type="button">
-            View Latest Changelog
-          </button>
-          <button className="btn btn-secondary btn-sm" onClick={handleCopyLink} type="button">
-            Copy Link
-          </button>
-          {deckData.deckUrl && (
-            <a href={deckData.deckUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
-              Archidekt
-            </a>
-          )}
-        </div>
-
-        {/* Compare snapshots */}
-        {snapshots.length >= 2 && (
-          <div className="shared-deck-compare">
-            <select value={compareA} onChange={e => setCompareA(e.target.value)} aria-label="Older snapshot">
-              <option value="">Before (older)...</option>
-              {snapshots.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}
-                </option>
-              ))}
-            </select>
-            <select value={compareB} onChange={e => setCompareB(e.target.value)} aria-label="Newer snapshot">
-              <option value="">After (newer)...</option>
-              {snapshots.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.nickname ? `${s.nickname} (${formatDate(s.created_at)})` : formatDate(s.created_at)}
-                </option>
-              ))}
-            </select>
-            <button className="btn btn-primary btn-sm" onClick={handleCompare} disabled={!compareA || !compareB} type="button">
-              Compare
-            </button>
-          </div>
-        )}
-
-        {/* Changelog display */}
-        {changelog && <SharedChangelogDisplay changelog={changelog} />}
-
-        {/* Snapshot list */}
-        <h3 className="shared-deck-section-title">Snapshots ({snapshots.length})</h3>
-        {snapshots.length === 0 ? (
-          <p className="shared-deck-empty">No snapshots available.</p>
-        ) : (
-          <ul className="shared-deck-snap-list">
-            {snapshots.map(s => (
-              <li key={s.id} className={`shared-deck-snap${s.locked ? ' shared-deck-snap--locked' : ''}`}>
-                <div className="shared-deck-snap-info">
-                  <span className="shared-deck-snap-date">{formatDate(s.created_at)}</span>
-                  {s.nickname && <span className="shared-deck-snap-nick">{s.nickname}</span>}
-                  {s.locked && <span title="Locked">{'\uD83D\uDD12'}</span>}
-                  <span className="shared-deck-snap-count">{s.cardCount} cards</span>
-                </div>
-                <button
-                  className={`btn btn-secondary btn-sm${viewingSnapshot === s.id ? ' btn--active' : ''}`}
-                  onClick={() => handleViewSnapshot(s.id)}
-                  type="button"
-                >
-                  {viewingSnapshot === s.id ? 'Hide' : 'View'}
-                </button>
-                {viewingSnapshot === s.id && (
-                  <div className="shared-deck-snap-text">
-                    {snapshotLoading ? (
-                      <Skeleton lines={5} />
-                    ) : (
-                      <>
-                        <pre>{snapshotText}</pre>
-                        <CopyButton getText={() => snapshotText} label="Copy Deck Text" className="copy-btn" />
-                      </>
-                    )}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+      </header>
+      <div className="shared-deck-actions">
+        <CopyButton getText={() => `${window.location.origin}${window.location.pathname}#deck/${shareId}`} label="Copy share link" />
+        {deckData.deckUrl && <a href={deckData.deckUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">Open source</a>}
       </div>
+      <nav className="shared-deck-tabs" aria-label="Shared deck sections">
+        <button type="button" onClick={() => setActiveTab('cards')} aria-current={activeTab === 'cards' ? 'page' : undefined}>Cards</button>
+        <button type="button" onClick={openChanges} aria-current={activeTab === 'changes' ? 'page' : undefined}>Changes</button>
+      </nav>
+      {activeTab === 'cards' && <section className="shared-deck-cards">
+        <div className="shared-version-heading"><div><h2>{isLatest ? 'Latest saved version' : 'Saved version'}</h2>
+          <p>{selectedVersion ? `${selectedVersion.nickname || formatDate(selectedVersion.created_at)} · Printings saved with this version` : 'No saved versions yet.'}</p></div>
+          {!isLatest && snapshots[0] && <button type="button" className="btn btn-secondary" onClick={() => setViewingSnapshot(snapshots[0].id)}>Back to latest</button>}
+        </div>
+        {snapshotLoading && <Skeleton lines={8} />}
+        {snapshotError && <div role="alert"><p>{snapshotError}</p><button className="btn btn-secondary" type="button" onClick={() => setSnapshotRetry(value => value + 1)}>Retry loading cards</button></div>}
+        {readySnapshot && <>
+          <div className="shared-deck-actions">
+            <PrintComparisonButton beforeText="" afterText={snapshot.text} mode="full" listName={deckName} />
+            <ActionMenu label="Export" ariaLabel="Export saved cards"><CopyButton getText={() => snapshot.text} label="Copy deck text" /></ActionMenu>
+          </div>
+          <DeckListView key={snapshot.id} parsedDeck={snapshot.parsed} cardMap={snapshot.cardMap} commanders={commanders} />
+          <details className="shared-raw-text"><summary>Deck text</summary><pre>{snapshot.text}</pre></details>
+        </>}
+      </section>}
+      {activeTab === 'changes' && <section>
+        <div className="shared-version-heading"><div><h2>Compare saved versions</h2><p>Compare the cards and printings in any two versions.</p></div>
+          {snapshots.length > 1 && <button className="btn btn-secondary" type="button" disabled={changelogLoading} onClick={() => loadChangelog(snapshots[1].id, snapshots[0].id)}>Latest update</button>}
+        </div>
+        {snapshots.length >= 2 ? <form className="shared-deck-compare" onSubmit={event => { event.preventDefault(); if (compareA && compareB) void loadChangelog(compareA, compareB); }}>
+          <label>Before<select value={compareA} onChange={event => setCompareA(event.target.value)} aria-label="Select older version">
+            {snapshots.map(version => <option key={version.id} value={version.id}>{version.nickname || formatDate(version.created_at)}</option>)}
+          </select></label>
+          <label>After<select value={compareB} onChange={event => setCompareB(event.target.value)} aria-label="Select newer version">
+            {snapshots.map(version => <option key={version.id} value={version.id}>{version.nickname || formatDate(version.created_at)}</option>)}
+          </select></label>
+          <button className="btn btn-primary" disabled={!compareA || !compareB || changelogLoading} type="submit">{changelogLoading ? 'Comparing…' : 'Compare versions'}</button>
+        </form> : <p className="shared-deck-empty">A second saved version is needed to compare changes.</p>}
+        {changelogLoading && <p role="status">Loading the comparison…</p>}
+        {changelog && <SharedChangelogDisplay changelog={changelog} deckName={deckName} />}
+        <h2 className="shared-deck-section-title">Version history</h2>
+        {snapshots.length === 0 ? <p className="shared-deck-empty">No saved versions yet.</p> : <ul className="shared-deck-snap-list">
+          {snapshots.map(version => <li key={version.id} className="shared-deck-snap">
+            <div className="shared-deck-snap-info"><span className="shared-deck-snap-date">{formatDate(version.created_at)}</span>
+              {version.nickname && <strong className="shared-deck-snap-nick">{version.nickname}</strong>}
+              <span className="shared-deck-snap-count">{version.cardCount} cards</span>
+            </div>
+            <button className="btn btn-secondary" type="button" onClick={() => { setViewingSnapshot(version.id); setActiveTab('cards'); }}>View version</button>
+          </li>)}
+        </ul>}
+      </section>}
     </div>
-  );
+  </div>;
 }
 
-function SharedChangelogDisplay({ changelog }) {
+function SharedChangelogDisplay({ changelog, deckName }) {
   const { diff } = changelog;
   const { mainboard, sideboard, hasSideboard } = diff;
 
@@ -216,76 +193,46 @@ function SharedChangelogDisplay({ changelog }) {
     const hasMain =
       mainboard.cardsIn.length > 0 ||
       mainboard.cardsOut.length > 0 ||
-      mainboard.quantityChanges.length > 0;
+      mainboard.quantityChanges.length > 0 ||
+      (mainboard.printingChanges || []).length > 0;
 
     const hasSide = hasSideboard && (
       sideboard.cardsIn.length > 0 ||
       sideboard.cardsOut.length > 0 ||
-      sideboard.quantityChanges.length > 0
+      sideboard.quantityChanges.length > 0 ||
+      (sideboard.printingChanges || []).length > 0
     );
 
     return { hasMainChanges: hasMain, hasSideChanges: hasSide, noChanges: !hasMain && !hasSide };
   }, [mainboard, sideboard, hasSideboard]);
 
-  if (noChanges) {
-    return <p className="shared-deck-empty">No changes detected.</p>;
-  }
-
-  const diffResult = { mainboard, sideboard, hasSideboard, commanders: [] };
+  const diffResult = { mainboard, sideboard, hasSideboard, commanders: diff.commanders || [] };
 
   function formatSnapLabel(snap) {
-    const d = snap.created_at ? new Date(snap.created_at + 'Z').toLocaleString() : '';
+    const d = snap.created_at ? new Date(snap.created_at + (snap.created_at.endsWith('Z') ? '' : 'Z')).toLocaleString() : '';
     return snap.nickname ? `${snap.nickname} (${d})` : d;
   }
 
   return (
     <div className="shared-deck-changelog">
       <div className="shared-deck-changelog-header">
-        <strong>Changelog:</strong> {formatSnapLabel(changelog.before)} &rarr; {formatSnapLabel(changelog.after)}
+        <strong>Changes:</strong> {formatSnapLabel(changelog.before)} &rarr; {formatSnapLabel(changelog.after)}
       </div>
       <div className="shared-deck-changelog-copy">
-        <CopyButton getText={() => formatChangelog(diffResult)} />
-        <CopyButton getText={() => formatReddit(diffResult)} label="Copy for Reddit" className="copy-btn copy-btn--reddit" />
-        <CopyButton getText={() => formatJSON(diffResult)} label="Copy JSON" className="copy-btn copy-btn--json" />
+        <PrintComparisonButton beforeText={changelog.beforeText} afterText={changelog.afterText} listName={`${deckName} comparison`} />
+        {!noChanges && <>
+          <CopyButton getText={() => formatChangelog(diffResult)} label="Copy changes" />
+          <ActionMenu label="Export" ariaLabel="Export comparison">
+          <CopyButton getText={() => formatReddit(diffResult)} label="Copy for Reddit" className="copy-btn copy-btn--reddit" />
+          <CopyButton getText={() => formatJSON(diffResult)} label="Copy JSON" className="copy-btn copy-btn--json" />
+          </ActionMenu>
+        </>}
       </div>
+      {noChanges && <p className="shared-deck-empty">These versions have the same cards and printings.</p>}
       <div className="changelog-inline">
-        {hasMainChanges && <SharedChangelogSection title="Mainboard" section={mainboard} />}
-        {hasSideChanges && <SharedChangelogSection title="Sideboard" section={sideboard} />}
+        {hasMainChanges && <SectionChangelog sectionName="Mainboard" changes={mainboard} />}
+        {hasSideChanges && <SectionChangelog sectionName="Sideboard" changes={sideboard} />}
       </div>
-    </div>
-  );
-}
-
-function SharedChangelogSection({ title, section }) {
-  return (
-    <div className="changelog-section">
-      <div className="changelog-section-title">=== {title} ===</div>
-      {section.cardsIn.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Cards In ---</div>
-          {section.cardsIn.map(c => (
-            <div key={c.name} className="changelog-line changelog-in">+ {c.quantity} {c.name}</div>
-          ))}
-        </div>
-      )}
-      {section.cardsOut.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Cards Out ---</div>
-          {section.cardsOut.map(c => (
-            <div key={c.name} className="changelog-line changelog-out">- {c.quantity} {c.name}</div>
-          ))}
-        </div>
-      )}
-      {section.quantityChanges.length > 0 && (
-        <div className="changelog-group">
-          <div className="changelog-group-title">--- Quantity Changes ---</div>
-          {section.quantityChanges.map(c => (
-            <div key={c.name} className="changelog-line changelog-qty">
-              ~ {c.name} ({c.oldQty} &rarr; {c.newQty}, {c.delta > 0 ? '+' : ''}{c.delta})
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

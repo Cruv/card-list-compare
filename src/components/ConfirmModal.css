@@ -73,3 +73,7 @@
   padding: 8px 20px;
   font-size: 13px;
 }
+.confirm-modal { min-width: 0; width: min(460px,calc(100% - 32px)); max-width: none; max-height: 85dvh; overflow: auto; border-radius: 18px; padding: 28px; }
+.confirm-modal-title { font-size: 21px; letter-spacing: -.3px; }
+.confirm-modal-type-input { min-height: 46px; border-radius: 10px; }
+.confirm-modal-actions { flex-wrap: wrap; }

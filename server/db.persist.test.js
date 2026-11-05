@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, statSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, statSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -20,6 +20,164 @@ afterEach(() => {
   delete process.env.DB_PATH;
 });
 
+const transactionHelpers = {
+  transaction: (db, statements) => db.transaction(() => {
+    for (const { sql, params = [] } of statements) db.run(sql, params);
+  }),
+  runTransaction: (db, statements) => db.runTransaction(statements),
+};
+
+describe('saved artwork revision migration', () => {
+  it('preserves legacy choices, explicit resets and never-configured decks at revision zero across restarts', async () => {
+    let db = await import('./db.js');
+    await db.initDb();
+    db.run("INSERT INTO users (id,username,password_hash) VALUES (1,'fixture','unused')");
+    db.run("INSERT INTO tracked_owners (id,user_id,archidekt_username) VALUES (1,1,'fixture')");
+    const storedArtwork = JSON.stringify([['front', { identifier: 'front-art' }], ['historical reverse', { identifier: 'back-art' }]]);
+    for (const [index, artwork] of [storedArtwork, '[]', null].entries()) {
+      db.run(`INSERT INTO tracked_decks (id,user_id,tracked_owner_id,archidekt_deck_id,deck_name,mpc_art_overrides)
+        VALUES (?,1,1,?,'Fixture',?)`, [index + 1, index + 1, artwork]);
+    }
+    db.run('ALTER TABLE tracked_decks DROP COLUMN mpc_art_revision');
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.all('SELECT mpc_art_overrides,mpc_art_revision FROM tracked_decks ORDER BY id')).toEqual([
+      { mpc_art_overrides: storedArtwork, mpc_art_revision: 0 },
+      { mpc_art_overrides: '[]', mpc_art_revision: 0 },
+      { mpc_art_overrides: null, mpc_art_revision: 0 },
+    ]);
+    expect(db.all('PRAGMA table_info(tracked_decks)').find(column => column.name === 'mpc_art_revision'))
+      .toMatchObject({ type: 'INTEGER', notnull: 1, dflt_value: '0' });
+    db.run('UPDATE tracked_decks SET mpc_art_revision = 4 WHERE id = 1');
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.get('SELECT mpc_art_overrides,mpc_art_revision FROM tracked_decks WHERE id = 1'))
+      .toEqual({ mpc_art_overrides: storedArtwork, mpc_art_revision: 4 });
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    expect(db.get('PRAGMA integrity_check').integrity_check).toBe('ok');
+  });
+});
+
+describe('standalone print storage migration', () => {
+  it('preserves legacy job bytes, extension columns, indexes and events while allowing a null deck', async () => {
+    let db = await import('./db.js');
+    await db.initDb();
+    db.run('ALTER TABLE print_jobs ADD COLUMN proxy_staging_error TEXT');
+    db.run('ALTER TABLE print_jobs ADD COLUMN proxy_staging_next_attempt INTEGER NOT NULL DEFAULT 0');
+    db.run(`INSERT INTO print_jobs(id,user_id,tracked_deck_id,request_key,request_hash,plan_json,created_at,updated_at,proxy_staging_error,proxy_staging_next_attempt)
+      VALUES ('historical-print',1,42,'historical-key','request-hash','{"immutable":"original snapshot bytes"}','2026-01-01','2026-01-02','retry later',123)`);
+    db.run("INSERT INTO print_job_events VALUES ('historical-print','event','hash','{\"state\":\"completed\"}','2026-01-02')");
+    const original = db.get("SELECT sql FROM sqlite_master WHERE name='print_jobs'").sql;
+    db.runTransaction([
+      { sql: original.replace('CREATE TABLE print_jobs', 'CREATE TABLE legacy_print_jobs').replace('tracked_deck_id INTEGER,', 'tracked_deck_id INTEGER NOT NULL,') },
+      { sql: 'INSERT INTO legacy_print_jobs SELECT * FROM print_jobs' },
+      { sql: 'DROP TABLE print_jobs' },
+      { sql: 'ALTER TABLE legacy_print_jobs RENAME TO print_jobs' },
+      { sql: 'CREATE INDEX idx_print_jobs_custom ON print_jobs(proxy_staging_next_attempt)' },
+      { sql: "CREATE TRIGGER print_jobs_test_trigger AFTER UPDATE OF state ON print_jobs BEGIN INSERT OR REPLACE INTO server_settings(key,value) VALUES ('print-trigger',new.state); END" },
+    ]);
+    expect(db.all('PRAGMA table_info(print_jobs)').find(column => column.name === 'tracked_deck_id').notnull).toBe(1);
+    const previous = db.get("SELECT * FROM print_jobs WHERE id='historical-print'");
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.get("SELECT * FROM print_jobs WHERE id='historical-print'")).toEqual(previous);
+    expect(db.get('SELECT COUNT(*) AS count FROM print_job_events').count).toBe(1);
+    expect(db.all('PRAGMA table_info(print_jobs)').find(column => column.name === 'tracked_deck_id').notnull).toBe(0);
+    expect(db.all('PRAGMA index_list(print_jobs)').map(index => index.name)).toEqual(expect.arrayContaining(['idx_print_jobs_custom', 'idx_print_jobs_user_deck', 'idx_print_jobs_state']));
+    db.run("UPDATE print_jobs SET state='ready' WHERE id='historical-print'");
+    expect(db.get("SELECT value FROM server_settings WHERE key='print-trigger'").value).toBe('ready');
+    db.run("INSERT INTO print_jobs(id,user_id,tracked_deck_id,request_key,request_hash,plan_json,created_at,updated_at) VALUES ('standalone-print',1,NULL,'standalone-key','hash','{}','2026-01-03','2026-01-03')");
+    expect(db.get("SELECT tracked_deck_id FROM print_jobs WHERE id='standalone-print'").tracked_deck_id).toBeNull();
+    expect(() => db.run("INSERT INTO print_jobs(id,user_id,tracked_deck_id,request_key,request_hash,plan_json,created_at,updated_at) VALUES ('duplicate',1,NULL,'standalone-key','hash','{}','2026-01-03','2026-01-03')")).toThrow(/UNIQUE/);
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    expect(db.get('PRAGMA integrity_check').integrity_check).toBe('ok');
+    vi.resetModules(); db = await import('./db.js'); await db.initDb();
+    expect(db.get('SELECT COUNT(*) AS count FROM print_jobs').count).toBe(2);
+  });
+});
+
+describe.each(Object.entries(transactionHelpers))('%s durable transactions', (_name, transact) => {
+  it('enforces foreign keys throughout the transaction and rolls back all statements on failure', async () => {
+    const db = await import('./db.js');
+    await db.initDb();
+    const before = readFileSync(dbPath);
+
+    expect(() => transact(db, [
+      { sql: "INSERT INTO server_settings (key, value) VALUES ('atomic-probe', 'must-rollback')" },
+      { sql: "INSERT INTO tracked_owners (user_id, archidekt_username) VALUES (999, 'orphan')" },
+    ])).toThrow(/FOREIGN KEY/);
+
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'atomic-probe'")).toBeNull();
+    expect(db.all('SELECT * FROM tracked_owners')).toEqual([]);
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+  });
+
+  it('restores committed writes in memory when persistence fails and permits a durable retry', async () => {
+    const db = await import('./db.js');
+    await db.initDb();
+    const before = readFileSync(dbPath);
+    const statements = [
+      { sql: "INSERT INTO server_settings (key, value) VALUES ('atomic-state', 'changed')" },
+      { sql: "INSERT INTO server_settings (key, value) VALUES ('atomic-receipt', 'accepted')" },
+    ];
+    mkdirSync(`${dbPath}.tmp`);
+    expect(() => transact(db, statements)).toThrow();
+
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'atomic-state'")).toBeNull();
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'atomic-receipt'")).toBeNull();
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    expect(readFileSync(dbPath)).toEqual(before);
+
+    rmSync(`${dbPath}.tmp`, { recursive: true });
+    transact(db, statements);
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    vi.resetModules();
+    const restarted = await import('./db.js');
+    await restarted.initDb();
+    expect(restarted.get("SELECT value FROM server_settings WHERE key = 'atomic-state'")?.value).toBe('changed');
+    expect(restarted.get("SELECT value FROM server_settings WHERE key = 'atomic-receipt'")?.value).toBe('accepted');
+  });
+});
+
+describe('transaction() callback contract', () => {
+  it('rejects a read export inside a transaction without discarding its writes', async () => {
+    const db = await import('./db.js');
+    await db.initDb();
+    db.transaction(() => {
+      db.run("INSERT INTO server_settings (key, value) VALUES ('before-export', 'preserved')");
+      expect(() => db.exportDatabase()).toThrow('Cannot export the database during a transaction');
+      db.run("INSERT INTO server_settings (key, value) VALUES ('after-export', 'preserved')");
+    });
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'before-export'")?.value).toBe('preserved');
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'after-export'")?.value).toBe('preserved');
+  });
+
+  it('returns the callback result and persists helper writes together after the callback completes', async () => {
+    const db = await import('./db.js');
+    await db.initDb();
+    const before = readFileSync(dbPath);
+    const result = db.transaction(() => {
+      const inserted = db.run("INSERT INTO users (username,password_hash) VALUES ('alice','h')");
+      db.run('INSERT INTO tracked_owners (user_id,archidekt_username) VALUES (?, ?)', [inserted.lastInsertRowid, 'alice']);
+      expect(readFileSync(dbPath)).toEqual(before);
+      return inserted.lastInsertRowid;
+    });
+
+    expect(db.get('SELECT user_id FROM tracked_owners')?.user_id).toBe(result);
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    expect(readFileSync(dbPath)).not.toEqual(before);
+  });
+
+  it.each(Object.entries(transactionHelpers))('rejects nested %s calls without exporting the active transaction', async (_name, transact) => {
+    const db = await import('./db.js');
+    await db.initDb();
+    db.transaction(() => {
+      db.run("INSERT INTO server_settings (key, value) VALUES ('outer-write', 'survived')");
+      expect(() => transact(db, [])).toThrow(/Nested transactions/);
+      expect(db.get("SELECT value FROM server_settings WHERE key = 'outer-write'")?.value).toBe('survived');
+    });
+    expect(db.get("SELECT value FROM server_settings WHERE key = 'outer-write'")?.value).toBe('survived');
+  });
+});
+
 describe('persist() atomic write (audit C3)', () => {
   it('writes the live file and leaves no temp file behind', async () => {
     const db = await import('./db.js');
@@ -29,6 +187,36 @@ describe('persist() atomic write (audit C3)', () => {
     expect(existsSync(dbPath)).toBe(true);
     expect(existsSync(`${dbPath}.tmp`)).toBe(false);
     expect(db.get("SELECT value FROM server_settings WHERE key = 'probe'").value).toBe('v1');
+  });
+
+  it('preserves foreign keys after persistence/backup and cascades account deletion through integrations', async () => {
+    const db = await import('./db.js');
+    await db.initDb();
+    const { initIntegrationSchema } = await import('./lib/integrationSchema.js');
+    initIntegrationSchema();
+    const { initBridgeSchema } = await import('./lib/manasyncBridge.js');
+    initBridgeSchema();
+    db.run("INSERT INTO users (id,username,password_hash) VALUES (1,'alice','h')");
+    db.run("INSERT INTO tracked_owners (id,user_id,archidekt_username) VALUES (1,1,'alice')");
+    db.run("INSERT INTO tracked_decks (id,user_id,tracked_owner_id,archidekt_deck_id,deck_name) VALUES (1,1,1,1,'Deck')");
+    db.run("INSERT INTO deck_snapshots (tracked_deck_id,deck_text) VALUES (1,'1 Sol Ring')");
+    db.run("INSERT INTO integration_tokens (id,user_id,name,token_hash,scopes,created_at) VALUES ('token',1,'ManaSync','hash','[]','now')");
+    db.run(`INSERT INTO deck_proposals (id,user_id,deck_id,operation_id,payload_hash,base_snapshot_id,base_text_hash,base_text,proposed_text,status,created_at,updated_at)
+      VALUES ('proposal',1,1,'operation','hash','1','hash','base','proposed','pending_review','now','now')`);
+    db.run("INSERT INTO proposal_reviews (user_id,operation_id,proposal_id,payload_hash,receipt) VALUES (1,'review','proposal','hash','{}')");
+    db.run("INSERT INTO manasync_connections (user_id,base_url,token_cipher,account_id,actor_id,username) VALUES (1,'http://app:8081','cipher','account','actor','alice')");
+    db.run("INSERT INTO manasync_print_items (id,user_id,deck_id,card_json,quantity,created_at) VALUES ('item',1,1,'{}',2,'now')");
+    db.run("INSERT INTO manasync_print_operations (id,user_id,item_id,quantity,intent_json,status,created_at) VALUES ('print',1,'item',2,'{}','pending','now')");
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    db.backupDb();
+    expect(db.get('PRAGMA foreign_keys').foreign_keys).toBe(1);
+    db.transaction(() => db.run('DELETE FROM users WHERE id = 1'));
+    for (const table of ['tracked_owners','tracked_decks','deck_snapshots','integration_tokens','deck_proposals','proposal_reviews','manasync_connections','manasync_print_items','manasync_print_operations']) {
+      expect(db.get(`SELECT COUNT(*) AS count FROM ${table}`).count,table).toBe(0);
+    }
+    db.run("INSERT INTO users (id,username,password_hash) VALUES (1,'replacement','h')");
+    expect(db.get('SELECT * FROM manasync_connections WHERE user_id = 1')).toBeNull();
+    expect(() => db.run("INSERT INTO integration_tokens (id,user_id,name,token_hash,scopes,created_at) VALUES ('orphan',999,'bad','orphan-hash','[]','now')")).toThrow(/FOREIGN KEY/);
   });
 
   it('keeps a .bak backup that recovers data when the live file is corrupted', async () => {

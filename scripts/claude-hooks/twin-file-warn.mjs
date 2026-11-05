@@ -1,23 +1,23 @@
 // Claude Code PostToolUse hook: after an Edit/Write to a file that has a
 // mirrored twin elsewhere in the repo, remind the agent about the coupling.
-// Exit code 2 routes the stderr message back to the agent (the edit has
-// already happened — this is a reminder, not a gate). Any other outcome is
+// Exit code 2 routes the stderr reminder back to the agent; it does not undo
+// the edit or require approval/retesting after every tool call. Any other outcome is
 // silent. Never blocks work: malformed stdin exits 0.
 import { readFileSync } from 'node:fs';
 
 const TWINS = [
   [/(^|[\\/])src[\\/]lib[\\/]constants\.js$/i,
-   'INVARIANT: CARD_LINE_PATTERN is the single-sourced card-line regex, consumed by parser.js AND server/lib/enrichDeckText.js (which indexes groups directly: cn = m[4]||m[5], foil = m[6]). If the pattern changed, update the behavior pins and docs/DECK_TEXT_FORMAT.md, then run: npx vitest run src/lib/invariants.test.js'],
+   'Shared card grammar: check the affected consumers/capture groups in docs/INVARIANTS.md and docs/DECK_TEXT_FORMAT.md when semantics change. CONTRIBUTING.md owns verification scope and evidence reuse.'],
   [/(^|[\\/])server[\\/]lib[\\/]enrichDeckText\.js$/i,
-   'INVARIANT: enrichDeckText consumes the shared CARD_LINE_PATTERN from src/lib/constants.js — never declare a local card-line regex (past forks corrupted data). Group indexing: cn = m[4]||m[5], foil = m[6]. Run: npx vitest run src/lib/invariants.test.js'],
+   'Enrichment consumes the shared card grammar. See docs/INVARIANTS.md for capture-group coupling; CONTRIBUTING.md owns verification scope and evidence reuse.'],
   [/(^|[\\/])src[\\/]lib[\\/]fetcher\.js$/i,
-   'INVARIANT: archidektToText() is mirrored in server/lib/deckToText.js — text/commanders output must stay identical. Run: npx vitest run src/lib/invariants.test.js'],
+   'Archidekt text output has a server counterpart in server/lib/deckToText.js. Check semantic parity under docs/INVARIANTS.md; CONTRIBUTING.md owns verification scope and evidence reuse.'],
   [/(^|[\\/])server[\\/]lib[\\/]deckToText\.js$/i,
-   'INVARIANT: archidektToText() mirrors src/lib/fetcher.js — text/commanders output must stay identical. Run: npx vitest run src/lib/invariants.test.js'],
+   'Archidekt text output has a client counterpart in src/lib/fetcher.js. Check semantic parity under docs/INVARIANTS.md; CONTRIBUTING.md owns verification scope and evidence reuse.'],
   [/(^|[\\/])Dockerfile$/i,
-   'INVARIANT: the "COPY src/lib/..." line must ship every src/lib file the server imports (including transitive imports like parser.js -> constants.js). Run: npx vitest run src/lib/invariants.test.js'],
+   'Shared server imports must ship in the production image, including transitive imports. See the COPY-closure invariant in docs/INVARIANTS.md and scoped checks in CONTRIBUTING.md.'],
   [/(^|[\\/])server[\\/]db\.js$/i,
-   'CAUTION: db.js is sql.js — run() persists the WHOLE db file per statement; direct getDb().run() writes are lost; no atomic write. See docs/INVARIANTS.md #1 before changing persistence or adding migrations.'],
+   'sql.js persistence: preserve helper/transaction writes, atomic temp+fsync+rename and exportDatabase() pragmas. Direct raw writes bypass persistence. Read docs/INVARIANTS.md #1; CONTRIBUTING.md scopes data/migration checks.'],
 ];
 
 let filePath = '';

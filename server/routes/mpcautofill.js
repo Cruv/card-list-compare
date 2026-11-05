@@ -4,6 +4,7 @@
  */
 
 import { Router } from 'express';
+import { pipeline } from 'node:stream/promises';
 import { requireAuth } from '../middleware/auth.js';
 import { mpcLimiter } from '../middleware/rateLimit.js';
 import {
@@ -83,7 +84,7 @@ router.get('/sources', async (_req, res) => {
     res.json({ sources });
   } catch (err) {
     console.error('MPC sources error:', err);
-    res.json({ sources: [] });
+    res.status(503).json({ error: 'MPC image sources are temporarily unavailable. Please retry.' });
   }
 });
 
@@ -96,7 +97,7 @@ router.get('/languages', async (_req, res) => {
     res.json({ languages });
   } catch (err) {
     console.error('MPC languages error:', err);
-    res.json({ languages: [] });
+    res.status(503).json({ error: 'MPC languages are temporarily unavailable. Please retry.' });
   }
 });
 
@@ -109,7 +110,7 @@ router.get('/tags', async (_req, res) => {
     res.json({ tags });
   } catch (err) {
     console.error('MPC tags error:', err);
-    res.json({ tags: [] });
+    res.status(503).json({ error: 'MPC tags are temporarily unavailable. Please retry.' });
   }
 });
 
@@ -152,7 +153,7 @@ router.post('/alternates', mpcLimiter, async (req, res) => {
     res.json({ cardName, alternates });
   } catch (err) {
     console.error('MPC alternates error:', err);
-    res.status(500).json({ error: 'Failed to fetch alternates.' });
+    res.status(err.status === 503 ? 503 : 500).json({ error: 'Failed to fetch alternates. Please retry.' });
   }
 });
 
@@ -305,7 +306,7 @@ router.post('/search', mpcLimiter, async (req, res) => {
     });
   } catch (err) {
     console.error('MPC search error:', err);
-    res.status(500).json({ error: 'Failed to search MPC Autofill. The service may be unavailable.' });
+    res.status(err.status === 503 ? 503 : 500).json({ error: 'Failed to search MPC Autofill. The service may be unavailable.' });
   }
 });
 
@@ -374,30 +375,39 @@ router.post('/download', mpcLimiter, async (req, res) => {
     }
 
     // Build ZIP using archiver
-    const archiver = (await import('archiver')).default;
-    const archive = archiver('zip', { zlib: { level: 1 } }); // Fast compression (images are already compressed)
+    const { ZipArchive } = await import('archiver');
+    const archive = new ZipArchive({ zlib: { level: 1 } }); // Fast compression (images are already compressed)
 
     res.set({
       'Content-Type': 'application/zip',
       'Content-Disposition': 'attachment; filename="mpc-card-images.zip"',
     });
 
-    archive.pipe(res);
-
-    // Add each image with numbered filename
-    let idx = 1;
-    for (const img of images) {
-      const safeName = img.name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
-      const filename = `${String(idx).padStart(3, '0')}_${safeName}.${img.extension}`;
-      archive.append(img.buffer, { name: filename });
-      idx++;
+    // Observe archive errors and client disconnects before adding entries. A
+    // failed stream must close the download instead of leaving a partial ZIP open.
+    const streamed = pipeline(archive, res);
+    archive.once('warning', error => archive.destroy(error));
+    try {
+      let idx = 1;
+      for (const img of images) {
+        const safeName = img.name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
+        const filename = `${String(idx).padStart(3, '0')}_${safeName}.${img.extension}`;
+        archive.append(img.buffer, { name: filename });
+        idx++;
+      }
+      await Promise.all([archive.finalize(), streamed]);
+    } catch (error) {
+      archive.abort();
+      archive.destroy();
+      await streamed.catch(() => {});
+      throw error;
     }
-
-    await archive.finalize();
   } catch (err) {
     console.error('MPC download error:', err);
-    if (!res.headersSent) {
+    if (!res.headersSent && !res.destroyed) {
       res.status(500).json({ error: 'Failed to download card images.' });
+    } else if (!res.destroyed) {
+      res.destroy(err);
     }
   }
 });

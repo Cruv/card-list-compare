@@ -567,12 +567,12 @@ Sideboard
     expect(diff.mainboard.cardsOut).toEqual([]);
   });
 
-  it('keeps printing metadata when collapsing a mixed side against a bare side', () => {
+  it('reports totals without inventing aggregate artwork for a mixed side', () => {
     const a = deck('1 Sol Ring (c21) [263]\n1 Sol Ring');
     const b = deck('3 Sol Ring');
     const diff = computeDiff(a, b);
     expect(diff.mainboard.quantityChanges).toHaveLength(1);
-    expect(diff.mainboard.quantityChanges[0]).toMatchObject({ oldQty: 2, newQty: 3 });
+    expect(diff.mainboard.quantityChanges[0]).toMatchObject({ oldQty: 2, newQty: 3, setCode: '', collectorNumber: '' });
   });
 
   it('reports only the true net change across mixed bare/composite keys', () => {
@@ -583,5 +583,99 @@ Sideboard
     expect(diff.mainboard.cardsOut).toEqual([]);
     expect(diff.mainboard.quantityChanges).toHaveLength(1);
     expect(diff.mainboard.quantityChanges[0]).toMatchObject({ oldQty: 3, newQty: 4 });
+  });
+});
+
+describe('complete printing identities and DFC aliases', () => {
+  it.each([
+    ['2 Nazgul', '2 Nazgûl'],
+    ['2 Nazgul', '2 Nazgûl (ltr) [100]'],
+    ['2 Nazgul (ltr) [100]', '2 Nazgûl'],
+    ['2 Nazgul (ltr) [100]', '2 Nazgûl (ltr) [100]'],
+  ])('matches accent aliases without phantom changes: %s / %s', (before, after) => {
+    const result = computeDiff(deck(before), deck(after)).mainboard;
+    expect(result.cardsIn).toEqual([]);
+    expect(result.cardsOut).toEqual([]);
+    expect(result.quantityChanges).toEqual([]);
+    expect(result.printingChanges).toEqual([]);
+    expect(result.totalUniqueCards).toBe(1);
+    expect(result.unchangedCount).toBe(1);
+  });
+
+  it('sums accent aliases during comparison without changing parsed artwork identities', () => {
+    const before = deck('1 Nazgul (ltr) [100]\n2 Nazgûl (ltr) [100]');
+    const result = computeDiff(before, deck('4 Nazgûl (ltr) [100]')).mainboard;
+    expect(result.cardsIn).toEqual([]);
+    expect(result.cardsOut).toEqual([]);
+    expect(result.quantityChanges).toEqual([expect.objectContaining({ oldQty: 3, newQty: 4, delta: 1 })]);
+    expect([...before.mainboard.keys()]).toEqual(['nazgul|ltr|100|nonfoil', 'nazgûl|ltr|100|nonfoil']);
+    expect([...before.mainboard.values()].map(entry => entry.quantity)).toEqual([1, 2]);
+  });
+
+  it('counts unique card names and unchanged names across multiple printings', () => {
+    const before = deck('1 Sol Ring (c21) [263]\n1 Sol Ring (ltc) [263]\n1 Island');
+    const after = deck('1 Sol Ring (c21) [263]\n1 Sol Ring (ltc) [263] *F*\n1 Island');
+    const result = computeDiff(before, after).mainboard;
+    expect(result.totalUniqueCards).toBe(2);
+    expect(result.unchangedCount).toBe(1);
+  });
+
+  it('detects a set change even when the collector number stays the same', () => {
+    const result = computeDiff(deck('1 Sol Ring (c21) [263]'), deck('1 Sol Ring (ltc) [263]')).mainboard;
+    expect(result.printingChanges).toEqual([
+      expect.objectContaining({ name: 'Sol Ring', oldSetCode: 'c21', newSetCode: 'ltc', quantity: 1 }),
+    ]);
+  });
+
+  it('detects foil changes for the same set and collector number', () => {
+    const result = computeDiff(deck('1 Sol Ring (c21) [263]'), deck('1 Sol Ring (c21) [263] *F*')).mainboard;
+    expect(result.printingChanges).toEqual([
+      expect.objectContaining({ oldIsFoil: false, newIsFoil: true, quantity: 1 }),
+    ]);
+  });
+
+  it.each([false, true])('matches bare full DFC to a qualified front face (reverse=%s)', reverse => {
+    const decks = [deck('2 Sheoldred // The True Scriptures'), deck('2 Sheoldred (mom) [125]')];
+    const result = computeDiff(...(reverse ? decks.reverse() : decks)).mainboard;
+    expect(result.cardsIn).toEqual([]);
+    expect(result.cardsOut).toEqual([]);
+    expect(result.quantityChanges).toEqual([]);
+    expect(result.printingChanges).toEqual([]);
+  });
+
+  it('aggregates DFC aliases without dropping quantities or mutating inputs', () => {
+    const before = deck('2 Sheoldred // The True Scriptures (mom) [125]\n3 Sheoldred (mom) [125]');
+    const after = deck('4 Sheoldred (mom) [125]');
+    const result = computeDiff(before, after).mainboard;
+    expect(result.cardsIn).toEqual([]);
+    expect(result.cardsOut).toEqual([]);
+    expect(result.quantityChanges).toEqual([expect.objectContaining({ oldQty: 5, newQty: 4, delta: -1 })]);
+    expect([...before.mainboard.values()].map(entry => entry.quantity)).toEqual([2, 3]);
+  });
+
+  it('detects DFC printing swaps when full-name spelling changes too', () => {
+    const result = computeDiff(deck('1 Sheoldred // The True Scriptures (mom) [125]'), deck('1 Sheoldred (mom) [435]')).mainboard;
+    expect(result.printingChanges).toHaveLength(1);
+    expect(result.cardsIn).toEqual([]);
+    expect(result.cardsOut).toEqual([]);
+  });
+
+  it('reports quantity changes independently for same-number printings in different sets', () => {
+    const before = deck('2 Sol Ring (c21) [263]\n3 Sol Ring (ltc) [263]');
+    const after = deck('1 Sol Ring (c21) [263]\n4 Sol Ring (ltc) [263]');
+    const result = computeDiff(before, after).mainboard;
+    expect(result.quantityChanges).toEqual([
+      expect.objectContaining({ setCode: 'c21', oldQty: 2, newQty: 1, delta: -1 }),
+      expect.objectContaining({ setCode: 'ltc', oldQty: 3, newQty: 4, delta: 1 }),
+    ]);
+  });
+});
+
+describe('printing metadata carried into bare imports', () => {
+  it('keeps the finish with the set/collector when a bare quantity changes', () => {
+    const result = computeDiff(parse('1 Lightning Bolt (m10) [146] *F*'), parse('2 Lightning Bolt'));
+    expect(result.mainboard.quantityChanges).toEqual([
+      expect.objectContaining({ oldQty: 1, newQty: 2, setCode: 'm10', collectorNumber: '146', isFoil: true }),
+    ]);
   });
 });

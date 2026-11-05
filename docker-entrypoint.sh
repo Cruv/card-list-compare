@@ -3,21 +3,31 @@
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
 
+# The web process and generator must remain unprivileged. Reject invalid IDs
+# before touching accounts in the disposable container.
+for ACCOUNT_ID in "$PUID" "$PGID"; do
+  case "$ACCOUNT_ID" in ''|*[!0-9]*) echo "PUID and PGID must be positive numeric IDs" >&2; exit 1;; esac
+  if ! [ "$ACCOUNT_ID" -gt 0 ] 2>/dev/null; then
+    echo "PUID and PGID must be nonzero" >&2
+    exit 1
+  fi
+done
+
 echo "Setting up user abc with UID=$PUID GID=$PGID"
 
 # Remove any existing user/group that conflicts with our target UID/GID
 EXISTING_USER=$(getent passwd "$PUID" 2>/dev/null | cut -d: -f1)
 EXISTING_GROUP=$(getent group "$PGID" 2>/dev/null | cut -d: -f1)
-[ -n "$EXISTING_USER" ] && deluser "$EXISTING_USER" 2>/dev/null || true
-[ -n "$EXISTING_GROUP" ] && delgroup "$EXISTING_GROUP" 2>/dev/null || true
+[ -n "$EXISTING_USER" ] && userdel "$EXISTING_USER" 2>/dev/null || true
+[ -n "$EXISTING_GROUP" ] && groupdel "$EXISTING_GROUP" 2>/dev/null || true
 
 # Also remove abc if it exists with a different UID/GID
-deluser abc 2>/dev/null || true
-delgroup abc 2>/dev/null || true
+userdel abc 2>/dev/null || true
+groupdel abc 2>/dev/null || true
 
 # Create fresh group and user
-addgroup -g "$PGID" abc
-adduser -u "$PUID" -G abc -D -H -s /sbin/nologin abc
+groupadd --gid "$PGID" abc || exit 1
+useradd --uid "$PUID" --gid "$PGID" --no-create-home --shell /usr/sbin/nologin abc || exit 1
 
 echo "User abc created: $(id abc)"
 
@@ -27,6 +37,12 @@ chown -R abc:abc /app/data
 chown -R abc:abc /var/log/nginx
 chown -R abc:abc /var/lib/nginx
 chown -R abc:abc /run/nginx
+
+# Do not require external DNS during nginx startup. Use the container's actual
+# resolver (including Docker's embedded DNS) only when a proxy request arrives.
+CLC_DNS_SERVERS=$(awk '$1 == "nameserver" { if (index($2, ":")) printf "[%s] ", $2; else printf "%s ", $2 }' /etc/resolv.conf)
+CLC_DNS_SERVERS=${CLC_DNS_SERVERS:-127.0.0.1}
+printf 'resolver %s valid=60s ipv6=off;\nresolver_timeout 5s;\n' "$CLC_DNS_SERVERS" > /etc/nginx/clc-resolver.conf
 
 # Start backend as unprivileged user. `exec` inside su so node REPLACES su and
 # $! is node's own PID — otherwise signals would go to su and never reach node.

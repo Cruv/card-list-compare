@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { resetPassword } from '../lib/api';
+import { clearPasswordResetUrl } from '../lib/authNavigation';
 import { toast } from './Toast';
 import './UserSettings.css';
 
@@ -22,7 +23,7 @@ export default function ResetPassword({ token, onComplete }) {
       setDone(true);
       toast.success('Password reset successfully! You can now log in.');
       // Clean the URL
-      window.history.replaceState(null, '', window.location.pathname);
+      clearPasswordResetUrl();
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -31,7 +32,7 @@ export default function ResetPassword({ token, onComplete }) {
   }
 
   return (
-    <div className="user-settings" style={{ margin: '24px auto' }}>
+    <div className="user-settings password-panel">
       <div className="user-settings-header">
         <h2>Set New Password</h2>
       </div>
@@ -42,7 +43,7 @@ export default function ResetPassword({ token, onComplete }) {
             Your password has been reset. You can now log in with your new password.
           </p>
           <button className="btn btn-primary btn-sm" onClick={onComplete} type="button">
-            Go to Login
+            Back to CLC
           </button>
         </section>
       ) : (

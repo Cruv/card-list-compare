@@ -1,0 +1,41 @@
+.add-decks-backdrop { position: fixed; inset: 0; z-index: 500; display: flex; justify-content: center; align-items: center; padding: 24px; background: #000a; }
+.add-decks-dialog { width: 740px; max-width: 100%; max-height: calc(100dvh - 48px); overflow: auto; padding: 28px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 18px; box-shadow: var(--shadow-lg); }
+.add-decks-dialog > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 20px; }
+.add-decks-dialog h2 { margin: 0 0 8px; font-size: 24px; }
+.add-decks-dialog p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); margin: 0 0 14px; }
+.add-decks-tabs { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; gap: 20px; }
+.add-decks-tabs button { border: 0; border-bottom: 2px solid transparent; padding: 12px 0; color: var(--text-secondary); background: none; font: inherit; font-size: 13px; cursor: pointer; }
+.add-decks-tabs button[aria-current] { color: var(--accent); border-color: var(--accent); }
+.add-decks-tabs button:disabled { opacity: .5; cursor: default; }
+.add-decks-form { display: grid; gap: 18px; }
+.add-decks-form label { display: grid; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+.add-decks-dialog input, .add-decks-dialog textarea { min-width: 0; width: 100%; padding: 12px; color: var(--text-primary); background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; font: inherit; font-size: 14px; }
+.add-decks-dialog textarea { line-height: 1.6; resize: vertical; min-height: 160px; }
+.add-decks-form > button { justify-self: start; }
+.add-decks-search { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.add-decks-search label { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.add-decks-search input { min-width: 0; }
+.add-decks-list { list-style: none; padding: 0; display: grid; gap: 10px; margin: 0 0 20px; }
+.add-decks-list li { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; }
+.add-decks-list li > div { min-width: 0; display: grid; gap: 5px; }
+.add-decks-list strong { font-size: 14px; overflow-wrap: anywhere; }
+.add-decks-list span { font-size: 12px; color: var(--text-secondary); }
+.add-decks-list button { flex-shrink: 0; }
+.add-decks-accounts { border-top: 1px solid var(--border-color); margin-top: 24px; padding-top: 16px; }
+.add-decks-accounts > summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); margin-bottom: 14px; }
+.add-decks-accounts form { display: flex; gap: 10px; }
+.add-decks-error { color: var(--accent-red, #fda4a4) !important; padding: 12px; border: 1px solid #fda4a455; border-radius: 9px; overflow-wrap: anywhere; }
+.add-decks-notice, .add-decks-pending { padding: 16px; border: 1px solid var(--border-color); border-radius: 10px; margin-bottom: 20px; background: var(--bg-primary); }
+.add-decks-pending h3 { font-size: 16px; margin: 0 0 8px; }
+.add-decks-pending pre { max-height: 180px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.add-decks-pending details { margin: 12px 0; font-size: 13px; }
+@media(max-width: 600px) {
+  .add-decks-backdrop { padding: 12px; }
+  .add-decks-dialog { padding: 20px 16px; max-height: calc(100dvh - 24px); border-radius: 14px; }
+  .add-decks-dialog input, .add-decks-dialog textarea { font-size: 16px; }
+  .add-decks-search { flex-wrap: wrap; }
+  .add-decks-search label { flex-basis: 100%; }
+  .add-decks-tabs { gap: 14px; }
+  .add-decks-tabs button { font-size: 12px; min-height: 44px; }
+  .add-decks-accounts form { flex-wrap: wrap; }
+}

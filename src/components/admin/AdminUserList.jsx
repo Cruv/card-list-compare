@@ -3,6 +3,7 @@ import { useConfirm } from '../ConfirmModal';
 import { toast } from '../Toast';
 import {
   getAdminUsers,
+  downloadUsersExport,
   adminResetPassword,
   adminDeleteUser,
   adminToggleAdmin,
@@ -76,6 +77,13 @@ export default function AdminUserList({ currentUserId }) {
     }, 300);
   }
 
+
+  async function handleExportUsers() {
+    try {
+      await downloadUsersExport();
+      toast.success('Users exported');
+    } catch (err) { toast.error(err.message); }
+  }
 
   async function handleResetPassword(userId) {
     if (!resetPw || resetPw.length < 8) {
@@ -214,12 +222,14 @@ export default function AdminUserList({ currentUserId }) {
         <input
           className="admin-search-input"
           type="text"
-          placeholder="Search users by name or email..."
+          placeholder="Search users by name or email…"
+          aria-label="Search users"
           value={searchInput}
           onChange={e => handleSearchChange(e.target.value)}
         />
         <select
           className="admin-sort-select"
+          aria-label="Sort users"
           value={`${sort}:${order}`}
           onChange={e => {
             const [s, o] = e.target.value.split(':');
@@ -235,6 +245,7 @@ export default function AdminUserList({ currentUserId }) {
           <option value="last_login_at:desc">Recently active</option>
           <option value="tracked_deck_count:desc">Most decks</option>
         </select>
+        <button className="btn btn-secondary btn-sm" type="button" onClick={handleExportUsers}>Export users CSV</button>
       </div>
 
       {/* User List */}
@@ -268,6 +279,7 @@ export default function AdminUserList({ currentUserId }) {
                     <input
                       type="password"
                       placeholder="New password (8+ chars)"
+                      aria-label={`New password for ${u.username}`}
                       value={resetPw}
                       onChange={e => setResetPw(e.target.value)}
                       autoFocus
@@ -282,21 +294,25 @@ export default function AdminUserList({ currentUserId }) {
                 )}
               </div>
               {u.id !== currentUserId && (
+                <details className="admin-user-manage">
+                  <summary>Manage {u.username}</summary>
                 <div className="admin-user-actions">
+                  <h4>Security and access</h4>
                   <button className="btn btn-secondary btn-sm" type="button" onClick={() => { setResetId(u.id); setResetPw(''); }}>
-                    Reset PW
+                    Reset password
                   </button>
                   <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleForceLogout(u.id, u.username)}>
-                    Logout
+                    Force logout
                   </button>
                   <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleToggleAdmin(u.id, u.username, !!u.is_admin)}>
-                    {u.is_admin ? 'Demote' : 'Promote'}
+                    {u.is_admin ? 'Remove admin' : 'Make admin'}
                   </button>
                   {!u.is_admin && (
                     <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleToggleInvite(u.id, u.username, !!u.can_invite)}>
-                      {u.can_invite ? 'Revoke Invite' : 'Grant Invite'}
+                      {u.can_invite ? 'Remove invite permission' : 'Allow invitations'}
                     </button>
                   )}
+                  <h4>Account status</h4>
                   {!u.is_admin && (
                     u.suspended
                       ? <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleUnsuspend(u.id, u.username)}>Unsuspend</button>
@@ -306,9 +322,9 @@ export default function AdminUserList({ currentUserId }) {
                     <button className="btn btn-secondary btn-sm" type="button" onClick={() => handleUnlock(u.id, u.username)}>Unlock</button>
                   )}
                   <button className="btn btn-secondary btn-sm btn-danger" type="button" onClick={() => handleDeleteUser(u.id, u.username)}>
-                    Delete
+                    Delete user
                   </button>
-                </div>
+                </div></details>
               )}
             </li>
           ))}

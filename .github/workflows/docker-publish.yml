@@ -4,12 +4,14 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Review branches can target another feature branch before it reaches main.
   pull_request:
-    branches: [main]
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -33,8 +35,24 @@ jobs:
       - name: Install server dependencies
         run: npm --prefix server ci
 
+      - name: Audit frontend and server dependencies
+        run: |
+          npm audit
+          npm --prefix server audit
+
       - name: Test (includes invariant-sync tests)
         run: npm test
+
+      - name: Check deployment configuration with disposable settings
+        run: npm run check:deployment
+
+      - name: Set up Python for the Mac companion's portable tests
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Test print companion with fake printer and temporary state
+        run: python3 -m unittest discover -s companion/mac -p 'test_*.py'
 
       # Blocking since the backlog was cleared (docs/DECISIONS.md D6). Errors fail
       # the build; warnings are still allowed and visible in the log.
@@ -53,6 +71,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve registry image name
+        id: image
+        # GHCR image names are lowercase even if the repository owner is not.
+        run: |
+          image_name=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          printf 'name=%s\n' "$image_name" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU for the Apple Silicon image
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -68,18 +98,24 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+          # Semver tags must not implicitly move latest away from main.
+          flavor: latest=false
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+            type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

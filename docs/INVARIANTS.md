@@ -10,6 +10,10 @@ document is the normative home only for knowledge that can't be a test. The
 "anchor integrity" test asserts every symbol cited here still exists; if you
 rename one, update this doc and the test's anchor table in the same change.
 
+Read affected entries and their couplings. [CONTRIBUTING](../CONTRIBUTING.md) owns check
+selection and delivery; this catalog is not a demand to reread or verify every entry for
+an unrelated edit. Preserve executable assertions when updating their documentation.
+
 ---
 
 ## 1. sql.js persistence — the most dangerous thing in this repo
@@ -19,7 +23,10 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
 
 - The `run()` helper in `server/db.js` calls `persist()` after **every** write
   statement. `persist()` (`export function persist`) serializes the **entire
-  database** with `db.export()`.
+  database** through `exportDatabase()` (`export function exportDatabase`).
+  All exports, including read-only admin statistics and downloads, use that helper: sql.js
+  resets connection pragmas during export, so it immediately restores foreign keys. Exporting
+  during a transaction is forbidden because it would close the active SQLite connection.
 - **The write is atomic** (added v2.40.3): `persist()` writes to
   `DB_PATH.tmp`, `fsync`s it, then `rename`s over `DB_PATH`. `rename(2)` is
   atomic, so a crash mid-write (SIGKILL, OOM, power loss) leaves the live file
@@ -31,9 +38,15 @@ The database is **sql.js** (SQLite compiled to WASM, held fully in memory) —
   on graceful shutdown.
 - Writes made directly via `getDb().run(...)` **bypass persistence entirely**
   and are silently lost on restart unless some later helper call persists them.
-  Always write through the `run()` helper (`export function run`).
-- There are no cross-statement transactions. A loop of N `run()` calls does N
-  full-file rewrites — that's a known cost, accepted for simplicity.
+  Always write through `run()` (`export function run`) or the transaction helper.
+- `runTransaction()` (`export function runTransaction`) commits related SQL statements
+  and persists once. It restores the previous in-memory database if a statement or disk
+  write fails. Print-station state and its replay receipt must use this helper together;
+  acknowledging only one of those writes can authorize a duplicate physical submission.
+  A loop of N separate `run()` calls still does N full-file rewrites.
+- `transaction()` provides the same atomic persistence for synchronous callback writes.
+  Keep deck creation, proposal/source review decisions, and their replay receipts together;
+  statement or persistence failure must restore both memory and the durable database.
 
 **Do not "optimize" `persist()`** (debounce, batch, async) without preserving
 the temp+fsync+rename atomicity and the `loadDatabase()` recovery path. Behavior
@@ -52,8 +65,10 @@ unified v2.40.2). Enforced by the single-source and behavior-pin tests in
 ## 3. Parser contract: `displayName`, flat commanders, composite keys
 
 Entries expose `displayName` (never `.name`); `parsed.commanders` is a flat
-string array; map keys come from `cardKey` (bare lowercase name, or
-`name|collectorNumber`). Enforced by the "parser entry contract" tests. Past
+string array; map keys come from `cardIdentityKey` in `src/lib/cardIdentity.js`
+(normalized full lowercase name, or `name|set|collector|finish`). Metadata keys
+include lowercase set and collector number plus `foil`/`nonfoil`, including
+partial set-only or foil-only lines. Enforced by the "parser entry contract" tests. Past
 production crashes (v2.17.0, v2.18.1) came from server routes assuming
 `entry.name` or destructuring commanders as Map entries.
 
@@ -66,6 +81,10 @@ passes.
 - **Why:** the name index is built from map keys; DFC renames
   (`"sheoldred // the true scriptures"` → `"sheoldred"`) change those keys. Index
   first and the remap operates on stale keys.
+- Aliases normalize through `normalizeCardName` in `src/lib/cardIdentity.js`;
+  logical names ignore accents while exact printing keys retain spelling;
+  renaming preserves the complete printing suffix and sums existing aliases
+  rather than overwriting their quantities.
 - **Breaks when:** double-faced cards show as remove+add pairs instead of
   matching — while simple-deck tests keep passing. A source-order tripwire test
   guards this.
@@ -78,8 +97,10 @@ identifier (`{name}` → type/mana data) per card. Results are stored under both
 keys, and DFC names are normalized to their front face for the query, with
 results aliased back to every original `//` name that mapped there.
 
-- **Why:** UI lookups try `name|collector` first, then bare name; both must
-  resolve. Scryfall's API doesn't accept full `A // B` names on all endpoints.
+- **Why:** printing-qualified UI lookups use `cardIdentityKey`, while name
+  lookups supply generic card data and budget choices. Missing exact artwork
+  must remain missing instead of silently substituting a different printing.
+  Scryfall's API doesn't accept full `A // B` names on all endpoints.
 - **Breaks when:** card tooltips show generic artwork for specific printings, or
   DFC cards lose images/types entirely.
 - Client `src/lib/scryfall.js` and `server/lib/scryfall.js` are **intentionally
@@ -135,11 +156,15 @@ In `server/middleware/auth.js`:
 
 ## 10. DB migrations pattern
 
-In `server/db.js`: new tables use `CREATE TABLE IF NOT EXISTS`; new columns use
-`ALTER TABLE ... ADD COLUMN` wrapped in try/catch (sql.js has no
-`IF NOT EXISTS` for columns — the catch **is** the idempotency mechanism);
-indexes are created separately (never add UNIQUE via ALTER); data backfills run
-after the column exists. Follow the existing examples verbatim.
+In `server/db.js`, preserve repeatable schema upgrades and existing data from supported
+prior databases. Existing additions use `CREATE TABLE IF NOT EXISTS` and try/catch around
+`ALTER TABLE ... ADD COLUMN` because columns lack `IF NOT EXISTS`; that syntax is an
+implementation pattern, not a requirement to copy a broad catch. Detect an already-applied
+change deliberately without masking unrelated failures. SQLite does not support adding
+UNIQUE with column ALTER, so existing indexes are separate; backfills follow schema creation.
+Use fresh/upgrade/repeated-start and relevant failure cases under
+[CONTRIBUTING](../CONTRIBUTING.md#verification-proportional-to-risk), retaining transaction
+and persistence safeguards. No migration is authorized merely by this procedure cleanup.
 
 ## 11. Server middleware order
 
@@ -158,11 +183,14 @@ In `server/index.js`, order is load-bearing:
 
 ## 12. UI stacking order (z-index ladder)
 
-`CardOverlay` (fullscreen card image) 1000 > `WhatsNewModal` 300 > main overlays
-(Timeline/Mpc/PriceHistory/Recommendations) and Toast 200 >
-`ConfirmModal` 150 > card tooltip 100. New overlays slot in at 200;
-only the tap-to-view card image may sit above everything (exception: the
-accessibility skip-link `.sr-only-focusable:focus` sits at 9999 by design).
+The current layers are authentication 1200, mobile More drawer 1100, full-card preview
+1000, Add decks 500, What’s new 300, main overlays (version/MPC/price/suggestions) and
+Toast 200, confirmation 150, and card tooltip 100. The accessibility skip-link sits at
+9999 while focused. Add decks has no nested editor/confirmation. Do not infer keyboard
+ownership from z-index alone: `useModalLayer` tracks the active modal, traps focus and
+restores the launcher. Nested editors must preserve their parent's state and launcher;
+menus stay mounted while a modal opened from them owns focus. Test new combinations in
+Chrome and WebKit at desktop and phone widths.
 
 Also: `DeckLibrary.jsx` **imports `UserSettings.css`** and reuses its
 `.user-settings-*` / `.settings-page` classes — restyling Settings restyles the
@@ -183,7 +211,7 @@ reading their current response shape, not by guessing.
 
 `APP_VERSION` and `WHATS_NEW` in `src/App.jsx` drive the user-facing what's-new
 toast; `package.json` version must equal `APP_VERSION` (enforced by test). The
-protocol lives in [CLAUDE.md](../CLAUDE.md); the `/release` skill executes it.
+protocol lives in [CONTRIBUTING.md](../CONTRIBUTING.md#delivery-and-publication); client skills route there.
 WHATS_NEW is **replaced** each release (git log is the historical record).
 
 ---
@@ -194,12 +222,12 @@ WHATS_NEW is **replaced** each release (git log is the historical record).
 | --- | --- | --- |
 | `CARD_LINE_PATTERN` (constants.js) | behavior pins in invariants.test.js + [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md); check group indexing in enrichDeckText.js | pattern tests |
 | `archidektToText` (fetcher.js) | `archidektToText` (deckToText.js) | mirror test |
-| Parser entry shape / `cardKey` | differ, formatter, all server routes, [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md) | contract tests |
+| Parser entry shape / `cardIdentityKey` | differ, formatter, Scryfall/UI lookups, all server routes, [DECK_TEXT_FORMAT.md](DECK_TEXT_FORMAT.md) | contract tests |
 | New `src/lib` import in `server/**` | Dockerfile `COPY src/lib/...` line | COPY-closure test |
 | Password/suspension writes | call `invalidateAuthCache(userId)` (bulk ops: `invalidateAllAuthCache()`) | — (review) |
 | New external API host | helmet CSP (`server/index.js`) + vite proxy (`vite.config.js`); nginx only if a new server-side path is proxied | — (review) |
 | `APP_VERSION` | `WHATS_NEW` + `package.json` version | version tests |
-| User-visible feature change | Guide section in `src/components/GuidePage.jsx` (`SECTIONS`) | — (release protocol) |
+| Changed user instructions / feature availability | Affected Guide section in `src/components/GuidePage.jsx` (`SECTIONS`), if its claims changed | — (documentation routing) |
 | Anything in this doc's symbols | anchor table in `src/lib/invariants.test.js` | anchor test |
 
 ---
@@ -211,9 +239,10 @@ Why things are the way they are — context for changes, not rules.
 1. **Metadata lives in deck text, not schema** — snapshots are self-contained
    strings; no migrations needed for new metadata; export/import round-trips are
    trivially lossless.
-2. **Composite map keys** (`name|collector`) let one card name hold multiple
-   printings as distinct entries (nine Nazgul artworks) while bare names remain
-   the fallback identity.
+2. **Complete printing keys** (`name|set|collector|finish`) keep equal collector
+   numbers from different sets and foil/nonfoil copies distinct. Bare names
+   remain the logical comparison fallback, never a replacement for missing
+   artwork on an explicitly selected printing.
 3. **Enrichment is graceful, never fatal** — if Scryfall is down or a card is
    unknown, the original line passes through. Deck data is never held hostage by
    a third-party API.
@@ -230,7 +259,7 @@ Why things are the way they are — context for changes, not rules.
    history stays readable after account deletion.
 9. **Admin sort columns are whitelisted** via an explicit map — the only
    accepted defense for ORDER BY injection.
-10. **Hash-based routing** (`useHashRoute`: `#admin`, `#settings`, `#guide`,
+10. **Hash-based routing** (`useHashRoute`: `#admin`, `#settings`, `#connections`, `#guide`,
     `#library`, `#library/{deckId}`, `#share/{id}`, `#deck/{id}`) avoids a
     router dependency and server-side route handling entirely.
 11. **Snapshot pruning is synchronous** after every INSERT (no cron) and never
@@ -242,6 +271,8 @@ Why things are the way they are — context for changes, not rules.
     DRY here.
 14. **`package.json` version was stale (2.16.1) for 23 minor releases**; since
     v2.40.0 it is synced with `APP_VERSION` and test-enforced.
-15. **No component/route test culture** — Vitest runs in node env (no jsdom).
-    Core logic (parser/differ/formatter/enrichment) is tested; UI and routes
-    are verified manually via the runbook in [CLAUDE.md](../CLAUDE.md).
+15. **Verification follows the affected surface** — Vitest runs in Node (no jsdom),
+    covering client/server logic and route/API tests; it does not prove browser layout.
+    Use [CONTRIBUTING](../CONTRIBUTING.md#verification-proportional-to-risk) for browser,
+    compatibility and adverse-case checks. The old absence of a route/component test
+    culture is historical context, not a restriction on useful tests.

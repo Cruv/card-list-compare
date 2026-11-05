@@ -1,29 +1,29 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { all, get, run } from '../db.js';
+import { all, get, run, transaction } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { existsSync, createReadStream } from 'fs';
 import { archidektLimiter } from '../middleware/rateLimit.js';
 import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { parse } from '../../src/lib/parser.js';
-import { fetchDeck } from '../lib/archidekt.js';
-import { archidektToText } from '../lib/deckToText.js';
-import { enrichDeckText } from '../lib/enrichDeckText.js';
-import { pruneSnapshots } from '../lib/pruneSnapshots.js';
+import { refreshArchidektDeck, sourceSyncSummary, SourceSyncError } from '../lib/sourceSync.js';
 import { fetchCardMetadata } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
 import { submitJob, getJobStatus } from '../lib/downloadQueue.js';
+import { trackArchidektDeck } from '../lib/deckTracking.js';
+import deckImports from './deckImports.js';
 
 const router = Router();
 
 router.use(requireAuth);
+router.use('/import', deckImports);
 
 router.get('/', (req, res) => {
   const decks = all(`
     SELECT d.*,
       (SELECT MAX(s.created_at) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as latest_snapshot_at,
       (SELECT COUNT(*) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as snapshot_count,
-      o.archidekt_username,
+      CASE WHEN d.source_type = 'manual' THEN 'Manual decks' WHEN o.source_type = 'linked' THEN 'Linked sources' ELSE o.archidekt_username END AS archidekt_username,
       sdv.id as share_id
     FROM tracked_decks d
     JOIN tracked_owners o ON d.tracked_owner_id = o.id
@@ -52,6 +52,7 @@ router.get('/', (req, res) => {
     for (const deck of decks) deck.tags = [];
   }
 
+  for (const deck of decks) deck.source_sync = sourceSyncSummary(deck);
   res.json({ decks });
 });
 
@@ -61,7 +62,7 @@ router.post('/', archidektLimiter, async (req, res) => {
   if (!trackedOwnerId || !archidektDeckId || !deckName) {
     return res.status(400).json({ error: 'trackedOwnerId, archidektDeckId, and deckName are required' });
   }
-  if (typeof archidektDeckId !== 'number' || !Number.isInteger(archidektDeckId) || archidektDeckId <= 0) {
+  if (typeof archidektDeckId !== 'number' || !Number.isSafeInteger(archidektDeckId) || archidektDeckId <= 0) {
     return res.status(400).json({ error: 'archidektDeckId must be a positive integer' });
   }
   if (!requireMaxLength(res, deckName, 200, 'Deck name')) return;
@@ -71,41 +72,23 @@ router.post('/', archidektLimiter, async (req, res) => {
   if (!owner) {
     return res.status(404).json({ error: 'Tracked owner not found' });
   }
-
-  const existing = get(
-    'SELECT id FROM tracked_decks WHERE user_id = ? AND archidekt_deck_id = ?',
-    [req.user.userId, archidektDeckId]
-  );
-  if (existing) {
-    return res.status(409).json({ error: 'You are already tracking this deck' });
-  }
+  if (owner.source_type === 'manual') return res.status(400).json({ error: 'Choose an Archidekt owner for an upstream deck' });
 
   try {
-    const result = run(
-      'INSERT INTO tracked_decks (user_id, tracked_owner_id, archidekt_deck_id, deck_name, deck_url) VALUES (?, ?, ?, ?, ?)',
-      [req.user.userId, trackedOwnerId, archidektDeckId, deckName, deckUrl || null]
-    );
-
-    const deckId = result.lastInsertRowid;
+    const { deckId, reused } = trackArchidektDeck(req.user.userId, { trackedOwnerId, archidektDeckId, deckName });
 
     // Fetch initial snapshot and extract commanders
     try {
-      const apiData = await fetchDeck(archidektDeckId);
-      const { text, commanders } = archidektToText(apiData);
-      // Enrich with Scryfall fallback for any cards missing metadata
-      let enrichedText = text;
-      try { enrichedText = await enrichDeckText(text, null); } catch { /* non-fatal */ }
-      run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deckId, enrichedText]);
-      pruneSnapshots(deckId);
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), commanders = ? WHERE id = ?',
-        [JSON.stringify(commanders || []), deckId]);
+      await refreshArchidektDeck(req.user.userId, deckId);
     } catch (fetchErr) {
       console.error('Initial snapshot fetch failed:', fetchErr);
     }
 
     const deck = get('SELECT * FROM tracked_decks WHERE id = ?', [deckId]);
-    res.status(201).json({ deck });
+    deck.source_sync = sourceSyncSummary(deck);
+    res.status(reused ? 200 : 201).json({ deck, linkedExisting: reused });
   } catch (err) {
+    if (err instanceof SourceSyncError) return res.status(err.status).json({ error: err.code, message: err.message });
     console.error('Track deck error:', err);
     res.status(500).json({ error: 'Failed to track deck' });
   }
@@ -113,47 +96,20 @@ router.post('/', archidektLimiter, async (req, res) => {
 
 router.post('/refresh-all', archidektLimiter, async (req, res) => {
   const decks = all(
-    'SELECT * FROM tracked_decks WHERE user_id = ?',
+    "SELECT * FROM tracked_decks WHERE user_id = ? AND source_type IN ('archidekt','moxfield','deckcheck')",
     [req.user.userId]
   );
 
   if (decks.length === 0) {
-    return res.json({ results: [], summary: { total: 0, changed: 0, failed: 0 } });
+    return res.json({ results: [], summary: { total: 0, changed: 0, failed: 0, pendingReview: 0 } });
   }
 
   const results = [];
 
   for (const deck of decks) {
     try {
-      const apiData = await fetchDeck(deck.archidekt_deck_id);
-      const { text, commanders } = archidektToText(apiData);
-
-      const latest = get(
-        'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
-        [deck.id]
-      );
-
-      // Enrich with carry-forward from previous snapshot + Scryfall fallback
-      let enrichedText = text;
-      try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
-
-      if (latest && latest.deck_text === enrichedText) {
-        run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-        results.push({ deckId: deck.id, deckName: deck.deck_name, changed: false });
-      } else {
-        run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-        pruneSnapshots(deck.id);
-        // Update commanders if detected (don't blank out user-set values)
-        const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-        if (cmdsJson) {
-          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
-            [apiData.name || deck.deck_name, cmdsJson, deck.id]);
-        } else {
-          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-            [apiData.name || deck.deck_name, deck.id]);
-        }
-        results.push({ deckId: deck.id, deckName: deck.deck_name, changed: true });
-      }
+      const { changed, pendingReview, message, sourceSync } = await refreshArchidektDeck(req.user.userId, deck.id);
+      results.push({ deckId: deck.id, deckName: deck.deck_name, changed, pendingReview, message, sourceSync });
     } catch (err) {
       console.error(`Refresh failed for deck ${deck.id}:`, err.message);
       results.push({ deckId: deck.id, deckName: deck.deck_name, error: err.message });
@@ -164,6 +120,7 @@ router.post('/refresh-all', archidektLimiter, async (req, res) => {
     total: results.length,
     changed: results.filter(r => r.changed).length,
     failed: results.filter(r => r.error).length,
+    pendingReview: results.filter(r => r.pendingReview).length,
   };
 
   res.json({ results, summary });
@@ -193,6 +150,9 @@ router.patch('/:id', (req, res) => {
   }
 
   const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold, priceAlertMode, autoRefreshHours } = req.body;
+  if (deck.source_type === 'manual' && (autoRefreshHours != null || notifyOnChange === true)) {
+    return res.status(409).json({ error: 'manual_deck_has_no_upstream', message: 'Manual decks do not refresh from Archidekt.' });
+  }
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -280,39 +240,15 @@ router.post('/:id/refresh', archidektLimiter, async (req, res) => {
   if (!deck) {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
+  if (deck.source_type === 'manual') {
+    return res.status(409).json({ error: 'manual_deck_has_no_upstream', message: 'Manual decks have no upstream source to refresh.' });
+  }
 
   try {
-    const apiData = await fetchDeck(deck.archidekt_deck_id);
-    const { text, commanders } = archidektToText(apiData);
-
-    const latest = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
-      [deck.id]
-    );
-
-    // Enrich with carry-forward from previous snapshot + Scryfall fallback
-    let enrichedText = text;
-    try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
-
-    if (latest && latest.deck_text === enrichedText) {
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-      return res.json({ changed: false, message: 'Deck is up to date' });
-    }
-
-    run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-    pruneSnapshots(deck.id);
-    // Update commanders if detected (don't blank out user-set values)
-    const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-    if (cmdsJson) {
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
-        [apiData.name || deck.deck_name, cmdsJson, deck.id]);
-    } else {
-      run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-        [apiData.name || deck.deck_name, deck.id]);
-    }
-
-    res.json({ changed: true, message: 'New snapshot saved' });
+    const { changed, pendingReview, message, sourceSync } = await refreshArchidektDeck(req.user.userId, id);
+    res.json({ changed, pendingReview, message, sourceSync });
   } catch (err) {
+    if (err instanceof SourceSyncError) return res.status(err.status).json({ error: err.code, message: err.message });
     console.error('Refresh error:', err);
     res.status(502).json({ error: `Failed to refresh from Archidekt: ${err.message}` });
   }
@@ -334,7 +270,7 @@ router.post('/export-batch', (req, res) => {
     if (!deck) continue;
 
     const snap = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]
     );
 
@@ -404,7 +340,7 @@ router.get('/:id/prices', async (req, res) => {
   }
 
   const snap = get(
-    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [deck.id]
   );
   if (!snap?.deck_text) {
@@ -446,7 +382,7 @@ router.get('/:id/price-history', (req, res) => {
     `SELECT id, nickname, created_at, snapshot_price, snapshot_budget_price
      FROM deck_snapshots
      WHERE tracked_deck_id = ? AND snapshot_price IS NOT NULL
-     ORDER BY created_at ASC`,
+     ORDER BY created_at ASC, id ASC`,
     [deck.id]
   );
 
@@ -477,20 +413,20 @@ router.get('/overlap', (req, res) => {
     return res.json({ decks: [], cardIndex: {}, matrix: [] });
   }
 
-  // Batch-fetch latest snapshot per deck (avoids N+1)
+  // Batch-fetch one latest snapshot per deck. Timestamps have second precision,
+  // so use the insertion ID to break ties, as in the snapshot and export routes.
   const overlapDeckIds = decks.map(d => d.id);
   const overlapPlaceholders = overlapDeckIds.map(() => '?').join(',');
   const latestSnaps = all(`
     SELECT ds.tracked_deck_id, ds.deck_text
     FROM deck_snapshots ds
-    INNER JOIN (
-      SELECT tracked_deck_id, MAX(created_at) as max_created
-      FROM deck_snapshots
-      WHERE tracked_deck_id IN (${overlapPlaceholders})
-      GROUP BY tracked_deck_id
-    ) latest ON ds.tracked_deck_id = latest.tracked_deck_id AND ds.created_at = latest.max_created
     WHERE ds.tracked_deck_id IN (${overlapPlaceholders})
-  `, [...overlapDeckIds, ...overlapDeckIds]);
+      AND ds.id = (
+        SELECT id FROM deck_snapshots
+        WHERE tracked_deck_id = ds.tracked_deck_id
+        ORDER BY created_at DESC, id DESC LIMIT 1
+      )
+  `, overlapDeckIds);
 
   const snapMap = new Map();
   for (const row of latestSnaps) {
@@ -588,7 +524,7 @@ router.get('/:id/recommendations', async (req, res) => {
   }
 
   const snap = get(
-    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
     [deck.id]
   );
   if (!snap?.deck_text) {
@@ -665,7 +601,7 @@ router.post('/:id/download-images', async (req, res) => {
     snap = get('SELECT id FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?',
       [snapshotId, deck.id]);
   } else {
-    snap = get('SELECT id FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+    snap = get('SELECT id FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]);
   }
   if (!snap) {
@@ -697,7 +633,7 @@ router.get('/:id/download-jobs/:jobId', (req, res) => {
   }
 
   const job = getJobStatus(jobId);
-  if (!job || job.user_id !== req.user.userId) {
+  if (!job || job.user_id !== req.user.userId || job.tracked_deck_id !== id) {
     return res.status(404).json({ error: 'Download job not found' });
   }
 
@@ -713,7 +649,7 @@ router.get('/:id/download-jobs/:jobId/file', (req, res) => {
 
   const { jobId } = req.params;
   const job = getJobStatus(jobId);
-  if (!job || job.user_id !== req.user.userId) {
+  if (!job || job.user_id !== req.user.userId || job.tracked_deck_id !== id) {
     return res.status(404).json({ error: 'Download not found' });
   }
 
@@ -721,7 +657,7 @@ router.get('/:id/download-jobs/:jobId/file', (req, res) => {
     return res.status(400).json({ error: 'Download is not ready yet' });
   }
 
-  if (job.expires_at && new Date(job.expires_at + 'Z') < new Date()) {
+  if (job.expired) {
     return res.status(410).json({ error: 'Download has expired. Submit a new request.' });
   }
 
@@ -767,42 +703,86 @@ function formatJobResponse(job, _deckId) {
 
 // ── MPC Art Overrides ──────────────────────────────────────
 
+function isMpcArtEntry(entry) {
+  return Array.isArray(entry) && entry.length === 2
+    && typeof entry[0] === 'string' && entry[0].trim().length > 0
+    && entry[1] !== null && typeof entry[1] === 'object' && !Array.isArray(entry[1]);
+}
+
+function mpcArtSnapshot(deck) {
+  let overrides = [];
+  if (deck.mpc_art_overrides) {
+    try {
+      const stored = JSON.parse(deck.mpc_art_overrides);
+      if (Array.isArray(stored)) overrides = stored.filter(isMpcArtEntry);
+    } catch { /* Corrupted legacy choices must not break the artwork picker. */ }
+  }
+  return { overrides, configured: deck.mpc_art_overrides != null, revision: deck.mpc_art_revision };
+}
+
 /**
  * GET /api/decks/:id/mpc-overrides — Load saved MPC art choices for a deck.
- * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
+ * Returns: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...], configured, revision }
+ * configured distinguishes a deliberate Reset Art from never-configured local migration.
  */
 router.get('/:id/mpc-overrides', (req, res) => {
   const id = requireIntParam(req, res, 'id');
   if (id === null) return;
-  const deck = get('SELECT id, user_id, mpc_art_overrides FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  const deck = get('SELECT mpc_art_overrides, mpc_art_revision FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
   if (!deck) return res.status(404).json({ error: 'Deck not found' });
-
-  let overrides = [];
-  if (deck.mpc_art_overrides) {
-    try { overrides = JSON.parse(deck.mpc_art_overrides); } catch { /* corrupted — return empty */ }
-  }
-  res.json({ overrides });
+  res.json(mpcArtSnapshot(deck));
 });
 
 /**
  * PUT /api/decks/:id/mpc-overrides — Save MPC art choices for a deck.
- * Body: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...] }
+ * Body: { overrides: [[cardName, {identifier, thumbnailUrl, dpi, sourceName, extension}], ...], baseRevision }
  */
 router.put('/:id/mpc-overrides', (req, res) => {
   const id = requireIntParam(req, res, 'id');
   if (id === null) return;
-  const deck = get('SELECT id, user_id FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
+  const deck = get('SELECT mpc_art_overrides, mpc_art_revision FROM tracked_decks WHERE id = ? AND user_id = ?', [id, req.user.userId]);
   if (!deck) return res.status(404).json({ error: 'Deck not found' });
 
-  const { overrides } = req.body;
+  const { overrides, baseRevision } = req.body || {};
+  if (baseRevision === undefined) {
+    return res.status(428).json({
+      error: 'Reload CLC before saving artwork. This client does not support conflict-safe saves.',
+      code: 'ARTWORK_REVISION_REQUIRED',
+    });
+  }
+  if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) {
+    return res.status(400).json({ error: 'baseRevision must be a nonnegative safe integer' });
+  }
   if (!Array.isArray(overrides)) return res.status(400).json({ error: 'overrides must be an array' });
 
   // Validate and cap size (max 612 cards × ~200 bytes each ≈ 120KB)
   if (overrides.length > 612) return res.status(400).json({ error: 'Too many overrides' });
+  if (!overrides.every(isMpcArtEntry)) {
+    return res.status(400).json({ error: 'overrides must contain card-name and artwork-object pairs' });
+  }
+  if (baseRevision !== deck.mpc_art_revision) {
+    return res.status(409).json({
+      error: 'Artwork changed in another tab or device. Review the saved choices before saving again.',
+      code: 'ARTWORK_CONFLICT',
+      ...mpcArtSnapshot(deck),
+    });
+  }
+  if (baseRevision === Number.MAX_SAFE_INTEGER) {
+    return res.status(409).json({ error: 'Artwork revision limit reached. Contact an administrator.', code: 'ARTWORK_REVISION_EXHAUSTED' });
+  }
 
-  const json = overrides.length === 0 ? null : JSON.stringify(overrides);
-  run('UPDATE tracked_decks SET mpc_art_overrides = ? WHERE id = ?', [json, id]);
-  res.json({ saved: true, count: overrides.length });
+  // Keep [] as an explicit reset. NULL is reserved for a deck that has never
+  // saved choices, so another device cannot restore stale local art after reset.
+  const json = JSON.stringify(overrides);
+  const revision = transaction(() => {
+    const { changes } = run(`UPDATE tracked_decks SET mpc_art_overrides = ?, mpc_art_revision = mpc_art_revision + 1
+      WHERE id = ? AND user_id = ? AND mpc_art_revision = ?`, [json, id, req.user.userId, baseRevision]);
+    // Route execution and the transaction are synchronous. A failed conditional
+    // update is an invariant failure, never permission to write without a guard.
+    if (changes !== 1) throw new Error('Artwork changed while saving');
+    return baseRevision + 1;
+  });
+  res.json({ saved: true, count: overrides.length, revision });
 });
 
 export default router;

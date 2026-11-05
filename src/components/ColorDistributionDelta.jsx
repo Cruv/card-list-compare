@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { cardDataForEntry } from '../lib/scryfall';
 import { extractColors, COLOR_CSS, COLOR_LABELS } from '../lib/analytics';
 import './ColorDistributionDelta.css';
 
@@ -21,9 +22,7 @@ export default function ColorDistributionDelta({ diffResult, cardMap }) {
     const removed = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
 
     function getCardData(card) {
-      const nameLower = (card.name || card.displayName || '').toLowerCase();
-      const compositeKey = card.collectorNumber ? `${nameLower}|${card.collectorNumber}` : null;
-      return (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower) || null;
+      return cardDataForEntry(cardMap, card) || null;
     }
 
     function isLand(data) {

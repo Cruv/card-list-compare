@@ -54,11 +54,11 @@ export function isWeakSecret(secret) {
  * Resolve the JWT secret for the current environment.
  * - Strong secret set → use it.
  * - Weak/missing in production → throw (fatal; refuse to start).
- * - Weak/missing outside production → generate an ephemeral per-process random
- *   secret so dev works with no config and no hardcoded secret ever ships. Tokens
- *   do not survive a restart, which is the correct trade-off for local dev.
+ * - Supplied but weak in any environment → throw.
+ * - Missing outside production → generate a local random secret persisted next
+ *   to DB_PATH. Only a filesystem failure makes it last for this process alone.
  *
- * Pure and env-injectable so the branch logic is unit-testable.
+ * Environment-injectable; the dev fallback may read/write its local secret file.
  */
 export function resolveJwtSecret(env = process.env) {
   const secret = env.JWT_SECRET;
@@ -92,8 +92,8 @@ export function getJwtSecret() {
   const { secret, ephemeral } = resolveJwtSecret();
   if (ephemeral) {
     console.warn(
-      'WARNING: JWT_SECRET is unset or weak — using an ephemeral random secret. ' +
-        'All sessions reset on restart. Set a strong JWT_SECRET before deploying.'
+      'WARNING: JWT_SECRET is unset — using a generated development secret ' +
+        '(persisted locally when writable). Set a strong JWT_SECRET before deploying.'
     );
   }
   cached = secret;

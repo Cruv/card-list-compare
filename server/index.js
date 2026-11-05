@@ -3,19 +3,33 @@ import compression from 'compression';
 import helmet from 'helmet';
 import { initDb, persist, backupDb } from './db.js';
 import { getJwtSecret } from './lib/jwtSecret.js';
-import { apiLimiter } from './middleware/rateLimit.js';
-import { MAX_BODY_SIZE, requireJsonContentType, trimBody } from './middleware/validate.js';
+import apiRateLimiter from './middleware/apiRateLimit.js';
+import { requireJsonContentType, trimBody } from './middleware/validate.js';
+import jsonBody from './middleware/jsonBody.js';
 import authRoutes from './routes/auth.js';
 import ownerRoutes from './routes/owners.js';
 import deckRoutes from './routes/decks.js';
 import snapshotRoutes from './routes/snapshots.js';
+import sourceSyncRoutes from './routes/sourceSync.js';
 import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
-import collectionRoutes from './routes/collection.js';
 import mpcRoutes from './routes/mpcautofill.js';
+import printRoutes, { standalonePrintRouter, printBatchesRouter } from './routes/print.js';
+import printStationRoutes from './routes/print-station.js';
+import integrationTokenRoutes from './routes/integrationTokens.js';
+import structuredDeckRoutes from './routes/structuredDecks.js';
+import proposalRoutes from './routes/proposals.js';
+import manasyncRouter, { startManaSyncRetryWorker } from './routes/manasync.js';
+import { initIntegrationSchema } from './lib/integrationSchema.js';
+import printStationManagementRoutes from './routes/print-station-management.js';
+import { resetPrintStationManagement } from './lib/printStationManagement.js';
 import { startNotificationScheduler } from './lib/notificationScheduler.js';
 import { initDownloadQueue } from './lib/downloadQueue.js';
+import { initializePrintGenerator } from './lib/printGenerator.js';
+import { initPrintQueue } from './lib/printQueue.js';
+import discordPrintBotRoutes, { discordPrintInteractionRouter } from './routes/discord-print-bot.js';
+import { initDiscordPrintBotSchema } from './lib/discordPrintBot.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -43,7 +57,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "https://cards.scryfall.io", "https://*.scryfall.io", "https://drive.google.com", "data:"],
+      imgSrc: ["'self'", "https://cards.scryfall.io", "https://*.scryfall.io", "https://drive.google.com", "data:", "blob:"],
       connectSrc: ["'self'", "https://api.scryfall.com", "https://archidekt.com", "https://www.archidekt.com", "https://mpcfill.com"],
       fontSrc: ["'self'"],
       objectSrc: ["'none'"],
@@ -54,14 +68,15 @@ app.use(helmet({
   referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 
-app.use(express.json({ limit: MAX_BODY_SIZE }));
+// Rate-limit before parsing. Authenticated native station traffic has a separate
+// bounded budget, so browser polling cannot starve receipts or recovery actions.
+app.use('/api', apiRateLimiter);
 
 // Input sanitization on /api routes
 app.use('/api', requireJsonContentType);
+app.use('/api/discord', discordPrintInteractionRouter);
+app.use(jsonBody);
 app.use('/api', trimBody);
-
-// Global rate limit for all /api routes
-app.use('/api', apiLimiter);
 
 // Health check (no auth; rate-limited by the global /api limiter above)
 app.get('/api/health', (_req, res) => {
@@ -70,17 +85,39 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/owners', ownerRoutes);
+app.use('/api/integrations/tokens', integrationTokenRoutes);
+app.use('/api/integrations/v1', structuredDeckRoutes);
+app.use('/api/decks', proposalRoutes);
+app.use('/api/decks', sourceSyncRoutes);
 app.use('/api/decks', deckRoutes);
 app.use('/api/decks', snapshotRoutes);
 app.use('/api/share', shareRoutes);
 app.use('/api/shared-deck', sharedDeckRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/collection', collectionRoutes);
 app.use('/api/mpc', mpcRoutes);
+// Station credentials are deliberately separate from user sessions.
+app.use('/api/print-station', printStationRoutes);
+app.use('/api/print-station-management', printStationManagementRoutes);
+app.use('/api/print-station-management', discordPrintBotRoutes);
+app.use('/api/decks', printRoutes);
+app.use('/api/print-lists', standalonePrintRouter);
+app.use('/api/print-batches', printBatchesRouter);
+app.use('/api/manasync', manasyncRouter);
 
 async function start() {
   await initDb();
+  initIntegrationSchema();
+  initDiscordPrintBotSchema();
+  startManaSyncRetryWorker();
+  resetPrintStationManagement();
   initDownloadQueue();
+  initPrintQueue();
+  // Preparing/updating Python must not delay the web app or break offline startup.
+  if (process.env.PRINT_ENABLED !== 'false') {
+    initializePrintGenerator().then(status => {
+      console.log('[PrintGenerator]', status.available ? `Ready: ${status.revision}` : 'Unavailable', status.fallbackReason || '');
+    }).catch(err => console.error('[PrintGenerator] Initialization failed:', err.message));
+  }
   app.listen(PORT, () => {
     console.log(`CardListCompare server running on port ${PORT}`);
     startNotificationScheduler();

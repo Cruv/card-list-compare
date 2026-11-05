@@ -1,0 +1,29 @@
+{
+  "id": "preview-only",
+  "claimToken": "local-fixture-never-sent",
+  "recipeId": "household-letter-v6",
+  "manifestSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "state": "claimed",
+  "artifacts": [
+    {
+      "id": "ordinary",
+      "kind": "ordinary",
+      "downloadUrl": "/unused-preview-only/ordinary.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 100,
+      "pageCount": 2,
+      "frontPages": [1, 2],
+      "backPages": []
+    },
+    {
+      "id": "dfc",
+      "kind": "dfc",
+      "downloadUrl": "/unused-preview-only/dfc.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 100,
+      "pageCount": 4,
+      "frontPages": [1, 3],
+      "backPages": [2, 4]
+    }
+  ]
+}

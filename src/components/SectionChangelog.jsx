@@ -1,21 +1,20 @@
 import { memo, useMemo } from 'react';
 import CardLine from './CardLine';
-import { groupByType } from '../lib/scryfall';
+import { cardIdentityKey, normalizedName } from '../lib/cardIdentity';
+import { groupByType, cardDataForEntry } from '../lib/scryfall';
 import './SectionChangelog.css';
 
 function CardGroup({ cards, changeType, cardMap }) {
   return cards.map((card) => {
-    // Try composite key first (name|collectorNumber) for per-printing data, fall back to bare name
-    const nameLower = card.name.toLowerCase();
-    const compositeKey = card.collectorNumber || card.newCollectorNumber
-      ? `${nameLower}|${card.newCollectorNumber || card.collectorNumber}`
-      : null;
-    const compositeData = compositeKey ? cardMap?.get(compositeKey) : null;
-    const bareData = cardMap?.get(nameLower);
-    const data = compositeData || bareData;
+    const selected = changeType === 'printing' ? {
+      name: card.name, setCode: card.newSetCode,
+      collectorNumber: card.newCollectorNumber, isFoil: card.newIsFoil,
+    } : card;
+    const data = cardDataForEntry(cardMap, selected);
+    const bareData = cardMap?.get(normalizedName(card.name));
     return (
       <CardLine
-        key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : (card.newCollectorNumber ? `${card.name}|${card.newCollectorNumber}` : card.name)}
+        key={cardIdentityKey(selected)}
         name={card.name}
         quantity={card.quantity}
         changeType={changeType}
@@ -26,7 +25,7 @@ function CardGroup({ cards, changeType, cardMap }) {
         imageUri={data?.imageUri}
         setCode={card.setCode}
         collectorNumber={card.collectorNumber}
-        isFoil={card.isFoil}
+        isFoil={selected.isFoil}
         priceUsd={data?.priceUsd}
         priceUsdFoil={data?.priceUsdFoil}
         cheapestPriceUsd={bareData?.priceUsd}

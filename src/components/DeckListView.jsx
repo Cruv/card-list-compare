@@ -1,8 +1,10 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppSettings } from '../context/AppSettingsContext';
 import CardLine from './CardLine';
-import { groupByType, TYPE_ORDER } from '../lib/scryfall';
-import { collectionCoverage, allocateOwnedCopies, lineKey } from '../lib/collectionMatch';
+import Icon from './Icon';
+import { useModalLayer } from '../lib/useModalLayer';
+import { cardDataForEntry, groupByType, TYPE_ORDER } from '../lib/scryfall';
+import { cardIdentityKey, normalizeCardName } from '../lib/cardIdentity';
 import { symbolToSvgUrl } from './ManaCost';
 import { parseCMC, extractColors, COLOR_LABELS, COLOR_CSS } from '../lib/analytics';
 import './DeckListView.css';
@@ -12,16 +14,14 @@ import './DeckListView.css';
 function computeSectionStats(section, cardMap) {
   const cards = [];
   for (const [, entry] of section) {
-    const nameLower = entry.displayName.toLowerCase();
-    const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
-    const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
+    const data = cardDataForEntry(cardMap, entry);
     if (data) {
       cards.push({ ...entry, type: data.type, isBackLand: data.isBackLand || false, manaCost: data.manaCost });
     }
   }
 
   const totalCards = cards.reduce((sum, c) => sum + c.quantity, 0);
-  const uniqueCards = cards.length;
+  const uniqueCards = new Set(cards.map(card => normalizeCardName(card.displayName))).size;
 
   const typeCounts = {};
   for (const t of TYPE_ORDER) typeCounts[t] = 0;
@@ -211,7 +211,7 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
   );
 }
 
-function DeckSection({ sectionName, cards, cardMap, ownedAllocation }) {
+function DeckSection({ sectionName, cards, cardMap, layout, onInspect }) {
   const cardArray = useMemo(() => {
     const arr = [];
     for (const [, entry] of cards) {
@@ -230,25 +230,16 @@ function DeckSection({ sectionName, cards, cardMap, ownedAllocation }) {
   const groups = useMemo(() => hasTypes ? groupByType(cardArray, cardMap) : null, [cardArray, cardMap, hasTypes]);
 
   const totalCards = useMemo(() => cardArray.reduce((sum, c) => sum + c.quantity, 0), [cardArray]);
+  const uniqueCards = useMemo(() => new Set(cardArray.map(card => normalizeCardName(card.name))).size, [cardArray]);
 
   if (cardArray.length === 0) return null;
 
   function renderCard(card) {
     const nameLower = card.name.toLowerCase();
-    const compositeKey = card.collectorNumber
-      ? `${nameLower}|${card.collectorNumber}`
-      : null;
-    const compositeData = compositeKey ? cardMap?.get(compositeKey) : null;
     const bareData = cardMap?.get(nameLower);
-    const data = compositeData || bareData;
-    // Copies allocated to THIS line (see allocateOwnedCopies) — null when the
-    // user has no collection loaded, which hides the badge entirely.
-    const owned = ownedAllocation
-      ? (ownedAllocation.get(lineKey(sectionName, card.name, card.collectorNumber)) ?? 0)
-      : null;
-    return (
-      <CardLine
-        key={card.collectorNumber ? `${card.name}|${card.collectorNumber}` : card.name}
+    const data = cardDataForEntry(cardMap, card);
+    const cardLine = <CardLine
+        key={cardIdentityKey(card)}
         name={card.name}
         quantity={card.quantity}
         changeType="list"
@@ -257,33 +248,46 @@ function DeckSection({ sectionName, cards, cardMap, ownedAllocation }) {
         setCode={card.setCode}
         collectorNumber={card.collectorNumber}
         isFoil={card.isFoil}
-        owned={owned}
         priceUsd={data?.priceUsd}
         priceUsdFoil={data?.priceUsdFoil}
         cheapestPriceUsd={bareData?.priceUsd}
         cheapestPriceUsdFoil={bareData?.priceUsdFoil}
-      />
-    );
+      />;
+    if (layout !== 'gallery') return cardLine;
+    return <DeckGalleryTile key={cardIdentityKey(card)} card={card} imageUri={data?.imageUri} onInspect={onInspect}>{cardLine}</DeckGalleryTile>;
   }
 
   return (
-    <section className="deck-list-section">
+    <section className={`deck-list-section deck-list-section--${layout}`}>
       <h3 className="deck-list-section-title">
         {sectionName}
-        <span className="deck-list-section-count">{totalCards} cards ({cardArray.length} unique)</span>
+        <span className="deck-list-section-count">{totalCards} cards ({uniqueCards} unique)</span>
       </h3>
       {hasTypes ? (
         groups.map(({ type, cards: groupCards }) => (
           <div key={type} className="section-changelog-type-group">
             <span className="section-changelog-type-label">{type}</span>
-            {groupCards.map(renderCard)}
+            <div className={layout === 'gallery' ? 'deck-gallery-grid' : 'deck-list-rows'}>{groupCards.map(renderCard)}</div>
           </div>
         ))
       ) : (
-        cardArray.map(renderCard)
+        <div className={layout === 'gallery' ? 'deck-gallery-grid' : 'deck-list-rows'}>{cardArray.map(renderCard)}</div>
       )}
     </section>
   );
+}
+
+function DeckGalleryTile({ card, imageUri, onInspect, children }) {
+  const [failedUri, setFailedUri] = useState(null);
+  const available = imageUri && failedUri !== imageUri;
+  return <article className="deck-gallery-card">
+    <button className="deck-gallery-art" type="button" onClick={event => { event.currentTarget.focus(); onInspect({ name: card.name, imageUri }); }}
+      aria-label={`View ${card.name} artwork`} disabled={!available}>
+      {available ? <img src={imageUri} alt="" loading="lazy" onError={() => setFailedUri(imageUri)} /> : <span><Icon name="cards" size={32} />Artwork unavailable</span>}
+      <span className="deck-gallery-quantity">{card.quantity}×</span>
+    </button>
+    <div className="deck-gallery-card-caption">{children}</div>
+  </article>;
 }
 
 /** Compute total deck value from a parsed deck and card data map. */
@@ -294,9 +298,7 @@ function computeDeckPrice(parsedDeck, cardMap) {
 
   for (const section of [parsedDeck.mainboard, parsedDeck.sideboard]) {
     for (const [, entry] of section) {
-      const nameLower = entry.displayName.toLowerCase();
-      const compositeKey = entry.collectorNumber ? `${nameLower}|${entry.collectorNumber}` : null;
-      const data = (compositeKey && cardMap.get(compositeKey)) || cardMap.get(nameLower);
+      const data = cardDataForEntry(cardMap, entry);
       if (data) {
         const isFoil = entry.isFoil || false;
         const unitPrice = isFoil && data.priceUsdFoil != null ? data.priceUsdFoil : data.priceUsd;
@@ -337,33 +339,25 @@ function computeBudgetPrice(parsedDeck, cardMap) {
   return hasAnyPrice ? total : null;
 }
 
-export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, ownedIndex }) {
+export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, insights }) {
   // Hooks must run unconditionally — see Rules of Hooks. Guard on the derived
   // values below, never with an early return before the hooks.
   const { priceDisplayEnabled } = useAppSettings();
-  const [showAnalytics, setShowAnalytics] = useState(true);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [localSearch, setLocalSearch] = useState('');
+  const [layout, setLayout] = useState('gallery');
+  const [inspectedCard, setInspectedCard] = useState(null);
+  const query = (searchQuery ?? localSearch).trim();
   const { mainboard, sideboard, commanders } = parsedDeck || {};
 
   const deckPrice = useMemo(() => (priceDisplayEnabled && parsedDeck) ? computeDeckPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
   const budgetDeckPrice = useMemo(() => (priceDisplayEnabled && parsedDeck) ? computeBudgetPrice(parsedDeck, cardMap) : null, [parsedDeck, cardMap, priceDisplayEnabled]);
 
-  const coverage = useMemo(
-    () => (parsedDeck && ownedIndex ? collectionCoverage(parsedDeck, ownedIndex) : null),
-    [parsedDeck, ownedIndex]
-  );
-
-  // Owned copies split across the lines that need them, computed from the FULL
-  // deck so the badges don't change while a search filter is applied.
-  const ownedAllocation = useMemo(
-    () => (parsedDeck && ownedIndex ? allocateOwnedCopies(parsedDeck, ownedIndex) : null),
-    [parsedDeck, ownedIndex]
-  );
-
   // Filter cards by search query if provided
   const filteredMainboard = useMemo(() => {
     if (!mainboard) return new Map();
-    if (!searchQuery) return mainboard;
-    const lower = searchQuery.toLowerCase();
+    if (!query) return mainboard;
+    const lower = query.toLowerCase();
     const filtered = new Map();
     for (const [key, entry] of mainboard) {
       if (entry.displayName.toLowerCase().includes(lower)) {
@@ -371,12 +365,12 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, ow
       }
     }
     return filtered;
-  }, [mainboard, searchQuery]);
+  }, [mainboard, query]);
 
   const filteredSideboard = useMemo(() => {
     if (!sideboard) return new Map();
-    if (!searchQuery) return sideboard;
-    const lower = searchQuery.toLowerCase();
+    if (!query) return sideboard;
+    const lower = query.toLowerCase();
     const filtered = new Map();
     for (const [key, entry] of sideboard) {
       if (entry.displayName.toLowerCase().includes(lower)) {
@@ -384,21 +378,25 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, ow
       }
     }
     return filtered;
-  }, [sideboard, searchQuery]);
+  }, [sideboard, query]);
 
   if (!parsedDeck) return null;
 
   return (
     <div className="deck-list-view">
+      <div className="deck-list-toolbar">
+        {searchQuery === undefined && <label className="deck-list-search"><Icon name="search" size={18} />
+          <input type="search" value={localSearch} onChange={event => setLocalSearch(event.target.value)} placeholder="Find a card in this deck…" aria-label="Search deck cards" />
+        </label>}
+        <div className="deck-list-layout" role="group" aria-label="Card display">
+          <button className={layout === 'gallery' ? 'is-active' : ''} aria-pressed={layout === 'gallery'} onClick={() => setLayout('gallery')} type="button"><Icon name="cards" size={16} /> Gallery</button>
+          <button className={layout === 'list' ? 'is-active' : ''} aria-pressed={layout === 'list'} onClick={() => setLayout('list')} type="button"><Icon name="library" size={16} /> List</button>
+        </div>
+      </div>
+      {query && <p className="deck-list-search-summary" role="status">{filteredMainboard.size + filteredSideboard.size} matching printing{filteredMainboard.size + filteredSideboard.size === 1 ? '' : 's'} · filtering this view only</p>}
       {commanders && commanders.length > 0 && (
         <div className="deck-list-commanders">
           {commanders.join(' / ')}
-        </div>
-      )}
-      {coverage && coverage.uniqueTotal > 0 && (
-        <div className="deck-list-collection-summary">
-          Collection: you own <strong>{coverage.uniqueOwned}</strong> of {coverage.uniqueTotal} unique cards
-          {' '}({coverage.copiesOwned}/{coverage.copiesNeeded} copies)
         </div>
       )}
       {deckPrice != null && (
@@ -409,23 +407,45 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, ow
           )}
         </div>
       )}
-      {cardMap && cardMap.size > 0 && (
+      {(insights || (cardMap && cardMap.size > 0)) && (
         <div className="deck-analytics-toggle">
           <button
             type="button"
             className="deck-analytics-toggle-btn"
             onClick={() => setShowAnalytics(v => !v)}
+            aria-expanded={showAnalytics}
           >
-            <span className={`deck-analytics-arrow${showAnalytics ? ' deck-analytics-arrow--open' : ''}`}>&#9654;</span>
-            Deck Analytics
+            <span aria-hidden="true" className={`deck-analytics-arrow${showAnalytics ? ' deck-analytics-arrow--open' : ''}`}>&#9654;</span>
+            {insights ? 'Insights & prices' : 'Deck insights'}
           </button>
         </div>
       )}
-      {showAnalytics && cardMap && cardMap.size > 0 && (
-        <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />
-      )}
-      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} ownedAllocation={ownedAllocation} />
-      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} ownedAllocation={ownedAllocation} />}
+      {showAnalytics && <section className="deck-insights-panel">{insights}{cardMap && cardMap.size > 0 && <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />}</section>}
+      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />
+      {filteredMainboard.size === 0 && filteredSideboard.size === 0 && <p className="deck-list-no-results">{query ? 'No cards match this search.' : 'This saved version has no cards.'}</p>}
+      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />}
+      {inspectedCard && <DeckCardDialog card={inspectedCard} onClose={() => setInspectedCard(null)} />}
     </div>
   );
 });
+
+function DeckCardDialog({ card, onClose }) {
+  const dialogRef = useRef(null);
+  useModalLayer(onClose, { containerRef: dialogRef, trapFocus: false });
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    const previouslyFocused = document.activeElement;
+    dialog.showModal();
+    return () => {
+      dialog.close();
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
+  return <dialog ref={dialogRef} className="deck-card-dialog" aria-label={card.name}
+    onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === dialogRef.current) onClose(); }}>
+    <div className="deck-card-dialog-content">
+      <div className="deck-card-dialog-heading"><strong>{card.name}</strong><button className="btn btn-secondary" aria-label="Close card artwork" onClick={onClose} type="button"><Icon name="close" /></button></div>
+      <img src={card.imageUri} alt={card.name} />
+    </div>
+  </dialog>;
+}

@@ -1,0 +1,990 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync, chmodSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { once } from 'node:events';
+import crypto from 'node:crypto';
+import express from 'express';
+
+let dir, db, management, server, origin, tokens;
+const credential = 'station-management-fixture-credential-0123456789012345';
+const digest = value => crypto.createHash('sha256').update(value).digest('hex');
+const instant = Date.UTC(2026, 8, 10, 12);
+const heartbeat = (extra = {}) => ({ version: '2.45.0', paused: false, queue: 'EPSON_ET_8550_Series',
+  recipeVerified: true, duplexVerified: false, recipeFingerprint: 'f'.repeat(64), activeJob: null,
+  health: { ok: true, message: 'Station ready' },
+  update: { supported: true, currentVersion: '2.45.0', previousVersion: '2.44.2', availableVersion: '2.45.1', status: 'available', error: null },
+  events: [], receipts: [], ...extra });
+const command = (type, extra = {}) => ({ idempotencyKey: crypto.randomUUID(), type, ...extra });
+
+beforeEach(async () => {
+  vi.resetModules(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(instant);
+  dir = mkdtempSync(join(tmpdir(), 'clc-station-management-'));
+  vi.stubEnv('DB_PATH', join(dir, 'db.sqlite')); vi.stubEnv('PRINT_JOBS_DIR', join(dir, 'jobs'));
+  vi.stubEnv('PRINT_STATION_TOKEN', credential); vi.stubEnv('PRINT_ALLOWED_USER_IDS', '2,4');
+  vi.stubEnv('JWT_SECRET', 'station-management-test-jwt-secret-only');
+  db = await import('../db.js'); await db.initDb();
+  for (const [username, admin, suspended] of [['admin', 1, 0], ['household', 0, 0], ['outside', 0, 0], ['suspended', 0, 1]]) {
+    db.run('INSERT INTO users(username, password_hash, is_admin, suspended) VALUES (?, ?, ?, ?)', [username, 'unused', admin, suspended]);
+  }
+  const { createToken } = await import('../middleware/auth.js');
+  tokens = Object.fromEntries(db.all('SELECT * FROM users').map(user => [user.id, createToken(user)]));
+  management = await import('../lib/printStationManagement.js');
+  const app = express(); app.use(express.json({ limit: '64kb' }));
+  app.use('/api/print-station-management', (await import('./print-station-management.js')).default);
+  app.use('/api/print-station', (await import('./print-station.js')).default);
+  server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
+  origin = `http://127.0.0.1:${server.address().port}`;
+});
+afterEach(async () => {
+  server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));
+  vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true });
+});
+function request(path, { method = 'GET', body, token = tokens[1] } = {}) {
+  return fetch(origin + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+}
+const status = (user = 1) => request('/api/print-station-management/status', { token: tokens[user] });
+const send = (value, user = 1) => request('/api/print-station-management/commands', { method: 'POST', body: value, token: tokens[user] });
+const beat = value => request('/api/print-station/heartbeat', { method: 'POST', body: value || heartbeat(), token: credential });
+const claim = () => request('/api/print-station/claim', { method: 'POST', body: {}, token: credential });
+async function accepted(value, user = 1) {
+  const response = await send(value, user), body = await response.json();
+  expect(response.status, JSON.stringify(body)).toBe(200); return body.command;
+}
+function seedJob(state = 'awaiting_refeed', steps = [
+  { artifactId: 'dfc-first', phase: 'fronts', state: 'completed', spoolerId: 'EPSON-1' },
+  { artifactId: 'dfc-first', phase: 'backs', state: 'pending', requiresRefeed: true },
+  { artifactId: 'dfc-second', phase: 'fronts', state: 'pending' },
+  { artifactId: 'dfc-second', phase: 'backs', state: 'pending', requiresRefeed: true },
+]) {
+  const id = crypto.randomUUID(), path = join(dir, 'jobs', id);
+  mkdirSync(path, { recursive: true });
+  const pdf = Buffer.from('%PDF-1.4\nFixture\n%%EOF\n'); writeFileSync(join(path, 'fronts.pdf'), pdf);
+  const manifest = JSON.stringify({ recipe: { id: 'household-letter-v6' }, artifacts: [{ id: 'fronts', kind: 'ordinary',
+    fileName: 'fronts.pdf', sha256: digest(pdf), size: pdf.length, pageCount: 1, sheetCount: 1, cardCount: 7 }] });
+  const plan = { deckName: 'Household proof', mode: 'full', totalCopies: 7, artSource: 'scryfall', source: null, target: { id: 1, createdAt: new Date().toISOString(), textHash: 'f'.repeat(64) } };
+  db.run(`INSERT INTO print_jobs(id, user_id, tracked_deck_id, request_key, request_hash, plan_json, state,
+    manifest_json, manifest_sha256, steps_json, created_at, updated_at, queued_at, station_id, claim_nonce, lease_expires_at)
+    VALUES (?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  [id, crypto.randomUUID(), 'hash', JSON.stringify(plan), state, manifest, digest(manifest), JSON.stringify(steps),
+    new Date().toISOString(), new Date().toISOString(), new Date().toISOString(), state === 'queued' ? null : 'household', 'nonce', new Date(instant + 120000).toISOString()]);
+  return id;
+}
+
+describe('queued batch notification heartbeat delivery', () => {
+  async function seedNotice(state = 'queued', extra = {}) {
+    const jobId = seedJob(state);
+    const { queuedPrintNotificationStatement } = await import('../lib/printQueueNotifications.js');
+    const row = db.get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+    db.runTransaction([queuedPrintNotificationStatement(row, row.queued_at)]);
+    const notice = db.get('SELECT * FROM print_queue_notifications WHERE job_id = ?', [jobId]);
+    if (extra.state) db.run('UPDATE print_jobs SET state = ? WHERE id = ?', [extra.state, jobId]);
+    return notice;
+  }
+  const readNotice = id => db.get('SELECT * FROM print_queue_notifications WHERE id = ?', [id]);
+  const noticeBeat = extra => beat(heartbeat({ queueNotifications: true, ...extra }));
+
+  it('opts in explicitly and delivers new work while another batch is active or claims are paused', async () => {
+    const notice = await seedNotice(), activeId = seedJob('submitted');
+    const legacy = await (await beat()).json();
+    expect(legacy).not.toHaveProperty('queueNotifications');
+    expect(legacy).not.toHaveProperty('acknowledgedQueueNotificationIds');
+    expect(readNotice(notice.id).delivered_at).toBeNull();
+    expect(await (await noticeBeat({ queueNotifications: false })).json()).not.toHaveProperty('queueNotifications');
+    const response = await (await noticeBeat({ paused: true, activeJob: { id: activeId, state: 'submitted' } })).json();
+    expect(response.queueNotifications).toEqual([{ id: notice.id, jobId: notice.job_id, deckName: 'Household proof', requesterName: 'admin', totalCopies: 7, queuedAt: new Date().toISOString() }]);
+    expect(response.acknowledgedQueueNotificationIds).toEqual([]);
+    expect(readNotice(notice.id).delivered_at).toBe(new Date().toISOString());
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [notice.job_id]).state).toBe('queued');
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [activeId]).state).toBe('submitted');
+    for (const secret of ['plan_json', 'claimToken', 'downloadUrl', credential, 'artifacts']) expect(JSON.stringify(response.queueNotifications)).not.toContain(secret);
+  });
+
+  it('durably redelivers only the same pending notice after a lost reply and server restart', async () => {
+    const notice = await seedNotice();
+    vi.setSystemTime(instant + 1000); const second = await seedNotice();
+    const firstResponse = await (await noticeBeat()).json();
+    const durableBefore = readFileSync(join(dir, 'db.sqlite'));
+    const reloaded = new (db.getDb().constructor)(durableBefore);
+    try {
+      expect(reloaded.exec('SELECT delivered_at FROM print_queue_notifications WHERE id = ?', [notice.id])[0].values[0][0]).toBeTruthy();
+    } finally { reloaded.close(); }
+    management.resetPrintStationManagement();
+    vi.setSystemTime(instant + 2000);
+    expect((await (await noticeBeat()).json()).queueNotifications).toEqual(firstResponse.queueNotifications);
+    expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(durableBefore); // No poll rewrite.
+    const receipt = { id: notice.id, status: 'attempted' };
+    const accepted = await (await noticeBeat({ queueNotificationReceipts: [receipt] })).json();
+    expect(accepted.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(accepted.queueNotifications.map(item => item.id)).toEqual([second.id]);
+    const saved = readNotice(notice.id);
+    vi.setSystemTime(instant + 3000);
+    expect((await (await noticeBeat({ queueNotificationReceipts: [receipt] })).json()).acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id)).toEqual(saved);
+    const conflicting = await (await noticeBeat({ queueNotificationReceipts: [{ ...receipt, status: 'failed' }] })).json();
+    expect(conflicting.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id)).toEqual(saved);
+  });
+
+  it.each(['attempted', 'failed', 'disabled', 'ignored'])('settles a %s receipt without retrying delivery or changing print state', async receiptStatus => {
+    const notice = await seedNotice(); await noticeBeat();
+    const response = await (await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: receiptStatus }] })).json();
+    expect(response.queueNotifications).toEqual([]);
+    expect(response.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id).status).toBe(receiptStatus);
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [notice.job_id]).state).toBe('queued');
+  });
+
+  it('suppresses batches that finished before first delivery without backfilling old queue history', async () => {
+    const discarded = [];
+    for (const state of ['completed', 'canceled', 'failed', 'expired']) discarded.push(await seedNotice('queued', { state }));
+    const historical = seedJob('queued');
+    const response = await (await noticeBeat()).json();
+    expect(response.queueNotifications).toEqual([]);
+    expect(discarded.map(item => readNotice(item.id).status)).toEqual(Array(4).fill('ignored'));
+    expect(discarded.map(item => readNotice(item.id).delivered_at)).toEqual(Array(4).fill(null));
+    expect(db.get('SELECT id FROM print_queue_notifications WHERE job_id = ?', [historical])).toBeNull();
+  });
+
+  it('accepts a durable receipt after an account/job purge without recreating its labels', async () => {
+    const notice = await seedNotice(); await noticeBeat();
+    db.run('DELETE FROM print_jobs WHERE id = ?', [notice.job_id]);
+    expect(readNotice(notice.id)).toBeNull();
+    const response = await (await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] })).json();
+    expect(response.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(db.all('SELECT * FROM print_queue_notifications')).toEqual([]);
+  });
+
+  it('quarantines a stale restored-server receipt without blocking controls, claims or later announcements', async () => {
+    const notice = await seedNotice(); // Restored backup still says never delivered.
+    vi.setSystemTime(instant + 1000); const next = await seedNotice();
+    await beat();
+    const checkUpdate = await accepted(command('check_update'));
+    const response = await (await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] })).json();
+    expect(response.commands.map(item => item.id)).toContain(checkUpdate.id);
+    expect(response.queueNotifications.map(item => item.id)).toEqual([next.id]);
+    expect(response.acknowledgedQueueNotificationIds).toEqual([notice.id]);
+    expect(readNotice(notice.id)).toMatchObject({ status: 'ignored', delivered_at: null });
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [notice.job_id]).state).toBe('queued');
+    expect((await claim()).status).toBe(200);
+    const saved = readNotice(notice.id);
+    expect((await noticeBeat({ queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] })).status).toBe(200);
+    expect(readNotice(notice.id)).toEqual(saved);
+  });
+
+  it('requires the station credential and validates capabilities, receipt bounds, IDs and immutable delivery state', async () => {
+    const notice = await seedNotice();
+    for (const token of [null, tokens[1], 'bad-station-token']) {
+      expect((await request('/api/print-station/heartbeat', { method: 'POST', token, body: heartbeat({ queueNotifications: true }) })).status).toBe(401);
+    }
+    const invalidBodies = [
+      ...[null, 1, 'true', {}, []].map(queueNotifications => ({ queueNotifications })),
+      ...[null, {}, 'receipts', Array.from({ length: 21 }, () => ({ id: crypto.randomUUID(), status: 'attempted' }))].map(queueNotificationReceipts => ({ queueNotificationReceipts })),
+      ...[null, [], {}, { id: notice.id, status: 'sent' }, { id: 'bad-id', status: 'failed' }, { id: notice.id, status: 'failed', secret: 'private' }].map(receipt => ({ queueNotificationReceipts: [receipt] })),
+      { queueNotificationReceipts: [{ id: notice.id, status: 'failed' }, { id: notice.id, status: 'failed' }] },
+      { queueNotifications: false, queueNotificationReceipts: [{ id: notice.id, status: 'attempted' }] },
+    ];
+    for (const body of invalidBodies) expect((await noticeBeat(body)).status, JSON.stringify(body)).toBe(400);
+    expect(readNotice(notice.id)).toMatchObject({ status: null, delivered_at: null });
+    expect(db.all('SELECT * FROM print_station_commands')).toEqual([]);
+  });
+});
+
+describe('household station access and telemetry', () => {
+  it('shows every persisted household queue entry in scheduler order without private plans or cross-owner links', async () => {
+    const first = seedJob('queued'), second = seedJob('queued'), active = seedJob('submitted'), preparing = seedJob('preparing');
+    const unrelated = [seedJob('preparing'), seedJob('ready'), seedJob('submitted')];
+    db.run('UPDATE print_jobs SET queued_at = ?, user_id = 2, tracked_deck_id = NULL WHERE id = ?', ['2026-09-10T10:00:00Z', first]);
+    db.run('UPDATE print_jobs SET queued_at = ? WHERE id = ?', ['2026-09-10T11:00:00Z', second]);
+    db.run('UPDATE print_jobs SET queue_requested = 1, station_id = NULL, queued_at = NULL WHERE id = ?', [preparing]);
+    db.run('UPDATE print_jobs SET station_id = ? WHERE id = ?', ['another-station', unrelated[2]]);
+    const privatePlan = { deckName: 'Jin Sakai', totalCopies: 100, list: { text: 'private card text' }, comparison: { beforeText: 'private baseline' }, token: 'never-expose-fixture' };
+    db.run('UPDATE print_jobs SET plan_json = ? WHERE id = ?', [JSON.stringify(privatePlan), first]);
+    const before = readFileSync(join(dir, 'db.sqlite'));
+    const result = await status(), body = await result.json();
+    expect(result.headers.get('cache-control')).toBe('private, no-store');
+    expect(body.jobs.pending.map(job => job.id)).toEqual([active, first, second, preparing]);
+    expect(body.jobs.pending[1]).toMatchObject({ id: first, deckName: 'Jin Sakai', totalCopies: 100, canOpen: false });
+    expect(body.jobs.pending[1]).not.toHaveProperty('deckId');
+    expect(body.jobs.pending[2]).toMatchObject({ canOpen: true, deckId: 1 });
+    expect(Object.keys(body.jobs.pending[1]).sort()).toEqual(['id', 'deckName', 'totalCopies', 'state', 'createdAt', 'queuedAt', 'completedAt', 'canOpen', 'canCancel', 'requesterName', 'workflow', 'backRequest', 'cancelRequested', 'cancelRequestId', 'packets', 'canCancelBacks', 'canPrepareBacks', 'backsCanceled', 'frontsCompleted'].sort());
+    for (const secret of ['private card text', 'private baseline', 'never-expose-fixture', 'manifest_json', 'claimToken', 'downloadUrl']) expect(JSON.stringify(body.jobs)).not.toContain(secret);
+    expect((await (await status(2)).json()).jobs.pending[1]).toMatchObject({ canOpen: true, deckId: null });
+    for (const user of [3, 4]) { const denied = await status(user); expect(denied.status).toBe(403); expect(await denied.json()).not.toHaveProperty('jobs'); }
+    expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(before);
+  });
+
+  it('keeps the saved queue visible when the companion disconnects or the server loses its heartbeat', async () => {
+    const queued = seedJob('queued'), active = seedJob('submitted');
+    await beat(heartbeat({ activeJob: { id: active, state: 'submitted', artifactId: 'fronts', phase: 'fronts' } }));
+    const initial = await (await status()).json();
+    expect(initial.jobs.pending.map(job => job.id)).toEqual([active, queued]);
+    vi.setSystemTime(instant + 25001);
+    expect((await (await status()).json()).station.online).toBe(false);
+    management.resetPrintStationManagement();
+    const restarted = await (await status()).json();
+    expect(restarted.station.activeJob).toBeNull();
+    expect(restarted.jobs).toEqual(initial.jobs);
+    await beat();
+    expect((await (await status()).json()).jobs).toEqual(initial.jobs);
+    expect(db.all('SELECT id, state FROM print_jobs ORDER BY id')).toEqual([{ id: active, state: 'submitted' }, { id: queued, state: 'queued' }].sort((a, b) => a.id.localeCompare(b.id)));
+  });
+
+  it('limits finished station history, includes canceled waiting batches, and excludes download-only jobs', async () => {
+    const completed = [];
+    for (let n = 0; n < 22; n += 1) {
+      const id = seedJob('completed'); completed.push(id);
+      db.run('UPDATE print_jobs SET completed_at = ? WHERE id = ?', [new Date(instant + n * 1000).toISOString(), id]);
+    }
+    const canceled = seedJob('canceled'), downloadOnly = seedJob('failed');
+    db.run('UPDATE print_jobs SET station_id = NULL, queue_requested = 0, completed_at = ? WHERE id = ?', [new Date(instant + 30000).toISOString(), canceled]);
+    db.run('UPDATE print_jobs SET station_id = NULL, queue_requested = 0, queued_at = NULL WHERE id = ?', [downloadOnly]);
+    const jobs = (await (await status()).json()).jobs;
+    expect(jobs.pending).toEqual([]);
+    expect(jobs.recent).toHaveLength(20);
+    expect(jobs.recent[0]).toMatchObject({ id: canceled, state: 'canceled' });
+    expect(jobs.recent[1].id).toBe(completed[21]);
+    expect(jobs.recent.some(job => job.id === downloadOnly)).toBe(false);
+  });
+
+  it('uses real user authentication, live DB authorization and separate station credentials', async () => {
+    expect((await request('/api/print-station-management/status', { token: null })).status).toBe(401);
+    expect((await status(3)).status).toBe(403); expect((await status(4)).status).toBe(403);
+    expect((await (await status(2)).json()).permissions).toEqual({ canControl: true, canUpdate: false });
+    const neverSeen = await (await status()).json();
+    expect(neverSeen.station).toMatchObject({ online: false, lastSeenAt: null, version: null, queue: null, activeJob: null });
+    expect((await request('/api/print-station/heartbeat', { method: 'POST', body: heartbeat() })).status).toBe(401);
+    expect((await request('/api/print-station-management/status', { token: credential })).status).toBe(401);
+    expect((await beat()).status).toBe(200);
+    db.run('UPDATE users SET suspended = 1 WHERE id = 2'); // authorization must not rely only on JWT/cache
+    expect((await status(2)).status).toBe(403);
+  });
+
+  it('preserves protocol-v1 status and keeps liveness ephemeral without five-second DB rewrites', async () => {
+    const legacy = await request('/api/print-station/status', { token: credential });
+    expect(await legacy.json()).toEqual({ stationId: 'household', recipeId: 'household-letter-v6', protocolVersion: 1 });
+    await beat();
+    const before = readFileSync(join(dir, 'db.sqlite'));
+    vi.setSystemTime(instant + 5000); await beat();
+    expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(before);
+    expect((await (await status()).json()).station.online).toBe(true);
+    vi.setSystemTime(instant + 25001);
+    expect((await (await status()).json()).station.online).toBe(false);
+    management.resetPrintStationManagement();
+    expect((await (await status()).json()).station.lastSeenAt).toBeNull();
+  });
+
+  it('defaults test printing off for legacy stations and accepts only explicit boolean telemetry without changing proofs', async () => {
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+    await beat(heartbeat({ recipeVerified: false, duplexVerified: false }));
+    expect((await (await status()).json()).station).toMatchObject({
+      testPrintingEnabled: false, recipeVerified: false, duplexVerified: false,
+    });
+    expect((await beat(heartbeat({ testPrintingEnabled: true, recipeVerified: false, duplexVerified: false }))).status).toBe(200);
+    for (const invalid of [null, 'true', 'false', 1, 0, {}, []]) {
+      expect((await beat(heartbeat({ testPrintingEnabled: invalid }))).status).toBe(400);
+    }
+    expect((await (await status()).json()).station).toMatchObject({
+      testPrintingEnabled: true, recipeVerified: false, duplexVerified: false,
+    }); // A rejected heartbeat must not replace the last accepted proof flags.
+    expect((await send(command('test_printing', { enabled: true }))).status).toBe(400);
+    expect((await send(command('pause', { testPrintingEnabled: true }))).status).toBe(400);
+    expect(db.get('SELECT COUNT(*) AS n FROM print_station_commands').n).toBe(0);
+    await beat(heartbeat({ testPrintingEnabled: false }));
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+    await beat(heartbeat({ testPrintingEnabled: true }));
+    await beat(); // An older companion replacing the station must not inherit the opt-in.
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+    management.resetPrintStationManagement();
+    expect((await (await status()).json()).station.testPrintingEnabled).toBe(false);
+  });
+
+  it('preserves printer faults, uncertainty and separate reminders without changing station controls', async () => {
+    const advisory = 'Regularly check ink levels in the actual ink tanks.';
+    for (const health of [
+      { ok: true, known: true, message: 'Printer queue is processing', advisories: [advisory] },
+      { ok: false, known: false, message: 'Printer reports an unrecognized status; check the Mac printer queue', advisories: [] },
+      { ok: false, known: true, message: 'Printer is out of paper', advisories: [advisory] },
+    ]) {
+      expect((await beat(heartbeat({ health }))).status).toBe(200);
+      const view = await (await status()).json();
+      expect(view.station.health).toEqual(health);
+      expect(view.station.paused).toBe(false);
+      expect(view.commands).toEqual([]);
+    }
+    vi.setSystemTime(instant + 25001);
+    expect((await (await status()).json()).station.health).toEqual({ ok: false, known: false, message: 'Station is offline', advisories: [] });
+  });
+
+  it('classifies exact legacy unknown summaries without suppressing old printer faults', async () => {
+    for (const [message, known] of [
+      ['Printer reports an unrecognized status; check the Mac printer queue', false],
+      ['Printer check pending', false],
+      ['Active print pass is not visible in CUPS; reconcile its receipt in CLC', false],
+      ['Printer is out of paper', true],
+      ['Cannot verify local printer status. Check the Mac printer queue.', true],
+      ['Printer reports an unrecognized status; paper jam', true],
+    ]) {
+      await beat(heartbeat({ health: { ok: false, message } }));
+      expect((await (await status()).json()).station.health).toEqual({ ok: false, known, message, advisories: [] });
+    }
+    await beat();
+    expect((await (await status()).json()).station.health).toEqual({ ok: true, known: true, message: 'Station ready', advisories: [] });
+  });
+
+  it('bounds and redacts new health fields and rejects inconsistent or malformed telemetry', async () => {
+    const health = { ok: true, known: true, message: 'Printer queue is ready', advisories: [`Bearer ${credential}`, 'password=private-value'] };
+    await beat(heartbeat({ health }));
+    const accepted = (await (await status()).json()).station.health;
+    expect(JSON.stringify(accepted)).not.toContain(credential);
+    expect(JSON.stringify(accepted)).not.toContain('private-value');
+    expect(accepted.advisories.every(item => item.includes('redacted'))).toBe(true);
+    for (const change of [
+      { known: 'false' }, { known: null }, { known: false },
+      { advisories: 'paper' }, { advisories: null }, { advisories: Array(9).fill('reminder') },
+      { advisories: [null] }, { advisories: [''] }, { advisories: ['x'.repeat(1001)] },
+    ]) {
+      expect((await beat(heartbeat({ health: { ...health, ...change } }))).status).toBe(400);
+      expect((await (await status()).json()).station.health).toEqual(accepted);
+    }
+  });
+
+  it('bounds heartbeat fields and redacts credentials from persisted summaries and browser output', async () => {
+    const event = { id: crypto.randomUUID(), at: new Date().toISOString(), level: 'error', message: `Bearer ${credential} password=hello secret=${process.env.JWT_SECRET}` };
+    await beat(heartbeat({ health: { ok: false, message: event.message }, events: [event] }));
+    const view = await (await status()).json(), encoded = JSON.stringify(view);
+    expect(encoded).not.toContain(credential); expect(encoded).not.toContain(process.env.JWT_SECRET); expect(encoded).not.toContain('hello');
+    expect(view.events).toHaveLength(1); expect(view.events[0].message).toContain('redacted');
+    const before = readFileSync(join(dir, 'db.sqlite')); await beat(heartbeat({ health: { ok: false, message: event.message }, events: [event] }));
+    expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(before);
+    for (const body of [heartbeat({ events: Array(51).fill(event) }), heartbeat({ receipts: Array(21).fill({}) }), heartbeat({ paused: 'false' }), heartbeat({ health: { ok: true, message: 'x'.repeat(1001) } })]) {
+      expect((await beat(body)).status).toBe(400);
+    }
+    expect((await beat(heartbeat({ events: [{ ...event, message: 'Changed' }] }))).status).toBe(409);
+  });
+});
+
+describe('administrator cancellation of waiting household batches', () => {
+  const cancel = (id, user = 1) => request(`/api/print-station-management/jobs/${id}/cancel`, { method: 'POST', body: {}, token: tokens[user] });
+
+  it('cancels only the named unsubmitted batch, keeps artifacts, and replays cancellation without another effect', async () => {
+    const untouched = seedJob('queued', []);
+    for (const state of ['preparing', 'ready', 'queued', 'claimed']) {
+      const id = seedJob(state, [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
+      db.run('UPDATE print_jobs SET user_id = 2, tracked_deck_id = NULL, queue_requested = 1 WHERE id = ?', [id]);
+      const before = db.get('SELECT plan_json, manifest_json FROM print_jobs WHERE id = ?', [id]);
+      const response = await cancel(id), body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      expect(db.get('SELECT state, station_id FROM print_jobs WHERE id = ?', [id])).toEqual({ state: 'canceled', station_id: 'household' });
+      expect(db.get('SELECT plan_json, manifest_json FROM print_jobs WHERE id = ?', [id])).toEqual(before);
+      expect(existsSync(join(dir, 'jobs', id, 'fronts.pdf'))).toBe(true);
+      expect(body.jobs.recent.find(job => job.id === id)).toMatchObject({ state: 'canceled', canCancel: false, canOpen: false });
+      expect(JSON.stringify(body.jobs)).not.toContain('downloadUrl');
+      const saved = readFileSync(join(dir, 'db.sqlite'));
+      vi.setSystemTime(Date.now() + 1000);
+      expect((await cancel(id)).status).toBe(200);
+      expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(saved);
+    }
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [untouched]).state).toBe('queued');
+    expect(db.get('SELECT COUNT(*) n FROM print_station_commands').n).toBe(0);
+    expect(db.get('SELECT COUNT(*) n FROM print_station_events').n).toBe(4);
+  });
+
+  it('requires a current administrator and does not expose or cancel another station or a download-only batch', async () => {
+    const id = seedJob('queued', []);
+    expect((await request(`/api/print-station-management/jobs/${id}/cancel`, { method: 'POST', token: null })).status).toBe(401);
+    for (const user of [2, 3, 4]) expect((await cancel(id, user)).status).toBe(403);
+    expect((await (await status(2)).json()).jobs.pending.find(job => job.id === id).canCancel).toBe(false);
+    db.run('UPDATE users SET is_admin = 0 WHERE id = 1');
+    expect((await cancel(id)).status).toBe(403);
+    db.run('UPDATE users SET is_admin = 1 WHERE id = 1');
+    const other = seedJob('queued', []); db.run('UPDATE print_jobs SET station_id = ? WHERE id = ?', ['other-station', other]);
+    expect((await cancel(other)).status).toBe(404);
+    const onlyPdf = seedJob('preparing', []); db.run('UPDATE print_jobs SET station_id = NULL, queued_at = NULL WHERE id = ?', [onlyPdf]);
+    expect((await cancel(onlyPdf)).status).toBe(404);
+    expect((await cancel('invalid')).status).toBe(400);
+    expect((await cancel(crypto.randomUUID())).status).toBe(404);
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [id]).state).toBe('queued');
+  });
+
+  it('rejects a submission race and every partially printed or uncertain batch without changing its paper state', async () => {
+    const id = seedJob('queued', [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
+    expect((await (await status()).json()).jobs.pending.find(job => job.id === id).canCancel).toBe(true);
+    for (const [state, stepState] of [['submitting', 'submitting'], ['submitted', 'submitted'], ['awaiting_refeed', 'pending'], ['uncertain', 'uncertain'], ['claimed', 'completed']]) {
+      db.run('UPDATE print_jobs SET state = ?, steps_json = ? WHERE id = ?', [state, JSON.stringify([{ artifactId: 'fronts', phase: 'fronts', state: stepState }]), id]);
+      const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [id]);
+      expect((await cancel(id)).status).toBe(409);
+      expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [id])).toEqual(before);
+    }
+    expect(db.get('SELECT COUNT(*) n FROM print_station_commands').n).toBe(0);
+    expect(db.get('SELECT COUNT(*) n FROM print_station_events').n).toBe(0);
+  });
+});
+
+describe('durable control commands and receipts', () => {
+  it('deduplicates retries before live eligibility checks and rejects mismatched request reuse', async () => {
+    await beat(); const input = command('pause'), first = await accepted(input, 2);
+    expect(first).toMatchObject({ idempotencyKey: input.idempotencyKey, status: 'pending', requesterId: 2 });
+    expect((await accepted(input, 2)).id).toBe(first.id);
+    expect((await send({ ...input, type: 'unpause' }, 2)).status).toBe(409);
+    expect((await send(command('unpause'), 2)).status).toBe(409);
+    management.resetPrintStationManagement();
+    expect((await accepted(input, 2)).id).toBe(first.id);
+    expect((await send(command('pause'), 2)).status).toBe(409);
+    expect(db.get('SELECT COUNT(*) AS n FROM print_station_commands').n).toBe(1);
+  });
+
+  it('keeps receipts durable and never redelivers an acknowledged command', async () => {
+    await beat(); const input = command('pause'), created = await accepted(input);
+    expect((await (await beat()).json()).commands[0]).toMatchObject({ id: created.id, type: 'pause' });
+    const receipt = { commandId: created.id, status: 'applied', message: 'Paused' };
+    const result = await (await beat(heartbeat({ paused: true, receipts: [receipt] }))).json();
+    expect(result).toMatchObject({ commands: [], acknowledgedCommandIds: [created.id] });
+    expect((await accepted(input)).status).toBe('applied');
+    const before = readFileSync(join(dir, 'db.sqlite'));
+    expect((await (await beat(heartbeat({ paused: true, receipts: [receipt] }))).json()).acknowledgedCommandIds).toEqual([created.id]);
+    expect(readFileSync(join(dir, 'db.sqlite'))).toEqual(before);
+    expect((await beat(heartbeat({ receipts: [{ ...receipt, status: 'rejected' }] }))).status).toBe(409);
+    management.resetPrintStationManagement();
+    expect((await (await status()).json()).station).toMatchObject({ online: false, paused: true });
+  });
+
+  it('expires pending commands without redelivery and accepts only previously delivered late receipts', async () => {
+    await beat(); const delivered = await accepted(command('check_update'));
+    await beat(); vi.setSystemTime(instant + management.STATION_COMMAND_TTL_MS + 1);
+    expect((await (await beat()).json()).commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [delivered.id]).status).toBe('expired');
+    expect((await beat(heartbeat({ receipts: [{ commandId: delivered.id, status: 'applied', message: 'Update check completed' }] }))).status).toBe(200);
+    const neverDelivered = await accepted(command('pause'));
+    vi.setSystemTime(instant + 2 * management.STATION_COMMAND_TTL_MS + 2); await beat();
+    expect((await beat(heartbeat({ receipts: [{ commandId: neverDelivered.id, status: 'applied' }] }))).status).toBe(409);
+    expect((await beat(heartbeat({ receipts: [{ commandId: crypto.randomUUID(), status: 'applied' }] }))).status).toBe(409);
+  });
+
+  it('rejects revoked requesters before delivery and does not trust a stale admin JWT', async () => {
+    await beat(); const queued = await accepted(command('pause'), 2);
+    db.run('UPDATE users SET suspended = 1 WHERE id = 2');
+    expect((await (await beat()).json()).commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [queued.id]).status).toBe('rejected');
+    db.run('UPDATE users SET is_admin = 0 WHERE id = 1');
+    expect((await send(command('check_update'))).status).toBe(403);
+  });
+
+  it('accepts durable receipts after a delivered command requester loses access', async () => {
+    await beat(); const created = await accepted(command('pause'), 2);
+    expect((await (await beat()).json()).commands[0].deliveredAt).toBe(new Date().toISOString());
+    db.run('UPDATE users SET suspended = 1 WHERE id = 2');
+    expect((await (await beat()).json()).commands).toEqual([]);
+    const receipt = { commandId: created.id, status: 'applied', message: 'Paused before access changed' };
+    expect((await (await beat(heartbeat({ paused: true, receipts: [receipt] }))).json()).acknowledgedCommandIds).toEqual([created.id]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [created.id]).status).toBe('applied');
+  });
+
+  it('requires exact update targets, administrator authority, idle state and supported installation', async () => {
+    await beat();
+    expect((await send(command('check_update'), 2)).status).toBe(403);
+    expect((await send(command('update'))).status).toBe(400);
+    expect((await send(command('update', { targetVersion: '2.44.0' }))).status).toBe(409);
+    const created = await accepted(command('update', { targetVersion: '2.45.1' }));
+    expect(created.targetVersion).toBe('2.45.1');
+    const changed = heartbeat(); changed.update.availableVersion = '2.45.2';
+    expect((await (await beat(changed)).json()).commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [created.id]).status).toBe('rejected');
+    await beat(heartbeat({ activeJob: { id: crypto.randomUUID(), state: 'active' } }));
+    expect((await send(command('rollback', { targetVersion: '2.44.2' }))).status).toBe(409);
+    await beat(heartbeat({ update: { supported: false, currentVersion: '2.45.0', previousVersion: null, availableVersion: null, status: 'unsupported', error: null } }));
+    expect((await send(command('check_update'))).status).toBe(409);
+  });
+});
+
+describe('physical state separation and DFC batch binding', () => {
+  it('derives the current packet identity and counts only from the immutable server manifest', async () => {
+    const jobId = seedJob();
+    const artifact = { id: 'dfc-first', kind: 'dfc', packetIndex: 1, packetCount: 2,
+      label: 'CLC Household proof • batch ABCD • DFC 1/2', sheetCount: 1, cardCount: 7 };
+    const manifest = JSON.stringify({ artifacts: [artifact, { ...artifact, id: 'dfc-second', packetIndex: 2 }] });
+    db.run('UPDATE print_jobs SET manifest_json=?, manifest_sha256=? WHERE id=?', [manifest, digest(manifest), jobId]);
+    const activeJob = { id: jobId, state: 'awaiting_refeed', artifactId: 'dfc-first', phase: 'backs',
+      packet: { label: 'Wrong sheets from telemetry', sheetCount: 99 }, label: 'Wrong label' };
+    await beat(heartbeat({ activeJob }));
+    expect((await (await status()).json()).station.activeJob.packet).toEqual({
+      artifactId: artifact.id, label: artifact.label, packetIndex: 1, packetCount: 2, sheetCount: 1, cardCount: 7,
+    });
+    expect(JSON.stringify(await (await status()).json())).not.toContain('Wrong');
+    await beat(heartbeat({ activeJob: { ...activeJob, artifactId: 'dfc-second' } }));
+    expect((await (await status()).json()).station.activeJob.packet).toBeNull();
+    await beat(heartbeat({ activeJob }));
+    db.run('UPDATE print_jobs SET manifest_sha256=? WHERE id=?', ['0'.repeat(64), jobId]);
+    expect((await (await status()).json()).station.activeJob.packet).toBeNull();
+  });
+
+  it('preserves a legacy double-faced stack’s sheet count without inventing a printed label', async () => {
+    const jobId = seedJob();
+    const manifest = JSON.stringify({ artifacts: [{ id: 'dfc-first', kind: 'dfc', sheetCount: 3, cardCount: 18 }] });
+    db.run('UPDATE print_jobs SET manifest_json=?, manifest_sha256=? WHERE id=?', [manifest, digest(manifest), jobId]);
+    await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_refeed', artifactId: 'dfc-first', phase: 'backs' } }));
+    expect((await (await status()).json()).station.activeJob.packet).toEqual({
+      artifactId: 'dfc-first', label: null, packetIndex: 1, packetCount: 1, sheetCount: 3, cardCount: 18,
+    });
+  });
+
+  it('blocks new claims immediately for pending pause and unverified recipes, but preserves active recovery', async () => {
+    const queued = seedJob('queued', [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
+    await beat(); const pause = await accepted(command('pause'));
+    expect(await (await claim()).json()).toEqual({ job: null });
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [queued]).state).toBe('queued');
+    await beat(); await beat(heartbeat({ receipts: [{ commandId: pause.id, status: 'rejected', message: 'Fixture rejection' }] }));
+    await beat(heartbeat({ recipeVerified: false })); expect(await (await claim()).json()).toEqual({ job: null });
+    await beat(); const active = (await (await claim()).json()).job;
+    expect(active.id).toBe(queued); expect(active.state).toBe('claimed');
+    await accepted(command('pause'));
+    expect((await (await claim()).json()).job.id).toBe(queued);
+  });
+
+  it('permits unverified test claims only after native opt-in while preserving pause and existing-claim recovery', async () => {
+    const queued = seedJob('queued', [{ artifactId: 'fronts', phase: 'fronts', state: 'pending' }]);
+    const proof = { recipeVerified: false, duplexVerified: false };
+    await beat(heartbeat(proof));
+    expect(await (await claim()).json()).toEqual({ job: null });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true, paused: true }));
+    expect(await (await claim()).json()).toEqual({ job: null });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true }));
+    const pause = await accepted(command('pause'));
+    expect(await (await claim()).json()).toEqual({ job: null });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true }));
+    await beat(heartbeat({ ...proof, testPrintingEnabled: true,
+      receipts: [{ commandId: pause.id, status: 'rejected', message: 'Fixture rejection' }] }));
+    const active = (await (await claim()).json()).job;
+    expect(active).toMatchObject({ id: queued, state: 'claimed' });
+    expect((await (await status()).json()).station).toMatchObject({ ...proof, testPrintingEnabled: true });
+    await beat(heartbeat({ ...proof, testPrintingEnabled: false }));
+    expect((await (await claim()).json()).job.id).toBe(queued);
+  });
+
+  it('binds explicit paper reload to the current pending DFC artifact and rejects stale batches', async () => {
+    const jobId = seedJob(); const active = { id: jobId, state: 'awaiting_refeed', artifactId: 'dfc-first', phase: 'backs' };
+    await beat(heartbeat({ activeJob: active }));
+    expect((await send(command('resume', { jobId }))).status).toBe(400);
+    expect((await send(command('resume', { jobId, paperReloaded: true }))).status).toBe(400);
+    expect((await send(command('resume', { jobId: crypto.randomUUID(), artifactId: 'dfc-first', paperReloaded: true }))).status).toBe(409);
+    expect((await (await status()).json()).station.activeJob.artifactId).toBe('dfc-first');
+    const input = command('resume', { jobId, artifactId: 'dfc-first', paperReloaded: true }), created = await accepted(input, 2);
+    expect(created).toMatchObject({ jobId, artifactId: 'dfc-first', paperReloaded: true });
+    const row = db.get('SELECT steps_json FROM print_jobs WHERE id = ?', [jobId]);
+    const steps = JSON.parse(row.steps_json); steps[1].state = steps[2].state = 'completed';
+    db.run('UPDATE print_jobs SET steps_json = ? WHERE id = ?', [JSON.stringify(steps), jobId]);
+    expect((await (await beat(heartbeat({ activeJob: active }))).json()).commands).toEqual([]);
+    expect((await (await status()).json()).station.activeJob.artifactId).toBeNull(); // local and server disagree
+    expect((await accepted(input, 2)).status).toBe('rejected'); // retries never bind to dfc-second
+    await beat(heartbeat({ activeJob: { ...active, artifactId: 'dfc-second' } }));
+    expect((await (await status()).json()).station.activeJob.artifactId).toBe('dfc-second');
+    expect((await send(command('resume', { jobId, artifactId: 'dfc-first', paperReloaded: true }), 2)).status).toBe(409);
+    const next = await accepted(command('resume', { jobId, artifactId: 'dfc-second', paperReloaded: true }), 2);
+    expect(next.artifactId).toBe('dfc-second');
+    expect((await (await status()).json()).station.activeJob.deckName).toBe('Household proof');
+  });
+
+  it('does not change physical print steps when the station acknowledges a refeed command', async () => {
+    const jobId = seedJob(), snapshot = heartbeat({ recipeVerified: false, duplexVerified: false, testPrintingEnabled: true,
+      activeJob: { id: jobId, state: 'awaiting_refeed' } });
+    await beat(snapshot);
+    expect((await send(command('resume', { jobId, artifactId: 'dfc-first' }))).status).toBe(400);
+    const created = await accepted(command('resume', { jobId, artifactId: 'dfc-first', paperReloaded: true }));
+    await beat(snapshot);
+    const before = db.get('SELECT state, steps_json FROM print_jobs WHERE id = ?', [jobId]);
+    await beat({ ...snapshot, receipts: [{ commandId: created.id, status: 'applied', message: 'Reload confirmed locally' }] });
+    expect(db.get('SELECT state, steps_json FROM print_jobs WHERE id = ?', [jobId])).toEqual(before);
+  });
+});
+
+const discordState = (extra = {}) => ({ supported: true, configured: false, managed: false, revision: 'local', userId: '', lastTest: null, ...extra });
+const webhook = 'https://discord.com/api/webhooks/123456789/fixture-discord-secret';
+const configure = (extra = {}) => ({ idempotencyKey: crypto.randomUUID(), type: 'configure_discord', enabled: true, webhookUrl: webhook, userId: '987654321', ...extra });
+const discordSend = (body, user = 1, path = '/discord') => request('/api/print-station-management' + path, { method: 'POST', body, token: tokens[user] });
+const configureStation = async () => { await beat(heartbeat({ discord: discordState() })); const input = configure(); const response = await discordSend(input); expect(response.status).toBe(200); return { input, command: (await response.json()).command }; };
+
+describe('managed Discord notifications', () => {
+  it('requires an administrator and native capability without changing pause or printing', async () => {
+    await beat();
+    expect((await discordSend(configure(), 2)).status).toBe(403);
+    expect((await discordSend(configure(), 3)).status).toBe(403);
+    expect((await discordSend(configure())).status).toBe(409);
+    expect(db.all('SELECT * FROM print_station_commands')).toHaveLength(0);
+    expect((await send(configure())).status).toBe(400);
+    expect(db.get("SELECT paused FROM print_station_controls WHERE station_id='household'").paused).toBe(0);
+  });
+
+  it('rejects noncanonical destinations and unsafe mentions before storing anything', async () => {
+    await beat(heartbeat({ discord: discordState() }));
+    for (const url of ['https://discord.com.evil.test/api/webhooks/123/token', 'http://discord.com/api/webhooks/123/token',
+      'https://discord.com:443/api/webhooks/123/token', 'https://user@discord.com/api/webhooks/123/token',
+      'https://discord.com/api/webhooks/123/token?wait=true', 'https://discord.com/api/webhooks/123/token#',
+      'https://discord.com/api/webhooks/123/token/', 'https://discord.com/api/webhooks/18446744073709551616/token']) {
+      const response = await discordSend(configure({ webhookUrl: url }));
+      expect(response.status, url).toBe(400); expect(await response.text()).not.toContain(url);
+    }
+    for (const userId of ['@everyone', '<@123>', '0', '18446744073709551616', 123]) expect((await discordSend(configure({ userId }))).status).toBe(400);
+    expect((await discordSend(configure({ enabled: false }))).status).toBe(400);
+    expect(db.all('SELECT * FROM print_station_commands')).toHaveLength(0);
+  });
+
+  it('encrypts pending secrets, exposes them only to the authenticated native channel, and purges after acknowledgement', async () => {
+    const { command: queued, input } = await configureStation();
+    const before = db.get('SELECT * FROM print_station_commands WHERE id=?', [queued.id]);
+    expect(before.payload_json).not.toContain('fixture-discord-secret'); expect(before.payload_json).toContain('secretCipher');
+    expect(readFileSync(join(dir, '.print-station-notifications-key'))).toHaveLength(32);
+    const statusBody = await (await status()).json();
+    expect(JSON.stringify(statusBody)).not.toContain(webhook); expect(JSON.stringify(statusBody)).not.toContain('secretCipher');
+    const delivery = await (await beat(heartbeat({ discord: discordState() }))).json();
+    expect(delivery.commands[0].discord).toEqual({ enabled: true, webhookUrl: webhook, userId: '987654321' });
+    expect(delivery.commands[0].revision).toBe(queued.id);
+    await beat(heartbeat({ discord: discordState({ configured: true, managed: true, revision: queued.id, userId: '987654321' }),
+      receipts: [{ commandId: queued.id, status: 'applied', message: 'Discord notifications connected' }] }));
+    expect(db.get('SELECT payload_json FROM print_station_commands WHERE id=?', [queued.id]).payload_json).not.toContain('secretCipher');
+    const replay = await discordSend(input); expect(replay.status).toBe(200); expect((await replay.json()).command.id).toBe(queued.id);
+    expect((await discordSend({ ...input, webhookUrl: webhook + '-changed' })).status).toBe(409);
+    const lookup = await (await request('/api/print-station-management/commands/' + input.idempotencyKey)).json();
+    expect(lookup.command.status).toBe('applied'); expect(JSON.stringify(lookup)).not.toContain('fixture-discord-secret');
+    expect((await (await request('/api/print-station-management/commands/' + input.idempotencyKey, { token: tokens[2] })).json()).command).toBeNull();
+  });
+
+  it('binds ciphertext to one command and refuses unsafe encryption key permissions', async () => {
+    const { sealDiscordUrl, openDiscordUrl } = await import('../lib/printStationNotifications.js');
+    const commandId = crypto.randomUUID();
+    const ciphertext = sealDiscordUrl(webhook, commandId);
+    expect(openDiscordUrl(ciphertext, commandId)).toBe(webhook);
+    expect(() => openDiscordUrl(ciphertext, crypto.randomUUID())).toThrow('could not be decrypted');
+    const pieces = ciphertext.split('.');
+    const bytes = Buffer.from(pieces[2], 'base64'); bytes[0] ^= 1; pieces[2] = bytes.toString('base64');
+    expect(() => openDiscordUrl(pieces.join('.'), commandId)).toThrow('could not be decrypted');
+    const keyPath = join(dir, '.print-station-notifications-key');
+    expect(statSync(keyPath).mode & 0o777).toBe(0o600);
+    chmodSync(keyPath, 0o644);
+    expect(() => sealDiscordUrl(webhook, commandId)).toThrow('private key');
+    rmSync(keyPath);
+    expect(() => openDiscordUrl(ciphertext, commandId)).toThrow('could not be decrypted');
+    expect(existsSync(keyPath)).toBe(false);
+  });
+
+  it('deletes encrypted secrets from expired or revoked commands before any delivery', async () => {
+    const { command: queued } = await configureStation();
+    vi.setSystemTime(instant + 6 * 60_000);
+    await status();
+    const expired = db.get('SELECT * FROM print_station_commands WHERE id=?', [queued.id]);
+    expect(expired.status).toBe('expired'); expect(expired.payload_json).not.toContain('secretCipher');
+    await beat(heartbeat({ discord: discordState() }));
+    const response = await discordSend(configure()), newer = (await response.json()).command;
+    db.run('UPDATE users SET is_admin=0 WHERE id=1');
+    const delivery = await (await beat(heartbeat({ discord: discordState() }))).json();
+    expect(delivery.commands).toEqual([]);
+    const rejected = db.get('SELECT * FROM print_station_commands WHERE id=?', [newer.id]);
+    expect(rejected.status).toBe('rejected'); expect(rejected.payload_json).not.toContain('secretCipher');
+  });
+
+  it('isolates key loss from station health and never sends unreadable configuration', async () => {
+    const { command: queued } = await configureStation();
+    rmSync(join(dir, '.print-station-notifications-key'));
+    const response = await beat(heartbeat({ discord: discordState() }));
+    expect(response.status).toBe(200); expect((await response.json()).commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id=?', [queued.id]).status).toBe('rejected');
+    expect((await (await status()).json()).station.online).toBe(true);
+  });
+
+  it('tests only the displayed applied revision and throttles distinct explicit tests', async () => {
+    await beat(heartbeat({ discord: discordState({ configured: true }) }));
+    const input = { idempotencyKey: crypto.randomUUID(), revision: 'local' };
+    expect((await discordSend({ ...input, revision: 'stale-revision' }, 1, '/discord/test')).status).toBe(409);
+    expect((await discordSend(input, 2, '/discord/test')).status).toBe(403);
+    const response = await discordSend(input, 1, '/discord/test'); expect(response.status).toBe(200);
+    const queued = (await response.json()).command;
+    const delivered = await (await beat(heartbeat({ discord: discordState({ configured: true }) }))).json();
+    expect(delivered.commands[0]).toMatchObject({ type: 'test_discord', revision: 'local' });
+    expect(JSON.stringify(delivered)).not.toContain('webhookUrl');
+    await beat(heartbeat({ discord: discordState({ configured: true, lastTest: { commandId: queued.id, revision: 'local', status: 'unconfirmed', at: new Date().toISOString() } }),
+      receipts: [{ commandId: queued.id, status: 'rejected', message: 'Test unconfirmed' }] }));
+    expect((await discordSend(input, 1, '/discord/test')).status).toBe(200);
+    expect((await discordSend({ ...input, idempotencyKey: crypto.randomUUID() }, 1, '/discord/test')).status).toBe(429);
+    vi.setSystemTime(instant + 31_000);
+    await beat(heartbeat({ discord: discordState({ configured: true }) }));
+    expect((await discordSend({ ...input, idempotencyKey: crypto.randomUUID() }, 1, '/discord/test')).status).toBe(200);
+  });
+
+  it('disconnect carries no secret and acknowledgement changes the reported state', async () => {
+    await beat(heartbeat({ discord: discordState({ configured: true }) }));
+    const response = await discordSend(configure({ enabled: false, webhookUrl: '', userId: '' }));
+    expect(response.status).toBe(200); const queued = (await response.json()).command;
+    const delivered = await (await beat(heartbeat({ discord: discordState({ configured: true }) }))).json();
+    expect(delivered.commands[0].discord).toEqual({ enabled: false, webhookUrl: '', userId: '' });
+    await beat(heartbeat({ discord: discordState({ managed: true, revision: queued.id }), receipts: [{ commandId: queued.id, status: 'applied', message: 'Discord disconnected' }] }));
+    expect((await (await status()).json()).station.discord).toMatchObject({ configured: false, managed: true, revision: queued.id });
+  });
+
+  it('redacts webhook URLs in untrusted native event text and filters unknown telemetry fields', async () => {
+    await beat(heartbeat({ discord: { ...discordState(), webhookUrl: webhook }, events: [{ id: crypto.randomUUID(), at: new Date().toISOString(), level: 'error', message: 'Failed ' + webhook }] }));
+    const result = await (await status()).json();
+    expect(JSON.stringify(result)).not.toContain('fixture-discord-secret'); expect(result.events[0].message).toContain('[Discord webhook]');
+  });
+});
+
+describe('saved back packets and physical clearance controls', () => {
+  function seedDeferred(state = 'backs_pending', owner = 1) {
+    const jobId = seedJob(state, [
+      { artifactId: 'fronts', phase: 'fronts', state: 'completed', spoolerId: 'EPSON-front-7', completedAt: new Date().toISOString() },
+      { artifactId: 'fronts', phase: 'backs', state: 'pending', requiresRefeed: true, refeedConfirmed: false },
+    ]);
+    const row = db.get('SELECT manifest_json FROM print_jobs WHERE id = ?', [jobId]);
+    const manifest = JSON.parse(row.manifest_json);
+    Object.assign(manifest.artifacts[0], { kind: 'dfc', pageCount: 2, label: `CLC ${jobId.slice(0, 8)} DFC 1/1`, packetIndex: 1, packetCount: 1 });
+    const text = JSON.stringify(manifest);
+    db.run("UPDATE print_jobs SET user_id = ?, workflow = 'deferred-backs-v1', manifest_json = ?, manifest_sha256 = ?, expires_at = NULL WHERE id = ?", [owner, text, digest(text), jobId]);
+    return jobId;
+  }
+  const prepare = (jobId, owner = 1, artifactId = 'fronts') => request(`/api/print-station-management/jobs/${jobId}/backs/prepare`, { method: 'POST', body: { artifactId }, token: tokens[owner] });
+  const cancelBacks = (jobId, owner = 1) => request(`/api/print-station-management/jobs/${jobId}/backs/cancel`, { method: 'POST', body: {}, token: tokens[owner] });
+  const cancelAll = (jobId, owner = 1) => request(`/api/print-station-management/jobs/${jobId}/cancel`, { method: 'POST', body: {}, token: tokens[owner] });
+  it('shows a durable deferred backlog with matching labels and separate queue membership', async () => {
+    const mine = seedDeferred(), other = seedDeferred('backs_pending', 2);
+    const body = await (await status()).json();
+    expect(body.jobs.pending).toEqual([]);
+    expect(body.jobs.deferred.map(job => job.id)).toEqual(expect.arrayContaining([mine, other]));
+    const own = body.jobs.deferred.find(job => job.id === mine);
+    expect(own).toMatchObject({ canPrepareBacks: true, canCancelBacks: true, workflow: 'deferred-backs-v1', requesterName: 'admin', packets: [expect.objectContaining({ artifactId: 'fronts', label: `CLC ${mine.slice(0, 8)} DFC 1/1`, state: 'pending', frontSpoolerId: 'EPSON-front-7' })] });
+    const household = await (await status(2)).json();
+    expect(household.jobs.deferred.find(job => job.id === mine)).toMatchObject({ canPrepareBacks: false, canCancelBacks: false, canCancel: false });
+    expect(household.jobs.deferred.find(job => job.id === other)).toMatchObject({ canPrepareBacks: true, canCancelBacks: true });
+    management.resetPrintStationManagement();
+    expect((await (await status()).json()).jobs.deferred).toEqual(body.jobs.deferred);
+  });
+  it('persists exact packet intent for owner or admin even offline, but rejects other owners and mismatched packets', async () => {
+    const jobId = seedDeferred('backs_pending', 2);
+    expect((await prepare(jobId, 2, 'missing-packet')).status).toBe(409);
+    expect((await prepare(jobId, 3)).status).toBe(403);
+    expect((await prepare(jobId, 4)).status).toBe(403);
+    const response = await prepare(jobId, 2); expect(response.status).toBe(200);
+    expect((await response.json()).jobs.deferred[0]).toMatchObject({ backRequest: { artifactId: 'fronts', requesterId: 2 }, packets: [expect.objectContaining({ state: 'requested' })], canPrepareBacks: false });
+    const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+    expect((await prepare(jobId, 1)).status).toBe(200);
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [jobId])).toEqual(before);
+    const reserved = await request('/api/print-station/claim', { method: 'POST', body: { deferredBacks: true, maxArtifacts: 37 }, token: credential });
+    expect((await reserved.json()).job).toMatchObject({ id: jobId, state: 'awaiting_refeed' });
+    expect((await prepare(jobId, 2)).status).toBe(409);
+  });
+  it('supports owner cancellation for parked work and leaves other users batches untouched', async () => {
+    const mine = seedDeferred('backs_pending', 2), other = seedDeferred();
+    expect((await cancelBacks(other, 2)).status).toBe(403);
+    expect((await cancelAll(other, 2)).status).toBe(403);
+    expect((await cancelBacks(mine, 2)).status).toBe(200);
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [mine]).state).toBe('canceled');
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [other]).state).toBe('backs_pending');
+    expect((await cancelBacks(mine, 2)).status).toBe(200);
+  });
+  it('saves cancellation of queued backs before claim without upgrading active legacy jobs', async () => {
+    const jobId = seedDeferred('queued', 2);
+    const steps = [
+      { artifactId: 'fronts', phase: 'fronts', state: 'pending' },
+      { artifactId: 'fronts', phase: 'backs', state: 'pending', requiresRefeed: true },
+    ];
+    db.run('UPDATE print_jobs SET workflow = NULL, steps_json = ? WHERE id = ?', [JSON.stringify(steps), jobId]);
+    expect((await cancelBacks(jobId, 2)).status).toBe(200);
+    expect(db.get('SELECT state, workflow, station_id FROM print_jobs WHERE id = ?', [jobId])).toEqual({ state: 'queued', workflow: 'deferred-backs-v1', station_id: null });
+    expect((await claim()).status).toBe(409);
+    const upgraded = await request('/api/print-station/claim', { method: 'POST', body: { deferredBacks: true }, token: credential });
+    expect((await upgraded.json()).job).toMatchObject({ state: 'claimed', backsCanceled: 1, steps: [expect.objectContaining({ state: 'pending', phase: 'fronts' }), expect.objectContaining({ state: 'canceled', phase: 'backs' })] });
+  });
+  it('permits legacy active cancellation only after the live native capability is acknowledged', async () => {
+    const jobId = seedJob('submitted', [{ artifactId: 'fronts', phase: 'fronts', state: 'submitted', spoolerId: 'EPSON-old' }]);
+    expect((await cancelAll(jobId)).status).toBe(409);
+    await beat(heartbeat({ version: '2.55.0', deferredBacks: true, activeJob: { id: jobId, state: 'submitted' } }));
+    expect((await cancelAll(jobId)).status).toBe(200);
+    const stored = db.get('SELECT workflow, cancel_requested, cancel_request_id, state FROM print_jobs WHERE id = ?', [jobId]);
+    expect(stored).toMatchObject({ workflow: null, cancel_requested: 'all', state: 'submitted' });
+    expect(stored.cancel_request_id).toMatch(/^[a-f0-9-]{36}$/);
+  });
+  it('rejects a saved clearance command when the same batch reaches a different back boundary', async () => {
+    const jobId = seedDeferred('awaiting_paper_reset', 2);
+    const firstId = crypto.randomUUID(), first = `back:${firstId}`;
+    db.run('UPDATE print_jobs SET back_request_json = ? WHERE id = ?', [JSON.stringify({ id: firstId, artifactId: 'fronts', requestedAt: new Date().toISOString(), requesterId: 2 }), jobId]);
+    await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId: first } }));
+    const receipt = await accepted(command('clear_paper', { jobId, clearanceId: first, paperCleared: true }), 2);
+    const secondId = crypto.randomUUID(), second = `back:${secondId}`;
+    db.run('UPDATE print_jobs SET back_request_json = ? WHERE id = ?', [JSON.stringify({ id: secondId, artifactId: 'fronts', requestedAt: new Date().toISOString(), requesterId: 2 }), jobId]);
+    const response = await (await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId: second } }))).json();
+    expect(response.commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [receipt.id]).status).toBe('rejected');
+    expect((await send(command('clear_paper', { jobId, clearanceId: first, paperCleared: true }), 2)).status).toBe(409);
+    await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_paper_reset' } }));
+    expect((await (await status()).json()).station.activeJob.clearanceId).toBeNull();
+  });
+  it('binds paper clearance to exact active job, explicit confirmation, owner and native waiting state', async () => {
+    const jobId = seedDeferred('awaiting_paper_reset', 2), other = seedDeferred(), requestId = crypto.randomUUID(), clearanceId = `back:${requestId}`;
+    db.run('UPDATE print_jobs SET back_request_json = ? WHERE id = ?', [JSON.stringify({ id: requestId, artifactId: 'fronts', requestedAt: new Date().toISOString(), requesterId: 2 }), jobId]);
+    await beat(heartbeat({ version: '2.55.0', activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId, artifactId: 'fronts', phase: 'backs' } }));
+    expect((await send(command('clear_paper', { jobId, clearanceId, paperCleared: false }), 2)).status).toBe(400);
+    expect((await send(command('clear_paper', { jobId: other, clearanceId, paperCleared: true }), 2)).status).toBe(403);
+    const acceptedCommand = await accepted(command('clear_paper', { jobId, clearanceId, paperCleared: true }), 2);
+    const delivery = await (await beat(heartbeat({ version: '2.55.0', activeJob: { id: jobId, state: 'awaiting_paper_reset', clearanceId, artifactId: 'fronts', phase: 'backs' } }))).json();
+    expect(delivery.commands[0]).toMatchObject({ id: acceptedCommand.id, type: 'clear_paper', jobId, paperCleared: true });
+    // Command acknowledgement alone never claims that paper was cleared or prints backs.
+    await beat(heartbeat({ receipts: [{ commandId: acceptedCommand.id, status: 'applied', message: 'fixture' }] }));
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [jobId]).state).toBe('awaiting_paper_reset');
+  });
+});
+
+describe('operator recovery of interrupted physical print passes', () => {
+  function interrupted(cupsState = 7, phase = 'fronts') {
+    const steps = phase === 'backs' ? [
+      { artifactId: 'fronts', phase: 'fronts', state: 'completed', spoolerId: 'EPSON_ET_8550_Series-22' },
+      { artifactId: 'fronts', phase: 'backs', state: 'uncertain', spoolerId: 'EPSON_ET_8550_Series-23', requiresRefeed: true, refeedConfirmed: true },
+    ] : [{ artifactId: 'fronts', phase: 'fronts', state: 'uncertain', spoolerId: 'EPSON_ET_8550_Series-23' }];
+    const jobId = seedJob('uncertain', steps);
+    const row = db.get('SELECT manifest_json FROM print_jobs WHERE id = ?', [jobId]);
+    const manifest = JSON.parse(row.manifest_json);
+    Object.assign(manifest.artifacts[0], { kind: phase === 'backs' ? 'dfc' : 'ordinary', pageCount: 4, sheetCount: phase === 'backs' ? 2 : 4 });
+    const manifestJson = JSON.stringify(manifest);
+    db.run('UPDATE print_jobs SET manifest_json = ?, manifest_sha256 = ? WHERE id = ?', [manifestJson, digest(manifestJson), jobId]);
+    const recovery = { recoveryId: `recover-${'a'.repeat(24)}`, artifactId: 'fronts', phase,
+      spoolerId: 'EPSON_ET_8550_Series-23', mode: cupsState < 6 ? 'resume' : 'reprint_remaining', cupsState,
+      physicalPages: phase === 'backs' ? [4, 2] : [4, 3, 2, 1], totalSheets: phase === 'backs' ? 2 : 4, attemptId: null };
+    return { jobId, recovery, snapshot: heartbeat({ printRecovery: true,
+      activeJob: { id: jobId, state: 'uncertain', artifactId: 'fronts', phase, recovery } }) };
+  }
+  const recoverRequest = (item, extra = {}) => command('recover_print', { jobId: item.jobId,
+    ...Object.fromEntries(['artifactId', 'phase', 'spoolerId', 'recoveryId'].map(key => [key, item.recovery[key]])), paperReady: true, ...extra });
+  async function reportRecovery(item, control, extra = {}) {
+    const queue = await import('../lib/printQueue.js');
+    const row = db.get('SELECT * FROM print_jobs WHERE id = ?', [item.jobId]);
+    return request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: queue.formatPrintJob(row, true).claimToken,
+        artifactId: 'fronts', phase: item.recovery.phase, state: 'recovery', commandId: control.id,
+        oldSpoolerId: item.recovery.spoolerId, pages: [1, 2, 3], ...extra } });
+  }
+
+  it('requires an inspected physical-sheet checkpoint for canceled/aborted/stopped passes', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    expect((await (await status()).json()).station.activeJob.recovery).toEqual(item.recovery);
+    for (const extra of [{}, { firstUnprintedSheet: 0 }, { firstUnprintedSheet: 5 }, { firstUnprintedSheet: true }, { firstUnprintedSheet: 2, paperReady: false }]) {
+      expect((await send(recoverRequest(item, extra))).status).toBe(400);
+    }
+    const body = recoverRequest(item, { firstUnprintedSheet: 2 });
+    const saved = await accepted(body);
+    expect(saved).toMatchObject({ type: 'recover_print', jobId: item.jobId, recoveryId: item.recovery.recoveryId, firstUnprintedSheet: 2, paperReady: true });
+    expect((await accepted(body)).id).toBe(saved.id, 'Lost acknowledgement returns the same command');
+    const stored = JSON.parse(db.get('SELECT payload_json FROM print_station_commands WHERE id = ?', [saved.id]).payload_json);
+    expect(stored.pages).toEqual([1, 2, 3], 'PDF page 4 already printed first because physical output order is reverse');
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2, pages: [4] }))).status).toBe(400);
+  });
+
+  it('requires owner/admin authorization and the exact current boundary', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2 }), 2)).status).toBe(403);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2 }), 3)).status).toBe(403);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2, spoolerId: 'EPSON_ET_8550_Series-99' }))).status).toBe(409);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2, recoveryId: `recover-${'b'.repeat(24)}` }))).status).toBe(409);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 }));
+    const changed = { ...item.snapshot, activeJob: { ...item.snapshot.activeJob,
+      recovery: { ...item.recovery, recoveryId: `recover-${'b'.repeat(24)}` } } };
+    const response = await (await beat(changed)).json();
+    expect(response.commands).toEqual([]);
+    expect(db.get('SELECT status FROM print_station_commands WHERE id = ?', [saved.id]).status).toBe('rejected');
+  });
+
+  it('archives the original physical receipt and rejects reports from an older attempt', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 }));
+    expect((await reportRecovery(item, saved)).status).toBe(409, 'Recovery command must be delivered before execution');
+    await beat(item.snapshot);
+    const response = await reportRecovery(item, saved);
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+    const recovered = await response.json();
+    expect(recovered.job.state).toBe('claimed');
+    expect(recovered.job.steps[0]).toMatchObject({ state: 'pending', attemptId: saved.id, pages: [1, 2, 3],
+      attempts: [{ state: 'uncertain', spoolerId: item.recovery.spoolerId, operatorConfirmedPrintedSheets: 1, recoveryCommandId: saved.id }] });
+    expect(recovered.job.steps[0].spoolerId).toBeUndefined();
+    expect((await request('/api/print-station/claim', { method: 'POST', token: credential,
+      body: { maxArtifacts: 37, deferredBacks: true } })).status).toBe(409, 'Older companions cannot ignore recovery page ranges');
+    expect((await request('/api/print-station/claim', { method: 'POST', token: credential,
+      body: { maxArtifacts: 37, deferredBacks: true, printRecovery: true } })).status).toBe(200);
+    const stale = await request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: recovered.job.claimToken, artifactId: 'fronts', phase: 'fronts', state: 'submitted', spoolerId: item.recovery.spoolerId } });
+    expect(stale.status).toBe(409);
+    const submit = await request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: recovered.job.claimToken, artifactId: 'fronts', phase: 'fronts', attemptId: saved.id, state: 'submitting' } });
+    expect(submit.status).toBe(200);
+  });
+
+  it('does not re-create a pending/held/processing CUPS pass or accept page selection', async () => {
+    const item = interrupted(4); await beat(item.snapshot);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 1 }))).status).toBe(400);
+    const saved = await accepted(recoverRequest(item)); await beat(item.snapshot);
+    expect(saved.firstUnprintedSheet).toBeUndefined();
+    expect((await reportRecovery(item, saved)).status).toBe(409, 'Held jobs must resume in place, never gain a new attempt');
+    const steps = JSON.parse(db.get('SELECT steps_json FROM print_jobs WHERE id = ?', [item.jobId]).steps_json);
+    expect(steps[0].spoolerId).toBe(item.recovery.spoolerId);
+    expect(steps[0].attemptId).toBeUndefined();
+  });
+
+  it('rechecks requester authorization after delivery and before authorizing new printing', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 })); await beat(item.snapshot);
+    db.run('UPDATE users SET suspended = 1 WHERE id = 1');
+    expect((await reportRecovery(item, saved)).status).toBe(403);
+    expect(JSON.parse(db.get('SELECT steps_json FROM print_jobs WHERE id = ?', [item.jobId]).steps_json)[0].spoolerId).toBe(item.recovery.spoolerId);
+  });
+
+  it('requires paper clearance when canceling a confirmed reloaded legacy back before its recovery submits', async () => {
+    const item = interrupted(7, 'backs'); await beat(item.snapshot);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 1, paperReloaded: true })); await beat(item.snapshot);
+    expect((await reportRecovery(item, saved, { pages: [2, 4] })).status).toBe(200);
+    const queue = await import('../lib/printQueue.js');
+    queue.requestPrintCancellation(db.get('SELECT * FROM print_jobs WHERE id = ?', [item.jobId]), 'backs');
+    const row = db.get('SELECT state, cancel_requested FROM print_jobs WHERE id = ?', [item.jobId]);
+    expect(row.cancel_requested).toBe('backs');
+    expect(row.state).toBe('claimed');
+  });
+
+  it('requires a separate explicit matching-front reload confirmation for backs', async () => {
+    const item = interrupted(7, 'backs'); await beat(item.snapshot);
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 1 }))).status).toBe(400);
+    const saved = await accepted(recoverRequest(item, { firstUnprintedSheet: 1, paperReloaded: true }));
+    await beat(item.snapshot);
+    const result = await reportRecovery(item, saved, { pages: [2, 4] });
+    expect(result.status).toBe(200);
+    const { job } = await result.json();
+    expect(job.steps[0].state).toBe('completed');
+    expect(job.steps[1]).toMatchObject({ state: 'pending', pages: [2, 4], refeedConfirmed: true });
+  });
+
+  it('preserves all receipts and selects relative to the current attempt on a second interruption', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    const first = await accepted(recoverRequest(item, { firstUnprintedSheet: 2 })); await beat(item.snapshot);
+    const firstReply = await (await reportRecovery(item, first)).json();
+    const report = body => request(`/api/print-station/jobs/${item.jobId}/report`, { method: 'POST', token: credential,
+      body: { eventId: crypto.randomUUID(), claimToken: firstReply.job.claimToken, artifactId: 'fronts', phase: 'fronts', attemptId: first.id, ...body } });
+    expect((await report({ state: 'submitting' })).status).toBe(200);
+    expect((await report({ state: 'submitted', spoolerId: 'EPSON_ET_8550_Series-24' })).status).toBe(200);
+    expect((await report({ state: 'failed', spoolerId: 'EPSON_ET_8550_Series-24' })).status).toBe(200);
+    const second = { ...item, recovery: { ...item.recovery, recoveryId: `recover-${'b'.repeat(24)}`,
+      spoolerId: 'EPSON_ET_8550_Series-24', physicalPages: [3, 2, 1], totalSheets: 3, attemptId: first.id } };
+    second.snapshot = { ...item.snapshot, receipts: [{ commandId: first.id, status: 'applied', message: 'Remaining sheets selected' }],
+      activeJob: { ...item.snapshot.activeJob, recovery: second.recovery } };
+    await beat(second.snapshot);
+    const next = await accepted(recoverRequest(second, { firstUnprintedSheet: 2 }));
+    await beat({ ...second.snapshot, receipts: [] });
+    const response = await reportRecovery(second, next, { attemptId: first.id, pages: [1, 2] });
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(200);
+    const step = (await response.json()).job.steps[0];
+    expect(step).toMatchObject({ state: 'pending', attemptId: next.id, pages: [1, 2] });
+    expect(step.attempts.map(attempt => attempt.spoolerId)).toEqual(['EPSON_ET_8550_Series-23', 'EPSON_ET_8550_Series-24']);
+    expect(step.attempts[1].attempts).toBeUndefined();
+  });
+
+  it('hides recovery when the manifest, saved spooler receipt or cancellation no longer agrees', async () => {
+    const item = interrupted(); await beat(item.snapshot);
+    db.run('UPDATE print_jobs SET cancel_requested = ?, cancel_request_id = ? WHERE id = ?', ['all', crypto.randomUUID(), item.jobId]);
+    expect((await (await status()).json()).station.activeJob.recovery).toBeNull();
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2 }))).status).toBe(409);
+    db.run('UPDATE print_jobs SET cancel_requested = NULL, cancel_request_id = NULL, manifest_sha256 = ? WHERE id = ?', ['0'.repeat(64), item.jobId]);
+    expect((await (await status()).json()).station.activeJob.recovery).toBeNull();
+  });
+});

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getAdminAuditLog } from '../../lib/api';
+import { getAdminAuditLog, adminCleanupAuditLog } from '../../lib/api';
 import { toast } from '../Toast';
 
 const ACTION_BADGE_MAP = {
@@ -48,6 +48,8 @@ export default function AdminAuditLog() {
   const [limit] = useState(50);
   const [actionFilter, setActionFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [cleanupDays, setCleanupDays] = useState('90');
+  const [cleaning, setCleaning] = useState(false);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -67,18 +69,32 @@ export default function AdminAuditLog() {
     setPage(1);
   }
 
+  async function handleCleanup(event) {
+    event.preventDefault();
+    const days = Number(cleanupDays);
+    if (!Number.isInteger(days) || days < 1 || days > 365 || cleaning) return;
+    setCleaning(true);
+    try {
+      const result = await adminCleanupAuditLog(days);
+      toast.success(`Removed ${result.removed} audit entries older than ${days} days`);
+      if (page === 1) refresh(); else setPage(1);
+    } catch (error) { toast.error(error.message); }
+    finally { setCleaning(false); }
+  }
+
   const totalPages = Math.ceil(total / limit);
   const startItem = (page - 1) * limit + 1;
   const endItem = Math.min(page * limit, total);
 
   return (
     <div>
-      <h3>Audit Log</h3>
+      <h3>Audit log</h3>
 
       {/* Toolbar */}
       <div className="admin-audit-toolbar">
         <select
           className="admin-sort-select"
+          aria-label="Filter audit actions"
           value={actionFilter}
           onChange={e => handleFilterChange(e.target.value)}
         >
@@ -145,6 +161,15 @@ export default function AdminAuditLog() {
           </button>
         </div>
       )}
+      <details className="admin-maintenance-panel">
+        <summary>Audit retention</summary>
+        <p>Delete older entries from this log. This does not change user accounts or deck history.</p>
+        <form className="admin-maintenance-row" onSubmit={handleCleanup}>
+          <label htmlFor="audit-keep-days">Days to keep</label>
+          <input id="audit-keep-days" className="admin-maintenance-days-input" type="number" min="1" max="365" required value={cleanupDays} onChange={e => setCleanupDays(e.target.value)} disabled={cleaning} />
+          <button className="btn btn-secondary btn-sm" type="submit" disabled={cleaning}>{cleaning ? 'Deleting…' : 'Delete older audit entries'}</button>
+        </form>
+      </details>
     </div>
   );
 }

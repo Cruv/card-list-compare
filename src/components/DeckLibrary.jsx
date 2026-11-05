@@ -1,75 +1,66 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { sourceBatchFeedback } from '../lib/sourceSync';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import {
   getOwners, addOwner, removeOwner, getOwnerDecks,
   getTrackedDecks, trackDeck, untrackDeck, refreshDeck, refreshAllDecks,
   exportDecks,
-  getCollection, importCollection, updateCollectionCard, deleteCollectionCard, clearCollection, getCollectionSummary,
   getDeckOverlap,
   getNotificationHistory,
 } from '../lib/api';
 import DeckGridCard from './DeckGridCard';
+import useDeckArtwork, { deckCommanders } from '../hooks/useDeckArtwork';
+import Icon from './Icon';
 import Skeleton from './Skeleton';
-import { parseQtyEdit } from '../lib/collectionQty';
+import AddDecksDialog from './AddDecksDialog';
 import './UserSettings.css';
 import './DeckLibrary.css';
 
 export default function DeckLibrary() {
   const [confirm, ConfirmDialog] = useConfirm();
   const [activeTab, setActiveTab] = useState('deck-tracker');
+  const [showAddDecks, setShowAddDecks] = useState(false);
+  const [libraryRevision, setLibraryRevision] = useState(0);
 
   return (
     <div className="settings-page deck-library-page">
-      <button className="settings-back-link" onClick={() => { window.location.hash = ''; }} type="button">
-        &larr; Back to Compare
-      </button>
       <div className="user-settings">
         {ConfirmDialog}
+        {showAddDecks && <AddDecksDialog onClose={() => setShowAddDecks(false)} onAdded={() => setLibraryRevision(value => value + 1)} />}
         <div className="user-settings-header">
-          <h2>Deck Library</h2>
+          <div><h1>Decks</h1>
+            <p>Saved lists and the versions you play.</p></div>
+          <button className="btn btn-primary" type="button" onClick={event => { event.currentTarget.focus(); setShowAddDecks(true); }}><Icon name="plus" size={18} /> Add decks</button>
         </div>
 
-        <nav className="user-settings-tabs">
+        <nav className="user-settings-tabs" aria-label="Library sections">
           <button
             className={`user-settings-tab${activeTab === 'deck-tracker' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('deck-tracker')}
             type="button"
           >
-            Deck Tracker
-          </button>
-          <button
-            className={`user-settings-tab${activeTab === 'collection' ? ' user-settings-tab--active' : ''}`}
-            onClick={() => setActiveTab('collection')}
-            type="button"
-          >
-            Collection
+            Decks
           </button>
           <button
             className={`user-settings-tab${activeTab === 'overlap' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('overlap')}
             type="button"
           >
-            Overlap
+            Shared cards
           </button>
           <button
             className={`user-settings-tab${activeTab === 'notifications' ? ' user-settings-tab--active' : ''}`}
             onClick={() => setActiveTab('notifications')}
             type="button"
           >
-            Notifications
+            Alert history
           </button>
         </nav>
 
         {activeTab === 'deck-tracker' && (
           <div className="user-settings-panel">
-            <DeckTrackerSettings confirm={confirm} />
-          </div>
-        )}
-
-        {activeTab === 'collection' && (
-          <div className="user-settings-panel">
-            <CollectionManager confirm={confirm} />
+            <DeckTrackerSettings confirm={confirm} refreshKey={libraryRevision} onAddDecks={() => setShowAddDecks(true)} />
           </div>
         )}
 
@@ -92,7 +83,7 @@ export default function DeckLibrary() {
 
 // --- Deck Tracker Management ---
 
-function DeckTrackerSettings({ confirm }) {
+function DeckTrackerSettings({ confirm, refreshKey, onAddDecks }) {
   const [owners, setOwners] = useState([]);
   const [trackedDecks, setTrackedDecks] = useState([]);
   const [newOwner, setNewOwner] = useState('');
@@ -102,6 +93,9 @@ function DeckTrackerSettings({ confirm }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [refreshingAll, setRefreshingAll] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [showSources, setShowSources] = useState(false);
+  const coverFor = useDeckArtwork(trackedDecks);
 
   // Search + collapse + tag filter state
   const [deckSearch, setDeckSearch] = useState('');
@@ -161,14 +155,16 @@ function DeckTrackerSettings({ confirm }) {
   const refresh = useCallback(async () => {
     try {
       const [ownersData, decksData] = await Promise.all([getOwners(), getTrackedDecks()]);
+      setError(null);
       setOwners(ownersData.owners);
       setTrackedDecks(decksData.decks);
     } catch {
+      setError('Failed to load your decks. Please refresh to try again.');
       toast.error('Failed to load tracking data.');
-    }
+    } finally { setInitialLoading(false); }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, refreshKey]);
 
   async function handleAddOwner(e) {
     e.preventDefault();
@@ -191,7 +187,7 @@ function DeckTrackerSettings({ confirm }) {
     const owner = owners.find(o => o.id === id);
     const confirmed = await confirm({
       title: 'Remove tracked user?',
-      message: `This will stop tracking "${owner?.archidekt_username || 'this user'}" and delete all their tracked decks and snapshots.`,
+      message: `This will stop tracking "${owner?.archidekt_username || 'this user'}" and delete all their tracked decks and saved versions.`,
       confirmLabel: 'Remove',
       danger: true,
     });
@@ -286,21 +282,17 @@ function DeckTrackerSettings({ confirm }) {
   }
 
   async function handleBulkRefresh() {
-    const ids = [...selectedDecks];
-    let ok = 0, fail = 0;
+    const ids = trackedDecks.filter(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual').map(deck => deck.id);
+    const results = [];
     for (const id of ids) {
       try {
-        await refreshDeck(id);
-        ok++;
+        results.push(await refreshDeck(id));
       } catch {
-        fail++;
+        results.push({ error: true });
       }
     }
-    if (fail > 0) {
-      toast(`Refreshed ${ok} decks, ${fail} failed`, 'error');
-    } else {
-      toast.success(`Refreshed ${ok} decks`);
-    }
+    const feedback = sourceBatchFeedback({ results });
+    toast(feedback.message, feedback.tone);
     await refresh();
   }
 
@@ -320,7 +312,7 @@ function DeckTrackerSettings({ confirm }) {
     const ids = [...selectedDecks];
     const confirmed = await confirm({
       title: `Untrack ${ids.length} decks?`,
-      message: 'All snapshots for these decks will be permanently deleted.',
+      message: 'All saved versions for these decks will be permanently deleted.',
       confirmLabel: `Untrack ${ids.length}`,
       danger: true,
     });
@@ -348,14 +340,8 @@ function DeckTrackerSettings({ confirm }) {
     setError(null);
     try {
       const data = await refreshAllDecks();
-      const { summary } = data;
-      if (summary.failed > 0) {
-        toast(`Refreshed ${summary.total} decks: ${summary.changed} updated, ${summary.failed} failed`, 'error', 5000);
-      } else if (summary.changed > 0) {
-        toast.success(`Refreshed ${summary.total} decks: ${summary.changed} updated`);
-      } else {
-        toast('All decks are up to date', 'info');
-      }
+      const feedback = sourceBatchFeedback(data);
+      toast(feedback.message, feedback.tone, 5000);
       await refresh();
     } catch (err) {
       setError(err.message);
@@ -368,6 +354,153 @@ function DeckTrackerSettings({ confirm }) {
     <div className="settings-tracker">
       {error && <div className="settings-tracker-error" role="alert">{error}</div>}
 
+      {initialLoading && <div className="deck-library-loading" role="status" aria-label="Loading decks"><Skeleton lines={8} /></div>}
+      {trackedDecks.length > 0 && (
+        <div className="settings-tracker-decks">
+          <div className="settings-tracker-decks-header">
+            <p className="deck-library-count-label">{trackedDecks.length} saved deck{trackedDecks.length === 1 ? '' : 's'}</p>
+            <div className="settings-tracker-decks-header-actions">
+              <button
+                className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
+                onClick={toggleBulkMode}
+                type="button"
+              >
+                {bulkMode ? 'Done selecting' : 'Select decks'}
+              </button>
+              {!bulkMode && <button
+                className="btn btn-secondary btn-sm"
+                onClick={handleRefreshAll}
+                disabled={refreshingAll || trackedDecks.every(deck => deck.source_type === 'manual')}
+                type="button"
+              >
+                <Icon name="refresh" size={16} /> {refreshingAll ? 'Checking…' : 'Check for updates'}
+              </button>}
+            </div>
+          </div>
+
+          {/* Bulk action bar */}
+          {bulkMode && (
+            <div className="settings-tracker-bulk-bar">
+              <div className="settings-tracker-bulk-bar-left">
+                <button className="btn btn-secondary btn-sm" onClick={selectAllDecks} type="button">All</button>
+                <button className="btn btn-secondary btn-sm" onClick={deselectAllDecks} type="button">None</button>
+                <span className="settings-tracker-bulk-count">{selectedDecks.size} selected</span>
+              </div>
+              {selectedDecks.size > 0 && (
+                <div className="settings-tracker-bulk-bar-right">
+                  <button className="btn btn-primary btn-sm" onClick={handleBulkRefresh} disabled={!trackedDecks.some(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual')} type="button">
+                    Refresh ({trackedDecks.filter(deck => selectedDecks.has(deck.id) && deck.source_type !== 'manual').length})
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleBulkExport} type="button">
+                    Export ({selectedDecks.size})
+                  </button>
+                  <button className="btn btn-sm btn-ghost-danger" onClick={handleBulkUntrack} type="button">
+                    Untrack ({selectedDecks.size})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Search + tag filter */}
+          {trackedDecks.length > 0 && (
+            <div className="settings-tracker-filter-row">
+              <div className="settings-tracker-search"><Icon name="search" size={18} />
+                <input
+                  className="settings-tracker-search-input"
+                  type="text"
+                  placeholder="Search decks or users…"
+                  value={deckSearch}
+                  onChange={e => setDeckSearch(e.target.value)}
+                  aria-label="Filter tracked decks"
+                />
+                {deckSearch && (
+                  <button
+                    className="settings-tracker-search-clear"
+                    onClick={() => setDeckSearch('')}
+                    type="button"
+                    aria-label="Clear search"
+                  >
+                    &times;
+                  </button>
+                )}
+              </div>
+              {allTags.length > 0 && (
+                <select
+                  className="settings-tracker-tag-filter"
+                  value={tagFilter}
+                  onChange={e => setTagFilter(e.target.value)}
+                  aria-label="Filter by tag"
+                >
+                  <option value="">All tags</option>
+                  {allTags.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* Owner groups */}
+          {filteredDecksByOwner.length === 0 && (deckSearch.trim() || tagFilter) && (
+            <p className="settings-tracker-empty">No decks matching "{deckSearch}"</p>
+          )}
+
+          {filteredDecksByOwner.map(([ownerName, decks]) => {
+            const isSearchActive = deckSearch.trim().length > 0;
+            const isCollapsed = !isSearchActive && collapsedOwners.has(ownerName);
+
+            return (
+              <div key={ownerName} className="settings-tracker-owner-group">
+                <div className="settings-tracker-owner-group-header-row">
+                  {bulkMode && (
+                    <input
+                      type="checkbox"
+                      className="settings-tracker-bulk-checkbox"
+                      aria-label={`Select all decks by ${ownerName}`}
+                      checked={decks.every(d => selectedDecks.has(d.id))}
+                      onChange={() => toggleOwnerSelection(decks)}
+                      onClick={e => e.stopPropagation()}
+                    />
+                  )}
+                  <button
+                    className="settings-tracker-owner-group-header"
+                    onClick={() => toggleOwnerCollapse(ownerName)}
+                    type="button"
+                    aria-expanded={!isCollapsed}
+                  >
+                    <span className="settings-tracker-owner-group-arrow">{isCollapsed ? '\u25B6' : '\u25BC'}</span>
+                    <span className="settings-tracker-owner-group-name">{ownerName}</span>
+                    <span className="settings-tracker-owner-group-count">{decks.length}</span>
+                  </button>
+                </div>
+                {!isCollapsed && (
+                  <div className="deck-tracker-grid">
+                    {decks.map(deck => (
+                      <DeckGridCard
+                        key={deck.id}
+                        deck={deck}
+                        imageUri={coverFor(deckCommanders(deck)[0])}
+                        bulkMode={bulkMode}
+                        isSelected={selectedDecks.has(deck.id)}
+                        onToggleSelect={toggleDeckSelection}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!initialLoading && trackedDecks.length === 0 && <div className="deck-library-empty">
+        <Icon name="library" size={42} /><h2>Your next deck starts here</h2>
+        <p>Choose an untracked deck, paste a card list, or import a URL.</p>
+        <button className="btn btn-primary" type="button" onClick={event => { event.currentTarget.focus(); onAddDecks(); }}>Add a deck</button>
+      </div>}
+      {!initialLoading && <details className="deck-library-sources" open={showSources || trackedDecks.length === 0}
+        onToggle={event => setShowSources(event.currentTarget.open)}>
+        <summary><Icon name="plus" size={18} /><span>Manage sources</span><span className="deck-library-source-count">{owners.length} account{owners.length === 1 ? '' : 's'}</span></summary>
+        <div className="deck-library-sources-body"><p>Add an Archidekt account to browse its public decks. Choose which decks CLC keeps up to date.</p>
       <form className="settings-tracker-add" onSubmit={handleAddOwner}>
         <input
           type="text"
@@ -378,7 +511,7 @@ function DeckTrackerSettings({ confirm }) {
           aria-label="Archidekt username to track"
         />
         <button className="btn btn-primary btn-sm" type="submit" disabled={loading || !newOwner.trim()}>
-          {loading ? 'Adding...' : 'Track User'}
+          {loading ? 'Adding…' : 'Add account'}
         </button>
       </form>
 
@@ -444,370 +577,8 @@ function DeckTrackerSettings({ confirm }) {
         </div>
       )}
 
-      {trackedDecks.length > 0 && (
-        <div className="settings-tracker-decks">
-          <div className="settings-tracker-decks-header">
-            <h4>Tracked Decks</h4>
-            <div className="settings-tracker-decks-header-actions">
-              <button
-                className={`btn btn-secondary btn-sm${bulkMode ? ' btn--active' : ''}`}
-                onClick={toggleBulkMode}
-                type="button"
-              >
-                {bulkMode ? 'Cancel Select' : 'Select'}
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={handleRefreshAll}
-                disabled={refreshingAll}
-                type="button"
-              >
-                {refreshingAll ? 'Refreshing...' : `Refresh All (${trackedDecks.length})`}
-              </button>
-            </div>
-          </div>
-
-          {/* Bulk action bar */}
-          {bulkMode && (
-            <div className="settings-tracker-bulk-bar">
-              <div className="settings-tracker-bulk-bar-left">
-                <button className="btn btn-secondary btn-sm" onClick={selectAllDecks} type="button">All</button>
-                <button className="btn btn-secondary btn-sm" onClick={deselectAllDecks} type="button">None</button>
-                <span className="settings-tracker-bulk-count">{selectedDecks.size} selected</span>
-              </div>
-              {selectedDecks.size > 0 && (
-                <div className="settings-tracker-bulk-bar-right">
-                  <button className="btn btn-primary btn-sm" onClick={handleBulkRefresh} type="button">
-                    Refresh ({selectedDecks.size})
-                  </button>
-                  <button className="btn btn-secondary btn-sm" onClick={handleBulkExport} type="button">
-                    Export ({selectedDecks.size})
-                  </button>
-                  <button className="btn btn-sm btn-ghost-danger" onClick={handleBulkUntrack} type="button">
-                    Untrack ({selectedDecks.size})
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Search + tag filter */}
-          {trackedDecks.length > 3 && (
-            <div className="settings-tracker-filter-row">
-              <div className="settings-tracker-search">
-                <input
-                  className="settings-tracker-search-input"
-                  type="text"
-                  placeholder="Filter decks..."
-                  value={deckSearch}
-                  onChange={e => setDeckSearch(e.target.value)}
-                  aria-label="Filter tracked decks"
-                />
-                {deckSearch && (
-                  <button
-                    className="settings-tracker-search-clear"
-                    onClick={() => setDeckSearch('')}
-                    type="button"
-                    aria-label="Clear search"
-                  >
-                    &times;
-                  </button>
-                )}
-              </div>
-              {allTags.length > 0 && (
-                <select
-                  className="settings-tracker-tag-filter"
-                  value={tagFilter}
-                  onChange={e => setTagFilter(e.target.value)}
-                  aria-label="Filter by tag"
-                >
-                  <option value="">All tags</option>
-                  {allTags.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              )}
-            </div>
-          )}
-
-          {/* Owner groups */}
-          {filteredDecksByOwner.length === 0 && (deckSearch.trim() || tagFilter) && (
-            <p className="settings-tracker-empty">No decks matching "{deckSearch}"</p>
-          )}
-
-          {filteredDecksByOwner.map(([ownerName, decks]) => {
-            const isSearchActive = deckSearch.trim().length > 0;
-            const isCollapsed = !isSearchActive && collapsedOwners.has(ownerName);
-
-            return (
-              <div key={ownerName} className="settings-tracker-owner-group">
-                <div className="settings-tracker-owner-group-header-row">
-                  {bulkMode && (
-                    <input
-                      type="checkbox"
-                      className="settings-tracker-bulk-checkbox"
-                      checked={decks.every(d => selectedDecks.has(d.id))}
-                      onChange={() => toggleOwnerSelection(decks)}
-                      onClick={e => e.stopPropagation()}
-                    />
-                  )}
-                  <button
-                    className="settings-tracker-owner-group-header"
-                    onClick={() => toggleOwnerCollapse(ownerName)}
-                    type="button"
-                    aria-expanded={!isCollapsed}
-                  >
-                    <span className="settings-tracker-owner-group-arrow">{isCollapsed ? '\u25B6' : '\u25BC'}</span>
-                    <span className="settings-tracker-owner-group-name">{ownerName}</span>
-                    <span className="settings-tracker-owner-group-count">{decks.length}</span>
-                  </button>
-                </div>
-                {!isCollapsed && (
-                  <div className="deck-tracker-grid">
-                    {decks.map(deck => (
-                      <DeckGridCard
-                        key={deck.id}
-                        deck={deck}
-                        bulkMode={bulkMode}
-                        isSelected={selectedDecks.has(deck.id)}
-                        onToggleSelect={toggleDeckSelection}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
         </div>
-      )}
-
-      {owners.length === 0 && trackedDecks.length === 0 && (
-        <p className="settings-tracker-empty">
-          No tracked users yet. Enter an Archidekt username above to start tracking their decks.
-        </p>
-      )}
-    </div>
-  );
-}
-
-// --- Collection Manager ---
-
-// Quantity field that commits only on blur/Enter. Keystrokes update local state
-// only; an empty or zero value reverts instead of deleting the card (audit H2).
-function QtyCell({ quantity, onCommit }) {
-  const [value, setValue] = useState(String(quantity));
-  const inputRef = useRef(null);
-  // Escape sets state and blurs in the same tick, but the blur handler runs
-  // before React re-renders — so it would read the typed (stale) value and save
-  // the edit the user just cancelled. This flag makes the cancel win.
-  const cancelledRef = useRef(false);
-
-  // Keep the field in sync when the underlying quantity changes (e.g. a refresh
-  // after another edit) — but never yank the value out from under an active edit.
-  useEffect(() => {
-    if (document.activeElement !== inputRef.current) setValue(String(quantity));
-  }, [quantity]);
-
-  function commit() {
-    if (cancelledRef.current) {
-      cancelledRef.current = false;
-      setValue(String(quantity));
-      return;
-    }
-    const next = parseQtyEdit(value, quantity);
-    if (next === null) {
-      setValue(String(quantity)); // ignore empty/invalid/unchanged → revert
-    } else {
-      onCommit(next);
-    }
-  }
-
-  return (
-    <input
-      ref={inputRef}
-      type="number"
-      className="settings-collection-qty"
-      value={value}
-      min={1}
-      onChange={e => setValue(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e => {
-        if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
-        else if (e.key === 'Escape') { cancelledRef.current = true; e.currentTarget.blur(); }
-      }}
-    />
-  );
-}
-
-function CollectionManager({ confirm }) {
-  const [cards, setCards] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [importText, setImportText] = useState('');
-  const [importing, setImporting] = useState(false);
-  const [search, setSearch] = useState('');
-  const [summary, setSummary] = useState({ uniqueCards: 0, totalCards: 0 });
-
-  const refresh = useCallback(async () => {
-    try {
-      const [collectionData, summaryData] = await Promise.all([
-        getCollection(),
-        getCollectionSummary(),
-      ]);
-      setCards(collectionData.cards);
-      setSummary(summaryData);
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function handleImport() {
-    if (!importText.trim()) return;
-    setImporting(true);
-    try {
-      const data = await importCollection(importText);
-      toast.success(`Imported ${data.imported} cards${data.skipped ? ` (${data.skipped} skipped)` : ''}`);
-      setImportText('');
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function handleDeleteCard(id) {
-    try {
-      await deleteCollectionCard(id);
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  async function handleUpdateQty(id, newQty) {
-    try {
-      await updateCollectionCard(id, newQty);
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-      // Re-sync so the field can't keep showing a value that was never saved.
-      refresh();
-    }
-  }
-
-  async function handleClear() {
-    const ok = await confirm('Clear your entire collection? This cannot be undone.');
-    if (!ok) return;
-    try {
-      await clearCollection();
-      toast.success('Collection cleared');
-      refresh();
-    } catch (err) {
-      toast.error(err.message);
-    }
-  }
-
-  const filteredCards = useMemo(() => {
-    if (!search.trim()) return cards;
-    const lower = search.toLowerCase();
-    return cards.filter(c => c.card_name.toLowerCase().includes(lower));
-  }, [cards, search]);
-
-  return (
-    <div className="settings-collection">
-      <h3>My Collection</h3>
-      <p className="settings-collection-summary">
-        {summary.uniqueCards} unique cards, {summary.totalCards} total
-      </p>
-
-      <div className="settings-collection-import">
-        <h4>Import Cards</h4>
-        <p className="settings-collection-hint">Paste a card list — same format as deck text (e.g. "4 Lightning Bolt (m10) [227]")</p>
-        <textarea
-          className="settings-collection-textarea"
-          value={importText}
-          onChange={e => setImportText(e.target.value)}
-          placeholder={'4 Lightning Bolt\n2 Sol Ring (c21) [281]\n1 Nazgul (ltr) [551] *F*'}
-          rows={5}
-          disabled={importing}
-        />
-        <div className="settings-collection-import-actions">
-          <button className="btn btn-primary btn-sm" onClick={handleImport} disabled={importing || !importText.trim()} type="button">
-            {importing ? 'Importing...' : 'Import'}
-          </button>
-          {cards.length > 0 && (
-            <button className="btn btn-sm btn-ghost-danger" onClick={handleClear} type="button">
-              Clear All
-            </button>
-          )}
-        </div>
-      </div>
-
-      {cards.length > 0 && (
-        <>
-          {cards.length > 10 && (
-            <div className="settings-collection-search">
-              <input
-                type="text"
-                placeholder="Search collection..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="settings-tracker-search-input"
-              />
-            </div>
-          )}
-          <div className="settings-collection-list">
-            {loading ? <Skeleton lines={5} /> : (
-              filteredCards.length === 0 ? (
-                <p className="settings-tracker-empty">No cards matching "{search}"</p>
-              ) : (
-                <table className="settings-collection-table">
-                  <thead>
-                    <tr>
-                      <th>Qty</th>
-                      <th>Card Name</th>
-                      <th>Set</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredCards.map(card => (
-                      <tr key={card.id}>
-                        <td>
-                          <QtyCell
-                            quantity={card.quantity}
-                            onCommit={qty => handleUpdateQty(card.id, qty)}
-                          />
-                        </td>
-                        <td>
-                          {card.card_name}
-                          {card.is_foil ? ' \u2726' : ''}
-                        </td>
-                        <td className="settings-collection-set">
-                          {card.set_code ? `(${card.set_code.toUpperCase()})` : ''}
-                          {card.collector_number ? ` #${card.collector_number}` : ''}
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-sm btn-ghost-danger"
-                            onClick={() => handleDeleteCard(card.id)}
-                            type="button"
-                            title="Remove from collection"
-                          >
-                            &times;
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            )}
-          </div>
-        </>
-      )}
+      </details>}
     </div>
   );
 }
@@ -830,8 +601,8 @@ function DeckOverlapAnalysis() {
   if (!data || data.decks.length < 2) {
     return (
       <div className="settings-overlap">
-        <h3>Deck Overlap</h3>
-        <p className="settings-tracker-empty">Track at least 2 decks with snapshots to see overlap analysis.</p>
+        <h2>Shared cards</h2>
+        <p className="settings-tracker-empty">Save at least two decks with cards to compare their shared cards.</p>
       </div>
     );
   }
@@ -850,7 +621,7 @@ function DeckOverlapAnalysis() {
 
   return (
     <div className="settings-overlap">
-      <h3>Deck Overlap</h3>
+      <h2>Shared cards</h2>
       <p className="settings-overlap-summary">
         {totalShared} card{totalShared !== 1 ? 's' : ''} shared across {decks.length} decks
       </p>
@@ -973,7 +744,7 @@ function NotificationHistory() {
 
   return (
     <div>
-      <h3>Notification History</h3>
+      <h2>Alert history</h2>
       <p className="settings-section-desc">
         Recent notifications sent for your tracked decks.
       </p>

@@ -1,4 +1,10 @@
 const API_BASE = '/api';
+
+// Incoming Discord commands use a separate signed application connection.
+export const getDiscordPrintBotSettings = signal => apiFetch('/print-station-management/discord-bot', { signal });
+export const saveDiscordPrintBotSettings = body => apiFetch('/print-station-management/discord-bot', { method: 'PUT', body: JSON.stringify(body) });
+export const registerDiscordPrintBotCommands = botToken => apiFetch('/print-station-management/discord-bot/register', { method: 'POST', body: JSON.stringify({ botToken }) });
+export const disconnectDiscordPrintBot = () => apiFetch('/print-station-management/discord-bot/disconnect', { method: 'POST', body: '{}' });
 const DEFAULT_TIMEOUT = 15_000; // 15 seconds
 
 function getToken() {
@@ -18,21 +24,30 @@ async function apiFetch(path, options = {}) {
   const timeout = options.timeout ?? DEFAULT_TIMEOUT;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
+  const callerSignal = options.signal;
+  const cancel = () => controller.abort();
+  callerSignal?.addEventListener('abort', cancel, { once: true });
+  if (callerSignal?.aborted) controller.abort();
 
   let res;
+  let data;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
       signal: controller.signal,
     });
+    // Keep cancellation and timeout active until the response body is consumed.
+    data = res.ok ? await res.json() : await res.json().catch(() => ({}));
   } catch (err) {
+    if (callerSignal?.aborted) throw err;
     if (err.name === 'AbortError') {
       throw new Error('Request timed out. Please try again.');
     }
     throw new Error('Network error. Check your connection and try again.');
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener('abort', cancel);
   }
 
   if (res.status === 401) {
@@ -42,14 +57,18 @@ async function apiFetch(path, options = {}) {
   }
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `Request failed: ${res.status}`);
+    const error = new Error(data.error || `Request failed: ${res.status}`);
+    error.status = res.status;
+    error.data = data;
+    throw error;
   }
 
-  return res.json();
+  return data;
 }
 
 // Auth
+export const createLibraryDeck = body => apiFetch('/decks/import', { method: 'POST', body: JSON.stringify(body), timeout: 60_000 });
+
 export const register = (username, password, inviteCode) =>
   apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ username, password, inviteCode: inviteCode || undefined }) });
 
@@ -204,23 +223,6 @@ export const updateDeckDiscordWebhook = (deckId, discordWebhookUrl) =>
     method: 'PATCH',
     body: JSON.stringify({ discordWebhookUrl }),
   });
-
-// Collection
-export const getCollection = () => apiFetch('/collection');
-
-export const getCollectionSummary = () => apiFetch('/collection/summary');
-
-export const importCollection = (text) =>
-  apiFetch('/collection/import', { method: 'POST', body: JSON.stringify({ text }) });
-
-export const updateCollectionCard = (id, quantity) =>
-  apiFetch(`/collection/${id}`, { method: 'PATCH', body: JSON.stringify({ quantity }) });
-
-export const deleteCollectionCard = (id) =>
-  apiFetch(`/collection/${id}`, { method: 'DELETE' });
-
-export const clearCollection = () =>
-  apiFetch('/collection', { method: 'DELETE' });
 
 // Playgroups removed — future TapTogether integration planned
 
@@ -457,10 +459,10 @@ export async function mpcDownloadZip(cards) {
 
 // MPC art overrides (server-persisted)
 export const getMpcOverrides = (deckId) => apiFetch(`/decks/${deckId}/mpc-overrides`);
-export const saveMpcOverrides = (deckId, overrides) =>
+export const saveMpcOverrides = (deckId, overrides, baseRevision) =>
   apiFetch(`/decks/${deckId}/mpc-overrides`, {
     method: 'PUT',
-    body: JSON.stringify({ overrides }),
+    body: JSON.stringify({ overrides, baseRevision }),
   });
 
 // Image download queue
@@ -493,3 +495,116 @@ export async function downloadJobFile(deckId, jobId, deckName) {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// Household PDFs and the native Mac print queue.
+export const previewPrintPlan = (deckId, options) =>
+  apiFetch(`/decks/${deckId}/print-plan`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
+export const createPrintJob = (deckId, options) =>
+  apiFetch(`/decks/${deckId}/print-jobs`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
+export const getPrintJobs = (deckId) => apiFetch(`/decks/${deckId}/print-jobs`);
+export const getPrintJob = (deckId, jobId) => apiFetch(`/decks/${deckId}/print-jobs/${jobId}`);
+export const queuePrintJob = (deckId, jobId) =>
+  apiFetch(`/decks/${deckId}/print-jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
+export const cancelPrintJob = (deckId, jobId) =>
+  apiFetch(`/decks/${deckId}/print-jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
+export const expirePrintArtifacts = (deckId, jobId) =>
+  apiFetch(`/decks/${deckId}/print-jobs/${jobId}/artifacts`, { method: 'DELETE' });
+
+export const previewStandalonePrintJob = options =>
+  apiFetch('/print-lists/plan', { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
+export const createStandalonePrintJob = options =>
+  apiFetch('/print-lists/jobs', { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
+export const getStandalonePrintJobs = () => apiFetch('/print-lists/jobs');
+export const getStandalonePrintJob = jobId => apiFetch(`/print-lists/jobs/${jobId}`);
+export const queueStandalonePrintJob = jobId =>
+  apiFetch(`/print-lists/jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
+export const cancelStandalonePrintJob = jobId =>
+  apiFetch(`/print-lists/jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
+export const expireStandalonePrintArtifacts = jobId =>
+  apiFetch(`/print-lists/jobs/${jobId}/artifacts`, { method: 'DELETE' });
+
+export async function downloadPrintArtifact(downloadUrl, filename) {
+  // URLs come from the authenticated job response, and must stay on this origin.
+  if (!/^\/api\/(?:decks\/\d+\/print-jobs|print-lists\/jobs)\/[a-zA-Z0-9-]+\/(?:manifest|artifacts\/[a-zA-Z0-9_-]+)$/.test(downloadUrl)) {
+    throw new Error('Invalid PDF download address');
+  }
+  const token = getToken();
+  const res = await fetch(downloadUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'PDF download failed');
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = (filename || 'cards.pdf').replace(/[^a-zA-Z0-9._ -]/g, '_');
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+// Optional ManaSync ownership and confirmed physical-print bridge.
+export const getManaSyncConnection = () => apiFetch('/manasync/connection');
+export const connectManaSync = data => apiFetch('/manasync/connection',{method:'PUT',body:JSON.stringify(data)});
+export const checkManaSyncConnection = () => apiFetch('/manasync/connection/check',{method:'POST'});
+export const disconnectManaSync = () => apiFetch('/manasync/connection',{method:'DELETE'});
+export const getManaSyncAvailability = by => apiFetch(`/manasync/availability?by=${by}`);
+export const getManaSyncContainers = () => apiFetch('/manasync/containers');
+export const getPrintQueue = deckId => apiFetch(`/manasync/print-queue${deckId ? `?deckId=${deckId}` : ''}`);
+export const refreshPendingProxyPrints = (scope = {}) => apiFetch('/manasync/print-queue/refresh',{
+  method:'POST',body:JSON.stringify({...(scope.deckId ? {deckId:scope.deckId} : {}),...(scope.printJobId ? {printJobId:scope.printJobId} : {})}),
+});
+export const retryPendingProxyPublication = (id, expectedConnection) => apiFetch(`/manasync/print-queue/${encodeURIComponent(id)}/retry-publication`,{
+  method:'POST',body:JSON.stringify({expectedConnection}),
+});
+export const queuePrintItem = data => apiFetch('/manasync/print-queue',{method:'POST',body:JSON.stringify(data)});
+export const cancelPrintItem = id => apiFetch(`/manasync/print-queue/${id}/cancel`,{method:'POST'});
+export const confirmPrinted = (id,data) => apiFetch(`/manasync/print-queue/${id}/confirm`,{method:'POST',body:JSON.stringify(data)});
+export const retryPrintReport = id => apiFetch(`/manasync/operations/${id}/retry`,{method:'POST'});
+export const bindPrintReport = (id,containerId,expectedConnection) => apiFetch(`/manasync/operations/${id}/bind`,{method:'POST',body:JSON.stringify({containerId,expectedConnection})});
+export const reconcilePrintReport = id => apiFetch(`/manasync/operations/${id}/reconcile`);
+export const correctPrintReport = (id,data) => apiFetch(`/manasync/operations/${id}/correct`,{method:'POST',body:JSON.stringify(data)});
+
+export const queuePrintBatch = items => apiFetch('/manasync/print-queue/batch',{method:'POST',body:JSON.stringify({items})});
+
+export const stagePrintJobConfirmations = jobId =>
+  apiFetch(`/manasync/print-jobs/${encodeURIComponent(jobId)}/confirmation-queue`, { method: 'POST', body: '{}' });
+
+export async function getPrintQueueArtwork(itemId, face, signal) {
+  if (!['front', 'back'].includes(face)) throw new Error('Invalid artwork face');
+  const token = getToken();
+  // Construct the same-origin route; never send credentials to an artwork URL.
+  const res = await fetch(`${API_BASE}/manasync/print-queue/${encodeURIComponent(itemId)}/artwork/${face}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}, signal,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Saved proxy artwork could not be loaded');
+  }
+  return res.blob();
+}
+// Household station management uses the signed-in user's account, never station credentials.
+export const getPrintBatches = ({ cursor, state = 'all', order = 'queue', limit = 50 } = {}, signal) => {
+  const query = new URLSearchParams({ state, order, limit: String(limit) });
+  if (cursor) query.set('cursor', cursor);
+  return apiFetch(`/print-batches?${query}`, { signal });
+};
+export const getPrintStationStatus = (signal) =>
+  apiFetch('/print-station-management/status', { signal, timeout: 10_000 });
+export const cancelHouseholdPrintJob = jobId =>
+  apiFetch(`/print-station-management/jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
+export const preparePrintJobBacks = (jobId, artifactId, signal) =>
+  apiFetch(`/print-station-management/jobs/${encodeURIComponent(jobId)}/backs/prepare`, { method: 'POST', body: JSON.stringify({ artifactId }), signal });
+export const cancelPrintJobBacks = (jobId, signal) =>
+  apiFetch(`/print-station-management/jobs/${encodeURIComponent(jobId)}/backs/cancel`, { method: 'POST', body: '{}', signal });
+export const sendPrintStationCommand = (command, signal) =>
+  apiFetch('/print-station-management/commands', { method: 'POST', body: JSON.stringify(command), signal });
+
+// Discord settings must never pass through UI persistence containing the webhook.
+export const configurePrintStationDiscord = (settings, signal) =>
+  apiFetch('/print-station-management/discord', { method: 'POST', body: JSON.stringify(settings), signal });
+export const testPrintStationDiscord = (request, signal) =>
+  apiFetch('/print-station-management/discord/test', { method: 'POST', body: JSON.stringify(request), signal });
+export const findPrintStationCommand = (key, signal) =>
+  apiFetch(`/print-station-management/commands/${encodeURIComponent(key)}`, { signal, timeout: 10_000 });

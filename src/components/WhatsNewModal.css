@@ -110,3 +110,6 @@
   from { transform: scale(0.95); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+.whatsnew-modal { background: var(--bg-secondary); border-radius: 20px; padding: 28px; max-height: 85dvh; overflow: auto; }
+.whatsnew-close { width: 44px; height: 44px; border: 1px solid var(--border-color); border-radius: 10px; flex-shrink: 0; }
+.whatsnew-list { gap: 16px; }

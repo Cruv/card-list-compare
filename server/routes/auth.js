@@ -7,6 +7,7 @@ import { authLimiter } from '../middleware/rateLimit.js';
 import { validatePassword } from '../middleware/validate.js';
 import { isEmailConfigured, sendPasswordResetEmail, sendVerificationEmail } from '../lib/email.js';
 import { hashToken } from '../lib/tokens.js';
+import { purgeUserPrintJobs } from '../lib/printQueue.js';
 
 const router = Router();
 
@@ -378,9 +379,11 @@ router.delete('/account', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Username does not match' });
     }
 
+    purgeUserPrintJobs(user.id);
     run('DELETE FROM users WHERE id = ?', [user.id]);
     res.json({ success: true });
   } catch (err) {
+    if (err.status === 409) return res.status(409).json({ error: err.message });
     console.error('Delete account error:', err);
     res.status(500).json({ error: 'Failed to delete account' });
   }

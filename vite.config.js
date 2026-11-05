@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { serviceWorkerBuild } from './scripts/service-worker-build.js'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), serviceWorkerBuild()],
   server: {
     proxy: {
       '/api/archidekt': {

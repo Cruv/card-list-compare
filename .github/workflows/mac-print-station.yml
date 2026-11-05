@@ -1,0 +1,96 @@
+name: Build Mac Print Station Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact numeric version matching package.json and the companion
+        required: true
+        type: string
+      publish_draft:
+        description: Attach packages to an existing matching GitHub draft release
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate requested version and run portable safety tests
+        env:
+          CLC_REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          python3 -B -c 'import os,re; assert re.fullmatch(r"\d+\.\d+\.\d+",os.environ["CLC_REQUESTED_VERSION"])'
+          python3 -B -m unittest discover -s companion/mac -p 'test_*.py'
+      - name: Build and smoke the native self-contained package
+        env:
+          CLC_REQUESTED_VERSION: ${{ inputs.version }}
+          CLC_PACKAGE_ARCH: ${{ matrix.arch }}
+        run: python3 -B companion/mac/build_bundle.py --arch "$CLC_PACKAGE_ARCH" --version "$CLC_REQUESTED_VERSION" --output "$RUNNER_TEMP/clc-packages"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clc-mac-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/clc-packages/*.tar.gz
+            ${{ runner.temp }}/clc-packages/package-*.json
+          if-no-files-found: error
+
+  assemble:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: clc-mac-*
+          path: packages
+          merge-multiple: true
+      - name: Assemble the release manifest and verify both archive hashes
+        env:
+          CLC_REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          root=pathlib.Path('packages')
+          manifest={'formatVersion':1,'publisher':'Cruv/card-list-compare','version':os.environ['CLC_REQUESTED_VERSION'],'packages':{}}
+          for arch in ['arm64','x86_64']:
+              part=json.loads((root/f'package-{arch}.json').read_text())
+              assert part['version']==manifest['version'] and part['publisher']==manifest['publisher']
+              package=part['packages'][arch]
+              archive=root/package['name']
+              assert archive.stat().st_size==package['size']
+              assert hashlib.sha256(archive.read_bytes()).hexdigest()==package['sha256']
+              manifest['packages'][arch]=package
+          (root/'clc-print-station-manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clc-print-station-release-assets
+          path: |
+            packages/*.tar.gz
+            packages/clc-print-station-manifest.json
+      - name: Attach to an existing draft release only when explicitly selected
+        if: inputs.publish_draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CLC_REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          test "$(gh release view "v$CLC_REQUESTED_VERSION" --json isDraft --jq .isDraft)" = true
+          gh release upload "v$CLC_REQUESTED_VERSION" packages/*.tar.gz packages/clc-print-station-manifest.json

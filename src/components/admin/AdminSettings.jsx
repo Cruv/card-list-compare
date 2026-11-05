@@ -57,20 +57,21 @@ export default function AdminSettings() {
   const modeDescriptions = {
     open: 'Anyone can create an account freely.',
     invite: 'Users need a valid invite code to register. Admins and users with invite permission can generate codes.',
-    closed: 'Registration is disabled. Only admins can create accounts.',
+    closed: 'New account registration is disabled.',
   };
 
   return (
     <div>
-      <h3>Settings</h3>
+      <h3>App settings</h3>
+      <p className="admin-section-description">Changes save immediately. Numeric values save when you leave the field or press Enter.</p>
 
-      {/* Registration Mode */}
+      <h4 className="admin-subsection-title">Registration</h4>
       <div className="admin-setting-row">
         <div>
           <div className="admin-setting-label">Registration Mode</div>
           <div className="admin-setting-desc">{modeDescriptions[regMode] || ''}</div>
         </div>
-        <select
+        <select aria-label="Registration Mode"
           className="admin-sort-select"
           value={regMode}
           onChange={e => handleRegistrationModeChange(e.target.value)}
@@ -81,7 +82,7 @@ export default function AdminSettings() {
         </select>
       </div>
 
-      {/* Price Display */}
+      <h4 className="admin-subsection-title">Display</h4>
       <div className="admin-setting-row">
         <div>
           <div className="admin-setting-label">Price Display</div>
@@ -89,7 +90,7 @@ export default function AdminSettings() {
             Show Scryfall card prices on card lines, deck summaries, and changelogs.
           </div>
         </div>
-        <select
+        <select aria-label="Price Display"
           className="admin-sort-select"
           value={settings.price_display_enabled || 'true'}
           onChange={e => handleToggleSetting('price_display_enabled', e.target.value)}
@@ -99,7 +100,7 @@ export default function AdminSettings() {
         </select>
       </div>
 
-      {/* Notifications */}
+      <h4 className="admin-subsection-title">Deck monitoring</h4>
       <div className="admin-setting-row">
         <div>
           <div className="admin-setting-label">Deck Change Notifications</div>
@@ -107,7 +108,7 @@ export default function AdminSettings() {
             Automatically check tracked decks for changes and email users who opted in.
           </div>
         </div>
-        <select
+        <select aria-label="Deck Change Notifications"
           className="admin-sort-select"
           value={settings.notifications_enabled || 'true'}
           onChange={e => handleToggleSetting('notifications_enabled', e.target.value)}
@@ -124,7 +125,7 @@ export default function AdminSettings() {
             How often to check tracked decks for changes. Minimum 1 hour, maximum 168 (1 week).
           </div>
         </div>
-        <input
+        <input aria-label="Notification Check Interval (hours)"
           type="number"
           className="admin-setting-number"
           min="1"
@@ -136,7 +137,7 @@ export default function AdminSettings() {
         />
       </div>
 
-      {/* Snapshot Limits */}
+      <h4 className="admin-subsection-title">Version limits</h4>
       <div className="admin-setting-row">
         <div>
           <div className="admin-setting-label">Max Snapshots Per Deck</div>
@@ -144,7 +145,7 @@ export default function AdminSettings() {
             Oldest unlocked snapshots are auto-pruned when this limit is exceeded. Set to 0 for unlimited.
           </div>
         </div>
-        <input
+        <input aria-label="Max Snapshots Per Deck"
           type="number"
           className="admin-setting-number"
           min="0"
@@ -163,7 +164,7 @@ export default function AdminSettings() {
             Users can lock snapshots to prevent auto-pruning. Set to 0 for unlimited locks.
           </div>
         </div>
-        <input
+        <input aria-label="Max Locked Snapshots Per Deck"
           type="number"
           className="admin-setting-number"
           min="0"

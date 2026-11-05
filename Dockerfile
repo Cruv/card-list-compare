@@ -12,22 +12,31 @@ WORKDIR /app
 COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev
 
-# Production stage
-FROM node:22-alpine
+# Production stage: glibc supports upstream's binary Python wheels on amd64 and arm64.
+FROM node:22-trixie-slim
 
 LABEL org.opencontainers.image.source="https://github.com/Cruv/card-list-compare"
 LABEL org.opencontainers.image.description="Card List Compare - Compare two MTG deck lists and generate In/Out summaries"
 
 # Mark the shipped image as production so the JWT-secret guard is live (audit C1/C2)
 ENV NODE_ENV=production
+# Keep the default database beside the mounted cache/download directories. The
+# unprivileged backend cannot create its development default under /app/server.
+ENV DB_PATH=/app/data/cardlistcompare.db
 
-RUN apk add --no-cache nginx curl
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends nginx curl ca-certificates git python3 python3-venv passwd \
+  && rm -rf /var/lib/apt/lists/*
+
+# SCM source, validated environments and binary wheels persist under /app/data.
+# Installing printer drivers is the native Mac companion's responsibility.
+ENV PRINT_PYTHON=python3 MPLBACKEND=Agg
 
 WORKDIR /app
 
 # Copy nginx config (replace entire main config to avoid nested server blocks)
 COPY nginx.conf /etc/nginx/nginx.conf
-RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/http.d/default.conf
+RUN rm -f /etc/nginx/conf.d/default.conf /etc/nginx/sites-enabled/default
 
 # Copy frontend build
 COPY --from=frontend-build /app/dist /usr/share/nginx/html
@@ -37,7 +46,7 @@ COPY --from=backend-build /app/node_modules ./server/node_modules
 COPY server/ ./server/
 
 # Copy shared lib files (used by server for parsing/diffing)
-COPY src/lib/parser.js src/lib/constants.js src/lib/differ.js src/lib/formatter.js ./src/lib/
+COPY src/lib/cardIdentity.js src/lib/parser.js src/lib/constants.js src/lib/differ.js src/lib/formatter.js src/lib/deckcheck.js src/lib/printSelection.js ./src/lib/
 
 # Data directory is mounted as a volume — DO NOT bake data into image
 # DB_PATH defaults to /app/data/cardlistcompare.db (outside server/ to keep image clean)

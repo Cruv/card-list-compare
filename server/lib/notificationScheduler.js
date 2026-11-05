@@ -1,8 +1,5 @@
 import { all, get, run } from '../db.js';
-import { fetchDeck } from './archidekt.js';
-import { archidektToText } from './deckToText.js';
-import { enrichDeckText } from './enrichDeckText.js';
-import { pruneSnapshots } from './pruneSnapshots.js';
+import { refreshArchidektDeck } from './sourceSync.js';
 import { isEmailConfigured, sendEmail, getAppUrl } from './email.js';
 import { parse } from '../../src/lib/parser.js';
 import { computeDiff } from '../../src/lib/differ.js';
@@ -115,48 +112,26 @@ function logNotification(userId, deckId, type, channel, subject, details) {
  * Process a single deck: fetch from Archidekt, compare, snapshot, notify.
  * Returns { changed: boolean } or throws on error.
  */
-async function processSingleDeck(deck) {
-  const apiData = await fetchDeck(deck.archidekt_deck_id);
-  const { text, commanders } = archidektToText(apiData);
-
-  const latest = get(
-    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
-    [deck.id]
-  );
-
-  let enrichedText = text;
-  try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
-
-  if (latest && latest.deck_text === enrichedText) {
-    run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-    return { changed: false };
-  }
+export async function processSingleDeck(deck) {
+  const refresh = await refreshArchidektDeck(deck.user_id, deck.id);
+  if (!refresh.changed) return refresh;
+  const enrichedText = refresh.deckText;
 
   // Changes detected — compute structured diff for card-level detail
   let changeSummary = null;
   try {
-    if (latest?.deck_text) {
-      const parsedBefore = parse(latest.deck_text);
+    if (refresh.previousText) {
+      const parsedBefore = parse(refresh.previousText);
       const parsedAfter = parse(enrichedText);
       const diff = computeDiff(parsedBefore, parsedAfter);
       changeSummary = buildChangeSummary(diff);
     }
   } catch { /* Non-fatal */ }
 
-  run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-  pruneSnapshots(deck.id);
-
   let priceResult = null;
   try { priceResult = await computeDeckPrices(deck.id, enrichedText); } catch { /* Scryfall may be down */ }
 
-  const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-  if (cmdsJson) {
-    run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ?, last_notified_at = datetime("now") WHERE id = ?',
-      [apiData.name || deck.deck_name, cmdsJson, deck.id]);
-  } else {
-    run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, last_notified_at = datetime("now") WHERE id = ?',
-      [apiData.name || deck.deck_name, deck.id]);
-  }
+  run('UPDATE tracked_decks SET last_notified_at = datetime("now") WHERE id = ?', [deck.id]);
 
   // email_verified is required — the deck may have been selected via the webhook
   // branch with an unverified address, so re-check here (audit: unverified leak).
@@ -171,7 +146,7 @@ async function processSingleDeck(deck) {
   }
 
   if (deck.discord_webhook_url) {
-    const sent = await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, changeSummary);
+    const sent = await sendDiscordWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, changeSummary, deck.id);
     if (sent) {
       logNotification(deck.user_id, deck.id, 'deck_change', 'discord',
         `Deck Updated: ${deck.deck_name}`,
@@ -229,6 +204,7 @@ async function checkDecksForChanges() {
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
     WHERE u.suspended = 0
+      AND d.source_type IN ('archidekt','moxfield','deckcheck')
       AND (
         (d.notify_on_change = 1 AND u.email IS NOT NULL AND u.email != '' AND u.email_verified = 1)
         OR (d.discord_webhook_url IS NOT NULL AND d.discord_webhook_url != '')
@@ -294,7 +270,7 @@ async function checkPriceAlert(deck, priceResult) {
 
   // Send Discord webhook alert
   if (deck.discord_webhook_url) {
-    const sent = await sendPriceAlertWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, currentPrice, prevPrice, delta, mode);
+    const sent = await sendPriceAlertWebhook(deck.discord_webhook_url, deck.deck_name, deck.commanders, currentPrice, prevPrice, delta, mode, deck.id);
     if (sent) {
       logNotification(deck.user_id, deck.id, 'price_alert', 'discord', subject,
         { previousPrice: prevPrice, currentPrice, delta: Math.round(delta * 100) / 100, mode });
@@ -339,14 +315,32 @@ async function sendPriceAlertEmail(email, username, deckName, currentPrice, prev
   return sendEmail(email, `Price Alert: ${deckName} ${direction} by $${Math.abs(delta).toFixed(2)}`, html);
 }
 
-async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, currentPrice, previousPrice, delta, mode) {
+function discordSummaryLabel(value) {
+  // Keep the factual push-preview headline on one line. allowed_mentions below
+  // remains the permission boundary; escaping also prevents misleading markup.
+  return String(value).replace(/[\p{Cc}\s]+/gu, ' ').trim().slice(0, 120)
+    .replace(/@/g, '@\u200b').replace(/</g, '‹').replace(/>/g, '›')
+    .replace(/([\\`*_~|[\]])/g, '\\$1');
+}
+
+function discordDeckUrl(deckId) {
+  const appUrl = getAppUrl();
+  if (!appUrl) return null;
+  const path = Number.isSafeInteger(deckId) && deckId > 0 ? `#library/${deckId}` : '#library';
+  return `${appUrl.split('#')[0]}${path}`;
+}
+
+export async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, currentPrice, previousPrice, delta, mode, deckId = null) {
   try {
-    const appUrl = getAppUrl();
+    const deckUrl = discordDeckUrl(deckId);
     const direction = delta > 0 ? 'increased' : 'decreased';
     const modeLabel = mode === 'cheapest' ? 'cheapest printings' : 'your printings';
     const color = delta > 0 ? 0xf44336 : 0x4caf50;
 
     const body = {
+      username: 'Proxy Balboa',
+      content: `Deck price ${direction} by $${Math.abs(delta).toFixed(2)} · ${discordSummaryLabel(deckName)}\nHey, the numbers changed on us. I got 'em right here for ya.`,
+      allowed_mentions: { parse: [] },
       embeds: [{
         title: `Price Alert: ${deckName}`,
         description: `Deck value has ${direction} by **$${Math.abs(delta).toFixed(2)}** (${modeLabel}).`,
@@ -358,7 +352,7 @@ async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, curre
         ],
         footer: { text: 'Card List Compare' },
         timestamp: new Date().toISOString(),
-        ...(appUrl ? { url: `${appUrl}#library` } : {}),
+        ...(deckUrl ? { url: deckUrl } : {}),
       }],
     };
 
@@ -380,12 +374,12 @@ async function sendPriceAlertWebhook(webhookUrl, deckName, commandersJson, curre
   }
 }
 
-async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSummary) {
+export async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSummary, deckId = null) {
   try {
     let commanders = [];
     try { commanders = commandersJson ? JSON.parse(commandersJson) : []; } catch { /* ignore */ }
     const cmdLabel = commanders.length > 0 ? commanders.join(' / ') : deckName;
-    const appUrl = getAppUrl();
+    const deckUrl = discordDeckUrl(deckId);
 
     const fields = [];
     if (changeSummary) {
@@ -413,16 +407,19 @@ async function sendDiscordWebhook(webhookUrl, deckName, commandersJson, changeSu
     }
 
     const body = {
+      username: 'Proxy Balboa',
+      content: `Deck updated · ${discordSummaryLabel(deckName)}\nYo. Things look different now. Figured I oughta tell ya, y'know?`,
+      allowed_mentions: { parse: [] },
       embeds: [{
         title: `Deck Updated: ${deckName}`,
         description: changeSummary
-          ? `**${cmdLabel}** has been updated on Archidekt.`
-          : `**${cmdLabel}** has been updated on Archidekt. A new snapshot has been saved.`,
+          ? `**${cmdLabel}** has a new saved version. Review the changes below or open the deck in CLC.`
+          : `**${cmdLabel}** has a new saved version. Card-level details are unavailable; open the deck in CLC to review it.`,
         color: 0x3b82f6,
         fields: fields.length > 0 ? fields : undefined,
         footer: { text: 'Card List Compare' },
         timestamp: new Date().toISOString(),
-        ...(appUrl ? { url: `${appUrl}#library` } : {}),
+        ...(deckUrl ? { url: deckUrl } : {}),
       }],
     };
 
@@ -535,7 +532,7 @@ async function checkPriceAlerts() {
 
   for (const deck of decks) {
     const snap = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
+      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
       [deck.id]
     );
     if (!snap?.deck_text) continue;
@@ -562,12 +559,13 @@ async function checkPriceAlerts() {
  * Auto-refresh decks that have auto_refresh_hours set.
  * Only refreshes decks whose last_refreshed_at is older than their interval.
  */
-async function autoRefreshScheduledDecks() {
+export async function autoRefreshScheduledDecks() {
   const decks = all(`
-    SELECT d.id, d.archidekt_deck_id, d.deck_name, d.auto_refresh_hours, d.last_refreshed_at
+    SELECT d.id, d.user_id, d.archidekt_deck_id, d.deck_name, d.auto_refresh_hours, d.last_refreshed_at
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
     WHERE u.suspended = 0
+      AND d.source_type IN ('archidekt','moxfield','deckcheck')
       AND d.auto_refresh_hours IS NOT NULL
   `);
 
@@ -590,35 +588,9 @@ async function autoRefreshScheduledDecks() {
     500,
     async (deck) => {
       try {
-        const apiData = await fetchDeck(deck.archidekt_deck_id);
-        const { text, commanders } = archidektToText(apiData);
-
-        const latest = get(
-          'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 1',
-          [deck.id]
-        );
-
-        let enrichedText = text;
-        try { enrichedText = await enrichDeckText(text, latest?.deck_text || null); } catch { /* non-fatal */ }
-
-        if (latest && latest.deck_text === enrichedText) {
-          try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
-          run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deck.id]);
-          return { changed: false };
-        } else {
-          run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [deck.id, enrichedText]);
-          pruneSnapshots(deck.id);
-          try { await computeDeckPrices(deck.id, enrichedText); } catch { /* non-fatal */ }
-          const cmdsJson = commanders && commanders.length > 0 ? JSON.stringify(commanders) : null;
-          if (cmdsJson) {
-            run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ?, commanders = ? WHERE id = ?',
-              [apiData.name || deck.deck_name, cmdsJson, deck.id]);
-          } else {
-            run('UPDATE tracked_decks SET last_refreshed_at = datetime("now"), deck_name = ? WHERE id = ?',
-              [apiData.name || deck.deck_name, deck.id]);
-          }
-          return { changed: true };
-        }
+        const refresh = await refreshArchidektDeck(deck.user_id, deck.id);
+        try { await computeDeckPrices(deck.id, refresh.deckText); } catch { /* non-fatal */ }
+        return refresh;
       } catch (err) {
         console.error(`[AutoRefresh] Failed for deck ${deck.id}:`, err.message);
         throw err;

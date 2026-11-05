@@ -1,0 +1,98 @@
+import { Router } from 'express';
+import { createReadStream } from 'node:fs';
+import { requireAuth } from '../middleware/auth.js';
+import { buildPrintPlan, publicPrintPlan, printError } from '../lib/printQueuePlan.js';
+import {
+  printCapabilities, createPrintJob, listPrintJobs, getOwnedPrintJob,
+  queuePrintJob, cancelPrintJob, ownedPrintArtifact, ownedPrintManifest, expireOwnedPrintArtifacts,
+} from '../lib/printQueue.js';
+import { getPrintGeneratorStatus } from '../lib/printGenerator.js';
+import { listPrintBatches } from '../lib/printBatchHistory.js';
+import { supportsDeferredBacks } from '../lib/printStationManagement.js';
+
+const router = Router();
+router.use(requireAuth);
+export const standalonePrintRouter = Router();
+standalonePrintRouter.use(requireAuth);
+export const printBatchesRouter = Router();
+printBatchesRouter.use(requireAuth);
+printBatchesRouter.use((_req, res, next) => { res.set('Cache-Control', 'private, no-store'); next(); });
+const deckId = req => {
+  const value = Number(req.params.deckId);
+  if (!/^\d+$/.test(req.params.deckId) || !Number.isSafeInteger(value) || value < 1) throw printError('Invalid deck ID');
+  return value;
+};
+const route = callback => async (req, res) => {
+  try { await callback(req, res); }
+  catch (error) {
+    if (res.headersSent) return res.destroy(error);
+    res.status(error.status || 500).json({ error: error.message });
+  }
+};
+printBatchesRouter.get('/', route((req, res) => res.json(listPrintBatches(req.user.userId, req.query, { deferredBacks: supportsDeferredBacks() }))));
+router.post('/:deckId/print-plan', route(async (req, res) => {
+  const plan = await buildPrintPlan(req.user.userId, deckId(req), req.body || {});
+  res.json({ plan: publicPrintPlan(plan), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
+}));
+router.get('/:deckId/print-jobs', route((req, res) => {
+  res.json({ jobs: listPrintJobs(req.user.userId, deckId(req)), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
+}));
+router.post('/:deckId/print-jobs', route(async (req, res) => {
+  const result = await createPrintJob(req.user.userId, deckId(req), req.body || {});
+  res.status(result.isExisting ? 200 : 202).json(result);
+}));
+router.get('/:deckId/print-jobs/:jobId', route((req, res) => {
+  res.json({ job: getOwnedPrintJob(req.user.userId, deckId(req), req.params.jobId) });
+}));
+router.post('/:deckId/print-jobs/:jobId/queue', route((req, res) => {
+  res.json({ job: queuePrintJob(req.user.userId, deckId(req), req.params.jobId) });
+}));
+router.post('/:deckId/print-jobs/:jobId/cancel', route((req, res) => {
+  res.json({ job: cancelPrintJob(req.user.userId, deckId(req), req.params.jobId) });
+}));
+router.delete('/:deckId/print-jobs/:jobId/artifacts', route((req, res) => {
+  res.json({ job: expireOwnedPrintArtifacts(req.user.userId, deckId(req), req.params.jobId) });
+}));
+router.get('/:deckId/print-jobs/:jobId/manifest', route((req, res) => {
+  res.set('Cache-Control', 'private, no-store').json(ownedPrintManifest(req.user.userId, deckId(req), req.params.jobId));
+}));
+router.get('/:deckId/print-jobs/:jobId/artifacts/:artifactId', route((req, res) => {
+  const artifact = ownedPrintArtifact(req.user.userId, deckId(req), req.params.jobId, req.params.artifactId);
+  sendPdf(res, artifact);
+}));
+standalonePrintRouter.post('/plan', route(async (req, res) => {
+  const plan = await buildPrintPlan(req.user.userId, null, req.body || {});
+  res.json({ plan: publicPrintPlan(plan), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
+}));
+standalonePrintRouter.get('/jobs', route((req, res) => {
+  res.json({ jobs: listPrintJobs(req.user.userId, null), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
+}));
+standalonePrintRouter.post('/jobs', route(async (req, res) => {
+  const result = await createPrintJob(req.user.userId, null, req.body || {});
+  res.status(result.isExisting ? 200 : 202).json(result);
+}));
+standalonePrintRouter.get('/jobs/:jobId', route((req, res) => {
+  res.json({ job: getOwnedPrintJob(req.user.userId, null, req.params.jobId) });
+}));
+standalonePrintRouter.post('/jobs/:jobId/queue', route((req, res) => {
+  res.json({ job: queuePrintJob(req.user.userId, null, req.params.jobId) });
+}));
+standalonePrintRouter.post('/jobs/:jobId/cancel', route((req, res) => {
+  res.json({ job: cancelPrintJob(req.user.userId, null, req.params.jobId) });
+}));
+standalonePrintRouter.delete('/jobs/:jobId/artifacts', route((req, res) => {
+  res.json({ job: expireOwnedPrintArtifacts(req.user.userId, null, req.params.jobId) });
+}));
+standalonePrintRouter.get('/jobs/:jobId/manifest', route((req, res) => {
+  res.set('Cache-Control', 'private, no-store').json(ownedPrintManifest(req.user.userId, null, req.params.jobId));
+}));
+standalonePrintRouter.get('/jobs/:jobId/artifacts/:artifactId', route((req, res) => {
+  sendPdf(res, ownedPrintArtifact(req.user.userId, null, req.params.jobId, req.params.artifactId));
+}));
+export function sendPdf(res, artifact) {
+  res.set({ 'Content-Type': 'application/pdf', 'Content-Length': String(artifact.size),
+    'Content-Disposition': `attachment; filename="clc-${artifact.id}.pdf"`,
+    'Cache-Control': 'private, no-store', 'X-Accel-Buffering': 'no', 'X-Content-SHA256': artifact.sha256 });
+  createReadStream(artifact.path).on('error', error => res.destroy(error)).pipe(res);
+}
+export default router;

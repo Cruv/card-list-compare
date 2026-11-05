@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import DeckInput from './components/DeckInput';
 import ChangelogOutput from './components/ChangelogOutput';
-import AuthBar from './components/AuthBar';
+import AppShell from './components/AppShell';
+import Icon from './components/Icon';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -9,26 +10,30 @@ import ErrorBoundary from './components/ErrorBoundary';
 // Lazy-loaded page components (code-split into separate chunks)
 const AdminPage = lazy(() => import('./components/admin/AdminPage'));
 const UserSettings = lazy(() => import('./components/UserSettings'));
+const ConnectionsPage = lazy(() => import('./components/ConnectionsPage'));
 const DeckLibrary = lazy(() => import('./components/DeckLibrary'));
 const DeckPage = lazy(() => import('./components/DeckPage'));
 const SharedDeckView = lazy(() => import('./components/SharedDeckView'));
 const GuidePage = lazy(() => import('./components/GuidePage'));
+const PrintStationPage = lazy(() => import('./components/PrintStationPage'));
+const PrintListPage = lazy(() => import('./components/PrintListPage'));
 import { useAuth } from './context/AuthContext';
 import { useHashRoute } from './lib/useHashRoute';
 import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
 import { collectCardIdentifiers, fetchCardData } from './lib/scryfall';
 import { createShare, getShare, verifyEmail } from './lib/api';
+import { clearPasswordResetUrl } from './lib/authNavigation';
 import { toast } from './components/Toast';
 import { preloadManaSymbols } from './components/ManaCost';
 import WhatsNewModal from './components/WhatsNewModal';
+import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.42.1';
+const APP_VERSION = '2.57.5';
 const WHATS_NEW = [
-  'Deck prices are accurate again when a card is listed under multiple printings — each printing is now priced as itself',
-  'Price alerts stay quiet when card prices can’t be fetched, instead of reporting a deck as worthless',
-  'Collection badges only appear once you’ve imported a collection, and your owned copies are no longer counted twice',
+  'ManaSync print records refresh without constant background requests',
+  'Blocked artwork uploads keep your saved plan and offer an explicit retry',
 ];
 
 function getResetToken() {
@@ -44,21 +49,43 @@ function getVerifyToken() {
 // Hash routes that require a signed-in user, mapped to their display name.
 const AUTH_ROUTES = {
   settings: 'Account settings',
+  connections: 'Connections',
   library: 'The deck library',
   libraryDeck: 'This deck',
   admin: 'The admin panel',
+  printStation: 'The printer',
+  printList: 'Print lists',
 };
 
 export default function App() {
   const { user, loading: authLoading } = useAuth();
-  const { route, shareId, deckShareId, deckId } = useHashRoute();
+  const { route, shareId, deckShareId, deckId, initialPrintJobId } = useHashRoute();
   const [beforeText, setBeforeText] = useState('');
   const [afterText, setAfterText] = useState('');
-  const [diffResult, setDiffResult] = useState(null);
+  const [comparedLists, setComparedLists] = useState(null);
+  const diffResult = comparedLists?.diff || null;
+  const comparisonRevision = useRef(0);
+  const [handoffRevision, setHandoffRevision] = useState(0);
   const [cardMap, setCardMap] = useState(null);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+
+  useEffect(() => {
+    const refresh = () => setHandoffRevision(value => value + 1);
+    window.addEventListener(PRINT_COMPARISON_EVENT, refresh);
+    return () => window.removeEventListener(PRINT_COMPARISON_EVENT, refresh);
+  }, []);
+  const printComparison = useMemo(() => {
+    // The event also refreshes a handoff while this App instance is still mounted.
+    void handoffRevision;
+    if (route !== 'printList' || !user) return null;
+    try { return loadPrintComparison(window.sessionStorage, user.id); } catch { return null; }
+  }, [route, user, handoffRevision]);
+  const onComparisonConsumed = useCallback(id => {
+    consumePrintComparison(window.sessionStorage, id);
+    setHandoffRevision(value => value + 1);
+  }, []);
 
   // Show "what's new" toast once per version
   // Prefetch common mana symbol SVGs at idle priority
@@ -99,24 +126,12 @@ export default function App() {
       });
   }, []);
 
-  // Prompt existing users without email (once per session)
-  useEffect(() => {
-    if (!user) return;
-    if (user.email) return;
-    if (sessionStorage.getItem('clc-email-prompted')) return;
-    sessionStorage.setItem('clc-email-prompted', '1');
-    // Small delay so it doesn't fire immediately on login
-    const timer = setTimeout(() => {
-      toast.info('Add an email in Settings to enable password reset.', 6000);
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [user]);
-
-  function handleCompare() {
+  const showComparison = useCallback((beforeText, afterText) => {
+    const revision = ++comparisonRevision.current;
     const before = parse(beforeText);
     const after = parse(afterText);
     const diff = computeDiff(before, after);
-    setDiffResult(diff);
+    setComparedLists({ diff, beforeText, afterText });
     setCardMap(null);
 
     // Fetch card data in the background (non-blocking)
@@ -124,22 +139,29 @@ export default function App() {
     const identifiers = collectCardIdentifiers(diff);
     if (identifiers.size > 0) {
       fetchCardData(identifiers)
-        .then(setCardMap)
+        .then(data => { if (revision === comparisonRevision.current) setCardMap(data); })
         .catch(() => {}); // Silent fail — cards just won't be grouped by type
     }
+  }, []);
+
+  function handleCompare() {
+    showComparison(beforeText, afterText);
   }
 
   function handleClear() {
     setBeforeText('');
     setAfterText('');
-    setDiffResult(null);
+    comparisonRevision.current++;
+    setComparedLists(null);
     setCardMap(null);
   }
 
   function handleSwap() {
     setBeforeText(afterText);
     setAfterText(beforeText);
-    setDiffResult(null);
+    comparisonRevision.current++;
+    setComparedLists(null);
+    setCardMap(null);
   }
 
   const canCompare = useMemo(
@@ -150,35 +172,27 @@ export default function App() {
   // Load shared comparison from URL hash (e.g. #share/abc123)
   useEffect(() => {
     if (route !== 'share' || !shareId) return;
+    let active = true;
+    const revision = ++comparisonRevision.current;
     async function loadShare() {
       try {
         const data = await getShare(shareId);
+        if (!active || revision !== comparisonRevision.current) return;
         setBeforeText(data.beforeText || '');
         setAfterText(data.afterText || '');
-        // Auto-compare
-        const before = parse(data.beforeText || '');
-        const after = parse(data.afterText || '');
-        const diff = computeDiff(before, after);
-        setDiffResult(diff);
-
-        // Fetch card data in the background (with exact printing identifiers)
-        const identifiers = collectCardIdentifiers(diff);
-        if (identifiers.size > 0) {
-          fetchCardData(identifiers)
-            .then(setCardMap)
-            .catch(() => {});
-        }
+        showComparison(data.beforeText || '', data.afterText || '');
       } catch {
-        toast.error('Failed to load shared comparison. The link may be invalid or expired.');
+        if (active && revision === comparisonRevision.current) toast.error('Failed to load shared comparison. The link may be invalid or expired.');
       }
     }
     loadShare();
-  }, [route, shareId]);
+    return () => { active = false; };
+  }, [route, shareId, showComparison]);
 
   async function handleShare() {
     const commanders = diffResult?.commanders || [];
     const title = commanders.length > 0 ? commanders.join(' / ') + ' Changelog' : null;
-    const data = await createShare(beforeText, afterText, title);
+    const data = await createShare(comparedLists.beforeText, comparedLists.afterText, title);
     const url = `${window.location.origin}${window.location.pathname}#share/${data.id}`;
     window.history.replaceState(null, '', `#share/${data.id}`);
     return url;
@@ -195,157 +209,55 @@ export default function App() {
 
   useEffect(() => {
     function handleKeyDown(e) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && canCompareRef.current) {
+      if (['main', 'share'].includes(route) && !e.target.closest?.('[role="dialog"], dialog')
+        && (e.ctrlKey || e.metaKey) && e.key === 'Enter' && canCompareRef.current) {
         e.preventDefault();
         handleCompareRef.current();
       }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [route]);
 
-  // If a reset token is in the URL, show the reset password form
-  if (resetToken) {
-    return (
-      <div className="app">
-        <header className="app-header">
-          <h1 className="app-title">Card List Compare</h1>
-        </header>
-        <ResetPassword
-          token={resetToken}
-          onComplete={() => {
-            setResetToken(null);
-            window.history.replaceState(null, '', window.location.pathname);
-          }}
-        />
-      </div>
-    );
-  }
+  const inShell = content => <AppShell route={route} version={APP_VERSION} onWhatsNew={() => setShowWhatsNew(true)} onShowForgotPassword={() => setShowForgotPassword(true)}>
+    {showForgotPassword && !user && <ErrorBoundary><ForgotPassword onClose={() => setShowForgotPassword(false)} /></ErrorBoundary>}
+    <ErrorBoundary key={resetToken ? 'password-reset' : route}><Suspense fallback={<div className="app-loading" role="status"><span className="loading-pulse" /> Loading your workspace…</div>}>{content}</Suspense></ErrorBoundary>
+    {showWhatsNew && <WhatsNewModal version={APP_VERSION} changes={WHATS_NEW} onClose={() => setShowWhatsNew(false)} />}
+  </AppShell>;
 
-  // Auth-gated routes must wait for the auth check to finish before deciding
-  // what to render. Without this, reloading #library flashes the compare UI
-  // (user is briefly null) and #admin flashes "Access Denied" at a real admin.
-  if (AUTH_ROUTES[route] && authLoading) {
-    return <div className="app-loading">Loading...</div>;
-  }
+  if (resetToken) return inShell(<div className="app-auth-required"><header className="page-heading"><h1>Set a new password</h1><p>Choose a new password for your CLC account.</p></header><ResetPassword token={resetToken} onComplete={() => { clearPasswordResetUrl(); setResetToken(null); }} /></div>);
+  if (AUTH_ROUTES[route] && authLoading) return inShell(<div className="app-loading" role="status">Loading your account…</div>);
+  if (AUTH_ROUTES[route] && !user) return inShell(<section className="app-auth-required"><span className="auth-required-icon"><Icon name="user" size={36} /></span><h1>Log in to continue</h1><p>{AUTH_ROUTES[route]} is available when you’re signed in. Use <strong>Log In</strong> above to pick up where you left off.</p><a className="btn btn-secondary" href="#">Compare without an account <Icon name="arrow" size={16} /></a></section>);
+  if (route === 'guide') return inShell(<GuidePage />);
+  if (route === 'admin') return inShell(<AdminPage />);
+  if (route === 'settings' && user) return inShell(<UserSettings key={user.id} />);
+  if (route === 'connections' && user) return inShell(<ConnectionsPage key={user.id} />);
+  if (route === 'printList' && user) return inShell(<PrintListPage key={user.id} initialPrintJobId={initialPrintJobId} initialComparison={printComparison} onComparisonConsumed={onComparisonConsumed} />);
+  if (route === 'printStation' && user) return inShell(<PrintStationPage key={user.id} />);
+  if (route === 'library' && user) return inShell(<DeckLibrary key={user.id} />);
+  if (route === 'libraryDeck' && user && deckId) return inShell(<DeckPage key={`${user.id}:${deckId}`} deckId={deckId} initialPrintJobId={initialPrintJobId} />);
+  if (route === 'deck' && deckShareId) return inShell(<SharedDeckView key={deckShareId} shareId={deckShareId} />);
 
-  // Auth resolved and signed out: say so and offer a way in, instead of
-  // silently dropping the visitor on the compare UI with no explanation.
-  if (AUTH_ROUTES[route] && !user) {
-    return (
-      <div className="app" role="main">
-        <header className="app-header">
-          <AuthBar onShowForgotPassword={() => { setShowForgotPassword(true); }} />
-          <h1 className="app-title">Card List Compare</h1>
-        </header>
-        {showForgotPassword && (
-          <ErrorBoundary>
-            <ForgotPassword onClose={() => setShowForgotPassword(false)} />
-          </ErrorBoundary>
-        )}
-        <div className="app-auth-required">
-          <h2>Sign in required</h2>
-          <p>{AUTH_ROUTES[route]} is only available when you&rsquo;re signed in.</p>
-          <a className="btn btn-secondary" href="#">&larr; Back to Compare</a>
-        </div>
-      </div>
-    );
-  }
-
-  // Full-page guide (public, no auth required)
-  if (route === 'guide') {
-    return (
-      <ErrorBoundary>
-        <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <GuidePage />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  // Full-page admin panel (replaces main compare UI)
-  if (route === 'admin') {
-    return (
-      <ErrorBoundary>
-        <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <AdminPage />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  // Full-page settings (replaces main compare UI)
-  if (route === 'settings' && user) {
-    return (
-      <ErrorBoundary>
-        <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <UserSettings />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  // Full-page deck library (replaces main compare UI)
-  if (route === 'library' && user) {
-    return (
-      <ErrorBoundary>
-        <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <DeckLibrary />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  // Individual deck page (authenticated)
-  if (route === 'libraryDeck' && user && deckId) {
-    return (
-      <ErrorBoundary>
-        <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <DeckPage deckId={deckId} />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  // Shared deck view (public, no auth required)
-  if (route === 'deck' && deckShareId) {
-    return (
-      <ErrorBoundary>
-        <Suspense fallback={<div className="app-loading">Loading...</div>}>
-          <SharedDeckView shareId={deckShareId} />
-        </Suspense>
-      </ErrorBoundary>
-    );
-  }
-
-  return (
-    <div className="app" role="main">
-      <a href="#deck-inputs" className="sr-only sr-only-focusable">Skip to content</a>
-      <header className="app-header">
-        <AuthBar
-          onShowForgotPassword={() => { setShowForgotPassword(true); }}
-        />
-        <h1 className="app-title">Card List Compare</h1>
-        <p className="app-subtitle">
-          Compare two deck lists &mdash; paste, upload, or import from Archidekt / Moxfield / TappedOut / Deckstats / DeckCheck
-        </p>
+  return inShell(
+    <div className="app compare-workspace">
+      <header className="compare-hero">
+        <div><h1>Compare deck lists</h1><p>Find cards to add or remove, then print or export the changes.</p></div>
+        <a className="compare-help" href="#guide/deck-comparison">How to compare <Icon name="guide" size={16} /></a>
       </header>
-
-      {showForgotPassword && !user && (
-        <ErrorBoundary>
-          <ForgotPassword onClose={() => setShowForgotPassword(false)} />
-        </ErrorBoundary>
-      )}
 
       <div id="deck-inputs" className="app-inputs">
         <DeckInput
+          key={`${user?.id || 'guest'}-before`}
           label="Before"
+          caption="Earlier version or the deck you have in paper"
           value={beforeText}
           onChange={setBeforeText}
           user={user}
         />
         <DeckInput
+          key={`${user?.id || 'guest'}-after`}
           label="After"
+          caption="Newer version you want to build"
           value={afterText}
           onChange={setAfterText}
           user={user}
@@ -361,50 +273,25 @@ export default function App() {
           title="Ctrl+Enter"
           aria-keyshortcuts="Control+Enter"
         >
-          Compare Lists
+          Compare Lists <Icon name="arrow" size={18} />
         </button>
         <button className="btn btn-secondary" onClick={handleSwap} type="button">
-          Swap
+          Swap lists
         </button>
         <button className="btn btn-secondary" onClick={handleClear} type="button">
-          Clear
+          Clear lists
         </button>
       </div>
 
       <ErrorBoundary>
-        {diffResult && <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={afterText} beforeText={beforeText} />}
+        {diffResult && <>
+          {(beforeText !== comparedLists.beforeText || afterText !== comparedLists.afterText) &&
+            <p role="status">These results use your last comparison. Compare again to use the edited lists for printing or export.</p>}
+          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
+        </>}
       </ErrorBoundary>
 
-      {!diffResult && (
-        <div className="app-empty">
-          <p>
-            Paste, upload, or import deck lists from{' '}
-            <strong>Archidekt</strong> or <strong>Moxfield</strong> URLs,
-            then click <strong>Compare Lists</strong> to generate a changelog.
-          </p>
-          <p className="app-empty-hint">
-            Track your decks in the <a href="#library">Deck Library</a> to automatically snapshot changes and compare versions.
-          </p>
-        </div>
-      )}
 
-      <footer className="app-footer">
-        <button
-          className="whatsnew-link"
-          onClick={() => setShowWhatsNew(true)}
-          type="button"
-        >
-          What's new in v{APP_VERSION}
-        </button>
-      </footer>
-
-      {showWhatsNew && (
-        <WhatsNewModal
-          version={APP_VERSION}
-          changes={WHATS_NEW}
-          onClose={() => setShowWhatsNew(false)}
-        />
-      )}
     </div>
   );
 }

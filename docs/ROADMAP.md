@@ -1,59 +1,126 @@
 # Roadmap
 
-The committed backlog — the only roadmap. Open work at the top; shipped items are kept
-briefly for rationale, not as a queue. (Replaces the untracked `CLAUDE.local.md` roadmap,
-which was nowhere on a fresh clone.) Private/sensitive plans may still live in
-`CLAUDE.local.md`; the default belongs here.
+The committed product backlog. [CURRENT_WORK.md](CURRENT_WORK.md) is the small task
+checkpoint; [CONTRIBUTING.md](../CONTRIBUTING.md) owns workflow, verification and release
+procedure. This backlog does not authorize deployment or physical printing. Historical
+results are linked below rather than repeated as work to do.
 
-## Open — from the 2026-08-18 audit (`docs/audit-2026-08-18.md`, kept local)
+## Saved artwork — conflict protection implemented
 
-Most criticals/highs shipped in v2.40.3–v2.41.2 + the infra/security batches. Remaining:
+Tracked-deck artwork saves now check a durable revision; stale edits and resets cannot
+silently overwrite newer choices. The overlay retains an unsaved draft and offers explicit
+conflict recovery. Existing generated jobs keep their frozen artwork. See
+[the saved-art contract](DECISIONS.md#d9--generate-pdfs-in-clc-print-through-a-native-mac-companion).
+Saved-art history and the 612-entry limit remain separate follow-ups.
 
-**Infra**
-- `.dockerignore` doesn't exclude `server/node_modules` — local builds can overlay the dev
-  machine's modules onto the clean install.
+## ManaSync traffic — implemented in v2.57.5
+
+Published print plans stay idle instead of being checked individually every 15 seconds.
+Visible confirmation panels use local timers; explicit/opening refreshes share one private
+bulk read. Publications stop after six automatic attempts or a definitive rejection and
+retain an explicit saved-plan retry. See [refresh and delivery limits](MANASYNC_BRIDGE.md#refresh-and-delivery-limits).
+The Mac deployment and clean dependency audits were verified on 2026-11-05; see
+[the deployment checkpoint](OPERATIONS.md#household-server-deployment-checkpoint--2026-11-05).
+Existing failed uploads still need their reported permissions/storage problem resolved before
+an explicit retry. The Archiver 8 migration and ZIP interruption/cleanup fixes are complete.
+
+## Working printing path and conditional physical checks
+
+On **2026-10-15**, the owner reported several dozen pages printed successfully through the
+current workflow. Source and the running container already specify `household-letter-v6` /
+`letter-standard-v6`; the worker validates layout version 6 and its approved geometry.
+There is no pending v6 migration. Repeating front-print calibration is not the next task
+for this working, unchanged recipe. Preserve the accepted 600 PPI, 1 mm crop, Epson Vivid
+and landscape settings in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
+
+Cutting/registration and manual DFC flip/alignment results have not been separately
+reported in this update. Keep their existing proof records/flags unchanged; check those
+specific paths when first using an unproven path or changing its recipe/template. This
+is conditional acceptance work, not a reason to replace or interrupt successful printing.
+Use [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for exact-packet selection, reload and paper-reset
+requirements. Printing never credits usable copies or advances the paper-deck marker
+by itself. Drying, lamination and cutting tracking remain excluded.
+
+## Household follow-ups
+
+The [dated household checkpoint](OPERATIONS.md#household-print-jobs) owns installed versions,
+completed recovery and operational safeguards. At its 2026-10-11 checkpoint, incoming Discord
+commands still needed application/operator setup; the existing webhook was connected.
+Repository deployment repair now makes the tracked Compose file and published GHCR image
+the intended configuration source, delivered through
+[PR #7](https://github.com/Cruv/card-list-compare/pull/7). A later Portainer cutover must verify
+the selected published revision and preserve the current data/native state; see
+[the preservation procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
+The older private local-image candidate is historical preparation, not the desired final stack.
+Neither item is a request to interrupt active household work or test with real jobs.
+
+The historical orphaned snapshot was investigated and safely archived on 2026-10-15.
+Its original owner/deck could not be proven; all text and metadata remain in a private recovery
+archive, and the active database now passes foreign-key checks. See
+[the repair record](OPERATIONS.md#historical-snapshot-repair--2026-10-15).
+
+## Open — reviewed 2026-09-12
+
+These items were recorded by the 2026-09-12 review; reassess the relevant source before
+starting one. [PROJECT_REVIEW.md](PROJECT_REVIEW.md) preserves that review's findings;
+older detailed security audits remain local.
 
 **Product / features**
-- **Share links**: add owner-side revocation + optional expiry (error copy already implies
-  expiry that doesn't exist). SECURITY.md notes they're currently public-until-then.
-- **Collection**: extend into the Overlap tab (owned coverage per deck) now that the deck
-  views consume it; consider a "what do I still need to buy" per-deck view.
-- MTGGoldfish/TCGPlayer imports: routing is fixed, but verify end-to-end and then advertise
-  them in the guide + homepage subtitle.
+
+- **Share links**: add owner-side revocation for comparison links and optional expiry for
+  both link types. Tracked-deck links already have owner-side revocation.
+- MTGGoldfish/TCGPlayer imports: handlers are documented, but still need live end-to-end
+  verification; source access restrictions may prevent individual imports.
 - Invite-code expiry is checked but can't be set in the UI.
 
-**Parser**
-- The blank-line implicit-sideboard heuristic still fires inside Commander decks
-  (`splitSections` in `src/lib/parser.js`): a blank line mid-list turns the rest into a
-  sideboard even when the deck has an explicit Commander header. A `foundExplicitCommander`
-  flag used to be tracked for this and never applied — it was removed as dead code, so the
-  fix needs to re-add the condition **with tests** covering Commander lists that contain
-  blank lines and lists that genuinely have a sideboard.
+**Comparison and image correctness**
+
+- MPC ZIPs deduplicate identifiers, XML exports do not encode paired DFC backs, and art
+  overrides are per card name. The dedicated PDF adapter now preserves physical copies, face
+  pairing and immutable art identity. Source-specific crop/bleed calibration remains part
+  of the physical proof; the initial adapter preserves the owner’s 1 mm crop.
+- Saved-art history and the 612-entry limit remain separate follow-ups; conflict-safe saves
+  are implemented above. Pending drafts belonging to other editors are retained conservatively
+  so recovery cannot erase active work. A fresh tab can offer an older orphan draft again;
+  add explicit draft selection/cleanup with history work rather than guessing another tab is closed.
 
 **UI polish**
-- Consider virtualizing the deck list for very large collections (not currently a
+
+- Large authenticated PDF downloads currently become browser blobs before saving. Consider
+  streamed browser downloads for memory-constrained phones; the native station streams now.
+- Consider virtualizing the deck list for very large deck lists (not currently a
   measured problem).
 
 **Housekeeping**
-- Consider lightweight release tags (`vX.Y.Z`) so GHCR publishes pinnable semver images (D4).
-  Needs the owner's go-ahead — it changes the "tags only on request" rule in CLAUDE.md.
+
+- Consider an owner-approved routine for release tags (`vX.Y.Z`). The workflow already
+  publishes semver images for requested tags; changing the default tagging practice would
+  be a policy decision. Follow [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Direction
 
-- Keep the app uniform with the sibling app **WarSlate** in engineering approach (docs
-  structure, ship discipline, verified commits) — see the convention docs added 2026-08.
+- Engineering conventions originally borrowed from WarSlate now follow CLC's own
+  [contribution procedure](../CONTRIBUTING.md); sibling-project rules are not independent gates.
 - Future: TapTogether/playgroup features were scaffolded then removed; revisit only with a
   concrete plan.
 
-## Recently shipped (rationale kept briefly)
+ManaSync owns collection management, purchases, locations and allocations. CLC's one-original
+ownership policy does not reduce print quantities or introduce reservations/exact-printing
+ownership requirements. Generating/spooling and confirming usable copies remain separate.
+Legacy collection rows are retained without an automatic migration; any migration needs a
+deliberate plan. See D8/D10 in [DECISIONS.md](DECISIONS.md) and the implemented
+[bridge](MANASYNC_BRIDGE.md) / [deck proposal](MANASYNC_PROPOSALS.md) contracts.
+Vendor, ManaBox and offline companion work belongs in ManaSync; the
+[original conversation](MANASYNC_INTEGRATION.md) is historical context.
 
-- v2.42.x — shared modal layer (Escape/focus-trap/scroll lock across stacked overlays),
-  auth-gated routes wait for the auth check and offer a sign-in screen; then a self-review
-  pass fixed 30 regressions the earlier batches had introduced (per-printing pricing,
-  price-alert zero guard, zero-byte DB recovery, container signal forwarding, collection
-  badge allocation). ESLint backlog cleared and CI lint made blocking (D6).
+## Completed work and evidence
 
-- v2.41.x — Collection wired into deck views; TTS crash + multi-printing prices; notifications
-  made real (price-alert baseline, verified-email gating + warning, rate limit, scheduler).
-- v2.40.3–.5 — security criticals (JWT secret, atomic DB writes), data-loss fixes, core
-  pipeline correctness (DFC/accents/CSV/differ). Plus infra (CSP, nginx) and token hashing.
+- [Project review](PROJECT_REVIEW.md): v2.43.0 completeness prerequisite and the September 12
+  review; earlier maintenance/security releases remain in Git history and the decision log.
+- [UI capability map](UI_REDESIGN_INVENTORY.md): task organization and dated September 12
+  browser results, with no native-iOS or physical-print proof implied.
+- [ManaSync acceptance](MANASYNC_REVIEW.md): completed September 11 paired HTTP/browser
+  checks, exact revisions and scope. Repeat relevant paired verification when a contract
+  changes; the successful historical run is not a standing task or a deployment claim.
+- [Operations](OPERATIONS.md#household-print-jobs): household rollout/recovery evidence and
+  current operational procedure, separately from source feature availability.

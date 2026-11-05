@@ -37,7 +37,7 @@ router.get('/:id', (req, res) => {
 
   const snapshots = all(
     `SELECT id, nickname, locked, created_at FROM deck_snapshots
-     WHERE tracked_deck_id = ? ORDER BY created_at DESC`,
+     WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC`,
     [share.tracked_deck_id]
   );
 
@@ -97,7 +97,7 @@ router.get('/:id/changelog', (req, res) => {
     }
   } else {
     const recent = all(
-      'SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC LIMIT 2',
+      'SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 2',
       [share.tracked_deck_id]
     );
     if (recent.length < 2) {
