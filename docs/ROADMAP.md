@@ -13,6 +13,15 @@ conflict recovery. Existing generated jobs keep their frozen artwork. See
 [the saved-art contract](DECISIONS.md#d9--generate-pdfs-in-clc-print-through-a-native-mac-companion).
 Saved-art history and the 612-entry limit remain separate follow-ups.
 
+## ManaSync traffic — source fix implemented in v2.57.5
+
+Published print plans stay idle instead of being checked individually every 15 seconds.
+Visible confirmation panels use local timers; explicit/opening refreshes share one private
+bulk read. Publications stop after six automatic attempts or a definitive rejection and
+retain an explicit saved-plan retry. See [refresh and delivery limits](MANASYNC_BRIDGE.md#refresh-and-delivery-limits).
+Source verification is separate from household activation; existing failed uploads also
+need their reported permissions/storage problem resolved before an explicit retry.
+
 ## Working printing path and conditional physical checks
 
 On **2026-10-15**, the owner reported several dozen pages printed successfully through the
@@ -79,6 +88,10 @@ older detailed security audits remain local.
 
 **Housekeeping**
 
+- The dependency audit still reports the Archiver 7 / glob / minimatch chain. Compatible
+  updates resolved the other findings. The remaining Archiver 8 upgrade needs two ZIP-export
+  call-site changes and ZIP regression verification; owner approval for that separate major
+  dependency migration is pending. The ManaSync functional checks do not clear this audit.
 - Consider an owner-approved routine for release tags (`vX.Y.Z`). The workflow already
   publishes semver images for requested tags; changing the default tagging practice would
   be a policy decision. Follow [CONTRIBUTING.md](../CONTRIBUTING.md).

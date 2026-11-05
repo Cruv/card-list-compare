@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,9 +6,15 @@ import { all, get, run, transaction } from '../db.js';
 import { getInstanceId } from './integrationSchema.js';
 
 export class BridgeError extends Error {
-  constructor(message, status = 400) { super(message); this.status = status; }
+  constructor(message, status = 400, details = {}) { super(message); this.status = status; Object.assign(this,details); }
 }
 export const DEFAULT_MANASYNC_URL = 'https://manasync.net';
+export const PUBLICATION_ATTEMPT_LIMIT = 6;
+const READ_CACHE_MS = 60_000;
+const cachedReads = new Map();
+function clearCachedReads(userId) {
+  for (const key of cachedReads.keys()) if (key.startsWith(`${userId}:`)) cachedReads.delete(key);
+}
 export function initBridgeSchema() {
   run(`CREATE TABLE IF NOT EXISTS manasync_connections (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -145,12 +151,55 @@ export async function remote(connection, path, options = {}) {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = typeof body?.message === 'string' ? body.message : typeof body?.error === 'string' ? body.error : `HTTP ${response.status}`;
-    throw new BridgeError(`ManaSync: ${detail}`, response.status);
+    throw new BridgeError(`ManaSync: ${detail}`, response.status,
+      {code:typeof body?.code === 'string' ? body.code : typeof body?.error === 'string' ? body.error : undefined});
   }
   if (!body || typeof body !== 'object') throw new BridgeError('This address did not return the ManaSync API. Use the ManaSync app address and check that its proxy forwards /api/v1 requests.', 502);
   return body;
 }
 export function connectionFor(userId) { return get('SELECT * FROM manasync_connections WHERE user_id = ?', [userId]); }
+function connectionFingerprint(connection) {
+  return createHash('sha256').update(JSON.stringify([connection.user_id,connection.base_url,
+    connection.account_id,connection.actor_id,connection.token_cipher])).digest('hex');
+}
+/** An awaited owner read must never populate a replacement grant or suspended account. */
+export function assertCurrentConnection(connection) {
+  if (!isBridgeUserActive(connection.user_id)) throw new BridgeError('ManaSync delivery is paused because this CLC account is suspended or unavailable.',503);
+  const current = connectionFor(connection.user_id);
+  if (!current?.connected || connectionFingerprint(current) !== connectionFingerprint(connection)) {
+    throw new BridgeError('The ManaSync connection changed during refresh. Refresh the current connection before continuing.',409);
+  }
+  return current;
+}
+/** Private owner reads only: share in-flight results/failures across tabs for one minute. */
+export async function cachedRemoteRead(connection,path) {
+  if (!['/api/v1/pending-proxies','/api/v1/containers'].includes(path)) throw new BridgeError('Unsupported cached ManaSync read.',400);
+  assertCurrentConnection(connection);
+  for (const [key,value] of cachedReads) if (!value.pending && value.expiresAt <= Date.now()) cachedReads.delete(key);
+  const key = `${connection.user_id}:${path}`, fingerprint = connectionFingerprint(connection);
+  let entry = cachedReads.get(key);
+  if (!entry || entry.fingerprint !== fingerprint || (!entry.pending && entry.expiresAt <= Date.now())) {
+    entry = {fingerprint,pending:true,expiresAt:0};
+    entry.promise = (async () => {
+      try {
+        const value = await remote(connection,path);
+        try { assertCurrentConnection(connection); }
+        catch (error) {
+          if (cachedReads.get(key) === entry) cachedReads.delete(key);
+          throw error;
+        }
+        return value;
+      } finally { entry.pending = false; entry.expiresAt = Date.now()+READ_CACHE_MS; }
+    })();
+    cachedReads.set(key,entry);
+  }
+  const result = await entry.promise;
+  assertCurrentConnection(connection);
+  return result;
+}
+export function invalidatePendingRead(userId) {
+  cachedReads.delete(`${userId}:/api/v1/pending-proxies`);
+}
 export function connectionStatus(userId) {
   const c = connectionFor(userId);
   return { configured: !!c, connected: !!c?.connected, baseUrl: c?.base_url || '', accountId: c?.account_id || '',
@@ -180,10 +229,12 @@ export async function connect(userId, { baseUrl = DEFAULT_MANASYNC_URL, token } 
     account_id=excluded.account_id,actor_id=excluded.actor_id,username=excluded.username,connected=1,last_error=NULL,last_success=excluded.last_success,containers_json=excluded.containers_json,
     last_ownership=CASE WHEN manasync_connections.account_id=excluded.account_id AND manasync_connections.base_url=excluded.base_url THEN manasync_connections.last_ownership ELSE NULL END`,
   [userId,c.base_url,c.token_cipher,context.user.id,context.actorId,context.user.username,new Date().toISOString(),JSON.stringify(locations.containers)]);
+  clearCachedReads(userId);
   return connectionStatus(userId);
 }
 export function disconnect(userId) {
   run('UPDATE manasync_connections SET connected=0 WHERE user_id=?', [userId]);
+  clearCachedReads(userId);
   return connectionStatus(userId);
 }
 function requireConnection(userId) {
@@ -234,9 +285,10 @@ export function markOwnershipRead(userId) {
 }
 export async function containers(userId) {
   const c = requireConnection(userId);
-  const result = await remote(c, '/api/v1/containers');
+  const result = await cachedRemoteRead(c, '/api/v1/containers');
   if (!Array.isArray(result.containers)) throw new BridgeError('ManaSync returned invalid locations.',502);
-  run('UPDATE manasync_connections SET containers_json=? WHERE user_id=? AND actor_id=?',[JSON.stringify(result.containers),userId,c.actor_id]);
+  const serialized = JSON.stringify(result.containers);
+  if (c.containers_json !== serialized) run('UPDATE manasync_connections SET containers_json=? WHERE user_id=? AND actor_id=?',[serialized,userId,c.actor_id]);
   return result.containers.filter(c => !['list','incoming'].includes(c.kind));
 }
 function uuid(value) { return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
@@ -294,7 +346,11 @@ function publicPendingProxy(plan, item, operations) {
     if (!connected) status = 'disconnected';
     else if (plan.last_error) status = 'error';
   }
-  return { status, confirmedQuantity:remote?.confirmedQuantity || 0,
+  const retryState = remote || plan.status === 'dismissed' ? 'idle'
+    : plan.status === 'held' || plan.attempts >= PUBLICATION_ATTEMPT_LIMIT ? 'held' : 'scheduled';
+  return { status, retryState, attempts:plan.attempts,
+    canRetryPublication:retryState === 'held' && !!connected,
+    confirmedQuantity:remote?.confirmedQuantity || 0,
     dismissedQuantity:remote?.dismissedQuantity || (plan.status === 'dismissed' ? item.quantity : 0),
     remainingQuantity:remote?.remainingQuantity ?? (plan.status === 'dismissed' ? 0 : item.quantity),
     revision:remote?.revision ?? null, actionPending, error:plan.last_error || null,

@@ -124,6 +124,8 @@ function Printing() {
     <p>Physical proof flags reflect tests the operator has actually approved. <strong>Test printing enabled</strong> means the Mac owner explicitly allows unverified recipes for testing; it does not mark front or duplex proofs as passed. Browser controls cannot change native printer options or those proof flags.</p>
     <h3>Record usable copies separately</h3>
     <p>PDF generation and printer completion do not add usable proxies to inventory. After checking the physical cards, use <strong>Confirm usable copies</strong> in CLC or ManaSync’s pending prints. Confirm the quantity that actually succeeded, including partial batches. Shared receipts prevent the same confirmation being counted twice.</p>
+    <p>Opening the confirmation panel or choosing <strong>Refresh records</strong> checks ManaSync for decisions made there. Open panels update local progress automatically; hidden or collapsed panels stop polling. Remote reads are shared briefly across panels and tabs.</p>
+    <p>If sending a plan fails repeatedly, or ManaSync rejects its artwork or permissions, CLC holds it for review. Resolve the displayed problem, then choose <strong>Retry sending saved plan</strong>. For a full artwork allowance, free space or change the allowance in ManaSync first. Retrying preserves the same plan and artwork; it does not send another job to the printer.</p>
     <p><strong>Record a manual print</strong> prepares inventory records for printing done through another tool. It does not generate PDFs or send paper to the printer. Its <strong>Confirm printed quantity</strong> action records the usable physical result. See <a href="#guide/connections">Connect ManaSync</a> for collection access and reconciliation.</p>
   </div>;
 }

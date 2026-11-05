@@ -356,3 +356,30 @@ describe('ManaSync durable physical-print bridge',() => {
     await expect(bridge.correctLot(1,original.id,{...correction,quantity:0})).rejects.toMatchObject({status:409});
   });
 });
+
+describe('private ManaSync destination read cache',() => {
+  it('coalesces destinations per user and grant without reusing another actor response',async () => {
+    await connect();fetch.mockClear();
+    const results=await Promise.all(Array.from({length:12},()=>bridge.containers(1)));
+    expect(fetch.mock.calls.filter(([url])=>url.endsWith('/containers'))).toHaveLength(1);
+    expect(results.every(value=>value.map(row=>row.id).join()===results[0].map(row=>row.id).join())).toBe(true);
+    await connect(1,'user-a-rotated');fetch.mockClear();await bridge.containers(1);
+    expect(fetch.mock.calls.filter(([url])=>url.endsWith('/containers'))).toHaveLength(1);
+    await connect(2,'user-b-original');fetch.mockClear();await Promise.all([bridge.containers(1),bridge.containers(2)]);
+    expect(fetch.mock.calls.filter(([url])=>url.endsWith('/containers'))).toHaveLength(1);
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer user-b-original');
+  });
+  it('refuses to cache or store locations from a grant replaced during the read',async () => {
+    await connect();let finish;
+    fetch.mockImplementation((url,options)=>url.endsWith('/containers')&&options.headers.Authorization==='Bearer user-a-original'
+      ?new Promise(resolve=>{finish=resolve;}):fakeManaSync(url,options));
+    const read=bridge.containers(1);await Promise.resolve();
+    await connect(1,'user-a-rotated');
+    const current=bridge.connectionFor(1).containers_json;
+    finish(json({containers:[{id:'old-account-location',kind:'box'}]}));
+    await expect(read).rejects.toMatchObject({status:409});
+    expect(bridge.connectionFor(1).containers_json).toBe(current);
+    await bridge.containers(1);
+    expect(bridge.connectionFor(1).containers_json).not.toContain('old-account-location');
+  });
+});

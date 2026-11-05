@@ -165,6 +165,14 @@ to replace saved art is deliberate and can conflict again if another save wins f
 There is no blind rebase or unconditional legacy-write fallback. Previously frozen jobs
 remain unchanged; saved-art history and the 612-face limit are separate future decisions.
 
+**Bounded ManaSync traffic (v2.57.5).** Published print records stay idle between explicit
+reviews. Opening a visible confirmation panel or Refresh records uses an owner-scoped bulk
+read shared for one minute; automatic UI ticks read only CLC. Failed publications have a
+six-attempt automatic budget and hold immediately on definitive rejection/quota failure.
+An explicit retry requires the reviewed connection and preserves the original plan/bytes;
+it never creates physical print work or inventory. Missing/invalid remote data remains
+unknown and cannot erase receipts. See [refresh and delivery limits](MANASYNC_BRIDGE.md#refresh-and-delivery-limits).
+
 **Standalone lists (2026-09-11).** Ad-hoc jobs reuse the print planner, artifact worker,
 station protocol and ManaSync pending-proxy review. They store a named immutable card list
 and a null tracked-deck ID; no placeholder deck or snapshot is created. Their authenticated

@@ -552,7 +552,12 @@ export const disconnectManaSync = () => apiFetch('/manasync/connection',{method:
 export const getManaSyncAvailability = by => apiFetch(`/manasync/availability?by=${by}`);
 export const getManaSyncContainers = () => apiFetch('/manasync/containers');
 export const getPrintQueue = deckId => apiFetch(`/manasync/print-queue${deckId ? `?deckId=${deckId}` : ''}`);
-export const refreshPendingProxyPrints = () => apiFetch('/manasync/print-queue/refresh',{method:'POST',body:JSON.stringify({})});
+export const refreshPendingProxyPrints = (scope = {}) => apiFetch('/manasync/print-queue/refresh',{
+  method:'POST',body:JSON.stringify({...(scope.deckId ? {deckId:scope.deckId} : {}),...(scope.printJobId ? {printJobId:scope.printJobId} : {})}),
+});
+export const retryPendingProxyPublication = (id, expectedConnection) => apiFetch(`/manasync/print-queue/${encodeURIComponent(id)}/retry-publication`,{
+  method:'POST',body:JSON.stringify({expectedConnection}),
+});
 export const queuePrintItem = data => apiFetch('/manasync/print-queue',{method:'POST',body:JSON.stringify(data)});
 export const cancelPrintItem = id => apiFetch(`/manasync/print-queue/${id}/cancel`,{method:'POST'});
 export const confirmPrinted = (id,data) => apiFetch(`/manasync/print-queue/${id}/confirm`,{method:'POST',body:JSON.stringify(data)});

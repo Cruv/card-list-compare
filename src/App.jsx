@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.57.4';
+const APP_VERSION = '2.57.5';
 const WHATS_NEW = [
-  'Artwork saves protect newer choices made on another device',
-  'Review conflicting artwork and recover unsaved choices before replacing saved art',
+  'ManaSync print records refresh without constant background requests',
+  'Blocked artwork uploads keep your saved plan and offer an explicit retry',
 ];
 
 function getResetToken() {

@@ -229,6 +229,30 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 ### Household print jobs
 
+#### ManaSync traffic reduction — v2.57.5 source
+
+The source fix removes repeated per-card checks for published/terminal pending prints and
+caps automatic publication attempts at six. Existing unpublished plans over that budget
+are held without resetting their saved payloads. Authorization, unsupported-API and artwork
+quota failures hold earlier. No plan, image, receipt or inventory is discarded as traffic cleanup.
+
+Opening a visible confirmation panel or Refresh records uses one account-scoped bulk read;
+requests and failures are shared for one minute per user/grant. Automatic panel ticks read
+CLC only, and hidden/collapsed views stop. Retry sending saved plan deliberately resumes
+one held publication with the reviewed original account/backend and the same request bytes.
+If an artwork allowance is full or requests return 403, resolve that upstream problem first;
+this patch neither increases ManaSync storage nor changes its access rules. Published records
+missing from a bulk response retain their last known state for review.
+
+Deployment remains separate. This source work did not recreate the household container,
+change its database, pause/update the native companion or send printer/Discord requests.
+After an authorized deployment, reload older CLC tabs and compare bridge traffic while idle
+and while one confirmation panel is open. Expect no background GETs for published records;
+only bounded unpublished/outbox delivery and deliberate remote review should contact ManaSync.
+See [the bridge contract](MANASYNC_BRIDGE.md#refresh-and-delivery-limits) and the current
+[verification checkpoint](CURRENT_WORK.md). The remaining Archiver dependency audit finding
+is tracked separately in [ROADMAP](ROADMAP.md); functional success is not a clean audit claim.
+
 #### Portainer reconciliation preparation — 2026-10-15
 
 The owner supplied the saved single-service `mtg` definition. It still selected GHCR

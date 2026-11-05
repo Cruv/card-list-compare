@@ -1,7 +1,8 @@
 /** Native PDFs publish plans, never inventory. Only reviewed confirmations create holdings. */
 import { randomUUID } from 'node:crypto';
 import { all, get, run, transaction } from '../db.js';
-import { BridgeError, connectionFor, remote, artworkCard, assertExpectedConnection, listQueue, isBridgeUserActive } from './manasyncBridge.js';
+import { BridgeError, connectionFor, remote, artworkCard, assertExpectedConnection, listQueue,
+  isBridgeUserActive, assertCurrentConnection, cachedRemoteRead, invalidatePendingRead, PUBLICATION_ATTEMPT_LIMIT } from './manasyncBridge.js';
 import { stagePrintJob, uploadOperationArtwork } from './printJobBridge.js';
 
 const activePlans = new Set(), activeActions = new Set();
@@ -15,6 +16,10 @@ const matches = (connection, plan) => connection?.connected && (!plan.account_id
 const publicAction = operation => ({ id:operation.id,itemId:operation.item_id,kind:operation.kind,quantity:operation.quantity,
   status:operation.status,attempts:operation.attempts,error:operation.last_error,lotId:operation.lot_id,
   receipt:operation.receipt_json ? JSON.parse(operation.receipt_json) : null,accountId:operation.account_id,createdAt:operation.created_at });
+const publicationHeld = plan => !plan.remote_json && (plan.status === 'held' || plan.attempts >= PUBLICATION_ATTEMPT_LIMIT);
+const permanentPublicationError = error => error.permanent || error.status === 507
+  || (error.status >= 400 && error.status < 500 && ![408,425,429].includes(error.status))
+  || /quota|storage[_ -]?(?:full|limit)|(?:storage|capacity).*exceed/i.test(`${error.code || ''} ${error.message || ''}`);
 
 function validatePending(plan, value) {
   const original = JSON.parse(plan.create_payload);
@@ -27,8 +32,14 @@ function validatePending(plan, value) {
     || (value.card?.proxyArtwork?.back || null) !== (original.card.proxyArtwork.back || null)) {
     fail('ManaSync returned an invalid pending print plan. Refresh or reconcile its outcome before making another quantity decision.',502);
   }
-  for (const entry of value.confirmations) if (typeof entry.operationId !== 'string' || !entry.operationId.length || entry.operationId.length > 200 || typeof entry.actorId !== 'string'
-    || !Number.isSafeInteger(entry.quantity) || entry.quantity < 1 || !uuid(entry.lotId)) fail('ManaSync returned invalid print confirmation history.',502);
+  const decisions = new Set();
+  for (const entry of value.confirmations) {
+    if (!entry || typeof entry.operationId !== 'string' || !entry.operationId.length || entry.operationId.length > 200 || typeof entry.actorId !== 'string'
+      || !Number.isSafeInteger(entry.quantity) || entry.quantity < 1 || !uuid(entry.lotId)) fail('ManaSync returned invalid print confirmation history.',502);
+    const key = JSON.stringify([entry.actorId,entry.operationId]);
+    if (decisions.has(key)) fail('ManaSync returned duplicate print confirmation history.',502);
+    decisions.add(key);
+  }
   if (value.confirmations.reduce((sum,entry) => sum+entry.quantity,0) !== value.confirmedQuantity) fail('ManaSync print confirmation history does not match its quantity.',502);
   const expectedStatus = value.dismissedQuantity ? 'dismissed' : value.remainingQuantity === 0 ? 'confirmed' : value.confirmedQuantity ? 'partial' : 'pending';
   if (value.status !== expectedStatus || (value.dismissedQuantity && value.remainingQuantity)) fail('ManaSync pending print status does not match its remaining quantity.',502);
@@ -39,11 +50,21 @@ function savePending(plan, value, inTransaction = false) {
   const pending = validatePending(plan,value);
   const save = () => {
     const current = planFor(plan.user_id,plan.item_id);
+    if (!current) fail('This pending print record is no longer available.',409);
     const previous = current.remote_json ? JSON.parse(current.remote_json) : null;
     // A slow GET must never erase a more recent confirmation response.
     if (previous && previous.revision > pending.revision) return;
-    run("UPDATE manasync_pending_proxy_plans SET status='published',remote_json=?,last_error=NULL,next_attempt=?,attempts=0 WHERE item_id=?",
-      [JSON.stringify(pending),Date.now()+15000,plan.item_id]);
+    if (previous && (pending.confirmedQuantity < previous.confirmedQuantity
+      || pending.dismissedQuantity < previous.dismissedQuantity
+      || previous.confirmations.some(before => !pending.confirmations.some(after => after.operationId === before.operationId
+        && after.actorId === before.actorId && after.quantity === before.quantity && after.lotId === before.lotId))
+      || (previous.revision === pending.revision && (previous.confirmedQuantity !== pending.confirmedQuantity
+        || previous.dismissedQuantity !== pending.dismissedQuantity || previous.remainingQuantity !== pending.remainingQuantity)))) {
+      fail('ManaSync returned inconsistent pending print history. Keep the previous record and refresh before another quantity decision.',502);
+    }
+    // Publication is durable. A healthy published plan is not background work.
+    run("UPDATE manasync_pending_proxy_plans SET status='published',remote_json=?,last_error=NULL,next_attempt=0,attempts=0 WHERE item_id=?",
+      [JSON.stringify(pending),plan.item_id]);
     for (const entry of pending.confirmations) {
       run("UPDATE manasync_print_operations SET status='reported',lot_id=?,last_error=NULL WHERE pending_id=? AND id=? AND actor_id=? AND kind='acquire' AND quantity=?",
         [entry.lotId,plan.item_id,entry.operationId,entry.actorId,entry.quantity]);
@@ -56,6 +77,7 @@ function savePending(plan, value, inTransaction = false) {
 
 async function getRemotePlan(plan, connection) {
   const result = await remote(connection,`/api/v1/pending-proxies/${encodeURIComponent(plan.item_id)}`);
+  assertCurrentConnection(connection);
   return savePending(plan,result.pending);
 }
 
@@ -75,11 +97,20 @@ export async function stagePreparedPrintJob(userId, jobId) {
 export async function syncPendingProxy(userId,id,manual=false) {
   if (activePlans.has(id) || !isBridgeUserActive(userId)) return;
   let plan = planFor(userId,id);
-  if (!plan || plan.status === 'dismissed' || (!manual && plan.next_attempt > Date.now())) return;
+  if (!plan || plan.status === 'dismissed' || publicationHeld(plan)
+    || (plan.remote_json && !plan.cancel_requested) || (!manual && plan.next_attempt > Date.now())) return;
   const connection = connectionFor(userId);
   if (!matches(connection,plan)) return;
+  const publicationWasPrepared = !!plan.create_payload;
   activePlans.add(id);
   try {
+    if (plan.remote_json) {
+      // Freeze a revision-locked dismissal from the last validated view. A stale
+      // revision is rejected for review; no unbounded pre-outbox GET is needed.
+      // The ordinary action outbox then owns its bounded, exact-byte delivery.
+      await deliverCancellation(planFor(userId,id),manual);
+      return;
+    }
     const item = itemFor(userId,id);
     if (!plan.create_payload) {
       // The job label is frozen with its print plan and also exists for standalone
@@ -97,11 +128,10 @@ export async function syncPendingProxy(userId,id,manual=false) {
     }
     run('UPDATE manasync_pending_proxy_plans SET attempts=attempts+1,next_attempt=? WHERE item_id=?',
       [Date.now()+Math.min(300000,15000*2**Math.min(plan.attempts,5)),id]);
-    if (plan.remote_json) await getRemotePlan(plan,connection);
-    else {
+    {
       let found = false;
       // Resolve a lost PUT using any current token of the same owner, including after rotation.
-      if (plan.attempts > 0) {
+      if (publicationWasPrepared || plan.attempts > 0) {
         try { await getRemotePlan(plan,connection); found = true; }
         catch (error) { if (error.status !== 404) throw error; }
       }
@@ -113,16 +143,22 @@ export async function syncPendingProxy(userId,id,manual=false) {
         let result;
         try { result = await remote(connection,`/api/v1/pending-proxies/${encodeURIComponent(id)}`,{method:'PUT',body:plan.create_payload}); }
         catch (error) {
-          if ([404,405].includes(error.status)) throw new BridgeError('Update ManaSync to support pending proxy prints, then refresh this plan.',503);
+          if ([404,405].includes(error.status)) throw new BridgeError('Update ManaSync to support pending proxy prints, then retry publication.',503,{permanent:true});
           throw error;
         }
+        assertCurrentConnection(connection);
         savePending(plan,result.pending);
+        invalidatePendingRead(userId);
       }
     }
     plan = planFor(userId,id);
-    if (plan.cancel_requested) await deliverCancellation(plan);
+    if (plan.cancel_requested) await deliverCancellation(plan,manual);
   } catch (error) {
-    run('UPDATE manasync_pending_proxy_plans SET last_error=? WHERE item_id=?',[error.message,id]);
+    const current = planFor(userId,id);
+    if (!current) return;
+    const held = !current.remote_json && (permanentPublicationError(error) || current.attempts >= PUBLICATION_ATTEMPT_LIMIT);
+    run('UPDATE manasync_pending_proxy_plans SET last_error=?,status=CASE WHEN ? THEN \'held\' ELSE status END WHERE item_id=?',
+      [error.message,held ? 1 : 0,id]);
   } finally { activePlans.delete(id); }
 }
 
@@ -190,6 +226,7 @@ export async function reportPendingAction(userId,id,manual=false) {
         [JSON.stringify(receipt),confirmation?.lotId || null,id]);
       if (operation.kind === 'dismiss') run('UPDATE manasync_pending_proxy_plans SET cancel_requested=0 WHERE item_id=?',[plan.item_id]);
     });
+    invalidatePendingRead(userId);
   } catch (error) {
     const status = error.status === 401 ? 'reconnect' : error.status >= 400 && error.status < 500 && ![408,429].includes(error.status) ? 'review' : 'pending';
     run('UPDATE manasync_print_operations SET status=?,last_error=? WHERE id=?',[status,error.message,id]);
@@ -201,16 +238,21 @@ export async function reportPendingAction(userId,id,manual=false) {
   } finally { activeActions.delete(id); }
 }
 
-async function deliverCancellation(plan) {
+async function deliverCancellation(plan,manual=false) {
   const pending = plan.remote_json ? JSON.parse(plan.remote_json) : null;
-  if (!pending || pending.remainingQuantity === 0) return;
+  if (!pending) return;
+  if (pending.remainingQuantity === 0) {
+    if (plan.cancel_requested) run('UPDATE manasync_pending_proxy_plans SET cancel_requested=0 WHERE item_id=?',[plan.item_id]);
+    return;
+  }
+  validatePending(plan,pending);
   const existing = get('SELECT * FROM manasync_print_operations WHERE id=?',[plan.cancel_operation_id]);
-  if (existing) { await reportPendingAction(plan.user_id,existing.id,true); return; }
+  if (existing) { await reportPendingAction(plan.user_id,existing.id,manual); return; }
   const connection = connectionFor(plan.user_id);
   if (!matches(connection,plan)) return;
   transaction(() => saveAction(plan,connection,plan.cancel_operation_id,'dismiss',0,
     JSON.stringify({itemId:plan.item_id,kind:'dismiss'}),{operationId:plan.cancel_operation_id,expectedRevision:pending.revision}));
-  await reportPendingAction(plan.user_id,plan.cancel_operation_id,true);
+  await reportPendingAction(plan.user_id,plan.cancel_operation_id,manual);
 }
 
 export async function cancelPendingProxy(userId,itemId) {
@@ -233,9 +275,65 @@ export async function cancelPendingProxy(userId,itemId) {
   return listQueue(userId).find(item => item.id === itemId);
 }
 
-export async function refreshPendingProxyPlans(userId) {
-  const rows = all("SELECT item_id FROM manasync_pending_proxy_plans WHERE user_id=? AND status!='dismissed' ORDER BY next_attempt LIMIT 100",[userId]);
-  for (const row of rows) await syncPendingProxy(userId,row.item_id,true);
+export function pendingProxyRefreshScope(scope = {}) {
+  if (!scope || typeof scope !== 'object' || Array.isArray(scope)
+    || (scope.deckId !== undefined && (!Number.isSafeInteger(scope.deckId) || scope.deckId < 1))
+    || (scope.printJobId !== undefined && !uuid(scope.printJobId))) fail('Provide a valid deck or print batch to refresh.',400);
+  return {deckId:scope.deckId ?? null,printJobId:scope.printJobId ?? null};
+}
+
+/** User review is one shared owner read, never an upload/retry of held publication. */
+export async function refreshPendingProxyPlans(userId,scope = {}) {
+  const {deckId,printJobId} = pendingProxyRefreshScope(scope);
+  if (!isBridgeUserActive(userId)) return;
+  const connection = connectionFor(userId);
+  if (!connection?.connected) return;
+  const rows = all(`SELECT p.* FROM manasync_pending_proxy_plans p
+    JOIN manasync_print_items i ON i.id=p.item_id AND i.user_id=p.user_id
+    WHERE p.user_id=? AND p.status!='dismissed' AND p.create_payload IS NOT NULL
+    AND (? IS NULL OR i.deck_id=?) AND (? IS NULL OR i.print_job_id=?)
+    AND p.account_id=? AND p.base_url=?`,[userId,deckId,deckId,printJobId,printJobId,connection.account_id,connection.base_url]);
+  if (!rows.length) return;
+  const result = await cachedRemoteRead(connection,'/api/v1/pending-proxies');
+  assertCurrentConnection(connection);
+  if (!Array.isArray(result.items) || result.items.length > 100000) fail('ManaSync returned an invalid pending print collection.',502);
+  const byId = new Map();
+  for (const value of result.items) {
+    if (!value || typeof value.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(value.id) || byId.has(value.id)) {
+      fail('ManaSync returned an invalid pending print collection.',502);
+    }
+    byId.set(value.id,value);
+  }
+  // Validate all recognized entries before any write. Unknown or omitted IDs are
+  // never interpreted as confirmations, dismissals, or permission to republish.
+  for (const plan of rows) if (byId.has(plan.item_id)) validatePending(plan,byId.get(plan.item_id));
+  transaction(() => {
+    assertCurrentConnection(connection);
+    for (const original of rows) {
+      const plan = planFor(userId,original.item_id);
+      if (!plan || plan.status === 'dismissed' || !matches(connection,plan)) continue;
+      if (byId.has(plan.item_id)) savePending(plan,byId.get(plan.item_id),true);
+      else if (plan.remote_json) run('UPDATE manasync_pending_proxy_plans SET last_error=? WHERE item_id=?',
+        ['ManaSync did not return this pending print. The last known record is retained; refresh or inspect it before another quantity decision.',plan.item_id]);
+    }
+  });
+}
+
+/** A deliberate new retry budget still reuses the original immutable publication. */
+export async function retryPendingProxyPublication(userId,id,data = {}) {
+  const plan = planFor(userId,id);
+  if (!plan) fail('Pending print item not found.',404);
+  if (!data || typeof data !== 'object' || Array.isArray(data)) fail('Refresh the connection before retrying publication.',400);
+  const connection = assertExpectedConnection(userId,data.expectedConnection);
+  if (!matches(connection,plan)) fail('Reconnect this plan’s original ManaSync account and backend before retrying publication.');
+  if (!isBridgeUserActive(userId)) fail('ManaSync delivery is paused because this CLC account is suspended or unavailable.',503);
+  if (plan.remote_json || plan.status === 'dismissed') return listQueue(userId).find(item => item.id === id);
+  if (activePlans.has(id)) fail('This publication attempt is already in progress. Refresh its record before retrying.',409);
+  run("UPDATE manasync_pending_proxy_plans SET attempts=0,next_attempt=0,status=CASE WHEN create_payload IS NULL THEN 'local' ELSE 'publishing' END,last_error=NULL WHERE item_id=?",[id]);
+  // A pre-existing frozen payload makes sync read its original id first, without
+  // spending an extra attempt or generating replacement publication bytes.
+  await syncPendingProxy(userId,id,true);
+  return listQueue(userId).find(item => item.id === id);
 }
 
 export async function processPendingProxyPlans() {
@@ -251,8 +349,9 @@ export async function processPendingProxyPlans() {
     const plans = all(`SELECT p.item_id,p.user_id FROM manasync_pending_proxy_plans p JOIN manasync_connections c ON c.user_id=p.user_id
       JOIN users u ON u.id=p.user_id
       WHERE u.suspended=0 AND p.status!='dismissed' AND p.next_attempt<=? AND c.connected=1
+      AND ((p.remote_json IS NULL AND p.status!='held' AND p.attempts<?) OR (p.remote_json IS NOT NULL AND p.cancel_requested=1))
       AND (p.account_id IS NULL OR (p.account_id=c.account_id AND p.base_url=c.base_url))
-      ORDER BY p.next_attempt,p.created_at LIMIT 4`,[Date.now()]);
+      ORDER BY p.next_attempt,p.created_at LIMIT 4`,[Date.now(),PUBLICATION_ATTEMPT_LIMIT]);
     for (const plan of plans) await syncPendingProxy(plan.user_id,plan.item_id);
   } finally { workerActive = false; }
 }

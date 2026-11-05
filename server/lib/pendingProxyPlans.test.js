@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
+import { once } from 'node:events';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -10,6 +11,7 @@ const accountId = '00000000-0000-4000-8000-000000000013';
 const otherAccount = '00000000-0000-4000-8000-000000000014';
 const container = {id:'00000000-0000-4000-8000-000000000012',kind:'unassigned'};
 const response = (body,status=200) => new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});
+const localFetch = globalThis.fetch;
 let dir, db, bridge, plans, artwork, jobId, pending, requests, receipts, failure, serverAccount, assetHashes;
 
 function remoteDecision(value,body,actor,kind='confirm') {
@@ -38,6 +40,7 @@ async function fakeManaSync(url,options) {
   if (url.endsWith('/integration/context')) return response({user:{id:serverAccount,username:'alice'},actorId:actor,scopes:['inventory:read','proxies:write']});
   if (url.endsWith('/containers')) return response({containers:[container]});
   requests.push({url,...options});
+  if (url.endsWith('/pending-proxies')) return response({items:[...pending.values()]});
   const assetHash = new URL(url).pathname.match(/\/proxy-art\/([a-f0-9]{64})$/)?.[1];
   if (assetHash) {
     expect(hash(options.body)).toBe(assetHash);
@@ -96,7 +99,7 @@ beforeEach(async () => {
   pending = new Map(); requests = []; receipts = new Map(); failure = null; serverAccount = accountId; assetHashes = new Set();
   vi.stubGlobal('fetch',vi.fn(fakeManaSync));
 });
-afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(dir,{recursive:true,force:true}); });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(dir,{recursive:true,force:true}); });
 const connect = (token='actor-one',baseUrl='https://mana.example/prefix') => bridge.connect(1,{baseUrl,token});
 const expected = () => { const value = bridge.connectionStatus(1); return value.connected ? {accountId:value.accountId,actorId:value.actorId,baseUrl:value.baseUrl} : null; };
 const first = () => bridge.listQueue(1)[0];
@@ -127,7 +130,7 @@ describe('native pending proxy plans',() => {
     const staged = first();
     expect(staged).toMatchObject({deckId:null,printJobId:jobId,confirmed:0,remaining:3});
     expect(bridge.listQueue(2)).toEqual([]);
-    await connect(); failure = 'create-lost'; await plans.refreshPendingProxyPlans(1);
+    await connect(); failure = 'create-lost'; await plans.processPendingProxyPlans();
     const original = db.get('SELECT create_payload FROM manasync_pending_proxy_plans WHERE item_id=?',[staged.id]).create_payload;
     expect(JSON.parse(original)).toMatchObject({label,source:'clc',sourceRef:jobId,quantity:3});
     expect(original).not.toContain(listText); expect(original).not.toContain('textHash');
@@ -191,7 +194,7 @@ describe('native pending proxy plans',() => {
     expect(item.pendingProxy).toMatchObject({status:'disconnected',confirmedQuantity:0,remainingQuantity:3});
     expect(requests).toHaveLength(0);
     await expect(confirm(1,randomUUID(),1)).rejects.toThrow('Wait for this print plan');
-    await connect(); await plans.refreshPendingProxyPlans(1);
+    await connect(); await plans.processPendingProxyPlans();
     expect(first().pendingProxy).toMatchObject({status:'pending',revision:1,confirmedQuantity:0,remainingQuantity:3,accountId});
     expect(pending.get(item.id).card.proxyArtwork.front).toBe(`/api/v1/proxy-art/${accountId}/${hash(PNG)}`);
     expect(requests.map(request => request.method)).toEqual(['PUT','PUT']);
@@ -328,7 +331,7 @@ describe('native pending proxy plans',() => {
     bridge.disconnect(1); await bridge.cancelItem(1,first().id);
     expect(first().pendingProxy.actionPending).toBe(true);
     expect(pending.get(first().id).remainingQuantity).toBe(3);
-    await connect(); await plans.refreshPendingProxyPlans(1);
+    await connect(); await plans.refreshPendingProxyPlans(1); await plans.processPendingProxyPlans();
     expect(first().pendingProxy).toMatchObject({status:'dismissed',dismissedQuantity:3,remainingQuantity:0});
     expect(requests.filter(request => request.url.endsWith('/dismiss'))).toHaveLength(1);
   });
@@ -351,7 +354,7 @@ describe('native pending proxy plans',() => {
 
   it('locally dismisses never published plans and preserves that decision on manifest replay',async () => {
     await plans.processPendingProxyPlans(); await bridge.cancelItem(1,first().id);
-    artwork.stagePrintJob(1,jobId); await connect(); await plans.refreshPendingProxyPlans(1);
+    artwork.stagePrintJob(1,jobId); await connect(); await plans.refreshPendingProxyPlans(1); await plans.processPendingProxyPlans();
     expect(first().pendingProxy).toMatchObject({status:'dismissed',dismissedQuantity:3});
     expect(requests).toHaveLength(0);
   });
@@ -372,7 +375,7 @@ describe('native pending proxy plans',() => {
     db.run("UPDATE print_jobs SET state='expired' WHERE id=?",[jobId]);
     vi.resetModules(); db = await import('../db.js'); await db.initDb();
     bridge = await import('./manasyncBridge.js'); bridge.initBridgeSchema(); plans = await import('./pendingProxyPlans.js');
-    await connect(); await plans.refreshPendingProxyPlans(1);
+    await connect(); await plans.processPendingProxyPlans();
     expect(first().id).toBe(original.id); expect(pending.get(original.id).card.proxyArtwork.front).toContain(hash(PNG));
     expect((await confirm()).status).toBe('reported');
   });
@@ -383,6 +386,8 @@ describe('native pending proxy plans',() => {
     await expect(confirm(1,randomUUID(),1)).rejects.toThrow('Wait for this print plan');
     expect(first().operations).toEqual([]); expect(pending.size).toBe(0);
     failure = null; await plans.refreshPendingProxyPlans(1);
+    expect(first().pendingProxy.retryState).toBe('held');
+    await plans.retryPendingProxyPublication(1,first().id,{expectedConnection:expected()});
     expect(first().pendingProxy.status).toBe('pending');
   });
 
@@ -398,5 +403,253 @@ describe('native pending proxy plans',() => {
     // Reloading modules reopened the shared persisted database.
     expect(currentDb.get('SELECT proxy_staging_error FROM print_jobs WHERE id=?',[jobId]).proxy_staging_error).toContain('including retained ManaSync artwork');
     expect(currentDb.all('SELECT * FROM manasync_print_items')).toEqual([]);
+  });
+});
+
+function duplicatePublished({printJobId = randomUUID(),deckId = 1,userId = 1} = {}) {
+  const original = db.get('SELECT * FROM manasync_print_items WHERE id=?',[first().id]);
+  const plan = db.get('SELECT * FROM manasync_pending_proxy_plans WHERE item_id=?',[original.id]);
+  const id = randomUUID(), create = {...JSON.parse(plan.create_payload),sourceRef:printJobId};
+  const value = {...structuredClone(pending.get(original.id)),id,sourceRef:printJobId};
+  db.run(`INSERT INTO manasync_print_items(id,user_id,deck_id,card_json,quantity,created_at,print_job_id,artwork_json)
+    VALUES(?,?,?,?,?,?,?,?)`,[id,userId,deckId,original.card_json,original.quantity,original.created_at,printJobId,original.artwork_json]);
+  db.run(`INSERT INTO manasync_pending_proxy_plans(item_id,user_id,status,create_payload,base_url,account_id,remote_json,created_at)
+    VALUES(?,?,'published',?,?,?,?,?)`,[id,userId,JSON.stringify(create),plan.base_url,plan.account_id,JSON.stringify(value),plan.created_at]);
+  pending.set(id,value);
+  return id;
+}
+const publication = () => db.get('SELECT * FROM manasync_pending_proxy_plans WHERE item_id=?',[first().id]);
+const bulkCalls = () => requests.filter(request => request.url.endsWith('/pending-proxies'));
+
+describe('bounded ManaSync synchronization',() => {
+  it.each(['pending','partial','confirmed','dismissed'])('makes zero automatic requests over an idle day for published %s history',async status => {
+    await publish();
+    if (status === 'partial') await confirm(1);
+    if (status === 'confirmed') await confirm(3);
+    if (status === 'dismissed') await bridge.cancelItem(1,first().id);
+    // Old successful rows with a high historical attempt count are idle, not held.
+    db.run('UPDATE manasync_pending_proxy_plans SET next_attempt=0,attempts=100');
+    expect(first().pendingProxy).toMatchObject({retryState:'idle',canRetryPublication:false});
+    vi.useFakeTimers({toFake:['Date']});
+    const start = Date.now(); requests.length=0; fetch.mockClear();
+    for (let tick=1;tick<=5760;tick+=1) {
+      vi.setSystemTime(start+tick*15000);
+      await bridge.processPending();
+    }
+    expect(requests).toEqual([]); expect(fetch).not.toHaveBeenCalled();
+    expect(first().pendingProxy.status).toBe(status);
+  });
+
+  it('caps transient publication attempts at six and does not let refresh restart uploads',async () => {
+    await connect();
+    fetch.mockImplementation((url,options) => {
+      if (url.includes('/proxy-art/')) {requests.push({url,...options});return response({error:'Temporary failure'},503);}
+      return fakeManaSync(url,options);
+    });
+    vi.useFakeTimers({toFake:['Date']}); const start=Date.now();
+    for(let attempt=0;attempt<20;attempt+=1) {
+      vi.setSystemTime(start+attempt*3600000);await plans.processPendingProxyPlans();
+    }
+    expect(first().pendingProxy).toMatchObject({retryState:'held',attempts:6,canRetryPublication:true});
+    expect(requests.filter(request=>request.url.includes('/proxy-art/'))).toHaveLength(6);
+    const frozen=publication().create_payload;
+    await plans.refreshPendingProxyPlans(1);
+    expect(bulkCalls()).toHaveLength(1);
+    expect(requests.filter(request=>request.url.includes('/proxy-art/'))).toHaveLength(6);
+    expect(publication()).toMatchObject({attempts:6,status:'held',create_payload:frozen});
+    expect(first().operations).toEqual([]);expect(receipts.size).toBe(0);
+  });
+
+  it.each([[403,'proxy_storage_quota'],[507,'Storage full'],[429,'Daily quota exceeded']])('immediately holds definitive publication failure %s without discarding the frozen intent',async (status,message) => {
+    await connect();
+    fetch.mockImplementation((url,options) => {
+      if (url.includes('/proxy-art/')) {requests.push({url,...options});return response({error:message},status);}
+      return fakeManaSync(url,options);
+    });
+    await plans.processPendingProxyPlans();const frozen=publication();
+    expect(first().pendingProxy).toMatchObject({retryState:'held',attempts:1,error:expect.stringContaining(message)});
+    db.run('UPDATE manasync_pending_proxy_plans SET next_attempt=0');
+    await plans.processPendingProxyPlans();await plans.refreshPendingProxyPlans(1);
+    expect(requests.filter(request=>request.url.includes('/proxy-art/'))).toHaveLength(1);
+    expect(publication()).toMatchObject({create_payload:frozen.create_payload,account_id:frozen.account_id,base_url:frozen.base_url});
+    expect(receipts.size).toBe(0);
+  });
+
+  it('holds legacy exhausted rows and only an explicit guarded retry spends a fresh publication budget',async () => {
+    await connect();failure='unsupported';await plans.processPendingProxyPlans();
+    db.run("UPDATE manasync_pending_proxy_plans SET status='publishing',attempts=60,next_attempt=0");
+    const frozen=publication().create_payload;failure=null;requests.length=0;
+    await plans.processPendingProxyPlans();
+    expect(requests).toEqual([]);expect(first().pendingProxy.retryState).toBe('held');
+    await plans.refreshPendingProxyPlans(1);
+    expect(requests.map(request=>request.method)).toEqual([undefined]);
+    await expect(plans.retryPendingProxyPublication(1,first().id,{})).rejects.toThrow('Refresh the connection');
+    await expect(plans.retryPendingProxyPublication(2,first().id,{expectedConnection:expected()})).rejects.toMatchObject({status:404});
+    await expect(plans.retryPendingProxyPublication(1,first().id,{expectedConnection:{...expected(),actorId:'another actor'}})).rejects.toThrow('Connection changed');
+    const result=await plans.retryPendingProxyPublication(1,first().id,{expectedConnection:expected()});
+    expect(result.pendingProxy).toMatchObject({retryState:'idle',status:'pending',attempts:0});
+    expect(publication().create_payload).toBe(frozen);
+    expect(requests.filter(request=>request.method==='PUT'&&request.url.includes('/pending-proxies/')).map(request=>request.body)).toEqual([frozen]);
+    expect(receipts.size).toBe(0);
+  });
+
+  it('recovers an exhausted lost PUT by the original ID before any new artwork upload',async () => {
+    await connect();failure='create-lost';await plans.processPendingProxyPlans();
+    db.run("UPDATE manasync_pending_proxy_plans SET status='held',attempts=6");
+    const frozen=publication().create_payload, id=first().id;requests.length=0;
+    const result=await plans.retryPendingProxyPublication(1,id,{expectedConnection:expected()});
+    expect(result.pendingProxy.status).toBe('pending');expect(publication().create_payload).toBe(frozen);
+    expect(requests).toHaveLength(1);expect(requests[0].method).toBeUndefined();expect(requests[0].url).toMatch(new RegExp('/pending-proxies/'+id+'$'));
+    expect(pending.size).toBe(1);expect(receipts.size).toBe(0);
+  });
+
+  it('uses one coalesced owner bulk read across scopes and observes every matching item beyond the old 100-row limit',async () => {
+    await publish();const originalId=first().id,targetJob=randomUUID();
+    const later=[];
+    for(let index=0;index<105;index+=1) later.push(duplicatePublished({printJobId:targetJob}));
+    remoteDecision(pending.get(originalId),{operationId:'external-original',quantity:1,expectedRevision:1},'session-owner');
+    for(const id of later) remoteDecision(pending.get(id),{operationId:'external-'+id,quantity:3,expectedRevision:1},'session-owner');
+    requests.length=0;
+    await Promise.all([plans.refreshPendingProxyPlans(1,{printJobId:jobId}),plans.refreshPendingProxyPlans(1,{printJobId:targetJob})]);
+    expect(bulkCalls()).toHaveLength(1);
+    expect(db.get('SELECT remote_json FROM manasync_pending_proxy_plans WHERE item_id=?',[originalId]).remote_json).toContain('external-original');
+    expect(later.every(id=>JSON.parse(db.get('SELECT remote_json FROM manasync_pending_proxy_plans WHERE item_id=?',[id]).remote_json).remainingQuantity===0)).toBe(true);
+    expect(requests.some(request=>request.method==='PUT'||request.method==='POST')).toBe(false);
+  });
+
+  it('scopes updates to the reviewed batch and never interprets unknown or missing IDs as confirmed',async () => {
+    await publish();const original=first(),otherJob=randomUUID(),otherId=duplicatePublished({printJobId:otherJob});
+    const unrelated=duplicatePublished({userId:2,deckId:null});
+    remoteDecision(pending.get(otherId),{operationId:'external',quantity:3,expectedRevision:1},'session-owner');
+    remoteDecision(pending.get(unrelated),{operationId:'other-owner',quantity:3,expectedRevision:1},'other-session');
+    pending.delete(original.id);pending.set('unknown-record',{id:'unknown-record'});
+    await plans.refreshPendingProxyPlans(1,{printJobId:jobId});
+    expect(bridge.listQueue(1).find(item=>item.id===original.id)).toMatchObject({confirmed:0,remaining:3,pendingProxy:{error:expect.stringContaining('last known record is retained')}});
+    expect(JSON.parse(db.get('SELECT remote_json FROM manasync_pending_proxy_plans WHERE item_id=?',[otherId]).remote_json).remainingQuantity).toBe(3);
+    expect(JSON.parse(db.get('SELECT remote_json FROM manasync_pending_proxy_plans WHERE item_id=?',[unrelated]).remote_json).remainingQuantity).toBe(3);
+    expect(db.get('SELECT item_id FROM manasync_pending_proxy_plans WHERE item_id=?',['unknown-record'])).toBeNull();
+  });
+
+  it.each(['quantity','artwork','revision','duplicate-id','confirmation'])('rejects malformed bulk %s before committing recognized plans',async kind => {
+    await publish();const original=first(),second=duplicatePublished();
+    remoteDecision(pending.get(original.id),{operationId:'external',quantity:1,expectedRevision:1},'session-owner');
+    const bad=pending.get(second);
+    if(kind==='quantity')bad.quantity+=1;
+    if(kind==='artwork')bad.card.proxyArtwork.front='/different-art';
+    if(kind==='revision')bad.revision=0;
+    if(kind==='confirmation')bad.confirmations=[null];
+    if(kind==='duplicate-id')fetch.mockImplementation((url,options)=>url.endsWith('/pending-proxies')?response({items:[...pending.values(),bad]}):fakeManaSync(url,options));
+    const before=db.all('SELECT * FROM manasync_pending_proxy_plans ORDER BY item_id');
+    await expect(plans.refreshPendingProxyPlans(1)).rejects.toMatchObject({status:502});
+    expect(db.all('SELECT * FROM manasync_pending_proxy_plans ORDER BY item_id')).toEqual(before);
+  });
+
+  it('does not let an equal revision contradict saved history or a stale bulk response undo confirmation',async () => {
+    await publish();const id=first().id,old=structuredClone(pending.get(id));
+    remoteDecision(pending.get(id),{operationId:'conflict',quantity:1,expectedRevision:1},'session-owner');pending.get(id).revision=1;
+    await expect(plans.refreshPendingProxyPlans(1)).rejects.toThrow('inconsistent pending print history');
+    expect(first().confirmed).toBe(0);
+    pending.set(id,old);await confirm(1);
+    const current=publication();
+    fetch.mockImplementation((url,options)=>url.endsWith('/pending-proxies')?response({items:[old]}):fakeManaSync(url,options));
+    await plans.refreshPendingProxyPlans(1);
+    expect(publication()).toEqual(current);expect(first().confirmed).toBe(1);
+  });
+
+  it.each(['disconnect','rotate','suspend','delete'])('rejects an in-flight bulk result after %s without committing owner data',async change => {
+    await publish();const before=publication();let finish;
+    fetch.mockImplementation((url,options)=>url.endsWith('/pending-proxies')?new Promise(resolve=>{finish=resolve;}):fakeManaSync(url,options));
+    const refresh=plans.refreshPendingProxyPlans(1);
+    await Promise.resolve();expect(finish).toBeTypeOf('function');
+    if(change==='disconnect')bridge.disconnect(1);
+    if(change==='rotate')await connect('actor-two');
+    if(change==='suspend')db.run('UPDATE users SET suspended=1 WHERE id=1');
+    if(change==='delete')db.run('DELETE FROM users WHERE id=1');
+    finish(response({items:[...pending.values()]}));
+    await expect(refresh).rejects.toMatchObject({status:['suspend','delete'].includes(change)?503:409});
+    if(change==='delete')expect(db.all('SELECT * FROM manasync_pending_proxy_plans')).toEqual([]);
+    else expect(publication()).toEqual(before);
+  });
+
+  it('throttles successful and failed owner bulk reads for sixty seconds without using a previous actor cache',async () => {
+    await publish();vi.useFakeTimers({toFake:['Date']});const start=Date.now();
+    await plans.refreshPendingProxyPlans(1);await plans.refreshPendingProxyPlans(1);expect(bulkCalls()).toHaveLength(1);
+    await connect('actor-two');await plans.refreshPendingProxyPlans(1);expect(bulkCalls()).toHaveLength(2);
+    vi.setSystemTime(start+60001);
+    fetch.mockImplementation((url,options)=>url.endsWith('/pending-proxies')?(requests.push({url,...options}),response({error:'Offline'},503)):fakeManaSync(url,options));
+    await expect(plans.refreshPendingProxyPlans(1)).rejects.toMatchObject({status:503});
+    await expect(plans.refreshPendingProxyPlans(1)).rejects.toMatchObject({status:503});expect(bulkCalls()).toHaveLength(3);
+  });
+
+  it('does not bypass an exhausted cancellation outbox through background plan synchronization',async () => {
+    await publish();failure='dismiss-lost';await bridge.cancelItem(1,first().id);
+    db.run('UPDATE manasync_print_operations SET attempts=6,next_attempt=0');
+    db.run('UPDATE manasync_pending_proxy_plans SET next_attempt=0');requests.length=0;
+    for(let tick=0;tick<10;tick+=1)await bridge.processPending();
+    expect(requests).toEqual([]);expect(first().pendingProxy.actionPending).toBe(true);
+    await plans.refreshPendingProxyPlans(1);
+    expect(first().pendingProxy).toMatchObject({status:'dismissed',actionPending:false});
+  });
+
+  it.each([403,503])('bounds a new cancellation when ManaSync reads/dismissal return %s before any outbox exists',async status => {
+    await publish();const id=first().id;
+    fetch.mockImplementation((url,options)=>{
+      if(url.includes('/pending-proxies/')) {requests.push({url,...options});return response({error:'Unavailable'},status);}
+      return fakeManaSync(url,options);
+    });
+    requests.length=0;await bridge.cancelItem(1,id);
+    const outbox=db.get("SELECT * FROM manasync_print_operations WHERE kind='dismiss'");
+    expect(outbox).toMatchObject({pending_id:id,attempts:1});
+    expect(JSON.parse(outbox.payload_json)).toEqual({operationId:outbox.id,expectedRevision:1});
+    vi.useFakeTimers({toFake:['Date']});const start=Date.now();
+    for(let tick=1;tick<=30;tick+=1) {vi.setSystemTime(start+tick*3600000);await bridge.processPending();}
+    const attempts=requests.filter(request=>request.url.endsWith('/dismiss'));
+    expect(attempts).toHaveLength(status===403?1:6);
+    expect(attempts.every(request=>request.body===outbox.payload_json)).toBe(true);
+    // Only the one definitive-rejection reconciliation read is allowed; no
+    // pre-outbox GET repeats on every worker tick.
+    expect(requests.filter(request=>!request.method)).toHaveLength(status===403?1:0);
+    expect(receipts.size).toBe(0);
+  });
+
+  it('does not recreate a deleted account’s plan when publication finishes in flight',async () => {
+    await connect();let finish;
+    fetch.mockImplementation((url,options)=>url.includes('/pending-proxies/')&&options.method==='PUT'
+      ?new Promise(resolve=>{finish=resolve;}):fakeManaSync(url,options));
+    const work=plans.processPendingProxyPlans();
+    for(let turn=0;turn<20&&!finish;turn+=1)await Promise.resolve();
+    expect(finish).toBeTypeOf('function');
+    const id=first().id, create=JSON.parse(publication().create_payload);
+    db.run('DELETE FROM users WHERE id=1');
+    finish(response({pending:{id,...create,confirmedQuantity:0,dismissedQuantity:0,remainingQuantity:3,status:'pending',revision:1,confirmations:[]}}));
+    await expect(work).resolves.toBeUndefined();
+    expect(db.all('SELECT * FROM manasync_pending_proxy_plans')).toEqual([]);
+    expect(db.all('PRAGMA foreign_key_check')).toEqual([]);
+  });
+
+  it('exposes owner-authenticated scoped refresh and explicit publication retry over HTTP',async () => {
+    vi.stubEnv('JWT_SECRET','manasync-route-test-secret-012345678901234567890123456789');
+    await connect();failure='unsupported';await plans.processPendingProxyPlans();failure=null;
+    const id=first().id, frozen=publication().create_payload;
+    const {default:express}=await import('express');
+    const {default:router}=await import('../routes/manasync.js');
+    const {createToken}=await import('../middleware/auth.js');
+    const app=express();app.use(express.json());app.use('/api/manasync',router);
+    const server=app.listen(0,'127.0.0.1');await once(server,'listening');
+    const base=`http://127.0.0.1:${server.address().port}/api/manasync`;
+    const post=(path,body,userId=1)=>localFetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',
+      ...(userId?{Authorization:'Bearer '+createToken({id:userId,username:'fixture'})}:{})},body:JSON.stringify(body)});
+    try {
+      expect((await post('/print-queue/'+id+'/retry-publication',{},null)).status).toBe(401);
+      expect((await post('/print-queue/'+id+'/retry-publication',{expectedConnection:expected()},2)).status).toBe(404);
+      expect((await post('/print-queue/'+id+'/retry-publication',{})).status).toBe(400);
+      expect((await post('/print-queue/refresh',{deckId:'all'})).status).toBe(400);
+      const count=requests.length;
+      const empty=await post('/print-queue/refresh',{printJobId:randomUUID()});expect(empty.status).toBe(200);
+      expect(await empty.json()).toEqual({items:[]});expect(requests).toHaveLength(count);
+      const retry=await post('/print-queue/'+id+'/retry-publication',{expectedConnection:expected()});
+      expect(retry.status).toBe(200);expect(await retry.json()).toMatchObject({item:{id,pendingProxy:{retryState:'idle',status:'pending'}}});
+      expect(publication().create_payload).toBe(frozen);expect(pending.size).toBe(1);expect(receipts.size).toBe(0);
+    } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
   });
 });

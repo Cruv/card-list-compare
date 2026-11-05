@@ -156,6 +156,32 @@ refreshes the result and stops requesting quantities that were resolved in ManaS
 Lost responses replay the same saved decision. Conflicting decisions from two clients require
 fresh review of the current pending revision before any further inventory mutation.
 
+### Refresh and delivery limits
+
+Published plans, including confirmed/dismissed records, do not generate automatic remote
+reads while idle. The background worker publishes unpublished plans and recovers saved
+publication/cancellation work with bounded backoff. Automatic publication attempts stop at
+six; definitive authorization, unsupported-API and artwork-quota failures hold a plan for
+review earlier. Existing over-budget plans are held too. Frozen IDs, creation payloads,
+artwork and confirmation receipts remain intact.
+
+Opening **Confirm usable copies** or choosing **Refresh records** uses one owner-scoped
+`GET /api/v1/pending-proxies` to reconcile known records. The CLC refresh route accepts
+optional `deckId` and `printJobId` scope; it no longer processes the first 100 account rows
+one at a time. Reads and failures are coalesced/throttled for one minute per user, backend,
+account and token identity. Destinations use the same private read protection. These are
+server-memory caches, not public CDN caching. Unknown/missing records are never inferred
+confirmed or discarded; older revisions cannot overwrite newer local receipts.
+
+Visible, expanded confirmation panels poll CLC's local ledger every 15 seconds. Hidden or
+collapsed panels stop; opening/resuming requests one shared remote refresh. Routine ticks
+do not read ManaSync or reload destinations. Refreshing records does not restart held uploads.
+After resolving an error, choose **Retry sending saved plan** for that item. The owner-scoped
+`POST /api/manasync/print-queue/:id/retry-publication` requires the reviewed
+`expectedConnection`, recovers the original pending ID before another upload/create, and
+preserves all original payload bytes. It does not requeue a physical print or acquire inventory.
+Confirmation/dismissal operations retain their separate durable replay and revision guards.
+
 ### Manual print records
 
 Use **Record a manual print** in a deck to record copies made outside a CLC PDF batch.

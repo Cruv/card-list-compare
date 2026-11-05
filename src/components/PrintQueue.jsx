@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getPrintQueue, getManaSyncContainers, getManaSyncConnection, confirmPrinted, cancelPrintItem,
-  retryPrintReport, bindPrintReport, reconcilePrintReport, correctPrintReport, refreshPendingProxyPrints } from '../lib/api';
+  retryPrintReport, bindPrintReport, reconcilePrintReport, correctPrintReport, refreshPendingProxyPrints,
+  retryPendingProxyPublication } from '../lib/api';
 import { createOperationId } from '../lib/operationId';
+import { printQueueVisible, watchPrintQueue } from '../lib/printQueueRefresh';
 import PrintQueueArtwork from './PrintQueueArtwork';
 import './ManaSync.css';
 
@@ -15,6 +17,10 @@ function savedRequest(key, build) {
   return request;
 }
 export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
+  const detailsRef = useRef(null);
+  const requestRef = useRef(null);
+  const destinationConnectionRef = useRef('');
+  const [expanded,setExpanded] = useState(true);
   const [items,setItems] = useState([]);
   const [connection,setConnection] = useState(null);
   const [locations,setLocations] = useState([]);
@@ -24,24 +30,65 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
   const [error,setError] = useState('');
   const [inspection,setInspection] = useState(null);
   const [correction,setCorrection] = useState({quantity:0,reason:'',containerId:''});
-  const refresh = useCallback(async (syncPending = false) => {
-    const [queue,c] = await Promise.all([syncPending ? refreshPendingProxyPrints() : getPrintQueue(deckId),getManaSyncConnection()]);
-    const deckItems = deckId ? queue.items.filter(item => item.deckId === Number(deckId)) : queue.items;
-    setItems(printJobId ? deckItems.filter(item => item.printJobId === printJobId) : deckItems);setConnection(c);
-    if (c.connected) {
-      try {const result = await getManaSyncContainers();setLocations(result.containers);}
-      catch {setLocations([]);}
-    } else setLocations([]);
-  },[deckId,printJobId]);
-  useEffect(() => {refresh().catch(e => setError(e.message));},[refresh,refreshKey]);
-  useEffect(() => {
-    if (!printJobId && !items.some(item => item.printJobId || item.operations.some(o => o.status === 'pending' && o.attempts < 6))) return;
-    const timer = setInterval(() => {refresh(true).catch(e => setError(e.message));},15000);
-    return () => clearInterval(timer);
-  },[items,printJobId,refresh]);
+  const scope = JSON.stringify([deckId ?? null,printJobId ?? null]);
+  const refresh = useCallback(function loadQueue(syncPending = false, stillCurrent = () => true) {
+    if (!stillCurrent() || !printQueueVisible(detailsRef.current)) return Promise.resolve();
+    const existing = requestRef.current;
+    if (existing?.scope === scope) {
+      // A deliberate remote refresh must not be swallowed by a local timer read.
+      return syncPending && !existing.remote
+        ? existing.promise.then(() => loadQueue(true,stillCurrent)) : existing.promise;
+    }
+    const token = localStorage.getItem('clc-auth-token');
+    const request = {scope,remote:syncPending,promise:null};
+    requestRef.current = request;
+    const current = () => stillCurrent() && requestRef.current === request
+      && printQueueVisible(detailsRef.current) && detailsRef.current.dataset.queueScope === scope
+      && localStorage.getItem('clc-auth-token') === token;
+    const identity = value => JSON.stringify([token,!!value.connected,value.baseUrl,value.accountId,value.actorId]);
+    request.promise = (async () => {
+      try {
+        let remoteError;
+        const [queue,c] = await Promise.all([
+          syncPending ? refreshPendingProxyPrints({deckId,printJobId}).catch(error => {
+            // The local saved intent must remain reviewable when ManaSync is blocked/offline.
+            if (!current()) return {items:[]};
+            remoteError = error;return getPrintQueue(deckId);
+          }) : getPrintQueue(deckId),getManaSyncConnection(),
+        ]);
+        if (!current()) return;
+        const deckItems = deckId ? queue.items.filter(item => item.deckId === Number(deckId)) : queue.items;
+        setItems(printJobId ? deckItems.filter(item => item.printJobId === printJobId) : deckItems);setConnection(c);
+        const connectionKey = identity(c);
+        const changed = destinationConnectionRef.current !== connectionKey;
+        if (changed) { setLocations([]);setDestination(''); }
+        destinationConnectionRef.current = connectionKey;
+        if (remoteError) { setError(remoteError.message);return; }
+        if (!c.connected || (!syncPending && !changed)) return;
+        try {
+          const result = await getManaSyncContainers();
+          // Reconnection in another editor must not leave the old account's destinations selected.
+          const latest = await getManaSyncConnection();
+          if (!current()) return;
+          if (identity(latest) !== connectionKey) {
+            destinationConnectionRef.current = '';
+            setConnection(latest);setLocations([]);setDestination('');return;
+          }
+          setLocations(result.containers);
+        } catch { if (current()) setLocations([]); }
+      } finally { if (requestRef.current === request) requestRef.current = null; }
+    })();
+    return request.promise;
+  },[deckId,printJobId,scope]);
+  useEffect(() => watchPrintQueue({element:detailsRef.current,refresh,onError:error => setError(error.message)}),[refresh,refreshKey]);
   async function act(action) {
     if (busy) return;setBusy(true);setError('');
-    try {await action();await refresh();onReported?.();}
+    try {
+      await action();
+      // Read again after the action even if an older automatic read was already in flight.
+      if (requestRef.current) await requestRef.current.promise.catch(() => {});
+      await refresh();onReported?.();
+    }
     catch(e) {setError(e.message);} finally {setBusy(false);}
   }
   async function confirm(item) {
@@ -68,9 +115,11 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
     localStorage.removeItem(key);setInspection(null);
     if (result.operation.status !== 'reported') setError(result.operation.error || 'Correction saved for delivery.');
   }
-  return <details className="mana-sync-print-queue" open={!!printJobId || items.length > 0}>
+  return <details ref={detailsRef} data-queue-scope={scope} className="mana-sync-print-queue" open={expanded}
+    onToggle={event => {if (event.target === event.currentTarget) setExpanded(event.currentTarget.open);}}>
     <summary>{printJobId ? 'Printed proxies from this batch' : 'Proxy print records'} {items.length ? `(${items.length})` : ''}</summary>
     <p>Prepared batches appear in ManaSync&rsquo;s Proxy binder under Pending prints with their actual artwork. Confirm usable copies there or here after printing; the result stays in sync. Dismiss any failed or cancelled copies. Pending prints are separate from your available proxies.</p>
+    <p>Local progress updates while this panel is open. Opening it or choosing Refresh records checks ManaSync for decisions made there.</p>
     <p>{!connection ? 'Loading ManaSync connection…' : connection.connected ? `Reports go to ${connection.username} (${connection.accountId}).` : 'ManaSync is disconnected. Prepared batches wait in CLC until the connection is restored.'}</p>
     <div className="mana-sync-actions"><label>Physical destination <select value={destination} onChange={e => setDestination(e.target.value)} disabled={!connection?.connected || busy}>
       <option value="">Unassigned</option>{locations.filter(v => v.kind !== 'unassigned').map(v => <option key={v.id} value={v.id}>{v.name} ({v.kind})</option>)}</select></label>
@@ -85,6 +134,13 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
         {item.pendingProxy.status === 'disconnected' && <p>Connect ManaSync to publish and confirm this pending batch.</p>}
         {item.pendingProxy.actionPending && <p>Your saved decision is awaiting a response. Refresh to check its result.</p>}
         {item.pendingProxy.error && <p>{item.pendingProxy.error}</p>}
+        {item.pendingProxy.retryState === 'held' && <div>
+          <p>Automatic sending stopped after {item.pendingProxy.attempts} {item.pendingProxy.attempts === 1 ? 'attempt' : 'attempts'}. Resolve the error, then retry the saved plan.</p>
+          {/proxy artwork allowance|PROXY_ART_QUOTA_BYTES|artwork (?:quota|storage).*full/i.test(item.pendingProxy.error || '') && <p>ManaSync&rsquo;s artwork storage is full. Free space or change its allowance in ManaSync before retrying.</p>}
+          <button className="btn btn-secondary btn-sm" type="button" disabled={busy || !item.pendingProxy.canRetryPublication}
+            aria-label={`Retry sending ${item.card.name} saved plan to ManaSync`}
+            onClick={() => act(() => retryPendingProxyPublication(item.id,expectedConnection(connection)))}>Retry sending saved plan</button>
+        </div>}
         {item.pendingProxy.confirmations.filter(value => !item.operations.some(operation => operation.id === value.operationId)).map(value => <p key={value.operationId}>{value.quantity} usable {value.quantity === 1 ? 'copy' : 'copies'} confirmed in ManaSync</p>)}
       </div>}
       {item.printJobId && <p>From print batch {item.printJobId.slice(0, 8)} · {item.artwork?.front ? 'Actual proxy artwork attached' : 'Artwork unavailable'}</p>}

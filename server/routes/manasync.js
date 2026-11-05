@@ -35,9 +35,14 @@ router.get('/containers',handle(async req => ({containers:await containers(req.u
 router.get('/print-queue',handle(req => ({items:listQueue(req.user.userId,Number(req.query.deckId) || null)})));
 router.post('/print-queue/batch',handle(req => ({items:queueItems(req.user.userId,req.body)})));
 router.post('/print-queue/refresh',handle(async req => {
-  await (await import('../lib/pendingProxyPlans.js')).refreshPendingProxyPlans(req.user.userId);
-  return {items:listQueue(req.user.userId)};
+  const { refreshPendingProxyPlans, pendingProxyRefreshScope } = await import('../lib/pendingProxyPlans.js');
+  const scope = pendingProxyRefreshScope(req.body);
+  await refreshPendingProxyPlans(req.user.userId,req.body);
+  return {items:listQueue(req.user.userId,scope.deckId).filter(item => !scope.printJobId || item.printJobId === scope.printJobId)};
 }));
+router.post('/print-queue/:id/retry-publication',handle(async req => ({
+  item:await (await import('../lib/pendingProxyPlans.js')).retryPendingProxyPublication(req.user.userId,req.params.id,req.body),
+})));
 router.post('/print-queue',handle(req => ({item:queueItem(req.user.userId,req.body)})));
 router.post('/print-jobs/:jobId/confirmation-queue',handle(async req => {
   const { stagePrintJob } = await import('../lib/printJobBridge.js');

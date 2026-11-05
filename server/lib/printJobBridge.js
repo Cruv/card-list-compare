@@ -167,7 +167,7 @@ export async function uploadOperationArtwork(operation) {
     let response;
     try { response = await remote(operation, `/api/v1/proxy-art/${image.sha256}`, { method: 'PUT', body: bytes, contentType: mime(image.format) }); }
     catch (error) {
-      if ([404,405].includes(error.status)) throw new BridgeError('ManaSync does not support proxy artwork uploads. Update ManaSync, then retry this original confirmation.', 503);
+      if ([404,405].includes(error.status)) throw new BridgeError('ManaSync does not support proxy artwork uploads. Update ManaSync, then retry this original confirmation.', 503,{permanent:true});
       throw error;
     }
     if (response.sha256 !== image.sha256 || response.url !== requested[face] || response.contentType !== mime(image.format) || response.bytes !== image.size) {
