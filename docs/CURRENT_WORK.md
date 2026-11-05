@@ -1,7 +1,7 @@
 # Current work checkpoint
 
-v2.57.5 ManaSync traffic fix is implemented and functionally verified. Source delivery is
-separate from a household deployment; the Archiver major-upgrade decision remains pending.
+v2.57.5 ManaSync traffic and ZIP dependency fixes are implemented. The owner approved the
+remaining upgrades and deployment on 2026-11-05; final Docker/deployment verification is underway.
 
 - **Scope / ownership:** backend pending-plan scheduling/cache/retry, frontend confirmation
   refresh lifecycle and explicit retry UI, targeted tests, documentation and compatible
@@ -23,18 +23,27 @@ separate from a household deployment; the Archiver major-upgrade decision remain
   timing stays quiet remotely; restoring Batches refreshes once; explicit retry sends one
   scoped original-plan request and changes no physical/inventory quantities. Offline arm64
   Docker image starts with fresh tmpfs/network disabled, and all 38 frontend files match.
-- **Dependencies / audit limit:** compatible Vite/Vitest, Nodemailer and transitive patches
-  applied; unrelated lint dependency versions retained. Root audit is clean. Server audit
-  still reports five moderate entries in the existing Archiver 7 / glob / minimatch chain.
-  Archiver 8 needs a separate owner-approved migration of two ZIP exporters and regression
-  checks. The owner question is pending; do not claim the full dependency/release gate clean
-  or publish/deploy this candidate while that decision remains unresolved.
+- **Dependencies:** compatible Vite/Vitest, Nodemailer and transitive patches plus the
+  approved Archiver 8 migration of both ZIP exporters. Scoped readdir-glob/Minimatch override
+  resolves its remaining advisory; a real glob/extracted-bytes compatibility smoke passed.
+  Both audits report zero findings on 2026-11-05. MPC streaming errors/warnings and client
+  disconnects close the response and abort remaining archive work. New HTTP ZIP tests verify
+  complete structure/extracted bytes, deduplication, errors and interrupted downloads.
+  Mid-output failure tests exposed a late file-open/cleanup race; waiting for output close
+  before deletion fixes it, and both temporary/completed ZIPs are absent after failure.
+  Independent review closed this finding; all 17 focused ZIP tests pass.
+  Final-input JavaScript suite: 1,305 tests passed; lint zero errors/five baseline warnings,
+  production build passed. Reuse the unchanged 254 portable companion tests from this date.
 - **Evidence / handles:** diagnostic snapshots and scoped verification receipts stay private
   in the traffic investigation case; synthetic browser proofs/logs are outside Git. Owned
   browser tabs, disposable fixture server, smoke container/image and dependency scratch were removed.
-- **Delivery / next:** this commit records the verified traffic fix on the existing feature
-  branch; no tag/registry publication. Obtain the outstanding ZIP-upgrade decision, then finalize that
-  separate maintenance stage as authorized. Household still needs an explicitly authorized
-  deployment to activate this source fix and reduce its live traffic.
+- **Delivery / next:** traffic source `5720b83` is pushed; ZIP maintenance is ready for
+  commit/push on the same feature branch. Build
+  the exact source image, isolated runtime smoke, fresh idle recheck and stopped-data backup,
+  then activate only CLC and verify preserved data/native settings plus public/local assets.
+  No tag/registry publication is authorized or needed. The private deployment case is
+  `/Users/cruv/docker/Backups/cardlistcompare/20261105T181218Z-before-2.57.5`; preflight has
+  clean integrity/FKs, no active/uncertain server/native/CUPS work and an unpaused running
+  native v2.57.3 station. Recheck this state immediately before recreation.
 - **Preserved paused work:** Portainer reconciliation remains prepared but unsaved/unverified
   on its controller, as recorded in OPERATIONS/ROADMAP. Do not silently mark it complete.

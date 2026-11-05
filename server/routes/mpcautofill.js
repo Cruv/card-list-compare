@@ -4,6 +4,7 @@
  */
 
 import { Router } from 'express';
+import { pipeline } from 'node:stream/promises';
 import { requireAuth } from '../middleware/auth.js';
 import { mpcLimiter } from '../middleware/rateLimit.js';
 import {
@@ -374,30 +375,39 @@ router.post('/download', mpcLimiter, async (req, res) => {
     }
 
     // Build ZIP using archiver
-    const archiver = (await import('archiver')).default;
-    const archive = archiver('zip', { zlib: { level: 1 } }); // Fast compression (images are already compressed)
+    const { ZipArchive } = await import('archiver');
+    const archive = new ZipArchive({ zlib: { level: 1 } }); // Fast compression (images are already compressed)
 
     res.set({
       'Content-Type': 'application/zip',
       'Content-Disposition': 'attachment; filename="mpc-card-images.zip"',
     });
 
-    archive.pipe(res);
-
-    // Add each image with numbered filename
-    let idx = 1;
-    for (const img of images) {
-      const safeName = img.name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
-      const filename = `${String(idx).padStart(3, '0')}_${safeName}.${img.extension}`;
-      archive.append(img.buffer, { name: filename });
-      idx++;
+    // Observe archive errors and client disconnects before adding entries. A
+    // failed stream must close the download instead of leaving a partial ZIP open.
+    const streamed = pipeline(archive, res);
+    archive.once('warning', error => archive.destroy(error));
+    try {
+      let idx = 1;
+      for (const img of images) {
+        const safeName = img.name.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_');
+        const filename = `${String(idx).padStart(3, '0')}_${safeName}.${img.extension}`;
+        archive.append(img.buffer, { name: filename });
+        idx++;
+      }
+      await Promise.all([archive.finalize(), streamed]);
+    } catch (error) {
+      archive.abort();
+      archive.destroy();
+      await streamed.catch(() => {});
+      throw error;
     }
-
-    await archive.finalize();
   } catch (err) {
     console.error('MPC download error:', err);
-    if (!res.headersSent) {
+    if (!res.headersSent && !res.destroyed) {
       res.status(500).json({ error: 'Failed to download card images.' });
+    } else if (!res.destroyed) {
+      res.destroy(err);
     }
   }
 });

@@ -240,9 +240,9 @@ async function executeJob(job) {
   // have succeeded. Partial output is removed on any ZIP/file-system failure.
   const zipPath = join(DOWNLOADS_DIR, `${job.id}.complete.zip`);
   const temporaryPath = `${zipPath}.tmp`;
-  const archiver = (await import('archiver')).default;
+  const { ZipArchive } = await import('archiver');
   const output = createWriteStream(temporaryPath);
-  const archive = archiver('zip', { zlib: { level: 1 } });
+  const archive = new ZipArchive({ zlib: { level: 1 } });
   const finished = new Promise((resolve, reject) => {
     output.once('close', resolve);
     output.once('error', reject);
@@ -265,8 +265,13 @@ async function executeJob(job) {
       [zipPath, fileSize, images.length, cachedImages, expiresAt, job.id]);
     console.log(`[DownloadQueue] Job ${job.id} completed: ${images.length} verified images, ${cachedImages} from cache, ZIP ${(fileSize / 1024 / 1024).toFixed(1)}MB`);
   } catch (error) {
+    // destroy() may run before the asynchronous file-open finishes. Wait for
+    // close before unlinking so a late open cannot leave a partial ZIP behind.
+    const closed = output.closed ? Promise.resolve() : new Promise(resolve => output.once('close', resolve));
     archive.abort();
+    archive.destroy();
     output.destroy();
+    await closed;
     for (const path of [temporaryPath, zipPath]) {
       try { unlinkSync(path); } catch { /* absent or already removed */ }
     }

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { ZipArchive } from 'archiver';
 
 const db = vi.hoisted(() => ({ get: vi.fn(), all: vi.fn(), run: vi.fn() }));
 const downloads = vi.hoisted(() => ({ fetchCardImageUrls: vi.fn(), downloadCardImagesWithCache: vi.fn() }));
@@ -108,6 +110,29 @@ describe('image ZIP publication', () => {
     expect(job.status).toBe('failed');
     expect(job.error).toContain('ENOTDIR');
     expect(job.file_path).toBeNull();
+  });
+
+  it.each(['error', 'warning'])('removes partial ZIP output after an archive %s without publishing it', async event => {
+    const images = Array.from({ length: 4 }, (_, n) => ({ filename: `${n}.png`, buffer: randomBytes(256 * 1024) }));
+    downloads.downloadCardImagesWithCache.mockResolvedValue({ images, downloadedImages: 4, cachedImages: 0, failures: [] });
+    const abort = vi.spyOn(ZipArchive.prototype, 'abort');
+    const finalize = ZipArchive.prototype.finalize;
+    const failure = new Error(`Synthetic mid-output archive ${event}`);
+    let emitted = false;
+    vi.spyOn(ZipArchive.prototype, 'finalize').mockImplementation(function () {
+      this.once('data', () => queueMicrotask(() => { emitted = true; this.emit(event, failure); }));
+      return finalize.call(this);
+    });
+
+    await execute();
+    expect(emitted).toBe(true);
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(job).toMatchObject({ status: 'failed', error: failure.message, file_path: null });
+    expect(db.run.mock.calls.some(([sql]) => sql.includes("SET status = 'completed'"))).toBe(false);
+    // Let asynchronous file-close cleanup settle before proving no temporary or
+    // completed archive remains available for download.
+    await new Promise(resolve => setImmediate(resolve));
+    expect(readdirSync(dir)).toEqual([]);
   });
 
   it('publishes an atomic ZIP with every physical-copy face and consistent progress', async () => {

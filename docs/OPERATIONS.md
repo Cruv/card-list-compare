@@ -229,7 +229,7 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 ### Household print jobs
 
-#### ManaSync traffic reduction — v2.57.5 source
+#### ManaSync traffic reduction — v2.57.5
 
 The source fix removes repeated per-card checks for published/terminal pending prints and
 caps automatic publication attempts at six. Existing unpublished plans over that budget
@@ -250,8 +250,13 @@ After an authorized deployment, reload older CLC tabs and compare bridge traffic
 and while one confirmation panel is open. Expect no background GETs for published records;
 only bounded unpublished/outbox delivery and deliberate remote review should contact ManaSync.
 See [the bridge contract](MANASYNC_BRIDGE.md#refresh-and-delivery-limits) and the current
-[verification checkpoint](CURRENT_WORK.md). The remaining Archiver dependency audit finding
-is tracked separately in [ROADMAP](ROADMAP.md); functional success is not a clean audit claim.
+[verification checkpoint](CURRENT_WORK.md). The owner-approved Archiver 8 migration updates
+both ZIP exporters and uses a scoped patched Minimatch dependency for its directory matcher.
+MPC downloads now close failed/interrupted streams instead of leaving partial downloads open.
+The queued ZIP exporter waits for file closure before removing failed output, preventing a
+late file-open from leaving temporary ZIPs behind.
+Real ZIP extraction, archive error/warning and client-disconnect checks cover the upgrade;
+both dependency audits are clean on 2026-11-05. Node 22 remains the supported runtime.
 
 #### Portainer reconciliation preparation — 2026-10-15
 
