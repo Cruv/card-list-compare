@@ -158,8 +158,8 @@ Publication is an external effect, separate from committing:
 
 - Docker CI runs on pull requests, pushes to `main`, and `v*` tags. It gates Docker builds
   on JavaScript tests, the synthetic deployment contract, portable Python tests, dependency
-  audits and error-free lint; the image build compiles the frontend for amd64 and arm64.
-  PRs build only; main/tag pushes publish GHCR. This also happens for docs
+  audits and error-free lint. Native amd64/arm64 runners build their own target; main/tag
+  digests are combined only after both succeed. PRs build only; main/tag pushes publish GHCR. This also happens for docs
   pushed to main; the local prose exemption does not disable CI or imply a production deploy.
 - A feature-branch push without a PR does not trigger that workflow. When CI is expected,
   match the workflow/run to the pushed commit SHA (for example `gh run list --commit <SHA>`),

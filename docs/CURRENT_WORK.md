@@ -1,45 +1,32 @@
 # Current work checkpoint
 
-Repository deployment repair is implemented on `codex/project-audit-print-workflow`,
-baseline `e479759`. The owner requested repository fixes first and a preservation plan
-before changing the running installation. Live CLC and the native companion remain untouched.
+Repository deployment contract is fixed and [PR #7](https://github.com/Cruv/card-list-compare/pull/7)
+is merged as `4d58f3e`. Owner approved merge after CI and GHCR publication, holding Mac cutover.
+Publication repair is active on `codex/native-container-builds`, based on that clean main.
 
-- **Owned scope:** tracked Compose, environment example, deployment-contract checker/npm
-  script, Docker CI and affected README/contribution/decision/operations/roadmap guidance.
-  No foreign edits. Internal deployment work does not change the v2.57.5 application version.
-- **Outcome:** canonical Compose consumes GHCR without implicit local building; existing
-  image/data/name/port/UID/GID/timezone and optional printing/bridge/email values are runtime
-  inputs, including the existing shared/external network. Missing bind paths fail rather than creating a fresh database. Explicit update
-  safety and 30-second shutdown are retained. CI validates the contract, tests, audits and
-  lint, builds amd64/arm64, and publishes only main/tag pushes. Full SHA tags/revision labels
-  support exact source receipts; latest remains tied to main.
-- **Verification (2026-11-05):** synthetic Compose defaults/existing-instance/digest fixtures
-  passed; a disposable create-only proof rejected a missing directory without creating it,
-  preserved an existing sentinel/mount and never started a backend. Workflow actionlint
-  1.7.12 and all 50 existing invariants passed. Both dependency audits are clean. Touched
-  checker/full lint passed with the five existing warnings. Independent deployment/preservation
-  review found no blocker. Prior unchanged application verification is in
-  [the deployed checkpoint](OPERATIONS.md#household-server-deployment-checkpoint--2026-11-05).
-- **Delivery / next:** repository repair is pushed in `0f6ca9f` and
-  [PR #7](https://github.com/Cruv/card-list-compare/pull/7) targets main. Its first hosted run
-  passed all 1,305 app tests and audits, then exposed Compose v2 omitting false JSON fields.
-  The checker now compares the same CLI’s explicit-false reference and rejects an unsafe
-  auto-creating negative fixture across encodings. Both Compose 2.40.3 and 5.5.0 passed.
-  Hosted run `42101784559` for `b82bded` then passed tests/audits/lint and both architecture
-  builds. The final shared/external-network preservation option is checked locally with both
-  Compose versions and independently reviewed; require its exact-commit hosted result too.
-  A PR builds without publishing. On 2026-11-05 the owner authorized merging PR #7 after
-  successful checks and publishing GHCR from main. Match the main run/registry revision
-  rather than treating a PR build as publication. Live stack cutover remains separate.
-- **Preservation:** follow [the cutover procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
-  Keep the existing full data directory and hidden keys, private runtime values, mtg stack/
-  network/container identity and native ledger/config/token/artifacts/profile. Fresh backups
-  and idle exact-job checks precede any later activation. No credential rotation performed.
-- **Live state:** Mac still runs local `clc-household:2.57.5-4c6fd80`; native v2.57.3 remains
-  separate. No production/private deployment edit, physical work or Discord test occurred.
-  The historical private local-image Portainer candidate is superseded as the intended
-  configuration model, but remains an unchanged rollback/evidence file until controlled cutover.
-- **Handles / next:** disposable Compose proof containers/network/data and actionlint tooling
-  were removed. No local fixture process remains. Complete authorized main/registry delivery
-  through PR #7, report the preservation steps, and await a separate live-cutover instruction.
-  The PR and its main publication workflow retain the authoritative changing delivery status.
+- **Completed source:** canonical published-image Compose and configurable existing data/
+  identity/network/private settings, fail-on-missing bind protection, synthetic/negative
+  contract checks, docs and full branch integration. Both Compose 2.40.3 and 5.5.0 passed;
+  independent review found no blocker. PR's final hosted tests/audits/lint/amd64+arm64 builds
+  passed. Main app tests, deployment contract, portable companion tests, audits and lint passed.
+- **Exact publication failure:** main run `42103840301`, job `127514066906`, spent roughly
+  20 minutes stuck after both ARM64 npm stages emitted QEMU `Illegal instruction`/SIGILL.
+  Apt and amd64 completed normally. The agent canceled that owned CI attempt to collect logs;
+  the exact main full-SHA registry tag was absent. Do not describe that run as a published
+  release. Public canceled logs retain the diagnosis; local copies are outside Git.
+- **Owned active repair:** Docker workflow plus affected contribution/decision/operations/
+  checkpoint guidance. Replace emulation with native amd64/arm64 jobs, preserve target-specific
+  backend dependencies, publish by digest and combine only after both succeed. Keep all
+  existing tests/audits/lint, PR no-push protection, latest-on-main policy and source labels;
+  add job time limits. No application/dependency/version or native recipe change is needed.
+- **Next:** verify actionlint and the native-build workflow, commit/push, open a focused PR,
+  wait for hosted native builds, merge under the existing owner approval, and verify exact
+  main publication plus both registry platforms/revision labels. Then report the preservation
+  plan. Do not switch the household image or rotate credentials in this source/publication stage.
+- **Preservation / live state:** Mac still runs local `clc-household:2.57.5-4c6fd80`, container
+  `7c209134c46e...`, healthy and unchanged throughout repository work; companion stays enabled.
+  Keep full data and hidden keys, original mtg/network/container/port identity, private runtime
+  values and native ledger/config/token/artifacts/profile for the later cutover. See
+  [the procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
+- **Handles:** no active disposable local backend or browser tab. Canceled run watch/log
+  files are outside Git; no production/private deployment file or physical work changed.

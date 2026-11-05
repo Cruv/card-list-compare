@@ -136,7 +136,10 @@ When adding a `server/routes/*` endpoint:
   tests, both dependency audits and zero ESLint errors. PRs build without publishing.
   Main pushes publish `ghcr.io/cruv/card-list-compare:latest`, `:main` and short/full SHA
   tags; requested `v*` tags additionally publish semver tags without moving `latest` away
-  from main. Builds target amd64 and arm64. Verify the exact published commit/manifest.
+  from main. Separate native runners build amd64 and arm64, with a final manifest step
+  after both succeed. Publication checks the current default-branch head before moving
+  main/latest, so an older rerun cannot replace a newer source release. Verify the exact
+  published commit/manifest.
 - Use the repository Compose file and private runtime variables. Preserve the existing
   data path/credentials/project identity, select the desired registry reference with
   `CLC_IMAGE`, then follow [registry cutover](#repository-deployment-and-registry-cutover).
@@ -233,8 +236,9 @@ companion work. Drying, lamination and cutting remain outside CLC.
 
 `docker-compose.yml` is the canonical deployable definition; `.env.example` describes
 private instance inputs. The default image is `ghcr.io/cruv/card-list-compare:latest`.
-The file has no implicit build/local-image pin. CI builds amd64 and arm64 for PRs and
-publishes on `main` or an approved version tag, with full SHA tags and revision labels.
+The file has no implicit build/local-image pin. CI uses matching native amd64/arm64 runners,
+builds PRs without pushing, and publishes verified platform digests plus a combined manifest
+on `main` or an approved version tag, with full SHA tags and revision labels.
 A successful local build or feature push does not establish registry publication. Keep
 source delivery, the matching CI result, the published manifest and live activation distinct.
 Portainer can consume the file from Git with runtime environment variables; existing stack
