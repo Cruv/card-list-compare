@@ -132,22 +132,24 @@ When adding a `server/routes/*` endpoint:
 
 ## §4 — Deploy & rollback (GHCR)
 
-- CI requires passing client/server tests and zero ESLint errors, then builds the image.
-  Pull requests build without publishing. Pushes to `main` publish
-  `ghcr.io/cruv/card-list-compare:latest`, `:main`, `:sha-…`; requested `v*` tag pushes
-  additionally publish semver tags. The published target is `linux/amd64`.
-  The household deploy does **not** auto-pull — deploy deliberately.
-- **Deploy:** ensure `JWT_SECRET` is set in the host `.env` (the container refuses to start
-  without a strong one), then `docker compose pull && docker compose up -d`. Generate it
-  with `openssl rand -hex 32`, store the output as the value, and retain it across updates.
-  Rotating it logs everyone out. Compose reads the adjacent `.env`; it is not a shell script.
-- **Smoke:** `curl http://localhost:8080/api/health`; load the UI; check the browser console
-  for CSP violations if the release touched external resources.
-- **Rollback:** pin the previous good image by its `:sha-…` tag in `docker-compose.yml` (or
-  redeploy the prior commit). Take a database backup before deploying. Review migrations
-  between versions before a rollback: migrations also repair stored data, so a blanket
-  guarantee that any older code is compatible with a newer database is not valid. If a
-  matching database restore is needed, stop the service first and account for newer writes.
+- CI gates builds on client/server tests, the deployment contract, portable companion
+  tests, both dependency audits and zero ESLint errors. PRs build without publishing.
+  Main pushes publish `ghcr.io/cruv/card-list-compare:latest`, `:main` and short/full SHA
+  tags; requested `v*` tags additionally publish semver tags without moving `latest` away
+  from main. Builds target amd64 and arm64. Verify the exact published commit/manifest.
+- Use the repository Compose file and private runtime variables. Preserve the existing
+  data path/credentials/project identity, select the desired registry reference with
+  `CLC_IMAGE`, then follow [registry cutover](#repository-deployment-and-registry-cutover).
+  The household does not auto-pull. Generate credentials for a new installation only;
+  a coordinated rotation is separate from a deployment/image change.
+- **Smoke:** verify local/public `/api/health`, frontend bytes and the relevant UI. Check
+  browser CSP evidence when external-resource behavior changes. Server-only activation
+  must retain native printer state and reconnect the existing companion.
+- **Rollback:** select a previous verified registry SHA/digest with `CLC_IMAGE`. Preserve
+  a fresh complete backup first and check code/schema compatibility. Migrations may repair
+  stored data; older code is not automatically compatible. Never overwrite newer user
+  work merely to roll back an image. If a matching DB restore is necessary, stop only the
+  affected service and explicitly account for writes since the backup.
 
 ## §5 — First-run / admin
 
@@ -226,6 +228,64 @@ the maximum mixed job has 37 artifacts. Allow at least 2 GiB of container
 memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
 driver is used. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the print API and Mac
 companion work. Drying, lamination and cutting remain outside CLC.
+
+### Repository deployment and registry cutover
+
+`docker-compose.yml` is the canonical deployable definition; `.env.example` describes
+private instance inputs. The default image is `ghcr.io/cruv/card-list-compare:latest`.
+The file has no implicit build/local-image pin. CI builds amd64 and arm64 for PRs and
+publishes on `main` or an approved version tag, with full SHA tags and revision labels.
+A successful local build or feature push does not establish registry publication. Keep
+source delivery, the matching CI result, the published manifest and live activation distinct.
+Portainer can consume the file from Git with runtime environment variables; existing stack
+source conversion must preserve the original stack/project identity and any other services.
+
+For the current Mac, a future registry cutover must preserve all of the following:
+
+- Use the **same existing** data source `/Users/cruv/docker/Stacks/mtg/cardlistcompare` for
+  `/app/data`. Set `CLC_DATA_DIR` to that absolute path, `CLC_CONTAINER_NAME=CardListCompare`,
+  `CLC_PORT=8080`, the existing UID/GID and `TZ=America/Indiana/Indianapolis`. Keep the `mtg`
+  project/stack and its `mtg_default` network. Do not add a competing CLC service/backend.
+- Keep the existing JWT and matching station credential as private runtime variables,
+  plus any configured bridge encryption key, access grants, quota, email and public URL
+  values. A credential rotation is a separate coordinated change: JWT rotation signs users
+  out, and station rotation must update both server and native token file together. Do not
+  commit values, paste resolved Compose into chat, or regenerate keys merely to change images.
+- Back up the **whole data directory**, not just its database. It includes hidden signing/
+  encryption keys (`.print-claim-secret`, `.manasync-bridge-key`,
+  `.print-station-notifications-key`), job PDFs/manifests, retained ManaSync artwork, generator
+  source/environments/wheels, caches and downloads. Preserve symlinks. The server's sql.js
+  file is atomically replaced; inspect copied immutable snapshots and never run a competing
+  backend against it. Take a fresh stopped-container complete backup before activation.
+- Preserve the native companion independently: its SQLite ledger/WAL-aware backup, private
+  config/token and settings, cached artifacts, installed bundle/selection and LaunchAgent.
+  A server image switch does not require reinstalling or updating it, resetting CUPS, or
+  changing Epson profiles/physical proof. Leave it running and enabled. Check unresolved
+  server/native/CUPS work before a server restart; do not pause/cancel/retry jobs as a shortcut.
+- Retain the previous image and fresh backup, including runtime-variable/configuration
+  records, until verification completes. Roll application code back deliberately; never
+  overwrite newer user data with an old database merely to reverse an image change.
+
+After owner-authorized source integration, wait for CI for the exact main/tag commit.
+Verify its GHCR revision plus amd64/arm64 manifests, then select its full SHA tag or digest
+through `CLC_IMAGE`. Check `docker compose config --quiet` with the original project's
+private variables; ordinary `config` output can expose secrets. The long bind syntax
+sets `create_host_path: false`; a missing/mistyped data path must fail rather than initialize
+an empty installation. Create a directory explicitly only for a fresh installation.
+
+Update only the existing CLC service through the selected deployment authority. Do not use
+`down`, `--remove-orphans`, a new stack name or automatic image pruning against a partial
+stack. After activation, verify database integrity/FKs, retained jobs/receipts and stable
+keys/artifacts; confirm native reconnection with unchanged pause/profile state and verify
+local/public health plus frontend bytes. Updating a Portainer stack also deploys; it is not
+a save-only operation. Live printer/Discord tests and physical-proof changes remain separate.
+
+**Repository repair status (2026-11-05):** the repo-owned published-image contract and
+multi-architecture workflow are being verified on the working branch. The running Mac
+remains on the [v2.57.5 local image](#household-server-deployment-checkpoint--2026-11-05).
+No source integration, new registry publication, Portainer edit or live cutover is implied by
+this repair. Historical private local-image candidates below are not the new deployment
+source of truth; they remain rollback/evidence until a verified registry cutover supersedes them.
 
 ### Household print jobs
 

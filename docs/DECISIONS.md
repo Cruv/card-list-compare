@@ -60,8 +60,8 @@ procedure is [CONTRIBUTING](../CONTRIBUTING.md#delivery-and-publication).
 ## D5 — Publish the image on every push to main (:latest, :sha, :branch)
 
 **Decision.** `.github/workflows/docker-publish.yml` builds and publishes to GHCR on every
-push to `main`, gated on JavaScript tests, portable companion tests and an error-free ESLint
-run. The image build compiles the frontend. `:latest` tracks the default branch. PRs build
+push to `main`, gated on JavaScript tests, the synthetic Compose contract, dependency audits,
+portable companion tests and an error-free ESLint run. The image build compiles the frontend. `:latest` tracks the default branch. PRs build
 without publishing; a feature push without a PR does not trigger this workflow.
 **Why.** Simple, hosted-runner CI; the household deploy pulls deliberately (no auto-pull),
 so republishing `:latest` on an internal-only commit is harmless here.
@@ -69,7 +69,14 @@ so republishing `:latest` on an internal-only commit is harmless here.
 docs-only main pushes run this workflow; local prose checks do not alter that boundary. If
 that ever matters, gate `:latest`/semver tags on a `v*` tag or a release-commit condition
 (one workflow line) — recorded here so the choice is explicit, not accidental.
-**Where.** `.github/workflows/docker-publish.yml`.
+The publication workflow targets amd64 and arm64 manifests, source revision labels and
+short/full SHA tags; the matching registry result must still be verified. `latest` follows `main` only; a semver tag cannot implicitly move it. The repository
+Compose file consumes GHCR with configurable private runtime values and an existing bind
+path, without implicitly building/tagging local source. This replaces local household image
+pins as the default deployment model; historical installed pins remain facts until an
+explicit registry cutover. Local diagnostics do not authorize a permanent divergent stack.
+**Where.** `.github/workflows/docker-publish.yml`, `docker-compose.yml`, `.env.example`;
+[cutover/preservation](OPERATIONS.md#repository-deployment-and-registry-cutover).
 
 ## D6 — Lint blocks CI (backlog cleared 2026-08)
 

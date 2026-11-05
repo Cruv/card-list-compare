@@ -1,19 +1,17 @@
 services:
   card-list-compare:
-    image: ghcr.io/cruv/card-list-compare:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # CI publishes this image from main. CLC_IMAGE can select a verified SHA tag
+    # or registry digest without changing this deployment contract.
+    image: ${CLC_IMAGE:-ghcr.io/cruv/card-list-compare:latest}
+    container_name: ${CLC_CONTAINER_NAME:-card-list-compare}
     ports:
-      - "8080:80"
+      - "${CLC_PORT:-8080}:80"
     environment:
-      # No placeholder default — an unset secret must NOT silently become a
-      # public well-known value. The container itself refuses to start unless
-      # this is strong (server/lib/jwtSecret.js, NODE_ENV=production is baked
-      # into the image), and it prints how to generate one. Deliberately not
-      # `${JWT_SECRET:?...}`: that form also breaks `docker compose down/ps/logs`,
-      # which you need most when something is already wrong.
-      # Put it in a local .env (see .env.example): JWT_SECRET=$(openssl rand -hex 32)
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # Keep secrets in private runtime variables, never in the repository.
+      # Blank JWT configuration still permits Compose ps/logs/down; the server
+      # rejects a weak or missing signing secret before serving production.
       - JWT_SECRET=${JWT_SECRET:-}
       - DB_PATH=/app/data/cardlistcompare.db
       - MANASYNC_BRIDGE_KEY=${MANASYNC_BRIDGE_KEY:-}
@@ -21,11 +19,23 @@ services:
       - PRINT_STATION_TOKEN=${PRINT_STATION_TOKEN:-}
       - PRINT_ALLOWED_USER_IDS=${PRINT_ALLOWED_USER_IDS:-}
       - PRINT_STORAGE_MAX_MB=${PRINT_STORAGE_MAX_MB:-10240}
-      - TZ=America/New_York
+      - TZ=${TZ:-America/New_York}
+      - APP_URL=${APP_URL:-http://localhost:8080}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-noreply@cardlistcompare.local}
     volumes:
-      # Bind mount — DB and data live on the host at ./data/
-      # Easy to back up, inspect, and persist across image rebuilds
-      - ./data:/app/data
+      - type: bind
+        # Use the ORIGINAL absolute path when adopting an existing installation.
+        # Create this directory explicitly only for a fresh installation.
+        source: ${CLC_DATA_DIR:-./data}
+        target: /app/data
+        bind:
+          create_host_path: false
     restart: unless-stopped
-    # Give node time to flush on `docker stop` before SIGKILL (audit C3 / Batch 4)
     stop_grace_period: 30s
+    labels:
+      # Apply updates deliberately after checking physical print work is idle.
+      com.centurylinklabs.watchtower.enable: "false"

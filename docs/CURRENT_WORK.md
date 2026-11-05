@@ -1,35 +1,36 @@
 # Current work checkpoint
 
-v2.57.5 ManaSync traffic and ZIP fixes are complete, pushed and deployed to the Mac's CLC
-stack with owner approval on 2026-11-05. No active implementation work remains in this scope.
+Repository deployment repair is implemented on `codex/project-audit-print-workflow`,
+baseline `e479759`. The owner requested repository fixes first and a preservation plan
+before changing the running installation. Live CLC and the native companion remain untouched.
 
-- **Source / ownership:** traffic fix `5720b83`; final ZIP/runtime source `4c6fd80` on
-  `codex/project-audit-print-workflow`. All tracked changes belong to this task; no foreign
-  edits. No tag/registry publication. Deployment documentation is the final delivery stage.
-- **Outcome:** published records stay idle; bulk review is shared/throttled; hidden panels
-  stop polling; uploads hold after six attempts or definitive rejection and retain an explicit
-  safe retry. Archiver 8/scoped patched Minimatch clear audits. Stream failures/client
-  disconnects abort ZIP work; file-close synchronization prevents leftover temporary ZIPs.
-- **Verification (2026-11-05):** 1,305 final-input JavaScript tests, zero-error lint (five
-  baseline warnings), production build and both audits (zero findings). Reused unchanged
-  254 portable companion tests from the same date. Browser fixture timing/retry checks and
-  focused independent reviews passed; 17 real ZIP/failure tests and a glob compatibility
-  smoke passed. Offline arm64 Docker smoke verified exact ZIP bytes and 145 source/frontend
-  files. Public/local origins each match all 38 shipped frontend files; Chrome shows v2.57.5
-  release notes and print-record guidance.
-- **Deployment:** image `clc-household:2.57.5-4c6fd80`; only CLC recreated. Complete stopped-data
-  backup and private receipts are in
-  `/Users/cruv/docker/Backups/cardlistcompare/20261105T181218Z-before-2.57.5`. Integrity/FKs
-  pass; 37/38 table hashes unchanged, only normal rolling station events changed. Print/deck/
-  ManaSync records and keys retained. Native v2.57.3 remains running/unpaused with identical
-  jobs, passes, attempts, events, settings and config; heartbeat HTTP 200. No physical print
-  operation, Discord test, native update or inventory confirmation. Generator version unchanged.
-- **Live observation:** all 821 saved plans kept unchanged counters/schedules over 263 seconds.
-  This does not attribute or count whole-zone requests. Reload older CLC tabs. Existing upstream
-  permission/quota problems still require correction before explicit saved-plan retry.
-- **Handles / next:** disposable fixture servers/containers/tabs and temporary QA image removed;
-  private backup/verification receipts remain outside Git. See
+- **Owned scope:** tracked Compose, environment example, deployment-contract checker/npm
+  script, Docker CI and affected README/contribution/decision/operations/roadmap guidance.
+  No foreign edits. Internal deployment work does not change the v2.57.5 application version.
+- **Outcome:** canonical Compose consumes GHCR without implicit local building; existing
+  image/data/name/port/UID/GID/timezone and optional printing/bridge/email values are runtime
+  inputs. Missing bind paths fail rather than creating a fresh database. Explicit update
+  safety and 30-second shutdown are retained. CI validates the contract, tests, audits and
+  lint, builds amd64/arm64, and publishes only main/tag pushes. Full SHA tags/revision labels
+  support exact source receipts; latest remains tied to main.
+- **Verification (2026-11-05):** synthetic Compose defaults/existing-instance/digest fixtures
+  passed; a disposable create-only proof rejected a missing directory without creating it,
+  preserved an existing sentinel/mount and never started a backend. Workflow actionlint
+  1.7.12 and all 50 existing invariants passed. Both dependency audits are clean. Touched
+  checker/full lint passed with the five existing warnings. Independent deployment/preservation
+  review found no blocker. Prior unchanged application verification is in
   [the deployed checkpoint](OPERATIONS.md#household-server-deployment-checkpoint--2026-11-05).
-- **Preserved pending work:** Portainer's private full candidate matches the new local pin,
-  but the saved controller stack remains unsaved/unverified pending access. Existing roadmap
-  product/physical follow-ups were not converted into deployment changes.
+- **Delivery / next:** commit/push the repository repair and open a PR against main for the
+  accumulated branch plus this deployment contract. Require exact-commit hosted verification;
+  a PR builds without publishing. Main integration, new GHCR publication/manifest verification
+  and live stack cutover are separate steps, not implied completed by this checkpoint.
+- **Preservation:** follow [the cutover procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
+  Keep the existing full data directory and hidden keys, private runtime values, mtg stack/
+  network/container identity and native ledger/config/token/artifacts/profile. Fresh backups
+  and idle exact-job checks precede any later activation. No credential rotation performed.
+- **Live state:** Mac still runs local `clc-household:2.57.5-4c6fd80`; native v2.57.3 remains
+  separate. No production/private deployment edit, physical work or Discord test occurred.
+  The historical private local-image Portainer candidate is superseded as the intended
+  configuration model, but remains an unchanged rollback/evidence file until controlled cutover.
+- **Handles:** disposable Compose proof containers/network/data and actionlint tooling were
+  removed. No local fixture process remains; hosted PR checks are the next external evidence.

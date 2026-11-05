@@ -30,6 +30,7 @@ export settings or configure `.env.example` as `.env` and run
 | `npm run test:watch` | JavaScript watch mode |
 | `npm run lint` / `npx eslint <changed-js-paths>` | Full / focused lint; errors block affected delivery, warnings remain visible |
 | `npm run build` | Production frontend, including generated offline-shell assets |
+| `npm run check:deployment` | Repository Compose defaults, existing-instance variables and registry pinning using synthetic credentials; Docker Compose v2+ required, no daemon/live data |
 | `python3 -B -E -s -m unittest discover -s companion/mac -p 'test_*.py'` | Portable companion tests with fake printers/transports |
 | `python3 -B -E -s -m unittest discover -s companion/mac -p 'test_printer_health.py'` | Example focused native tests |
 | `npm audit` / `npm --prefix server audit` | Root / server dependency advisories; record unavailable checks separately |
@@ -156,8 +157,9 @@ For a user-visible product release:
 Publication is an external effect, separate from committing:
 
 - Docker CI runs on pull requests, pushes to `main`, and `v*` tags. It gates Docker builds
-  on JavaScript tests, portable Python tests and error-free lint; the image build compiles
-  the frontend. PRs build only; main/tag pushes publish GHCR. This also happens for docs
+  on JavaScript tests, the synthetic deployment contract, portable Python tests, dependency
+  audits and error-free lint; the image build compiles the frontend for amd64 and arm64.
+  PRs build only; main/tag pushes publish GHCR. This also happens for docs
   pushed to main; the local prose exemption does not disable CI or imply a production deploy.
 - A feature-branch push without a PR does not trigger that workflow. When CI is expected,
   match the workflow/run to the pushed commit SHA (for example `gh run list --commit <SHA>`),
@@ -170,6 +172,11 @@ Publication is an external effect, separate from committing:
   matching requested versions, portable tests, native arm64/x86_64 smoke, archive/manifest
   hashes and contained-file checks. Attaching assets requires its explicit draft-release
   option; draft attachment is not publication. Preserve upstream licensing/notarization limits.
+- `docker-compose.yml` owns the published-image deployment contract; `.env.example` owns
+  its configurable inputs. Preserve private values outside Git. Source changes reach the
+  supported deployment path through reviewed main/tag CI publication, then deliberate
+  activation. A local diagnostic image is temporary unless the owner explicitly requests
+  that deployment model; it must not silently become a separate permanent configuration.
 - Household activation follows the authorized [operations runbook](docs/OPERATIONS.md).
   Preserve data, keys, receipts and Epson settings. Unresolved physical work blocks normal
   managed updates. Historical one-off idle/offline recovery procedures are not blanket

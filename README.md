@@ -34,11 +34,10 @@ household deployment, separately from what the source implements.
 
 ## Supported Architectures
 
-The image supports `linux/amd64`. Published to GitHub Container Registry.
-
-| Architecture | Available |
-|:---:|:---:|
-| x86-64 | &#10003; |
+The Docker publication workflow builds `linux/amd64` (Intel/AMD) and `linux/arm64`
+(Apple Silicon/ARM64) under the same GHCR image reference. Docker selects its host platform.
+A branch push is not a published release: confirm the matching main/tag workflow completed
+successfully and inspect the registry manifest before switching an existing installation.
 
 ## Application Setup
 
@@ -50,48 +49,46 @@ To enable password reset, email verification, and deck/price email alerts, confi
 
 ## Usage
 
-### docker-compose (recommended)
+### Docker Compose and Portainer
 
-Create a `docker-compose.yml` anywhere on your host. Generate a signing secret and save its output as `JWT_SECRET=<generated value>` in a `.env` file beside it:
+[`docker-compose.yml`](docker-compose.yml) is the deployment source of truth. It uses
+`ghcr.io/cruv/card-list-compare:latest`; it does not build or depend on a Mac-local image.
+CI publishes from `main` after verification. An approved version tag also publishes semver
+images. Set `CLC_IMAGE` to the verified full `sha-<commit>` tag or registry digest when
+selecting an exact published build. Pull requests build both architectures without publishing.
 
-```bash
-openssl rand -hex 32
-```
-
-Keep the `.env` file private. Production startup rejects missing, short, or known placeholder secrets.
-
-```yaml
----
-services:
-  card-list-compare:
-    image: ghcr.io/cruv/card-list-compare:latest
-    container_name: card-list-compare
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - JWT_SECRET=${JWT_SECRET:-}
-      - DB_PATH=/app/data/cardlistcompare.db
-      - TZ=America/New_York #optional
-      # Optional email settings:
-      # - SMTP_HOST=smtp.example.com
-      # - SMTP_PORT=587
-      # - SMTP_USER=you@example.com
-      # - SMTP_PASS=your-app-password
-      # - SMTP_FROM=noreply@example.com
-      # - APP_URL=https://clc.example.com
-    volumes:
-      - ./data:/app/data
-    ports:
-      - 8080:80
-    restart: unless-stopped
-    stop_grace_period: 30s
-```
-
-Then start with:
+For a **new installation**, clone the repository, copy [`.env.example`](.env.example) to a
+private `.env` and set a strong `JWT_SECRET` generated with `openssl rand -hex 32`. Set the
+other runtime values you need, then create the data directory explicitly:
 
 ```bash
-docker compose up -d
+mkdir -p ./data
+docker compose config --quiet
+docker compose pull card-list-compare
+docker compose up -d --no-build card-list-compare
 ```
+
+For an **existing installation**, first preserve its original absolute data path, credentials,
+Compose project, container name, port and timezone. Set `CLC_DATA_DIR` and
+`CLC_CONTAINER_NAME` to those existing values; keep the same project/stack name. The bind
+mount refuses to create a missing host directory so a typo cannot silently initialize an
+empty database. Do not run the new-installation commands to adopt existing household data.
+See [the registry cutover and preservation procedure](docs/OPERATIONS.md#repository-deployment-and-registry-cutover).
+
+In Portainer, use the repository's `docker-compose.yml` as the Git stack definition and
+supply private environment values through the existing stack's environment settings. Use
+an absolute `CLC_DATA_DIR` on the Docker endpoint; a relative path under Portainer's Git
+checkout is not the existing data location. Do not create a second stack against the same
+data. An existing editor-managed stack needs a deliberate source cutover; copying a file
+into this repository does not change its saved definition or its running container.
+[Portainer documents Git stack definitions and runtime environment variables](https://docs.portainer.io/user/docker/stacks/add).
+
+Keep `.env` and exported stack variables private. `docker compose config --quiet` validates
+without printing resolved credentials. Update deliberately after checking physical work:
+the repository excludes this service from Watchtower and allows 30 seconds for shutdown.
+The same published image works with the native Mac print companion; preserve the existing
+matching `PRINT_STATION_TOKEN`. Building source locally remains a developer operation using
+`docker build` and a disposable image/data directory, separate from production deployment.
 
 The image includes a background Silhouette Card Maker runtime. On startup it checks the
 latest upstream main and keeps a validated installation, dependencies and wheel cache in
@@ -102,7 +99,7 @@ Allow at least 2 GiB of memory for 600 PPI sheet generation. Open **Print → Ne
 
 ### docker cli
 
-Export `JWT_SECRET` in your shell with a strong, stable value before running this command. Docker CLI does not automatically read Compose's `.env` file; keep the same secret when recreating the container.
+Export `JWT_SECRET` in your shell with a strong, stable value before running this command. Docker CLI does not automatically read Compose's `.env` file; keep the same secret when recreating the container. Create `./data` only for a new installation; use the original absolute mount path for an existing one. Compose is recommended for preserving optional printing, bridge and email settings.
 
 ```bash
 docker run -d \
@@ -112,7 +109,7 @@ docker run -d \
   -e JWT_SECRET \
   -e DB_PATH=/app/data/cardlistcompare.db \
   -e TZ=America/New_York \
-  -v ./data:/app/data \
+  --mount type=bind,src="$(pwd)/data",dst=/app/data \
   -p 8080:80 \
   --restart unless-stopped \
   ghcr.io/cruv/card-list-compare:latest
@@ -132,6 +129,10 @@ Container configuration is done through environment variables and volume mapping
 
 | Env | Required | Default | Function |
 |:---:|:---:|:---:|---|
+| `CLC_IMAGE` | No | `ghcr.io/cruv/card-list-compare:latest` | Compose-only image reference; use a verified registry SHA tag/digest for an exact build |
+| `CLC_DATA_DIR` | No | `./data` | Compose-only existing host bind directory; use the original absolute path in Portainer |
+| `CLC_CONTAINER_NAME` | No | `card-list-compare` | Compose-only container name; retain the existing name during adoption |
+| `CLC_PORT` | No | `8080` | Compose-only published host port; set `APP_URL` to the reachable public address |
 | `PUID` | No | `1000` | User ID for file permissions |
 | `PGID` | No | `1000` | Group ID for file permissions |
 | `JWT_SECRET` | **Yes, in production** | None | Strong, stable secret for signing auth tokens (at least 16 characters; use 32 random bytes). Generate with `openssl rand -hex 32`. Weak values are rejected in every environment. |
@@ -145,7 +146,7 @@ Container configuration is done through environment variables and volume mapping
 | `SMTP_USER` | No | &mdash; | SMTP username |
 | `SMTP_PASS` | No | &mdash; | SMTP password or app-specific password |
 | `SMTP_FROM` | No | `noreply@cardlistcompare.local` | From address for outgoing emails; configure a valid sender for your mail service |
-| `TZ` | No | `UTC` | Container timezone ([tz database name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)), e.g. `America/New_York` |
+| `TZ` | No | `UTC`; Compose: `America/New_York` | Container timezone ([tz database name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)), e.g. `America/New_York` |
 | `APP_URL` | No | `http://localhost:8080` | Public URL of the app (used in email links) |
 | `IMAGE_CACHE_DIR` | No | Beside `DB_PATH`, under `image-cache/` | Persistent Scryfall image cache directory |
 | `DOWNLOADS_DIR` | No | Beside `DB_PATH`, under `downloads/` | Temporary generated image ZIP directory |
@@ -156,7 +157,7 @@ Container configuration is done through environment variables and volume mapping
 
 | Volume | Function |
 |:---:|---|
-| `/app/data` | Database, recovery backup, image cache, and generated ZIPs. Bind mount to persist across container rebuilds. |
+| `/app/data` | Database, persisted keys, print plans/PDFs, ManaSync artwork, generator runtime, caches and generated ZIPs. Preserve the whole bind directory across updates. |
 
 ## User / Group Identifiers
 
@@ -170,16 +171,21 @@ mkdir -p ./data && chown 1000:1000 ./data
 
 ## Updating
 
+First confirm the selected source commit has passed CI and its GHCR image supports your
+platform. Preserve the original stack environment and data mount, check that physical work
+is idle, and take the backup described in [Operations](docs/OPERATIONS.md#repository-deployment-and-registry-cutover).
+A code rollback must not overwrite newer database changes.
+
 ```bash
-# Pull the latest image
-docker compose pull
-
-# Recreate the container
-docker compose up -d
-
-# (Optional) Remove old images
-docker image prune
+# Use the existing project, Compose file and private runtime variables.
+docker compose config --quiet
+docker compose pull card-list-compare
+docker compose up -d --no-deps --no-build card-list-compare
 ```
+
+Keep the previous working image until verification and any needed rollback are complete.
+Git commits, registry publication, Portainer's saved stack and household activation are
+separate states; a feature-branch push alone does not update `latest` or the running app.
 
 ## Backing Up
 

@@ -46,9 +46,11 @@ by itself. Drying, lamination and cutting tracking remain excluded.
 The [dated household checkpoint](OPERATIONS.md#household-print-jobs) owns installed versions,
 completed recovery and operational safeguards. At its 2026-10-11 checkpoint, incoming Discord
 commands still needed application/operator setup; the existing webhook was connected.
-Portainer's owner-supplied definition now has a private replacement verified against the
-live deployment. Saving/read-back verification on the controller remains pending access;
-see [the preparation record](OPERATIONS.md#portainer-reconciliation-preparation--2026-10-15).
+Repository deployment repair now makes the tracked Compose file and published GHCR image
+the intended configuration source. Source integration/registry verification and a later
+Portainer cutover must preserve the current data/native state; see
+[the preservation procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
+The older private local-image candidate is historical preparation, not the desired final stack.
 Neither item is a request to interrupt active household work or test with real jobs.
 
 The historical orphaned snapshot was investigated and safely archived on 2026-10-15.
