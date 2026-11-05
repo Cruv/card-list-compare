@@ -286,9 +286,12 @@ local/public health plus frontend bytes. Updating a Portainer stack also deploys
 a save-only operation. Live printer/Discord tests and physical-proof changes remain separate.
 
 **Repository repair (2026-11-05):** [PR #7](https://github.com/Cruv/card-list-compare/pull/7)
-contains the repo-owned published-image contract and multi-architecture workflow. The owner
-authorized merging after CI passes and publishing GHCR; verify the exact main workflow and
-registry revision before selecting an image. This source/publication stage does not change
+contains the repo-owned published-image contract and multi-architecture workflow. Its first
+main release was canceled after QEMU SIGILL stalled both ARM npm installs; no exact-main
+registry tag was present. [PR #8](https://github.com/Cruv/card-list-compare/pull/8) replaces
+emulation with native runners and guarded digest assembly. Hosted native PR builds passed.
+The owner authorized merging after CI passes and publishing GHCR; verify the exact main
+workflow and registry revision before selecting an image. This source/publication stage does not change
 Portainer or the Mac, which remains on the
 [v2.57.5 local image](#household-server-deployment-checkpoint--2026-11-05).
 Historical private local-image candidates below are not the intended deployment source of
