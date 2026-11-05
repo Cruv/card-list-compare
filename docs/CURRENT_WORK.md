@@ -28,8 +28,9 @@ before changing the running installation. Live CLC and the native companion rema
   Hosted run `42101784559` for `b82bded` then passed tests/audits/lint and both architecture
   builds. The final shared/external-network preservation option is checked locally with both
   Compose versions and independently reviewed; require its exact-commit hosted result too.
-  A PR builds without publishing. Main integration, new GHCR publication/manifest verification
-  and live stack cutover are separate steps, not implied completed by this checkpoint.
+  A PR builds without publishing. On 2026-11-05 the owner authorized merging PR #7 after
+  successful checks and publishing GHCR from main. Match the main run/registry revision
+  rather than treating a PR build as publication. Live stack cutover remains separate.
 - **Preservation:** follow [the cutover procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
   Keep the existing full data directory and hidden keys, private runtime values, mtg stack/
   network/container identity and native ledger/config/token/artifacts/profile. Fresh backups
@@ -38,5 +39,7 @@ before changing the running installation. Live CLC and the native companion rema
   separate. No production/private deployment edit, physical work or Discord test occurred.
   The historical private local-image Portainer candidate is superseded as the intended
   configuration model, but remains an unchanged rollback/evidence file until controlled cutover.
-- **Handles:** disposable Compose proof containers/network/data and actionlint tooling were
-  removed. No local fixture process remains; hosted PR checks are the next external evidence.
+- **Handles / next:** disposable Compose proof containers/network/data and actionlint tooling
+  were removed. No local fixture process remains. Complete authorized main/registry delivery
+  through PR #7, report the preservation steps, and await a separate live-cutover instruction.
+  The PR and its main publication workflow retain the authoritative changing delivery status.

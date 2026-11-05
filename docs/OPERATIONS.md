@@ -281,12 +281,14 @@ keys/artifacts; confirm native reconnection with unchanged pause/profile state a
 local/public health plus frontend bytes. Updating a Portainer stack also deploys; it is not
 a save-only operation. Live printer/Discord tests and physical-proof changes remain separate.
 
-**Repository repair status (2026-11-05):** the repo-owned published-image contract and
-multi-architecture workflow are being verified on the working branch. The running Mac
-remains on the [v2.57.5 local image](#household-server-deployment-checkpoint--2026-11-05).
-No source integration, new registry publication, Portainer edit or live cutover is implied by
-this repair. Historical private local-image candidates below are not the new deployment
-source of truth; they remain rollback/evidence until a verified registry cutover supersedes them.
+**Repository repair (2026-11-05):** [PR #7](https://github.com/Cruv/card-list-compare/pull/7)
+contains the repo-owned published-image contract and multi-architecture workflow. The owner
+authorized merging after CI passes and publishing GHCR; verify the exact main workflow and
+registry revision before selecting an image. This source/publication stage does not change
+Portainer or the Mac, which remains on the
+[v2.57.5 local image](#household-server-deployment-checkpoint--2026-11-05).
+Historical private local-image candidates below are not the intended deployment source of
+truth; they remain rollback/evidence until a separately authorized registry cutover supersedes them.
 
 ### Household print jobs
 

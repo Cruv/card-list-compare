@@ -47,8 +47,9 @@ The [dated household checkpoint](OPERATIONS.md#household-print-jobs) owns instal
 completed recovery and operational safeguards. At its 2026-10-11 checkpoint, incoming Discord
 commands still needed application/operator setup; the existing webhook was connected.
 Repository deployment repair now makes the tracked Compose file and published GHCR image
-the intended configuration source. Source integration/registry verification and a later
-Portainer cutover must preserve the current data/native state; see
+the intended configuration source, delivered through
+[PR #7](https://github.com/Cruv/card-list-compare/pull/7). A later Portainer cutover must verify
+the selected published revision and preserve the current data/native state; see
 [the preservation procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
 The older private local-image candidate is historical preparation, not the desired final stack.
 Neither item is a request to interrupt active household work or test with real jobs.
