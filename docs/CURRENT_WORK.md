@@ -9,7 +9,7 @@ before changing the running installation. Live CLC and the native companion rema
   No foreign edits. Internal deployment work does not change the v2.57.5 application version.
 - **Outcome:** canonical Compose consumes GHCR without implicit local building; existing
   image/data/name/port/UID/GID/timezone and optional printing/bridge/email values are runtime
-  inputs. Missing bind paths fail rather than creating a fresh database. Explicit update
+  inputs, including the existing shared/external network. Missing bind paths fail rather than creating a fresh database. Explicit update
   safety and 30-second shutdown are retained. CI validates the contract, tests, audits and
   lint, builds amd64/arm64, and publishes only main/tag pushes. Full SHA tags/revision labels
   support exact source receipts; latest remains tied to main.
@@ -25,8 +25,10 @@ before changing the running installation. Live CLC and the native companion rema
   passed all 1,305 app tests and audits, then exposed Compose v2 omitting false JSON fields.
   The checker now compares the same CLI’s explicit-false reference and rejects an unsafe
   auto-creating negative fixture across encodings. Both Compose 2.40.3 and 5.5.0 passed.
-  Require replacement exact-commit hosted verification. A PR builds without publishing.
-  Main integration, new GHCR publication/manifest verification
+  Hosted run `42101784559` for `b82bded` then passed tests/audits/lint and both architecture
+  builds. The final shared/external-network preservation option is checked locally with both
+  Compose versions and independently reviewed; require its exact-commit hosted result too.
+  A PR builds without publishing. Main integration, new GHCR publication/manifest verification
   and live stack cutover are separate steps, not implied completed by this checkpoint.
 - **Preservation:** follow [the cutover procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
   Keep the existing full data directory and hidden keys, private runtime values, mtg stack/

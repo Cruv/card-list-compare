@@ -16,13 +16,16 @@ const secrets = { JWT_SECRET: 'fixture-only-jwt-0123456789abcdef0123456789abcdef
   PRINT_STATION_TOKEN: 'fixture-only-station-0123456789abcdef0123456789abcdef',
   MANASYNC_BRIDGE_KEY: 'fixture-only-bridge-key', SMTP_PASS: 'fixture-only-mail-password' };
 
-function configuration(overrides = {}, composeFile = join(root, 'docker-compose.yml')) {
+function deployment(overrides = {}, composeFile = join(root, 'docker-compose.yml')) {
   const reply = spawnSync('docker', ['compose', '--project-name', 'clc-contract', '--env-file', emptyEnv,
     '--file', composeFile, 'config', '--format', 'json'], {
     cwd: fixture, env: { ...environment, ...secrets, ...overrides }, encoding: 'utf8', timeout: 20_000,
   });
   if (reply.error || reply.status !== 0) throw new Error('Compose contract check failed; install Docker Compose v2+ and rerun npm run check:deployment');
-  return JSON.parse(reply.stdout).services['card-list-compare'];
+  return JSON.parse(reply.stdout);
+}
+function configuration(overrides = {}, composeFile) {
+  return deployment(overrides, composeFile).services['card-list-compare'];
 }
 let expectedCreatePath;
 function safety(service) {
@@ -45,7 +48,10 @@ try {
   const reference = join(fixture, 'safe-bind.yaml');
   writeFileSync(reference, 'services:\n  card-list-compare:\n    image: busybox:unused\n    volumes:\n      - type: bind\n        source: ${CLC_DATA_DIR}\n        target: /app/data\n        bind:\n          create_host_path: false\n');
   expectedCreatePath = configuration({ CLC_DATA_DIR: fixture }, reference).volumes[0].bind?.create_host_path;
-  const defaults = configuration();
+  const defaultProject = deployment();
+  const defaults = defaultProject.services['card-list-compare'];
+  assert.equal(defaultProject.networks.default.name, 'clc-contract_default');
+  assert.ok(!defaultProject.networks.default.external);
   safety(defaults);
   assert.equal(defaults.image, 'ghcr.io/cruv/card-list-compare:latest');
   assert.equal(defaults.environment.PRINT_ENABLED, 'true');
@@ -55,9 +61,13 @@ try {
 
   const data = join(fixture, 'existing data with spaces');
   mkdirSync(data);
-  const existing = configuration({ CLC_DATA_DIR: data, CLC_CONTAINER_NAME: 'FixtureExistingCLC',
+  const existingProject = deployment({ CLC_DATA_DIR: data, CLC_CONTAINER_NAME: 'FixtureExistingCLC',
     CLC_PORT: '18083', TZ: 'America/Indiana/Indianapolis', PUID: '1001', PGID: '1002',
-    PRINT_ALLOWED_USER_IDS: '2,4', PRINT_STORAGE_MAX_MB: '20480', APP_URL: 'https://clc.example.test' });
+    PRINT_ALLOWED_USER_IDS: '2,4', PRINT_STORAGE_MAX_MB: '20480', APP_URL: 'https://clc.example.test',
+    CLC_NETWORK_NAME: 'fixture-existing-network', CLC_NETWORK_EXTERNAL: 'true' });
+  const existing = existingProject.services['card-list-compare'];
+  assert.equal(existingProject.networks.default.name, 'fixture-existing-network');
+  assert.equal(existingProject.networks.default.external, true);
   safety(existing);
   assert.equal(existing.volumes[0].source, data);
   assert.equal(existing.container_name, 'FixtureExistingCLC');

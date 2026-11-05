@@ -245,7 +245,8 @@ For the current Mac, a future registry cutover must preserve all of the followin
 - Use the **same existing** data source `/Users/cruv/docker/Stacks/mtg/cardlistcompare` for
   `/app/data`. Set `CLC_DATA_DIR` to that absolute path, `CLC_CONTAINER_NAME=CardListCompare`,
   `CLC_PORT=8080`, the existing UID/GID and `TZ=America/Indiana/Indianapolis`. Keep the `mtg`
-  project/stack and its `mtg_default` network. Do not add a competing CLC service/backend.
+  project/stack and its `mtg_default` network with `CLC_NETWORK_NAME=mtg_default` and
+  `CLC_NETWORK_EXTERNAL=true`. Do not add a competing CLC service/backend.
 - Keep the existing JWT and matching station credential as private runtime variables,
   plus any configured bridge encryption key, access grants, quota, email and public URL
   values. A credential rotation is a separate coordinated change: JWT rotation signs users

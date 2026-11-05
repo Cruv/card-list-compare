@@ -39,3 +39,9 @@ services:
     labels:
       # Apply updates deliberately after checking physical print work is idle.
       com.centurylinklabs.watchtower.enable: "false"
+
+networks:
+  default:
+    # Existing installations may reuse a network owned by the wider stack.
+    name: ${CLC_NETWORK_NAME:-${COMPOSE_PROJECT_NAME}_default}
+    external: ${CLC_NETWORK_EXTERNAL:-false}

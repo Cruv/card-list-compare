@@ -70,7 +70,8 @@ docker compose up -d --no-build card-list-compare
 
 For an **existing installation**, first preserve its original absolute data path, credentials,
 Compose project, container name, port and timezone. Set `CLC_DATA_DIR` and
-`CLC_CONTAINER_NAME` to those existing values; keep the same project/stack name. The bind
+`CLC_CONTAINER_NAME` to those existing values; keep the same project/stack name. Preserve
+an existing external network with `CLC_NETWORK_NAME` and `CLC_NETWORK_EXTERNAL=true`. The bind
 mount refuses to create a missing host directory so a typo cannot silently initialize an
 empty database. Do not run the new-installation commands to adopt existing household data.
 See [the registry cutover and preservation procedure](docs/OPERATIONS.md#repository-deployment-and-registry-cutover).
@@ -133,6 +134,8 @@ Container configuration is done through environment variables and volume mapping
 | `CLC_DATA_DIR` | No | `./data` | Compose-only existing host bind directory; use the original absolute path in Portainer |
 | `CLC_CONTAINER_NAME` | No | `card-list-compare` | Compose-only container name; retain the existing name during adoption |
 | `CLC_PORT` | No | `8080` | Compose-only published host port; set `APP_URL` to the reachable public address |
+| `CLC_NETWORK_NAME` | No | `<project>_default` | Compose-only default network name; retain an existing shared network |
+| `CLC_NETWORK_EXTERNAL` | No | `false` | Set `true` when reusing a network owned outside this service definition |
 | `PUID` | No | `1000` | User ID for file permissions |
 | `PGID` | No | `1000` | Group ID for file permissions |
 | `JWT_SECRET` | **Yes, in production** | None | Strong, stable secret for signing auth tokens (at least 16 characters; use 32 random bytes). Generate with `openssl rand -hex 32`. Weak values are rejected in every environment. |
