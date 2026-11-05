@@ -19,8 +19,10 @@ Published print plans stay idle instead of being checked individually every 15 s
 Visible confirmation panels use local timers; explicit/opening refreshes share one private
 bulk read. Publications stop after six automatic attempts or a definitive rejection and
 retain an explicit saved-plan retry. See [refresh and delivery limits](MANASYNC_BRIDGE.md#refresh-and-delivery-limits).
-Source verification is separate from household activation; existing failed uploads also
-need their reported permissions/storage problem resolved before an explicit retry.
+The Mac deployment and clean dependency audits were verified on 2026-11-05; see
+[the deployment checkpoint](OPERATIONS.md#household-server-deployment-checkpoint--2026-11-05).
+Existing failed uploads still need their reported permissions/storage problem resolved before
+an explicit retry. The Archiver 8 migration and ZIP interruption/cleanup fixes are complete.
 
 ## Working printing path and conditional physical checks
 

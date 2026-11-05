@@ -244,10 +244,8 @@ If an artwork allowance is full or requests return 403, resolve that upstream pr
 this patch neither increases ManaSync storage nor changes its access rules. Published records
 missing from a bulk response retain their last known state for review.
 
-Deployment remains separate. This source work did not recreate the household container,
-change its database, pause/update the native companion or send printer/Discord requests.
-After an authorized deployment, reload older CLC tabs and compare bridge traffic while idle
-and while one confirmation panel is open. Expect no background GETs for published records;
+The owner-authorized Mac deployment is verified in [the v2.57.5 checkpoint](#household-server-deployment-checkpoint--2026-11-05).
+Reload older CLC tabs and compare bridge traffic while idle and while one confirmation panel is open. Expect no background GETs for published records;
 only bounded unpublished/outbox delivery and deliberate remote review should contact ManaSync.
 See [the bridge contract](MANASYNC_BRIDGE.md#refresh-and-delivery-limits) and the current
 [verification checkpoint](CURRENT_WORK.md). The owner-approved Archiver 8 migration updates
@@ -258,11 +256,59 @@ late file-open from leaving temporary ZIPs behind.
 Real ZIP extraction, archive error/warning and client-disconnect checks cover the upgrade;
 both dependency audits are clean on 2026-11-05. Node 22 remains the supported runtime.
 
+#### Household server deployment checkpoint — 2026-11-05
+
+The Mac's `CardListCompare` service runs **v2.57.5**, source `4c6fd80`, local arm64
+image `clc-household:2.57.5-4c6fd80`, image ID
+`sha256:f34fd812eccc120c433e4761df3a0086d9098b8ab70530d474f7d3473f74b3c3`.
+Only CLC was recreated in the existing `mtg` project. All nine configured environment
+values, port 8080, data mount, network, restart policy, signing/station keys, Watchtower
+exclusion and `pull_policy: never` were preserved. The base Node runtime advanced to 22.23.4.
+Other container identities stayed unchanged. No native package, printer setting, pause flag,
+physical job, usable-inventory confirmation or Discord test was changed or requested.
+
+Fresh server/native/CUPS checks found no active or uncertain print work. The complete stopped
+backup, including 11,617 files/links with matching hashes and preserved symlinks, is
+`/Users/cruv/docker/Backups/cardlistcompare/20261105T181218Z-before-2.57.5/data-complete`.
+Its sibling private receipts record the image smoke, database/native comparisons and rollout.
+Keep the previous v2.57.4 image and this backup. Never restore an old database over later
+user changes merely to roll back application code.
+
+Integrity and foreign-key checks passed. Full row hashes for **37 of 38 tables** stayed
+unchanged, including all 16 retained print-job records, 16,738 print-job events, 77 deck
+snapshots, three users and all ManaSync delivery records. Only the rolling station-event
+log changed through normal companion activity. All print artifacts had already expired before
+this update; none were discarded by deployment. Native **v2.57.3** stayed running and unpaused;
+its jobs, passes, attempts, events, settings, configuration and selected bundle stayed unchanged.
+Authenticated native heartbeats returned HTTP 200. The active cached PDF-generator version
+and accepted v6 printing recipe stayed unchanged.
+
+Both localhost and household HTTPS health passed. All **38 frontend files** matched the
+isolated image at both origins (76 responses). Chrome visibly showed v2.57.5, its release
+notes and held-plan/retry guidance. The isolated image used fresh tmpfs, no network or live
+data; its real ZIP contained the expected exact front/back bytes. Final checks passed:
+1,305 JavaScript tests, 254 unchanged portable companion tests reused from the same date,
+lint with zero errors/five baseline warnings, production build and both audits with zero findings.
+ZIP stream/cleanup findings were independently reviewed and closed.
+
+A read-only post-deploy observation found all **821 saved plans'** counters and schedules
+unchanged over 263 seconds, including previously exhausted uploads. This is local delivery-ledger
+evidence, not a measurement of every request in Cloudflare's whole-zone chart. Reload older
+open tabs to activate the new quiet frontend behavior. Upstream permissions/artwork quota
+errors still need their reported ManaSync problem resolved before explicit publication retry.
+
+Private local Compose, the service fragment and the full Portainer candidate now pin v2.57.5;
+the candidate's resolved configuration matches local Compose. **Portainer's saved controller
+stack is still unmodified/unverified** because controller access has not been supplied. The
+CLI activation does not complete that separate reconciliation. No tag or registry publication
+was performed. Owned disposable containers and the temporary QA image were removed.
+
 #### Portainer reconciliation preparation — 2026-10-15
 
 The owner supplied the saved single-service `mtg` definition. It still selected GHCR
 `latest` and supplied five environment keys; the working Mac deployment uses the local
-v2.57.4 image and nine explicit keys. A complete corrected candidate is prepared privately at
+v2.57.4 image and nine explicit keys at preparation. The candidate now follows the verified
+v2.57.5 local pin above and remains private at
 `/Users/cruv/docker/Stacks/mtg/cardlistcompare-deployment/portainer-stack-reconciled.private.yaml`.
 It preserves the live signing/station credentials, data mount, port, restart policy and
 external `mtg_default` network. It also retains the exact local image pin, `pull_policy: never`,
