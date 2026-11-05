@@ -69,8 +69,13 @@ so republishing `:latest` on an internal-only commit is harmless here.
 docs-only main pushes run this workflow; local prose checks do not alter that boundary. If
 that ever matters, gate `:latest`/semver tags on a `v*` tag or a release-commit condition
 (one workflow line) — recorded here so the choice is explicit, not accidental.
-The publication workflow targets amd64 and arm64 manifests, source revision labels and
-short/full SHA tags; the matching registry result must still be verified. `latest` follows `main` only; a semver tag cannot implicitly move it. The repository
+The publication workflow builds amd64 and arm64 on matching native GitHub runners, then
+assembles a shared manifest only after both pass. Main/tag images are passed by digest to
+that publication step; PR builds do not push images. Source revision labels and short/full
+SHA tags identify the result, which still needs registry verification. Native builds avoid
+the observed QEMU SIGILL stalls in both ARM npm stages; job timeouts bound a failed attempt.
+An older manually rerun main workflow may publish its immutable source reference, but may
+not move the current main/latest tags after the branch has advanced. `latest` follows `main` only; a semver tag cannot implicitly move it. The repository
 Compose file consumes GHCR with configurable private runtime values and an existing bind
 path, without implicitly building/tagging local source. This replaces local household image
 pins as the default deployment model; historical installed pins remain facts until an

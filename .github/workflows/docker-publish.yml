@@ -13,9 +13,16 @@ env:
 permissions:
   contents: read
 
+# Avoid overlapping publication for the same ref. The live branch-head check
+# below also guards manually rerunning an old main run after a newer release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -61,7 +68,20 @@ jobs:
 
   build-and-push:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            machine: x86_64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            machine: aarch64
+            runner: ubuntu-24.04-arm
 
     permissions:
       contents: read
@@ -71,17 +91,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Node for digest receipts
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_MACHINE: ${{ matrix.machine }}
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          test "$(uname -m)" = "$EXPECTED_MACHINE"
+          test "$(docker version --format '{{.Server.Arch}}')" = "$EXPECTED_ARCH"
+
       - name: Resolve registry image name
         id: image
-        # GHCR image names are lowercase even if the repository owner is not.
         run: |
           image_name=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
           printf 'name=%s\n' "$image_name" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU for the Apple Silicon image
-        uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -94,12 +121,102 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels)
+      - name: Extract image labels
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
-          # Semver tags must not implicitly move latest away from main.
+          flavor: latest=false
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      # Native runners avoid the ARM64 npm/QEMU SIGILL seen in the first main build.
+      # PRs export cache only. Publication legs push by digest without moving tags.
+      - name: Build native image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: ${{ github.event_name == 'pull_request' && 'type=cacheonly' || format('type=image,name={0}/{1},push-by-digest=true,name-canonical=true,push=true', env.REGISTRY, steps.image.outputs.name) }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=clc-${{ matrix.arch }}
+          cache-to: type=gha,scope=clc-${{ matrix.arch }},mode=max
+
+      - name: Record published platform digest
+        if: github.event_name != 'pull_request'
+        env:
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+          BUILD_ARCH: ${{ matrix.arch }}
+          IMAGE: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { mkdirSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const { BUILD_DIGEST: digest, BUILD_ARCH: arch, IMAGE: image, GITHUB_SHA: revision, GITHUB_RUN_ID: runId, RUNNER_TEMP } = process.env;
+          assert.match(digest, /^sha256:[a-f0-9]{64}$/);
+          assert.ok(['amd64', 'arm64'].includes(arch));
+          const directory = join(RUNNER_TEMP, 'digests');
+          mkdirSync(directory, { recursive: true });
+          writeFileSync(join(directory, `${arch}.json`), JSON.stringify({ arch, image, digest, revision, runId }));
+          NODE
+
+      - name: Upload platform digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/${{ matrix.arch }}.json
+          if-no-files-found: error
+          retention-days: 7
+          # Rerun a failed platform without conflicting with its prior artifact.
+          overwrite: true
+
+  publish-manifest:
+    needs: build-and-push
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Set up Node for manifest validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Resolve registry image name
+        id: image
+        run: |
+          image_name=$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          printf 'name=%s\n' "$image_name" >> "$GITHUB_OUTPUT"
+
+      - name: Download this run's platform digests
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: image-digest-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract publication metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+          # Only main moves latest; requested semver tags keep their own tags.
           flavor: latest=false
           tags: |
             type=ref,event=branch
@@ -111,13 +228,54 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Validate receipts and publish the complete manifest
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
+          IMAGE_METADATA: ${{ steps.meta.outputs.json }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readdirSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          const { IMAGE: image, IMAGE_METADATA, DEFAULT_BRANCH: defaultBranch, GITHUB_SHA: revision, GITHUB_RUN_ID: runId, GITHUB_REPOSITORY: repository, GITHUB_API_URL: apiUrl, GH_READ_TOKEN: token, RUNNER_TEMP } = process.env;
+          const directory = join(RUNNER_TEMP, 'digests');
+          const architectures = ['amd64', 'arm64'];
+          assert.deepEqual(readdirSync(directory).sort(), architectures.map(arch => `${arch}.json`));
+          const sources = architectures.map(arch => {
+            const receipt = JSON.parse(readFileSync(join(directory, `${arch}.json`), 'utf8'));
+            assert.equal(receipt.arch, arch);
+            assert.equal(receipt.image, image);
+            assert.equal(receipt.revision, revision);
+            assert.equal(receipt.runId, runId);
+            assert.match(receipt.digest, /^sha256:[a-f0-9]{64}$/);
+            return `${image}@${receipt.digest}`;
+          });
+          const { tags } = JSON.parse(IMAGE_METADATA);
+          assert.ok(Array.isArray(tags) && tags.length > 0);
+          assert.ok(tags.every(tag => typeof tag === 'string' && tag.startsWith(`${image}:`)));
+          assert.ok(tags.includes(`${image}:sha-${revision}`));
+          // A manual rerun of an older successful main run must not move main
+          // or latest backward. Read the live head; API failures fail closed.
+          assert.ok(repository && defaultBranch && apiUrl && token);
+          const headResponse = await fetch(`${apiUrl}/repos/${repository}/commits/${encodeURIComponent(defaultBranch)}`, {
+            headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' },
+            signal: AbortSignal.timeout(15000),
+          });
+          assert.ok(headResponse.ok, `Cannot verify current default branch (HTTP ${headResponse.status}); refusing publication`);
+          const { sha: currentHead } = await headResponse.json();
+          assert.match(currentHead, /^[a-f0-9]{40}$/);
+          const branchTag = defaultBranch.replace(/[^a-zA-Z0-9_.-]+/g, '-').replace(/^[.-]+/, '').slice(0, 128);
+          const mutableTags = new Set([`${image}:latest`, `${image}:${branchTag}`]);
+          const publicationTags = currentHead === revision ? tags : tags.filter(tag => !mutableTags.has(tag));
+          assert.ok(publicationTags.includes(`${image}:sha-${revision}`));
+          if (currentHead !== revision) console.log('This run is older than the current default branch; preserving main/latest and publishing immutable/release tags only.');
+          execFileSync('docker', ['buildx', 'imagetools', 'create', ...publicationTags.flatMap(tag => ['--tag', tag]), ...sources], { stdio: 'inherit' });
+          const manifest = JSON.parse(execFileSync('docker', ['buildx', 'imagetools', 'inspect', '--raw', `${image}:sha-${revision}`], { encoding: 'utf8' }));
+          const platforms = manifest.manifests.filter(item => item.platform?.os !== 'unknown')
+            .map(item => `${item.platform.os}/${item.platform.architecture}`).sort();
+          assert.deepEqual(platforms, ['linux/amd64', 'linux/arm64']);
+          console.log(`Published and verified both native platforms for ${image}:sha-${revision}`);
+          NODE
