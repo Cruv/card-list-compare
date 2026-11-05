@@ -1,6 +1,6 @@
 /** Verify the deployment contract with synthetic variables; no daemon or live data. */
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,14 +16,15 @@ const secrets = { JWT_SECRET: 'fixture-only-jwt-0123456789abcdef0123456789abcdef
   PRINT_STATION_TOKEN: 'fixture-only-station-0123456789abcdef0123456789abcdef',
   MANASYNC_BRIDGE_KEY: 'fixture-only-bridge-key', SMTP_PASS: 'fixture-only-mail-password' };
 
-function configuration(overrides = {}) {
+function configuration(overrides = {}, composeFile = join(root, 'docker-compose.yml')) {
   const reply = spawnSync('docker', ['compose', '--project-name', 'clc-contract', '--env-file', emptyEnv,
-    '--file', join(root, 'docker-compose.yml'), 'config', '--format', 'json'], {
+    '--file', composeFile, 'config', '--format', 'json'], {
     cwd: fixture, env: { ...environment, ...secrets, ...overrides }, encoding: 'utf8', timeout: 20_000,
   });
   if (reply.error || reply.status !== 0) throw new Error('Compose contract check failed; install Docker Compose v2+ and rerun npm run check:deployment');
   return JSON.parse(reply.stdout).services['card-list-compare'];
 }
+let expectedCreatePath;
 function safety(service) {
   assert.equal(service.build, undefined, 'A registry deployment must not build/tag local source implicitly');
   assert.equal(service.pull_policy, undefined, 'Do not force a host-only image or implicit image pulls');
@@ -33,10 +34,17 @@ function safety(service) {
   assert.equal(service.volumes.length, 1);
   assert.equal(service.volumes[0].type, 'bind');
   assert.equal(service.volumes[0].target, '/app/data');
-  assert.equal(service.volumes[0].bind.create_host_path, false, 'A typo must not silently create a fresh data directory');
+  // Compose versions serialize boolean defaults differently. Compare against a
+  // minimal explicit-false reference rendered by this same CLI, then prove the
+  // opposite (auto-creating) fixture cannot satisfy this check.
+  assert.equal(service.volumes[0].bind?.create_host_path, expectedCreatePath,
+    'A typo must not silently create a fresh data directory');
   for (const [key, value] of Object.entries(secrets)) assert.equal(service.environment[key], value);
 }
 try {
+  const reference = join(fixture, 'safe-bind.yaml');
+  writeFileSync(reference, 'services:\n  card-list-compare:\n    image: busybox:unused\n    volumes:\n      - type: bind\n        source: ${CLC_DATA_DIR}\n        target: /app/data\n        bind:\n          create_host_path: false\n');
+  expectedCreatePath = configuration({ CLC_DATA_DIR: fixture }, reference).volumes[0].bind?.create_host_path;
   const defaults = configuration();
   safety(defaults);
   assert.equal(defaults.image, 'ghcr.io/cruv/card-list-compare:latest');
@@ -65,7 +73,13 @@ try {
   const pinned = configuration({ CLC_IMAGE: image, CLC_DATA_DIR: data });
   safety(pinned);
   assert.equal(pinned.image, image);
-  console.log('Deployment contract passed: defaults, existing data/configuration, exact registry digest. No live services accessed.');
+  const unsafeFile = join(fixture, 'unsafe-compose.yaml');
+  const source = readFileSync(join(root, 'docker-compose.yml'), 'utf8');
+  assert.ok(source.includes('create_host_path: false'), 'The canonical contract must explicitly disable directory creation');
+  writeFileSync(unsafeFile, source.replace('create_host_path: false', 'create_host_path: true'));
+  assert.throws(() => safety(configuration({ CLC_DATA_DIR: data }, unsafeFile)), /must not silently create/,
+    'The checker must reject an unsafe auto-creating bind on every Compose version');
+  console.log('Deployment contract passed: defaults, existing data/configuration, exact registry digest, unsafe bind rejected. No live services accessed.');
 } finally {
   rmSync(fixture, { recursive: true, force: true });
 }

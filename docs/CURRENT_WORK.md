@@ -20,9 +20,13 @@ before changing the running installation. Live CLC and the native companion rema
   checker/full lint passed with the five existing warnings. Independent deployment/preservation
   review found no blocker. Prior unchanged application verification is in
   [the deployed checkpoint](OPERATIONS.md#household-server-deployment-checkpoint--2026-11-05).
-- **Delivery / next:** commit/push the repository repair and open a PR against main for the
-  accumulated branch plus this deployment contract. Require exact-commit hosted verification;
-  a PR builds without publishing. Main integration, new GHCR publication/manifest verification
+- **Delivery / next:** repository repair is pushed in `0f6ca9f` and
+  [PR #7](https://github.com/Cruv/card-list-compare/pull/7) targets main. Its first hosted run
+  passed all 1,305 app tests and audits, then exposed Compose v2 omitting false JSON fields.
+  The checker now compares the same CLI’s explicit-false reference and rejects an unsafe
+  auto-creating negative fixture across encodings. Both Compose 2.40.3 and 5.5.0 passed.
+  Require replacement exact-commit hosted verification. A PR builds without publishing.
+  Main integration, new GHCR publication/manifest verification
   and live stack cutover are separate steps, not implied completed by this checkpoint.
 - **Preservation:** follow [the cutover procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
   Keep the existing full data directory and hidden keys, private runtime values, mtg stack/
