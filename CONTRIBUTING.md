@@ -151,10 +151,14 @@ For a user-visible product release:
    and both dependency audits. Reuse still-valid evidence as above; do not run identical
    before/after suites by default. Review advisories and use compatible fixes; a major
    dependency migration is deliberate work, not incidental audit cleanup.
-4. Inspect/stage owned paths and commit `vX.Y.Z: Description`, then push when authorized.
+4. Inspect/stage owned paths and commit `vX.Y.Z: Description`, then push.
    Internal stages may be separate descriptive commits; they do not each trigger a version.
 
-Publication is an external effect, separate from committing:
+The owner’s standing CLC delivery preference is to commit, push, merge after CI passes
+and deploy each completed change to the household stack unless the owner says otherwise.
+Deploy the matching Mac companion when the change needs it, using the normal physical
+print safeguards. This covers the established deployment and any CI publication required
+for it. Version tags and public release assets require a separate request.
 
 - Docker CI runs on pull requests, pushes to `main`, and `v*` tags. It gates Docker builds
   on JavaScript tests, the synthetic deployment contract, portable Python tests, dependency
@@ -165,9 +169,8 @@ Publication is an external effect, separate from committing:
   match the workflow/run to the pushed commit SHA (for example `gh run list --commit <SHA>`),
   inspect its conclusion, and report pending/unavailable truthfully. Do not mistake the
   latest unrelated run for this change or retry a push blindly.
-- `v*` tags/semver publication are only on owner request. Do not infer merge, release
-  publication or household deployment permission from a request to commit/push alone.
-  Reuse explicit authorization already given for the concrete action; do not ask again.
+- `v*` tags/semver publication are only on owner request. Reuse explicit authorization
+  already given for the concrete action.
 - Native packages use the manual [Mac workflow](.github/workflows/mac-print-station.yml):
   matching requested versions, portable tests, native arm64/x86_64 smoke, archive/manifest
   hashes and contained-file checks. Attaching assets requires its explicit draft-release

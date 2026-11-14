@@ -159,8 +159,9 @@ class ManagerTests(unittest.TestCase):
         self.ledger.write("INSERT INTO control_receipts VALUES('history','{}','applied','Preserved receipt',1)")
         history = tuple(self.ledger.db.execute("SELECT * FROM control_receipts WHERE id='history'").fetchone())
         before = (self.root / "token").read_bytes()
+        bundle = self.bundle().resolve()
         with mock.patch.object(manager.subprocess, "run", wraps=manager.subprocess.run) as run:
-            result = self.install()
+            result = manager.install_bundle(bundle, self.config_path, load_agent=False, launch_agents=self.root / "agents")
         self.assertTrue(result["supported"])
         self.assertTrue(result["paused"])
         self.assertFalse(result["autostartLoaded"])
@@ -172,7 +173,11 @@ class ManagerTests(unittest.TestCase):
         control.apply({"id": "new-control", "type": "pause", "expiresAt": "2099-01-01T00:00:00Z"})
         self.assertEqual(self.ledger.db.execute("SELECT acknowledged FROM control_receipts WHERE id='new-control'").fetchone()[0], 0)
         self.assertEqual(control.snapshot()["receipts"][0]["commandId"], "new-control")
-        self.assertEqual([call.args[0][-1] for call in run.call_args_list], ["self-check"])
+        # Intel and translated macOS processes may probe for Apple Silicon.
+        architecture_probe = ["/usr/sbin/sysctl", "-n", "hw.optional.arm64"]
+        self.assertEqual([call.args[0] for call in run.call_args_list if call.args[0] != architecture_probe], [
+            [str(bundle / "python/bin/python3"), "-B", "-E", "-s", str(bundle / "clc_print_station.py"), "self-check"],
+        ])
         plist = plistlib.loads((self.root / "agents/local.clc.print-station.plist").read_bytes())
         self.assertTrue(plist["KeepAlive"])
         launcher = Path(plist["ProgramArguments"][0]).read_text()
