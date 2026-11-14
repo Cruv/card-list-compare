@@ -534,7 +534,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       </div>}
       {selectedPaper === CROWNED_A4_PRESET && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
-      <div className="print-review-footer"><div><strong>{plan.totalCopies} {plan.totalCopies === 1 ? 'copy' : 'copies'}{summary ? ` · ${summary.sheets} ${summary.sheets === 1 ? 'sheet' : 'sheets'}` : ''}</strong><span>{printPaperLabel(plan)} · {PRINT_PAPER[printPaperChoice(plan)].template} cut template</span></div><div className="print-panel-actions">
+      <div className="print-review-footer"><div><strong>
+        {plan.totalCopies} {plan.totalCopies === 1 ? 'copy' : 'copies'}
+        {summary?.ordinarySheets > 0 && ` · ${summary.ordinarySheets} single-sided ${summary.ordinarySheets === 1 ? 'sheet' : 'sheets'}`}
+        {summary?.packets > 0 && ` · ${summary.packets} double-sided ${summary.packets === 1 ? 'sheet' : 'sheets'}`}
+      </strong><span>{printPaperLabel(plan)} · {PRINT_PAPER[printPaperChoice(plan)].template} cut template</span></div><div className="print-panel-actions">
         {needsReview ? <button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : 'Review updated list'}</button> : <><button className={`btn ${capabilities.canQueue && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{capabilities.canQueue && <button className="btn btn-primary" disabled={busy || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
       </div></div>
     </section>}

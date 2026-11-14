@@ -68,8 +68,8 @@ In a saved deck, Choose a whole snapshot or changes between an
 explicit baseline and target. The paper-deck marker is the default baseline when present;
 “latest” is resolved to a specific snapshot during review. Sideboards are optional and off
 by default. **Review print list** resolves the selected printing and displays its actual
-front/back thumbnails, source, copy count and double-sided status. The summary separates
-ordinary sheets from one-sheet double-faced packets. Missing faces, unresolved printings
+front/back thumbnails, source, copy count and double-sided status. The preview shows the total
+copies and separate counts for single-sided and double-sided sheets. Missing faces, unresolved printings
 and unsupported meld layouts block generation before a job is created. Then choose
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
