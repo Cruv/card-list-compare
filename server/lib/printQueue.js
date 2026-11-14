@@ -7,7 +7,7 @@ import { get, all, run, runTransaction } from '../db.js';
 import { buildPrintPlan, publicPrintPlan, printError, sha256 } from './printQueuePlan.js';
 import { preparePrintImages } from './printQueueImages.js';
 import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from './printGenerator.js';
-import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
+import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
 import { CROWNED_PRESET, LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
@@ -117,6 +117,7 @@ function artifactRecord(row, artifact, station) {
   return {
     id: artifact.id, kind: artifact.kind, sha256: artifact.sha256, size: artifact.size,
     pageCount: artifact.pageCount, sheetCount: artifact.sheetCount, cardCount: artifact.cardCount,
+    ...(artifact.doubleFacedCardCount === undefined ? {} : { doubleFacedCardCount: artifact.doubleFacedCardCount }),
     ...(artifact.label ? { label: artifact.label } : {}),
     ...(artifact.packetIndex ? { packetIndex: artifact.packetIndex, packetCount: artifact.packetCount } : {}),
     ...(artifact.printedIdentification ? { printedIdentification: artifact.printedIdentification } : {}),
@@ -139,6 +140,7 @@ export function formatPrintJob(row, station = false) {
     source: publicPlan.source, target: publicPlan.target,
     ...(plan.list ? { list: publicPlan.list } : {}),
     ...(plan.comparison ? { comparison: publicPlan.comparison } : {}),
+    ...(plan.sheetPacking ? { sheetPacking: plan.sheetPacking, requiresMixedPrintSheets: true } : {}),
     createdAt: row.created_at, updatedAt: row.updated_at, expiresAt: row.expires_at,
     queueOnReady: !!row.queue_requested, error: row.error, proxyStagingError: row.proxy_staging_error || null, progress: parse(row.progress_json),
     ...printJobPaper(plan, manifest), manifestSha256: row.manifest_sha256,
@@ -245,6 +247,7 @@ export async function processNextPrintJob() {
     const generated = await generatePrintPdfs({
       paperSize: plan.paperSize ?? 'letter',
       ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
+      ...(plan.sheetPacking ? { sheetPacking: plan.sheetPacking } : {}),
       cards: copies.map(copy => ({ id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}) })),
       outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
       requesterName: plan.requesterName || 'Unknown requester', batchName: plan.deckName,
@@ -257,6 +260,24 @@ export async function processNextPrintJob() {
     const artifactIds = new Set();
     const packets = generated.artifacts.filter(artifact => /^double-faced-\d{3}$/.test(artifact.id));
     const packetCapacity = plan.printPreset === CROWNED_PRESET ? 9 : 7;
+    const mixed = plan.sheetPacking === DOUBLE_FACED_FIRST;
+    if (mixed) {
+      const expectedPackets = Math.ceil(plan.doubleFacedCopies / packetCapacity);
+      const ordinaryLeft = Math.max(0, plan.totalCopies - expectedPackets * packetCapacity);
+      const ordinary = generated.artifacts.at(-1);
+      const ordinarySheets = Math.ceil(ordinaryLeft / packetCapacity);
+      if (packets.length !== expectedPackets
+        || generated.artifacts.length !== expectedPackets + (ordinaryLeft > 0 ? 1 : 0)
+        || packets.some((packet, index) => {
+          const expectedBacks = Math.min(packetCapacity, plan.doubleFacedCopies - index * packetCapacity);
+          const expectedFronts = Math.min(packetCapacity, plan.totalCopies - index * packetCapacity);
+          return generated.artifacts[index] !== packet || packet.doubleFacedCardCount !== expectedBacks || packet.cardCount !== expectedFronts;
+        })
+        || (ordinaryLeft > 0 && (ordinary.id !== 'fronts' || ordinary.kind !== 'ordinary'
+          || ordinary.cardCount !== ordinaryLeft || ordinary.sheetCount !== ordinarySheets || ordinary.pageCount !== ordinarySheets))) {
+        throw printError('Generated mixed sheet layout does not match the plan', 500);
+      }
+    }
     const artifacts = generated.artifacts.map(artifact => {
       const path = realpathSync(artifact.path);
       const root = realpathSync(jobDir(row.id)) + sep;
@@ -295,16 +316,17 @@ export async function processNextPrintJob() {
     if (Buffer.byteLength(bytes) > MANIFEST_RESERVE_BYTES) throw printError('Print manifest exceeds the storage limit', 507);
     writeFileSync(join(jobDir(row.id), 'manifest.json.tmp'), bytes, { flag: 'wx' });
     renameSync(join(jobDir(row.id), 'manifest.json.tmp'), join(jobDir(row.id), 'manifest.json'));
-    const steps = artifacts.flatMap(artifact => artifact.kind === 'dfc'
+    const pairedSteps = artifacts.flatMap(artifact => artifact.kind === 'dfc'
       ? [{ artifactId: artifact.id, phase: 'fronts', state: 'pending' }, { artifactId: artifact.id, phase: 'backs', state: 'pending', requiresRefeed: true, refeedConfirmed: false }]
       : [{ artifactId: artifact.id, phase: 'fronts', state: 'pending' }]);
+    const steps = mixed ? deferredStepOrder(pairedSteps) : pairedSteps;
     const queued = !!row.queue_requested && printCapabilities(row.user_id).canQueue;
     assertActive();
     assertPrintStorageCapacity();
     const queuedAt = queued ? now() : null;
-    runTransaction([{ sql: `UPDATE print_jobs SET state = ?, manifest_json = ?, manifest_sha256 = ?, steps_json = ?, progress_json = NULL,
+    runTransaction([{ sql: `UPDATE print_jobs SET state = ?, manifest_json = ?, manifest_sha256 = ?, steps_json = ?, workflow = ?, progress_json = NULL,
       queued_at = ?, expires_at = ?, updated_at = ?, error = ? WHERE id = ? AND state = 'preparing'`,
-    params: [queued ? 'queued' : 'ready', bytes, hash, json(steps), queuedAt,
+    params: [queued ? 'queued' : 'ready', bytes, hash, json(steps), mixed ? DEFERRED_BACKS_WORKFLOW : row.workflow, queuedAt,
       retentionExpiry(), now(),
       row.queue_requested && !queued ? 'PDF ready; household printing authorization is no longer available' : null, row.id] },
     ...(queued ? [queuedPrintNotificationStatement(row, queuedAt)] : [])]);
@@ -471,15 +493,18 @@ export function assertStationArtifactCapacity(row, maxArtifacts) {
     throw printError(`Upgrade the Mac print companion to continue this job: it has ${artifacts.length} PDF artifacts, but this companion supports ${maxArtifacts}.`, 409);
   }
 }
-export function assertStationWorkflow(row, deferredBacks, printRecovery = false) {
+export const hasMixedPrintSheets = row => parse(row.plan_json)?.sheetPacking === DOUBLE_FACED_FIRST;
+export function assertStationWorkflow(row, deferredBacks, printRecovery = false, mixedPrintSheets = false) {
+  if (hasMixedPrintSheets(row) && !(deferredBacks && mixedPrintSheets)) throw printError('Upgrade the Mac print companion to continue batches with mixed single- and double-sided sheets.', 409);
   if (isDeferred(row) && !deferredBacks) throw printError('Upgrade the Mac print companion to continue deferred back-side printing.', 409);
   if (!printRecovery && readSteps(row).some(step => step.attemptId)) throw printError('Upgrade the Mac print companion to continue a recovered physical print attempt.', 409);
 }
 export const savedPrintJobPaper = row => printJobPaper(parse(row.plan_json), parse(row.manifest_json));
+const deferredStepOrder = steps => [...steps.filter(step => step.phase === 'fronts'), ...steps.filter(step => step.phase === 'backs')];
 
-export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER } = {}) {
+export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER, mixedPrintSheets = false } = {}) {
   let row = all(`SELECT * FROM print_jobs WHERE station_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY queued_at, created_at, id LIMIT 1`, [STATION_ID, ...ACTIVE_STATES])[0];
-  if (row) { assertStationArtifactCapacity(row, maxArtifacts); assertStationWorkflow(row, deferredBacks, printRecovery); }
+  if (row) { assertStationArtifactCapacity(row, maxArtifacts); assertStationWorkflow(row, deferredBacks, printRecovery, mixedPrintSheets); }
   if (row && row.state === 'claimed' && parse(row.steps_json).every(step => step.state === 'pending') && !printCapabilities(row.user_id).canQueue) {
     run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, station_id = NULL, claim_nonce = NULL, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked before submission', now(), row.id]);
     row = null;
@@ -498,8 +523,8 @@ export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printR
   // has finished. Its original nonce and receipts survive days of parking.
   const requested = all("SELECT * FROM print_jobs WHERE station_id = ? AND state = 'backs_pending' AND back_request_json IS NOT NULL ORDER BY json_extract(back_request_json, '$.requestedAt'), id", [STATION_ID]);
   for (const saved of requested) {
-    if (!stationCanPrintPaper(paper, savedPrintJobPaper(saved))) continue;
-    assertStationWorkflow(saved, deferredBacks, printRecovery);
+    if (!stationCanPrintPaper(paper, savedPrintJobPaper(saved)) || (hasMixedPrintSheets(saved) && !(deferredBacks && mixedPrintSheets))) continue;
+    assertStationWorkflow(saved, deferredBacks, printRecovery, mixedPrintSheets);
     assertStationArtifactCapacity(saved, maxArtifacts);
     if (!printCapabilities(saved.user_id).canQueue) {
       run('UPDATE print_jobs SET back_request_json = NULL, updated_at = ? WHERE id = ?', [now(), saved.id]);
@@ -516,14 +541,14 @@ export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printR
       run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked; PDF remains available to its owner', now(), row.id]);
       continue;
     }
-    if (!stationCanPrintPaper(paper, savedPrintJobPaper(row))) continue;
+    if (!stationCanPrintPaper(paper, savedPrintJobPaper(row)) || (hasMixedPrintSheets(row) && !(deferredBacks && mixedPrintSheets))) continue;
     // Check compatibility before hashing PDFs or creating a durable claim. Older
     // companions can upgrade without trapping this FIFO job in claimed state.
     assertStationArtifactCapacity(row, maxArtifacts);
-    assertStationWorkflow(row, deferredBacks, printRecovery);
+    assertStationWorkflow(row, deferredBacks, printRecovery, mixedPrintSheets);
     for (const artifact of parse(row.manifest_json).artifacts) verifiedPrintArtifact(row, artifact.id);
     const steps = readSteps(row), upgrade = deferredBacks && steps.every(step => step.state === 'pending');
-    const ordered = upgrade ? [...steps.filter(step => step.phase === 'fronts'), ...steps.filter(step => step.phase === 'backs')] : steps;
+    const ordered = upgrade ? deferredStepOrder(steps) : steps;
     run("UPDATE print_jobs SET state = 'claimed', station_id = ?, claim_nonce = ?, lease_expires_at = ?, updated_at = ?, workflow = ?, steps_json = ? WHERE id = ? AND state = 'queued'",
       [STATION_ID, row.claim_nonce || crypto.randomBytes(24).toString('hex'), leaseExpiry(), now(), upgrade ? DEFERRED_BACKS_WORKFLOW : row.workflow, json(ordered), row.id]);
     return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [row.id]), true);

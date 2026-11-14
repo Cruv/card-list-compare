@@ -1,5 +1,6 @@
 /** Pure scheduling metadata. Immutable PDF manifests and physical receipts stay intact. */
 export const DEFERRED_BACKS_WORKFLOW = 'deferred-backs-v1';
+export const DOUBLE_FACED_FIRST = 'double-faced-first';
 export const ACTIVE_PRINT_STATES = ['claimed', 'submitting', 'submitted', 'awaiting_refeed', 'awaiting_paper_reset', 'uncertain'];
 export const PRINT_TERMINAL_STATES = ['completed', 'canceled', 'failed', 'expired'];
 export const readSteps = row => JSON.parse(row.steps_json || '[]');
@@ -38,6 +39,7 @@ export function printPackets(row) {
     return { artifactId: artifact.id, label: artifact.label || null,
       packetIndex: artifact.packetIndex || index + 1, packetCount: artifact.packetCount || packets.length,
       sheetCount: artifact.sheetCount, cardCount: artifact.cardCount,
+      ...(artifact.doubleFacedCardCount === undefined ? {} : { doubleFacedCardCount: artifact.doubleFacedCardCount }),
       frontCompletedAt: front?.completedAt || (front?.state === 'completed' ? row.updated_at : null),
       state, ...(front?.spoolerId ? { frontSpoolerId: front.spoolerId } : {}) };
   });

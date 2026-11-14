@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
 import { loadDefaultPrintPaper, printPaperRequest, printPaperUnavailable } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
@@ -35,6 +35,31 @@ describe('physical artwork review', () => {
     expect(printReviewSummary({ totalCopies: 9, ordinaryCopies: 1, doubleFacedCopies: 8 })).toEqual({
       ordinary: 1, doubleFaced: 8, ordinarySheets: 1, packets: 2, sheets: 3, pages: 5,
     });
+  });
+  it('counts Crowned A4 singles packed with a double-sided card as part of one physical sheet', () => {
+    expect(printReviewSummary({ ...printPaperRequest('crowned-a4'), sheetPacking: 'double-faced-first',
+      totalCopies: 9, ordinaryCopies: 8, doubleFacedCopies: 1 })).toEqual({
+      ordinary: 8, doubleFaced: 1, ordinarySheets: 0, packets: 1, sheets: 1, pages: 2,
+    });
+  });
+  it('allocates front-only sheets only for the singles left beyond the refeed sheets', () => {
+    expect(printReviewSummary({ sheetPacking: 'double-faced-first', totalCopies: 15,
+      ordinaryCopies: 7, doubleFacedCopies: 8 })).toEqual({
+      ordinary: 7, doubleFaced: 8, ordinarySheets: 1, packets: 2, sheets: 3, pages: 5,
+    });
+  });
+  it('uses the true back count for a mixed packet and the card count for a legacy packet', () => {
+    expect(printPacketBackCountLabel({ cardCount: 9, doubleFacedCardCount: 1 })).toBe('1 card with a back');
+    expect(printPacketBackCountLabel({ cardCount: 2 })).toBe('2 cards with backs');
+  });
+  it('explains the companion wait specifically for queued mixed batches on an online older Mac', () => {
+    const job = { state: 'queued', requiresMixedPrintSheets: true };
+    const station = { online: true, mixedPrintSheets: false };
+    expect(mixedPrintCompanionWait(job, station)).toBe('Waiting for Mac companion 2.59.0 or newer');
+    expect(mixedPrintCompanionWait(job, { ...station, mixedPrintSheets: true })).toBe('');
+    expect(mixedPrintCompanionWait(job, { ...station, online: false })).toBe('');
+    expect(mixedPrintCompanionWait({ ...job, state: 'ready' }, station)).toBe('');
+    expect(mixedPrintCompanionWait({ state: 'queued' }, station)).toBe('');
   });
   it('does not infer two printed sides from a split-card name', () => {
     const split = { readyToGenerate: true, totalCopies: 1, ordinaryCopies: 1, doubleFacedCopies: 0,

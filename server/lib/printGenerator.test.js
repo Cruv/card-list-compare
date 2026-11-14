@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE } from './printGenerator.js';
 import { headlessRequirements, PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
+import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
 const temporary = [];
 async function temp() {
@@ -48,6 +49,20 @@ describe('physical PDF sheet planning', () => {
     expect(groups.at(-1)).toMatchObject({ id: 'double-faced-036', packetIndex: 36, packetCount: 36 });
     expect(groups.map(group => group.id)).toEqual([...groups.map(group => group.id)].sort((a, b) => a === 'fronts' ? -1 : b === 'fronts' ? 1 : a.localeCompare(b)));
     expect(new Set(groups.flatMap(group => group.slotMap.map(slot => slot.cardId))).size).toBe(250);
+  });
+  it.each(Object.values(PRINT_RECIPES).concat(CROWNED_A4_RECIPE))('builds full sheets and preserves each face slot with $id', recipe => {
+    const capacity = recipe.cardsPerSheet;
+    const ordinary = Array.from({ length: capacity + 2 }, (_, i) => ({ id: `single-${i}`, frontPath: '/a' }));
+    const double = Array.from({ length: capacity + 1 }, (_, i) => ({ id: `double-${i}`, frontPath: '/a', backPath: '/b' }));
+    const [first, second, remaining] = planPrintSheets([...ordinary, ...double], recipe, DOUBLE_FACED_FIRST);
+    expect(first).toMatchObject({ packetIndex: 1, packetCount: 2, doubleFacedCardCount: capacity });
+    expect(first.cards).toEqual(double.slice(0, capacity));
+    expect(second).toMatchObject({ packetIndex: 2, packetCount: 2, doubleFacedCardCount: 1 });
+    expect(second.cards).toEqual([...ordinary.slice(0, capacity - 1), double.at(-1)]);
+    expect(second.slotMap.slice(0, -1).every(slot => slot.frontPage === 1 && !Object.hasOwn(slot, 'backPage'))).toBe(true);
+    expect(second.slotMap.at(-1)).toEqual({ cardId: double.at(-1).id, sheet: 1, slot: capacity - 1 + recipe.skip.length,
+      frontPage: 1, backPage: 2 });
+    expect(remaining).toMatchObject({ id: 'fronts', cards: ordinary.slice(capacity - 1) });
   });
   it('rejects duplicate copies, missing staged paths, empty and oversized requests', () => {
     expect(() => planPrintSheets([])).toThrow('physical card copies');
@@ -279,6 +294,33 @@ describe('PDF adapter publication', () => {
     const capture = vi.fn();
     await expect(createPrintGenerator({ runtime: { capture } }).generate({ paperSize })).rejects.toThrow('Paper size');
     expect(capture).not.toHaveBeenCalled();
+  });
+
+  it('publishes eight singles and one DFC as one Crowned A4 refeed packet and one physical sheet', async () => {
+    const directory = await temp();
+    const runtime = { capture: () => ({ directory: '/runtime', revision: 'fixed' }) };
+    const run = async (_command, args) => {
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      if (args[1] === 'chunk') {
+        expect(request).toMatchObject({ doubleFaced: true, sheetPacking: DOUBLE_FACED_FIRST });
+        expect(request.cards.map(card => card.id)).toEqual([...cards.slice(1), cards[0]].map(card => card.id));
+        await fs.writeFile(path.join(request.directory, 'sheet.pdf'), request.label);
+        await fs.writeFile(path.join(request.directory, 'result.json'), '{"images":[]}');
+      } else {
+        expect(request).toMatchObject({ pageCount: 2 });
+        await fs.copyFile(request.inputs[0], request.output);
+      }
+    };
+    const cards = [{ id: 'double', frontPath: '/a', backPath: '/b' },
+      ...Array.from({ length: 8 }, (_, i) => ({ id: `single-${i}`, frontPath: '/a' }))];
+    const onProgress = vi.fn();
+    const result = await createPrintGenerator({ runtime, run }).generate({ cards, outputDir: directory, paperSize: 'a4',
+      printPreset: 'crowned-a4', sheetPacking: DOUBLE_FACED_FIRST, onProgress });
+    expect(result.artifacts).toHaveLength(1);
+    expect(result.artifacts[0]).toMatchObject({ kind: 'dfc', pageCount: 2, sheetCount: 1, cardCount: 9,
+      doubleFacedCardCount: 1, packetIndex: 1, packetCount: 1 });
+    expect(result.slots.filter(slot => slot.backPage).map(slot => slot.cardId)).toEqual(['double']);
+    expect(onProgress).toHaveBeenCalledExactlyOnceWith({ phase: 'generating', completedSheets: 1, totalSheets: 1 });
   });
 
   it.each([['letter', 'crowned-a4'], ['a4', 'custom']])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {

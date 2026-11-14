@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ConfirmModal from './ConfirmModal';
 import { CROWNED_A4_PRESET, printPaperChoice, printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
+import { printPacketBackCountLabel } from '../lib/printReview';
 
 const PACKET_STATES = {
   pending: 'Saved for later', requested: 'Waiting for the printer', awaiting_refeed: 'Ready to reload',
@@ -12,7 +13,7 @@ export default function DeferredPrintBacks({ jobs, station, fresh, canPrepare, u
   const [cancelJob, setCancelJob] = useState(null);
   return <section className="station-card station-deferred" aria-labelledby="deferred-backs-title">
     <h2 id="deferred-backs-title">Backs for later{jobs.length ? ` (${jobs.length})` : ''}</h2>
-    <p>New jobs on companion 2.55.0 or newer print fronts on blank paper without waiting for a flip. Keep each labeled double-sided sheet; choose its backs here whenever you are ready, even on another day.</p>
+    <p>Set aside the labeled sheets that need backs. Choose their matching packets here whenever you are ready, even on another day.</p>
     <p className="station-small">Choose a packet first. Wait until Printer says it is ready to reload before touching the feeder. Other front jobs may still be printing.</p>
     {jobs.length > 0 && unavailableReason && <p className="station-small" role="status">{unavailableReason}</p>}
     {!jobs.length && <p className="station-small">No saved backs are waiting.</p>}
@@ -22,13 +23,14 @@ export default function DeferredPrintBacks({ jobs, station, fresh, canPrepare, u
         <div className="station-card-heading"><div><h3>{job.deckName || 'Card batch'}</h3>{job.requesterName && <p className="station-small">Requested by {job.requesterName}</p>}</div>
           {job.canCancelBacks && <button type="button" className="btn btn-secondary btn-sm" disabled={!fresh || busy || !!job.cancelRequested} onClick={() => setCancelJob(job)}>Cancel remaining backs</button>}</div>
         <p className="station-batch-id">{printPaperLabel(job)} · Batch {job.id}</p>
-        {printPaperChoice(job) === CROWNED_A4_PRESET && <p className="station-small">Let the fronts dry fully before preparing the backs.</p>}
+        {(printPaperChoice(job) === CROWNED_A4_PRESET || job.packets.some(packet => packet.doubleFacedCardCount != null)) && <p className="station-small">Let the fronts dry fully before preparing the backs.</p>}
         {paperUnavailable && <p className="station-small">{paperUnavailable}</p>}
         {job.cancelRequested && <p role="status">Cancellation requested. Waiting for the Mac to stop any submitted pages; follow its paper-clearance instructions.</p>}
         {job.backRequest && <p className="station-message" role="status">Backs requested for {job.packets.find(packet => packet.artifactId === job.backRequest.artifactId)?.label || job.backRequest.artifactId}. Keep blank paper loaded until this packet is ready to reload.</p>}
         <ul className="station-deferred-packets">{job.packets.map(packet => <li key={packet.artifactId}>
           <div><strong>{packet.label || `Packet ${packet.packetIndex} of ${packet.packetCount}`}</strong>
-            <p className="station-small">{packet.sheetCount} {packet.sheetCount === 1 ? 'sheet' : 'sheets'} · {packet.cardCount} {packet.cardCount === 1 ? 'card' : 'cards'} · {PACKET_STATES[packet.state] || packet.state}</p>
+            <p className="station-small">{packet.sheetCount} {packet.sheetCount === 1 ? 'sheet' : 'sheets'} · {printPacketBackCountLabel(packet)} · {PACKET_STATES[packet.state] || packet.state}</p>
+            {packet.doubleFacedCardCount != null && <p className="station-small">Look for <strong>REFEED FOR BACK</strong> in the front margin.</p>}
             {packet.frontCompletedAt && <p className="station-small">Fronts printed {new Date(packet.frontCompletedAt.endsWith('Z') ? packet.frontCompletedAt : `${packet.frontCompletedAt.replace(' ', 'T')}Z`).toLocaleString()}</p>}
             {!packet.label && <p className="station-small">Older PDF: match the complete packet against its downloaded PDF before reloading.</p>}
           </div>

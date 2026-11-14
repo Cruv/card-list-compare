@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
+import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
 export const MAX_PRINT_COPIES = 250;
 export const PRINT_RECIPE = Object.freeze({
@@ -45,9 +46,12 @@ export function printPageIdentification({ requesterName = 'Unknown requester', b
     batchName: printable(batchName, 96, 'Print list') };
 }
 
-export function planPrintSheets(cards, recipe = PRINT_RECIPE) {
+export function planPrintSheets(cards, recipe = PRINT_RECIPE, sheetPacking) {
   if (!Array.isArray(cards) || !cards.length || cards.length > MAX_PRINT_COPIES) {
     throw new Error(`PDF generation requires 1–${MAX_PRINT_COPIES} physical card copies`);
+  }
+  if (sheetPacking !== undefined && sheetPacking !== DOUBLE_FACED_FIRST) {
+    throw new Error('Unsupported print sheet packing');
   }
   const ids = new Set();
   for (const card of cards) {
@@ -61,21 +65,29 @@ export function planPrintSheets(cards, recipe = PRINT_RECIPE) {
   const usableSlots = Array.from({ length: cardsPerSheet + skip.length }, (_, index) => index)
     .filter(index => !skip.includes(index));
   const packetCount = Math.ceil(doubleFaced.length / cardsPerSheet);
-  return [
-    ...(ordinary.length ? [{ id: 'fronts', kind: 'ordinary', cards: ordinary }] : []),
-    ...Array.from({ length: packetCount }, (_, index) => ({
+  const mixed = sheetPacking === DOUBLE_FACED_FIRST;
+  const fillerCount = mixed ? packetCount * cardsPerSheet - doubleFaced.length : 0;
+  const ordinaryGroups = ordinary.length > fillerCount
+    ? [{ id: 'fronts', kind: 'ordinary', cards: ordinary.slice(fillerCount) }] : [];
+  const packets = Array.from({ length: packetCount }, (_, index) => {
+    const faces = doubleFaced.slice(index * cardsPerSheet, (index + 1) * cardsPerSheet);
+    // Silhouette Card Maker places singles before double-faced cards on the same sheet.
+    const fillers = index === packetCount - 1 ? ordinary.slice(0, fillerCount) : [];
+    return {
       id: `double-faced-${String(index + 1).padStart(3, '0')}`, kind: 'dfc',
-      cards: doubleFaced.slice(index * cardsPerSheet, (index + 1) * cardsPerSheet),
-      packetIndex: index + 1, packetCount,
-    })),
-  ].map(group => ({
+      cards: [...fillers, ...faces], packetIndex: index + 1, packetCount,
+      ...(mixed ? { doubleFacedCardCount: faces.length } : {}),
+    };
+  });
+  const groups = mixed ? [...packets, ...ordinaryGroups] : [...ordinaryGroups, ...packets];
+  return groups.map(group => ({
     ...group,
     chunks: Array.from({ length: Math.ceil(group.cards.length / cardsPerSheet) },
       (_, index) => group.cards.slice(index * cardsPerSheet, (index + 1) * cardsPerSheet)),
     slotMap: group.cards.map((card, i) => ({
       cardId: card.id, sheet: Math.floor(i / cardsPerSheet) + 1, slot: usableSlots[i % cardsPerSheet],
       frontPage: Math.floor(i / cardsPerSheet) * (group.kind === 'dfc' ? 2 : 1) + 1,
-      ...(group.kind === 'dfc' ? { backPage: Math.floor(i / cardsPerSheet) * 2 + 2 } : {}),
+      ...(card.backPath ? { backPage: Math.floor(i / cardsPerSheet) * 2 + 2 } : {}),
     })),
   }));
 }
@@ -88,7 +100,7 @@ export function createPrintGenerator(options = {}) {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
     async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES,
-      batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter', printPreset }) {
+      batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter', printPreset, sheetPacking }) {
       if (typeof paperSize !== 'string' || !Object.hasOwn(PRINT_RECIPES, paperSize)) {
         throw new Error('Paper size must be Letter or A4');
       }
@@ -97,7 +109,7 @@ export function createPrintGenerator(options = {}) {
       }
       const recipe = printPreset ? CROWNED_A4_RECIPE : PRINT_RECIPES[paperSize];
       const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
-      const plan = planPrintSheets(cards, recipe);
+      const plan = planPrintSheets(cards, recipe, sheetPacking);
       const printedIdentification = printPageIdentification({ requesterName, batchName });
       if (!path.isAbsolute(outputDir || '')) throw new Error('PDF output directory must be absolute');
       if (typeof batchLabel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$/.test(batchLabel)) {
@@ -143,7 +155,7 @@ export function createPrintGenerator(options = {}) {
               ...(group.kind === 'dfc' ? [{ page: 2, phase: 'backs', label: sheetLabel }] : [])];
             pageLabels.push(...chunkLabels.map(item => ({ ...item, page: pageLabels.length + item.page })));
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
-              label: sheetLabel, printedIdentification, pageLabels: chunkLabels, ...paper,
+              label: sheetLabel, printedIdentification, pageLabels: chunkLabels, ...paper, sheetPacking,
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
@@ -172,7 +184,8 @@ export function createPrintGenerator(options = {}) {
           artifacts.push({ id: group.id, kind: group.kind, path: path.join(outputDir, `${group.id}.pdf`),
             sha256, size, pageCount, cardCount: group.cards.length, sheetCount: group.chunks.length, slotMap: group.slotMap,
             label, printedIdentification, pageLabels,
-            ...(group.kind === 'dfc' ? { packetIndex: group.packetIndex, packetCount: group.packetCount } : {}) });
+            ...(group.kind === 'dfc' ? { packetIndex: group.packetIndex, packetCount: group.packetCount } : {}),
+            ...(group.doubleFacedCardCount === undefined ? {} : { doubleFacedCardCount: group.doubleFacedCardCount }) });
           slots.push(...group.slotMap.map(slot => ({ ...slot, artifactId: group.id })));
         }
         if (signal?.aborted) throw signal.reason || new Error('PDF generation canceled');

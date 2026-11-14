@@ -127,7 +127,7 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
         reader.close()
 
 
-def identify_pages(filename, identification, labels, recipe="letter"):
+def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False):
     """Add vector text only in the approved top margin.
 
     Card pixels start at least 46.56pt below the top edge; the marks are at the
@@ -158,6 +158,8 @@ def identify_pages(filename, identification, labels, recipe="letter"):
                 raise ValueError("Page label must identify its exact sheet and side")
             lines = [f"Queued by: {values[0]}", f"Batch: {values[1]}",
                      f"{label} | {'FRONT' if item['phase'] == 'fronts' else 'BACK'}"]
+            if refeed_front and item["phase"] == "fronts":
+                lines[-1] += " | REFEED FOR BACK"
             resources = DictionaryObject(page["/Resources"])
             fonts = DictionaryObject(resources.get("/Font", DictionaryObject()).get_object())
             if "/CLCPageIdentity" in fonts:
@@ -198,14 +200,17 @@ def chunk(request):
     cards = request["cards"]
     if not 1 <= len(cards) <= (9 if recipe == "crowned-a4" else 7):
         raise ValueError("Each generator invocation must contain one sheet at most")
+    sides = [bool(card.get("backPath")) for card in cards]
+    double_faced = request["doubleFaced"]
+    mixed = request.get("sheetPacking") == "double-faced-first"
+    if double_faced != any(sides) or (mixed and sides != sorted(sides)) or (not mixed and double_faced != all(sides)):
+        raise ValueError("Sheet faces must match the requested pass and upstream slot order")
     for folder in ("front", "back", "double_sided"):
         (directory / folder).mkdir()
     metadata = []
     for index, card in enumerate(cards):
-        if bool(card.get("backPath")) != request["doubleFaced"]:
-            raise ValueError("Ordinary cards and double-faced cards must be separate batches")
         item = {"id": card["id"], "front": image_copy(card["frontPath"], directory / "front" / f"{index:04d}")}
-        if request["doubleFaced"]:
+        if card.get("backPath"):
             item["back"] = image_copy(card["backPath"], directory / "double_sided" / f"{index:04d}")
         metadata.append(item)
     output = directory / "sheet.pdf"
@@ -215,12 +220,13 @@ def chunk(request):
             "--ppi", "600", "--quality", "100", "--crop", "1mm", "--fit", "stretch",
             "--label", request["label"]]
     args.extend(["--borderless"] if recipe == "crowned-a4" else ["--skip", "4"])
-    if not request["doubleFaced"]:
+    if not double_faced:
         args.append("--only_fronts")
     subprocess.run(args, cwd=directory, stdin=subprocess.DEVNULL, check=True, timeout=90)
-    validate_pdf(output, 2 if request["doubleFaced"] else 1, recipe, upstream=True)
-    identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe)
-    validate_pdf(output, 2 if request["doubleFaced"] else 1, recipe)
+    page_count = 2 if double_faced else 1
+    validate_pdf(output, page_count, recipe, upstream=True)
+    identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe, refeed_front=double_faced)
+    validate_pdf(output, page_count, recipe)
     (directory / "result.json").write_text(json.dumps({"images": metadata}))
     # The validated PDF and metadata are self-contained. Source artwork remains
     # in the job staging area, so do not retain another copy for every sheet.
@@ -287,17 +293,22 @@ def smoke_paper(source, directory, cards, recipe):
                 raise ValueError("Crowned registration marks moved out of their approved positions")
         return image
 
-    for double_faced in (False, True):
-        side_mode = "dfc" if double_faced else "ordinary"
+    mixed_backs = 1 if portrait else 2
+    for side_mode, first_back in (("ordinary", len(cards)), ("dfc", 0), ("mixed", len(cards) - mixed_backs)):
+        double_faced = first_back < len(cards)
         working = directory / f"{recipe}-{side_mode}"
         working.mkdir()
+        sheet_cards = [card if index >= first_back else {"id": card["id"], "frontPath": card["frontPath"]}
+                       for index, card in enumerate(cards)]
+        packing = {"sheetPacking": "double-faced-first"} if side_mode == "mixed" else {}
         chunk({"source": str(source), "directory": str(working), "label": "CLC runtime check",
                "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Approved geometry test"},
                "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"}] + (
                    [{"page": 2, "phase": "backs", "label": "CLC runtime check"}] if double_faced else []),
-               **request_paper, "doubleFaced": double_faced, "cards": cards if double_faced else [
-                   {"id": card["id"], "frontPath": card["frontPath"]} for card in cards]})
+               **request_paper, **packing, "doubleFaced": double_faced, "cards": sheet_cards})
         reader = PdfReader(working / "sheet.pdf", strict=True)
+        if ("REFEED FOR BACK" in reader.pages[0].extract_text()) != double_faced:
+            raise ValueError("Generated front page does not identify which sheets need refeeding")
         raster = read_raster(reader.pages[0])
         if not portrait:
             pixel(raster, 4, 519, (255, 255, 255))
@@ -305,13 +316,16 @@ def smoke_paper(source, directory, cards, recipe):
             pixel(raster, slot, 519, (30 + index * 20, 90, 180))
             pixel(raster, slot, 230, (255, 255, 255))
         if double_faced:
+            if "REFEED FOR BACK" in reader.pages[1].extract_text():
+                raise ValueError("Generated back page has a front-only refeed instruction")
             raster = read_raster(reader.pages[1])
             if not portrait:
                 pixel(raster, 0, 519, (255, 255, 255))
             for index, slot in enumerate(usable_slots):
                 row, column = divmod(slot, columns)
                 back_slot = row * columns + (columns - 1 - column) if portrait else (1 - row) * columns + column
-                pixel(raster, back_slot, 519, (180, 30 + index * 20, 60))
+                color = (180, 30 + index * 20, 60) if index >= first_back else (255, 255, 255)
+                pixel(raster, back_slot, 519, color)
                 pixel(raster, back_slot, 230 if portrait else 800, (255, 255, 255))
         # Exercise the merger as part of activation, too.
         merge({"inputs": [str(working / "sheet.pdf")], "output": str(working / "merged.pdf"),

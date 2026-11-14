@@ -28,7 +28,9 @@ router.post('/claim', route((req, res) => {
   }
   if (req.body?.deferredBacks !== undefined && typeof req.body.deferredBacks !== 'boolean') return res.status(400).json({ error: 'deferredBacks must be true or false' });
   if (req.body?.printRecovery !== undefined && typeof req.body.printRecovery !== 'boolean') return res.status(400).json({ error: 'printRecovery must be true or false' });
-  res.json({ job: claimForManagedStation(maxArtifacts, req.body?.deferredBacks === true, req.body?.printRecovery === true, stationPaperInput(req.body ?? {})) });
+  if (req.body?.mixedPrintSheets !== undefined && typeof req.body.mixedPrintSheets !== 'boolean') return res.status(400).json({ error: 'mixedPrintSheets must be true or false' });
+  res.json({ job: claimForManagedStation(maxArtifacts, req.body?.deferredBacks === true, req.body?.printRecovery === true,
+    stationPaperInput(req.body ?? {}), req.body?.mixedPrintSheets === true) });
 }));
 router.get('/jobs/:jobId', route((req, res) => res.json({ job: formatPrintJob(stationPrintJob(req.params.jobId), true) })));
 router.post('/jobs/:jobId/report', route((req, res) => res.json(reportPrintJob(req.params.jobId, req.body || {}))));

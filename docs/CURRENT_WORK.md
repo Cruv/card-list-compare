@@ -1,5 +1,22 @@
 # Current work checkpoint
 
+## Mixed print sheets and refeed labels
+
+CLC and the Mac companion 2.59.0 add shared sheets for new mixed batches. Fronts with
+backs print first with single-sided copies filling open slots. The front margin says
+**REFEED FOR BACK** beside the packet label. The saved back page leaves the single-sided
+positions blank. Older jobs keep their PDFs and saved pass order. See
+[the print workflow](PRINT_WORKFLOW.md#double-faced-packets-and-flip-alerts).
+
+Local verification covered JavaScript and native tests, browser preview and refeed
+controls with fake external effects, and actual PDF generation against cached upstream
+revision `0da09b729814` for Letter, A4 and Crowned A4. The Crowned 8+1 test produced
+one sheet with nine fronts and one aligned reverse face. Physical feed and alignment
+on this mixed layout still need a separate check.
+
+The household remains on the verified [v2.58.1 server release](OPERATIONS.md#print-review-sheet-count-release--v2581)
+with the 2.58.0 companion. The v2.59.0 source and companion need their own rollout.
+
 ## A4 and US Letter printing
 
 The v2.58.0 source adds a browser default and a paper-size choice in print review. Each

@@ -69,7 +69,7 @@ explicit baseline and target. The paper-deck marker is the default baseline when
 “latest” is resolved to a specific snapshot during review. Sideboards are optional and off
 by default. **Review print list** resolves the selected printing and displays its actual
 front/back thumbnails, source, copy count and double-sided status. The preview shows the total
-copies and separate counts for single-sided and double-sided sheets. Missing faces, unresolved printings
+copies and how many sheets print front-only or need a flip. Missing faces, unresolved printings
 and unsupported meld layouts block generation before a job is created. Then choose
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
@@ -216,12 +216,12 @@ are preserved in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
   Adoption of v6 does not select four marks or prove the installed cutting template.
 - Standard 63 × 88 mm cards, landscape Letter, **600 PPI**, quality **100**, crop **1 mm**,
   skipped zero-based slot **4**: seven cards per eight-position sheet.
-- Ordinary cards use `--only_fronts`. DFCs use a separate invocation without that flag,
-  paired filenames and no generic back. The current upstream fit mode is explicitly
+- Front-only sheets use `--only_fronts`. Sheets with DFCs use an invocation without that flag,
+  with paired filenames for those cards and no generic back. The current upstream fit mode is explicitly
   `stretch`, matching the earlier omitted default. Ordinary sheets carry the job and sheet
-  number; DFC sheets carry `CLC <first-eight-job-ID-characters> DFC <packet>/<total>`.
-  Upstream draws this label in its existing right margin on the front, followed by its
-  sheet/template text. Card positions, registration marks and crop are unchanged.
+  number. DFC sheets carry `CLC <first-eight-job-ID-characters> DFC <packet>/<total>`
+  and a **REFEED FOR BACK** tag on the front. This tag sits outside the cards and
+  registration marks. Card positions, registration marks and crop are unchanged.
 
 A4 uses landscape 297 × 210 mm and the upstream `a4-standard-v5.studio3` cutting
 template. It keeps seven standard cards per sheet, the 600 PPI, 1 mm crop and three
@@ -272,9 +272,9 @@ preserving the active, previous, in-use and retained job versions. The productio
 uses Debian for ARM64/AMD64 binary-wheel compatibility. The inspected upstream reference
 was `4d4aa73a95e93b09676c863a1861765863398c63`; it is not a permanent source pin.
 
-A single worker invokes upstream once per seven-card sheet, merging ordinary sheets into
-one PDF and retaining each DFC sheet as its own two-page packet. Separate jobs are never combined
-to fill a packet; a partly filled final sheet is intentional.
+A single worker invokes upstream once per sheet, with seven slots for Letter and standard A4
+or nine for Crowned A4. It merges front-only sheets into one PDF and retains each sheet
+that needs a flip as its own two-page packet. Each batch fills its own sheets.
 Limits are 250 physical copies, 20 MiB per source image, 1 GiB per PDF and 2 GiB per retained
 job, including staged sources. Saved MPC images are downloaded sequentially to disk with
 a 1.5 GiB source limit; Scryfall acquisition retains its 256 MiB unique-image limit.
@@ -292,8 +292,17 @@ was printed, and it does not complete the physical cutting or duplex proof.
 
 ## Double-faced packets and flip alerts
 
-For new jobs, companion **2.55.0+** prints the batch's ordinary fronts and every DFC front
-page on blank paper first. Their matching back passes are parked in durable
+For mixed jobs prepared in CLC **2.59.0+**, group the double-sided cards onto the first
+sheets printed. Single-sided cards fill any open slots there, and any overflow prints
+afterward. For example, eight singles and one double-sided card fit on one Crowned A4
+sheet. Page 2 of that packet prints only the matching reverse face, aligned to its front
+position. Look for **REFEED FOR BACK** on the front margin beside the batch and packet identifiers.
+A mixed batch can be downloaded or queued before updating the companion. The station
+claims it after the companion advertises mixed-sheet support (2.59.0+). Previously
+prepared batches keep their original PDFs and sequencing.
+
+Companion **2.55.0+** finishes the batch's fronts on blank paper before awaiting any flip.
+Matching back passes are parked in durable
 `backs_pending` state under **Print → Printer → Backs for later**. Other queued front jobs
 continue without an operator flip. The list keeps each job name, requester, full batch ID,
 packet label/count and front-completion time. Save the physical sheets by their printed
@@ -306,7 +315,7 @@ choose **Prepare this packet’s backs**. This selects one
 exact job/artifact; it does not say paper is loaded and does not submit any backs. Keep
 blank paper in the rear feeder while the Mac finishes current work and reserves the
 printer. Once the selected packet becomes **Waiting for flip and reload**, match its
-printed label, remove unused blank paper, and reload only its sheet in the physically
+printed label, let the front dry, remove unused blank paper, and reload the entire matching sheet in the physically
 verified orientation. Check the matching-paper acknowledgement, then choose **Confirm and
 print this packet’s backs**. Page 2 runs as a separate one-sided pass; automatic duplex
 remains disabled.

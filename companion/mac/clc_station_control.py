@@ -186,6 +186,7 @@ class StationControl:
         return {"version": self.version, "paused": self.ledger.paused(), "queue": self.config["queue"],
                 "deferredBacks": True,
                 "printRecovery": True,
+                "mixedPrintSheets": True,
                 **paper,
                 "recipeVerified": recipe_proof(self.config, recipe_id),
                 "duplexVerified": recipe_proof(self.config, recipe_id, duplex=True),

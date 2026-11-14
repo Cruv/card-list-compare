@@ -6,6 +6,7 @@ import { normalizeCardName, normalizedName } from '../../src/lib/cardIdentity.js
 import { get } from '../db.js';
 import { fetchCardImageUrls } from './scryfallImages.js';
 import { printPaperSelection } from './printPaper.js';
+import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
 export const MAX_PRINT_COPIES = 250;
 export const MAX_PRINT_LIST_TEXT_LENGTH = 100_000;
@@ -312,7 +313,8 @@ export async function buildPrintPlan(userId, deckId, options = {}) {
     ordinaryCopies: identitiesComplete ? resolvedCards.filter(card => !card.isDFC).reduce((sum, card) => sum + card.quantity, 0) : null,
     doubleFacedCopies: identitiesComplete ? resolvedCards.filter(card => card.isDFC).reduce((sum, card) => sum + card.quantity, 0) : null,
   };
-  // Preserve existing reviewed Letter plans and resumable creation intents.
+  if (plan.ordinaryCopies > 0 && plan.doubleFacedCopies > 0) plan.sheetPacking = DOUBLE_FACED_FIRST;
+  // Preserve the default Letter representation and previously frozen job inputs.
   const frozen = paperSize === 'letter' ? plan : { ...plan, paperSize, ...(printPreset ? { printPreset } : {}) };
   return { ...frozen, planHash: sha256(JSON.stringify(frozen)) };
 }

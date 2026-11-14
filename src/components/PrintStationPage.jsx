@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { CROWNED_A4_PRESET, PRINT_PAPER, printPaperChoice, printPaperLabel, printPaperUnavailable, stationPaperChoice } from '../lib/printPaper';
+import { printPacketBackCountLabel } from '../lib/printReview';
 import Icon from './Icon';
 import PrintBatchList from './PrintBatchList';
 import DeferredPrintBacks from './DeferredPrintBacks';
@@ -179,6 +180,8 @@ export default function PrintStationPage() {
     || activeJob.recovery.cupsState === 4 || (station?.health?.known === true && station.health.ok === false));
   const deferredWorkflow = activeJob?.workflow === 'deferred-backs-v1';
   const packet = activeJob?.packet;
+  const markedForRefeed = packet?.doubleFacedCardCount != null;
+  const checkDryFronts = crownedBatch || markedForRefeed;
   const packetName = packet?.label ? `Packet ${packet.packetIndex} of ${packet.packetCount}` : 'Legacy double-faced PDF';
   const sheetWord = packet?.sheetCount === 1 ? 'sheet' : 'sheets';
   const canResume = canControl && !station.paused && !activeJob?.cancelRequested && activeJob?.state === 'awaiting_refeed'
@@ -382,8 +385,10 @@ export default function PrintStationPage() {
           {packet ? <>
             {packet.label ? <p className="station-batch-id"><strong>Match the printed margin label: {packet.label}</strong></p>
               : <p>This older PDF has no saved packet label. Match all {packet.sheetCount} {sheetWord} against this batch’s downloaded double-faced PDF before continuing.</p>}
-            <p>Set aside the other completed output and remove unused blank paper from the rear feeder. Reload only {packet.sheetCount === 1 ? 'this matching sheet' : `these ${packet.sheetCount} matching sheets`}, following {station.testPrintingEnabled && !station.duplexVerified ? 'the flip direction and page order you are testing' : 'your verified flip direction and page order'}. This packet contains {packet.cardCount} {packet.cardCount === 1 ? 'card' : 'cards'}.</p>
+            {markedForRefeed && <p>Look for <strong>REFEED FOR BACK</strong> in the front margin.</p>}
+            <p>Set aside the other completed output and remove unused blank paper from the rear feeder. Reload only {packet.sheetCount === 1 ? 'this matching sheet' : `these ${packet.sheetCount} matching sheets`}, following {station.testPrintingEnabled && !station.duplexVerified ? 'the flip direction and page order you are testing' : 'your verified flip direction and page order'}. This packet has {printPacketBackCountLabel(packet)}.</p>
             {crownedBatch && <p>Reload Crowned stock only after the fronts are fully dry. The Epson prints backs in a separate pass. Let the finished sheets cure overnight before cutting or sleeving.</p>}
+            {markedForRefeed && !crownedBatch && <p>Wait for the fronts to dry fully before reloading this sheet.</p>}
             <p>This selected back pass has reserved the printer. Other CLC jobs wait while you reload it. Confirm below only after the matching paper is loaded.</p>
             <p>{deferredWorkflow ? 'After its back pass finishes, remove the printed sheet and confirm blank paper is ready before other front jobs resume.' : 'This older job uses its saved alternating front/back sequence. Restore blank paper immediately after its backs finish for the next front pass.'}</p>
             {(!resumeJobId || !matchingResume) && <button className="btn btn-primary" type="button" disabled={!canResume} onClick={() => { setResumeJobId(activeJob.id); setResumeArtifactId(activeJob.artifactId); setPaperReloaded(false); }}>Confirm this paper is reloaded</button>}
@@ -391,11 +396,11 @@ export default function PrintStationPage() {
           {!fresh && <p>Status is stale. Wait for a successful refresh before handling this packet.</p>}
           {fresh && activePaperUnavailable && <p>{activePaperUnavailable}</p>}
           {station.paused && <p>Unpause the station before confirming this reloaded packet.</p>}
-          {resumeJobId && <section className="station-refeed" aria-label="Confirm reloaded batch"><h3>Confirm the paper at the printer</h3>{!matchingResume && <p className="station-batch-id">Batch {resumeJobId}<br />Back pass: {resumeArtifactId}</p>}{!matchingResume && <p>This is no longer the waiting pass. Check the current batch before resuming.</p>}<label><input type="checkbox" autoFocus checked={paperReloaded && matchingResume} onChange={event => setPaperReloaded(event.target.checked)} disabled={!canResume || !matchingResume} /><span>{crownedBatch && 'I checked that the fronts are fully dry. '}I matched this packet to the completed output, then flipped and reloaded only its {packet?.sheetCount === 1 ? 'sheet' : 'sheets'} into the rear feeder using {station.testPrintingEnabled && !station.duplexVerified ? 'the direction and page order I am testing' : 'the verified direction and page order'}.</span></label><div className="station-actions"><button className="btn btn-primary" type="button" disabled={!canResume || !matchingResume || !paperReloaded} onClick={() => command('resume', { jobId: resumeJobId, artifactId: resumeArtifactId, paperReloaded: true })}>Confirm and print this packet’s backs</button><button className="btn btn-secondary" type="button" onClick={() => { setResumeJobId(null); setResumeArtifactId(null); setPaperReloaded(false); }}>Cancel</button></div></section>}
+          {resumeJobId && <section className="station-refeed" aria-label="Confirm reloaded batch"><h3>Confirm the paper at the printer</h3>{!matchingResume && <p className="station-batch-id">Batch {resumeJobId}<br />Back pass: {resumeArtifactId}</p>}{!matchingResume && <p>This is no longer the waiting pass. Check the current batch before resuming.</p>}<label><input type="checkbox" autoFocus checked={paperReloaded && matchingResume} onChange={event => setPaperReloaded(event.target.checked)} disabled={!canResume || !matchingResume} /><span>{checkDryFronts && 'I checked that the fronts are fully dry. '}I matched this packet to the completed output, then flipped and reloaded only its {packet?.sheetCount === 1 ? 'sheet' : 'sheets'} into the rear feeder using {station.testPrintingEnabled && !station.duplexVerified ? 'the direction and page order I am testing' : 'the verified direction and page order'}.</span></label><div className="station-actions"><button className="btn btn-primary" type="button" disabled={!canResume || !matchingResume || !paperReloaded} onClick={() => command('resume', { jobId: resumeJobId, artifactId: resumeArtifactId, paperReloaded: true })}>Confirm and print this packet’s backs</button><button className="btn btn-secondary" type="button" onClick={() => { setResumeJobId(null); setResumeArtifactId(null); setPaperReloaded(false); }}>Cancel</button></div></section>}
         </section> : <section className="station-card" aria-label="Current print batch">
             <div className="station-card-heading"><h2>Current batch</h2>{activeJob && <Badge tone={activeJob.state === 'uncertain' ? 'warning' : 'neutral'}>{JOB_STATES[activeJob.state] || activeJob.state}</Badge>}</div>
             {activeJob ? <><h3>{activeJob.deckName || 'Card batch'}</h3><p className="station-batch-id">{printPaperLabel(activeJob)} · Batch {activeJob.id}</p>
-              {packet && <><p><strong>{packetName}</strong> · {packet.sheetCount} {sheetWord} · {packet.cardCount} cards</p>{packet.label && <p className="station-batch-id">Margin label: {packet.label}</p>}</>}
+              {packet && <><p><strong>{packetName}</strong> · {packet.sheetCount} {sheetWord} · {printPacketBackCountLabel(packet)}</p>{packet.label && <p className="station-batch-id">Margin label: {packet.label}</p>}</>}
               {packet && activeJob.phase === 'fronts' && <p>{deferredWorkflow ? 'This is a front pass. Keep blank paper in the rear feeder and save the labeled sheet for its backs later. Other front jobs continue.' : 'This older job keeps its original front/back sequence. Keep blank paper loaded and follow its next reload instruction.'}</p>}
               {activeJob.cancelRequested && <p role="status">Cancellation requested. Wait for the Mac to stop affected pages before clearing any paper.</p>}
               {activeJob.state === 'uncertain' && <p className="station-message station-message--warning">Check this batch against Epson’s queue at the Mac. Reconcile the existing submission before sending any more pages.</p>}

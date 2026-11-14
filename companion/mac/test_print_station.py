@@ -53,6 +53,25 @@ def packet_job(packet_count=2):
     return value
 
 
+def mixed_job(with_ordinary=True):
+    value = packet_job(2)
+    ordinary, first, last = value["artifacts"]
+    ordinary["id"] = "fronts"
+    first.update(cardCount=7, doubleFacedCardCount=7)
+    last.update(cardCount=7 if with_ordinary else 4, doubleFacedCardCount=2)
+    value["artifacts"] = [first, last] + ([ordinary] if with_ordinary else [])
+    value["steps"] = value["steps"][1:]
+    for step in value["steps"]:
+        if step["phase"] == "backs":
+            step["requiresRefeed"] = True
+    if with_ordinary:
+        value["steps"].append({"artifactId": "fronts", "phase": "fronts", "state": "pending"})
+    value["steps"].sort(key=lambda step: step["phase"] == "backs")
+    value.update(workflow=station.DEFERRED_WORKFLOW, sheetPacking=station.DOUBLE_FACED_FIRST,
+                 totalCopies=sum(item["cardCount"] for item in value["artifacts"]))
+    return value
+
+
 class FakeClient:
     def __init__(self, value):
         self.job = value
@@ -702,6 +721,45 @@ class StationTests(unittest.TestCase):
         with self.assertRaisesRegex(station.StationError, "37"):
             station.checked_job(packet_job(37), self.config)
 
+    def test_mixed_packing_requires_exact_packet_counts_and_manual_back_steps(self):
+        for value in (mixed_job(), mixed_job(False)):
+            self.assertIs(station.checked_job(value, self.config), value)
+        exact_fill = mixed_job()
+        exact_fill["artifacts"][1]["doubleFacedCardCount"] = 7
+        self.assertIs(station.checked_job(exact_fill, self.config), exact_fill)
+        for label, tamper in {
+            "unknown packing": lambda value: value.update(sheetPacking="different-packing"),
+            "legacy workflow": lambda value: value.pop("workflow"),
+            "legacy marker": lambda value: value.pop("sheetPacking"),
+            "packet order": lambda value: value["artifacts"].insert(0, value["artifacts"].pop()),
+            "missing count": lambda value: value["artifacts"][1].pop("doubleFacedCardCount"),
+            "too many backs": lambda value: value["artifacts"][1].update(doubleFacedCardCount=8),
+            "boolean count": lambda value: value["artifacts"][1].update(doubleFacedCardCount=True),
+            "padding before the last packet": lambda value: value["artifacts"][0].update(doubleFacedCardCount=2),
+            "ordinary has backs": lambda value: value["artifacts"][-1].update(doubleFacedCardCount=1),
+            "step order": lambda value: value["steps"].reverse(),
+            "manual refeed": lambda value: value["steps"][-1].pop("requiresRefeed"),
+            "early refeed": lambda value: value.update(backRequest={"id": "early", "artifactId": "double-faced-001"}),
+            "total": lambda value: value.update(totalCopies=13),
+        }.items():
+            with self.subTest(label=label), self.assertRaises(station.StationError):
+                value = mixed_job()
+                tamper(value)
+                station.checked_job(value, self.config)
+
+    def test_mixed_saved_identity_pins_packing_and_artifact_metadata(self):
+        original = mixed_job()
+        self.station.adopt(original)
+        for changes in (lambda value: value.pop("sheetPacking"),
+                        lambda value: value["artifacts"][1].update(doubleFacedCardCount=3)):
+            with self.subTest(changes=changes):
+                current = copy.deepcopy(original)
+                changes(current)
+                self.client.job = current
+                with self.assertRaisesRegex(station.StationError, "identity changed"):
+                    self.station.refresh_job(original)
+        self.assertEqual(self.cups.submissions, [])
+
     def test_canceled_cups_job_requires_paper_clearance_not_automatic_next_job(self):
         self.station.poll_once()
         self.cups.history[0]["state"] = 7
@@ -794,6 +852,13 @@ class StationTests(unittest.TestCase):
         self.assertEqual(result["spooler_submissions"], 0)
         self.assertTrue(result["commands"][1]["requires_operator_refeed"])
 
+    def test_mixed_dry_run_shows_front_order_before_manual_backs(self):
+        result = station.dry_run(self.config, mixed_job())
+        self.assertEqual([(entry["artifact"], entry["phase"]) for entry in result["commands"]], [
+            ("double-faced-001", "fronts"), ("double-faced-002", "fronts"), ("fronts", "fronts"),
+            ("double-faced-001", "backs"), ("double-faced-002", "backs"),
+        ])
+
 
 class BoundaryTests(unittest.TestCase):
     def setUp(self):
@@ -812,6 +877,7 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(request.full_url, self.config["server_url"] + "/api/print-station/claim")
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(json.loads(request.data), {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+                                                   "mixedPrintSheets": True,
                                                    "loadedPaperSize": "letter", "supportedRecipeIds": [station.LETTER_RECIPE]})
 
     def test_checksums_stream_and_promote_download_atomically(self):

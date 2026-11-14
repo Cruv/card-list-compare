@@ -126,6 +126,7 @@ class ControlTests(unittest.TestCase):
         self.config["loaded_paper_size"] = "a4"
         self.client.job["recipeId"] = native.A4_RECIPE
         snapshot = self.control.snapshot()
+        self.assertIs(snapshot["mixedPrintSheets"], True)
         self.assertEqual(snapshot["supportedRecipeIds"], [native.LETTER_RECIPE, native.A4_RECIPE])
         self.assertEqual(snapshot["loadedPaperSize"], "a4")
         self.assertIs(snapshot["recipeVerified"], False)

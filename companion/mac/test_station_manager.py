@@ -94,6 +94,16 @@ class ManagerTests(unittest.TestCase):
         self.ledger.write("UPDATE jobs SET state='canceled' WHERE id='saved'")
         manager.assert_workflow_compatible(self.config, '2.56.0')
 
+    def test_saved_mixed_backs_prevent_rollback_until_resolved(self):
+        payload = {'workflow': 'deferred-backs-v1', 'sheetPacking': 'double-faced-first'}
+        self.ledger.write("INSERT INTO jobs VALUES('saved',?,'recipe','backs_pending',NULL,0)", (json.dumps(payload),))
+        manager.assert_idle(self.config)
+        manager.assert_workflow_compatible(self.config, '2.59.0')
+        with self.assertRaisesRegex(manager.ManagerError, 'Finish or cancel saved mixed sheets'):
+            manager.assert_workflow_compatible(self.config, '2.58.0')
+        self.ledger.write("UPDATE jobs SET state='canceled' WHERE id='saved'")
+        manager.assert_workflow_compatible(self.config, '2.58.0')
+
     def test_a4_stock_or_saved_pass_blocks_legacy_worker_rollback(self):
         with self.assertRaisesRegex(manager.ManagerError, 'Restore US Letter stock'):
             manager.assert_workflow_compatible({**self.config, "loaded_paper_size": "a4"}, '2.57.3')

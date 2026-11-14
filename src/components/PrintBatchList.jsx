@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { cancelHouseholdPrintJob, cancelPrintJobBacks, getPrintBatches } from '../lib/api';
 import { printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
+import { mixedPrintCompanionWait } from '../lib/printReview';
 import ConfirmModal from './ConfirmModal';
 import Icon from './Icon';
 import './PrintBatchList.css';
@@ -38,7 +39,7 @@ function queueDetail(job) {
 }
 
 function BatchRow({ job, station, scope, fresh, busy, onCancel }) {
-  const detail = queueDetail(job);
+  const detail = mixedPrintCompanionWait(job, station) || queueDetail(job);
   const paperUnavailable = job.state === 'queued' && station?.online && printPaperUnavailable(job, station);
   const href = job.canOpen ? (job.deckId == null
     ? `#print-list?batch=${encodeURIComponent(job.id)}`

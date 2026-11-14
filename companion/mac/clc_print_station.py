@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.58.0"
+COMPANION_VERSION = "2.59.0"
 # launchd owns this socket while idle cupsd is stopped. A TCP-only request to
 # localhost cannot wake the service; the fixed socket also ignores shell hosts.
 LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
@@ -49,12 +49,13 @@ CROWNED_DRIVER_OPTIONS = {
     "EPIJ_PGEx": "1", "EPIJ_RmMg": "0", "EPIJ_DbSidBin": "0",
 }
 CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_DRIVER_OPTIONS}
-JOB_IDENTITY_FIELDS = ("id", "manifestSha256", "claimToken", "workflow", "recipeId")
+JOB_IDENTITY_FIELDS = ("id", "manifestSha256", "claimToken", "workflow", "recipeId", "sheetPacking")
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
                                        "job-name", "job-hold-until", "job-sheets", "landscape", "job-error-policy", "job-cancel-after"}
 TERMINAL = {"completed", "failed", "canceled"}
 PASS_TERMINAL = {"completed", "canceled"}
 DEFERRED_WORKFLOW = "deferred-backs-v1"
+DOUBLE_FACED_FIRST = "double-faced-first"
 
 
 class StationError(Exception):
@@ -268,6 +269,7 @@ class Client:
 
     def claim(self):
         return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+                                                     "mixedPrintSheets": True,
                                                      **paper_capabilities(self.config)}).get("job")
 
     def management_heartbeat(self, status):
@@ -433,6 +435,44 @@ class Ledger:
         return bool(row and row[0] == "1")
 
 
+def checked_mixed_layout(job, artifacts, packets, capacity):
+    ordinary = artifacts[len(packets):]
+    if not packets or artifacts[:len(packets)] != packets or len(ordinary) > 1:
+        raise StationError("Mixed sheets must start with the numbered double-sided packets")
+    for packet in packets:
+        backs = packet.get("doubleFacedCardCount")
+        if type(backs) is not int or not 1 <= backs <= packet["cardCount"]:
+            raise StationError("Invalid double-sided card count in mixed sheet packet")
+    if any(packet["doubleFacedCardCount"] != capacity for packet in packets[:-1]):
+        raise StationError("Only the last double-sided packet can contain single-sided cards")
+    last = packets[-1]
+    if ordinary:
+        front = ordinary[0]
+        copies = front.get("cardCount")
+        if (front["kind"] != "ordinary" or front["id"] != "fronts" or type(copies) is not int or copies < 1
+                or front.get("sheetCount") != front["pageCount"] or front["pageCount"] != (copies + capacity - 1) // capacity
+                or last["cardCount"] != capacity):
+            raise StationError("Invalid ordinary front artifact in mixed sheet layout")
+    elif last["doubleFacedCardCount"] == last["cardCount"]:
+        raise StationError("Mixed sheet layout must contain single-sided copies")
+    if type(job.get("totalCopies")) is not int or job["totalCopies"] != sum(item["cardCount"] for item in artifacts):
+        raise StationError("Mixed sheet card count does not match the job total")
+
+    expected = [(artifact["id"], "fronts") for artifact in artifacts] + [(packet["id"], "backs") for packet in packets]
+    steps = job.get("steps")
+    if (not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps)
+            or [(step.get("artifactId"), step.get("phase")) for step in steps] != expected
+            or any(step.get("requiresRefeed") is not True for step in steps if step["phase"] == "backs")):
+        raise StationError("Mixed sheet steps do not match the packet order or refeed requirements")
+    if job.get("backRequest") is not None and any(step.get("state") != "completed" for step in steps[:len(artifacts)]):
+        raise StationError("Mixed sheet backs require every front to complete before refeed")
+
+
+def same_job_identity(original, current):
+    return (isinstance(current, dict) and all(current.get(key) == original.get(key) for key in JOB_IDENTITY_FIELDS)
+            and (original.get("sheetPacking") != DOUBLE_FACED_FIRST or current.get("artifacts") == original.get("artifacts")))
+
+
 def checked_job(job, config):
     checked_id(job.get("id"), "job ID")
     if not isinstance(job.get("claimToken"), str) or not 16 <= len(job["claimToken"]) <= 512:
@@ -448,10 +488,15 @@ def checked_job(job, config):
         raise StationError("Job has no immutable manifest SHA-256")
     if job.get("workflow") not in {None, DEFERRED_WORKFLOW}:
         raise StationError("Unsupported saved print workflow")
+    mixed = job.get("sheetPacking") == DOUBLE_FACED_FIRST
+    if job.get("sheetPacking") is not None and (not mixed or job.get("workflow") != DEFERRED_WORKFLOW):
+        raise StationError("Unsupported sheet packing or saved workflow")
     artifacts = job.get("artifacts", [])
-    if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 37:
+    if (not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 37
+            or any(not isinstance(item, dict) for item in artifacts)):
         raise StationError("Expected one to 37 finished PDF artifacts")
     packets = [item for item in artifacts if "packetIndex" in item or "packetCount" in item]
+    capacity = 9 if recipe_id == CROWNED_RECIPE else 7
     ids, size = set(), 0
     for artifact in artifacts:
         if "_selected_pages" in artifact:
@@ -477,6 +522,8 @@ def checked_job(job, config):
                 raise StationError("Ordinary artifact must contain only all front pages")
         elif count % 2 or fronts != list(range(1, count + 1, 2)) or backs != list(range(2, count + 1, 2)):
             raise StationError("DFC artifact must identify alternating front/back page pairs")
+        if "doubleFacedCardCount" in artifact and (not mixed or artifact not in packets):
+            raise StationError("Double-sided card count requires a mixed sheet packet")
         if artifact in packets:
             index = packets.index(artifact) + 1
             if (artifact["kind"] != "dfc" or count != 2 or artifact.get("sheetCount") != 1
@@ -484,10 +531,12 @@ def checked_job(job, config):
                     or type(artifact.get("packetCount")) is not int or artifact["packetCount"] != len(packets)
                     or artifact["id"] != "double-faced-" + str(index).zfill(3)
                     or type(artifact.get("cardCount")) is not int
-                    or not 1 <= artifact["cardCount"] <= (9 if recipe_id == CROWNED_RECIPE else 7)
+                    or not 1 <= artifact["cardCount"] <= capacity
                     or not isinstance(artifact.get("label"), str)
                     or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _/-]{0,63}", artifact["label"])):
                 raise StationError("Invalid double-sided packet identity or page count")
+    if mixed:
+        checked_mixed_layout(job, artifacts, packets, capacity)
     if size > config["max_job_bytes"]:
         raise StationError("Job PDF size exceeds the local storage limit")
     for step in job.get("steps", []):
@@ -823,7 +872,7 @@ class Station:
         existing = self.ledger.db.execute("SELECT * FROM jobs WHERE id=?", (job["id"],)).fetchone()
         if existing:
             original = json.loads(existing["payload"])
-            if any(original.get(key) != job.get(key) for key in JOB_IDENTITY_FIELDS):
+            if not same_job_identity(original, job):
                 raise StationError("Previously seen job changed its manifest, claim or recipe; refusing to print")
             if existing["state"] == "backs_pending" and job.get("workflow") == DEFERRED_WORKFLOW:
                 if job.get("state") == "awaiting_refeed" and job.get("backRequest"):
@@ -841,9 +890,12 @@ class Station:
         with self.ledger.db:
             self.ledger.db.execute("INSERT INTO jobs(id,payload,recipe_hash,updated) VALUES(?,?,?,?)",
                                    (job["id"], json.dumps(job), recipe_fingerprint(self.config, job["recipeId"]), time.time()))
-            # Preserve stable pass rows/titles across upgrades. Scheduling uses
-            # the saved workflow and explicit back reservation, not row order.
-            for artifact in sorted(job["artifacts"], key=lambda a: a["kind"] == "dfc"):
+            # Save fronts in manifest order for mixed batches. Keep the original
+            # ordinary-first order for legacy batches and all existing pass rows.
+            artifacts = job["artifacts"]
+            if job.get("sheetPacking") != DOUBLE_FACED_FIRST:
+                artifacts = sorted(artifacts, key=lambda artifact: artifact["kind"] == "dfc")
+            for artifact in artifacts:
                 for phase in (["fronts", "backs"] if artifact["kind"] == "dfc" else ["fronts"]):
                     step = steps.get((artifact["id"], phase), {})
                     state_value = step.get("state", "pending")
@@ -864,7 +916,7 @@ class Station:
     def retire_canceled_before_cups(self, original, fresh):
         """Release only a verified cancellation with durable proof of no CUPS attempt."""
         if (not isinstance(fresh, dict) or fresh.get("state") != "canceled"
-                or any(fresh.get(key) != original.get(key) for key in ("id", "manifestSha256", "claimToken"))):
+                or any(fresh.get(key) != original.get(key) for key in ("id", "manifestSha256", "claimToken", "sheetPacking"))):
             return False
         entries = self.ledger.passes(original["id"])
         if not entries or any(entry["cups_started"] != 0 or entry["spooler_id"]
@@ -900,9 +952,10 @@ class Station:
         if reply is not None:
             return {**reply, "replayed": True}
         reply = self.client.report(job, event)
-        if (not isinstance(reply.get("job"), dict)
-                or any(reply["job"].get(key) != job.get(key) for key in JOB_IDENTITY_FIELDS)):
+        if not same_job_identity(job, reply.get("job")):
             raise StationError("CLC did not acknowledge the expected job")
+        if job.get("sheetPacking") == DOUBLE_FACED_FIRST:
+            checked_job(reply["job"], self.config)
         with self.ledger.db:
             self.ledger.db.execute("UPDATE events SET reply=? WHERE event_key=?", (json.dumps(reply), key))
             self.ledger.db.execute("UPDATE jobs SET payload=?,updated=? WHERE id=?",
@@ -914,8 +967,7 @@ class Station:
 
     def refresh_job(self, original):
         fresh = self.client.get_job(original["id"])
-        if (not isinstance(fresh, dict) or any(fresh.get(key) != original.get(key)
-                for key in JOB_IDENTITY_FIELDS)):
+        if not same_job_identity(original, fresh):
             raise StationError("Server job identity changed; refusing to continue")
         checked_job(fresh, self.config)
         self.ledger.write("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(fresh), fresh["id"]))
@@ -1449,6 +1501,8 @@ def dry_run(config, job):
             commands.append({"artifact": artifact["id"], "phase": phase,
                              "requires_operator_refeed": phase == "backs",
                              "argv": cups.args(artifact, phase, "CLC-DRY-RUN", path, recipe_id=job["recipeId"])})
+    if job.get("sheetPacking") == DOUBLE_FACED_FIRST:
+        commands.sort(key=lambda entry: entry["requires_operator_refeed"])
     return {"dry_run": True, "claimed_jobs": 0, "spooler_submissions": 0, "commands": commands}
 
 
