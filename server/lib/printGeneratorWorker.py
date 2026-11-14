@@ -10,14 +10,11 @@ import sys
 import warnings
 
 from PIL import Image, ImageDraw
-from pypdf import PdfReader, PdfWriter, Transformation
-from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject, RectangleObject
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject
 
 CROWNED_LANDSCAPE = "crowned-a4-landscape"
 CROWNED_LANDSCAPE_GEOMETRY = json.loads(Path(__file__).with_name("crownedLandscapeGeometry.json").read_text())
-LANDSCAPE_CARD = CROWNED_LANDSCAPE_GEOMETRY["cardPixels"]
-LANDSCAPE_PAPER = CROWNED_LANDSCAPE_GEOMETRY["paperMillimeters"]
-POINTS_PER_MM = 72 / 25.4
 
 # The largest approved sheet is A4 at 7014 × 4960 pixels. Source cards keep their smaller cap.
 APPROVED_PAPER = {
@@ -30,7 +27,7 @@ APPROVED_PAPER = {
         "name": "A4", "version": 5, "width": "297mm", "height": "210mm",
         # The rounded layout and the truncated Matplotlib registration raster differ.
         "registration_length": "9.4mm", "layout_pixels": (3508, 2480), "raster_pixels": (7014, 4960),
-        "x": [244, 1003, 1762, 2521], "y": [194, 1248],
+        "x": CROWNED_LANDSCAPE_GEOMETRY["cardPixels"]["x"], "y": CROWNED_LANDSCAPE_GEOMETRY["cardPixels"]["y"],
     },
     "crowned-a4": {
         "name": "Crowned A4", "version": 2, "width": "297mm", "height": "210mm",
@@ -39,10 +36,7 @@ APPROVED_PAPER = {
         "x": [109, 868, 1627], "y": [180, 1234, 2288],
     },
 }
-APPROVED_PAPER[CROWNED_LANDSCAPE] = {
-    **APPROVED_PAPER["a4"], "name": "Crowned A4 Landscape", "version": 1,
-    "x": LANDSCAPE_CARD["x"], "y": LANDSCAPE_CARD["y"],
-}
+APPROVED_PAPER[CROWNED_LANDSCAPE] = {**APPROVED_PAPER["a4"], "name": "Crowned A4 Landscape"}
 Image.MAX_IMAGE_PIXELS = max(width * height for width, height in (paper["raster_pixels"] for paper in APPROVED_PAPER.values()))
 MAX_SOURCE_PIXELS = 16_000_000
 warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -61,7 +55,7 @@ def paper_key(request):
 
 def approved_geometry(source, recipe):
     if recipe == CROWNED_LANDSCAPE:
-        # The adapter reuses A4 v5's standard card dimensions, spacing and back transform.
+        # Crowned Landscape uses the upstream A4 v5 grid and registration marks.
         recipe = "a4"
     paper = APPROVED_PAPER[recipe]
     portrait = recipe == "crowned-a4"
@@ -117,14 +111,10 @@ def image_copy(source, destination):
 def validate_pdf(filename, count, recipe, *, upstream=False):
     paper = APPROVED_PAPER[recipe]
     width, height = paper["raster_pixels"]
-    portrait = recipe in ("crowned-a4", CROWNED_LANDSCAPE) and not upstream
+    portrait = recipe == "crowned-a4" and not upstream
     page_width, page_height = (height, width) if portrait else (width, height)
     orientation = "portrait" if portrait else "landscape"
     media_box = [0, 0, page_width * 72 / 600, page_height * 72 / 600]
-    exact_a4 = recipe == CROWNED_LANDSCAPE and not upstream
-    if exact_a4:
-        media_box = [0, 0, LANDSCAPE_PAPER["width"] * POINTS_PER_MM, LANDSCAPE_PAPER["height"] * POINTS_PER_MM]
-        media_box = [round(value, 4) for value in media_box]
     # Passing a filename makes pypdf read the entire file into BytesIO. A file stream
     # plus per-page cache eviction keeps validation proportional to one sheet.
     with open(filename, "rb") as stream:
@@ -133,9 +123,6 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
             raise ValueError(f"Expected {count} pages, got {len(reader.pages)}")
         for page in reader.pages:
             actual_box = list(map(float, page.mediabox))
-            if exact_a4:
-                # A true 210 × 297 mm page requires fractional PDF points.
-                actual_box = [round(value, 4) for value in actual_box]
             if actual_box != media_box or page.rotation:
                 raise ValueError(f"Generated PDF does not have unrotated {orientation} {paper['name']} pages")
             objects = page["/Resources"]["/XObject"].get_object()
@@ -146,24 +133,6 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
                 raise ValueError("Upstream changed its output color space")
             reader.resolved_objects.clear()
         reader.close()
-
-
-def landscape_registration(top):
-    """Physical portrait marks in upstream's anchor/stroke convention."""
-    marks = CROWNED_LANDSCAPE_GEOMETRY["registrationMillimeters"]
-    left, right, leading, trailing, length, thickness = (marks[key] for key in
-        ("left", "right", "top", "bottom", "length", "thickness"))
-    def point(x, y):
-        return f"{x * POINTS_PER_MM:.6f} {top - y * POINTS_PER_MM:.6f}"
-
-    arm = length - thickness / 2
-    side = length * POINTS_PER_MM
-    return [f"0 G {thickness * POINTS_PER_MM:.6f} w 0 J",
-            f"{point(left, leading + length)} {side:.6f} {side:.6f} re B",
-            f"{point(right - arm, leading)} m {point(right, leading)} l S",
-            f"{point(right, leading)} m {point(right, leading + arm)} l S",
-            f"{point(left, trailing)} m {point(left + arm, trailing)} l S",
-            f"{point(left, trailing)} m {point(left, trailing - arm)} l S"]
 
 
 def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False):
@@ -206,31 +175,16 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             fonts[NameObject("/CLCPageIdentity")] = font
             resources[NameObject("/Font")] = fonts
             page[NameObject("/Resources")] = resources
-            shifted = recipe == CROWNED_LANDSCAPE
             portrait = recipe == "crowned-a4"
             if portrait:
                 # Upstream rotates portrait raster artwork counterclockwise into
                 # landscape. Restore portrait on the PDF page without resampling.
                 page.rotate(90)
                 page.transfer_rotation_to_content()
-            if shifted:
-                # Keep 600 PPI. Anchor the clockwise raster to true A4's top/right and
-                # extend the rounded raster box by less than 0.1 mm on the remaining edges.
-                page.rotate(90)
-                page.transfer_rotation_to_content()
-                w, h = (LANDSCAPE_PAPER[key] * POINTS_PER_MM for key in ("width", "height"))
-                page.add_transformation(Transformation().translate(w - float(page.mediabox.right),
-                                                                   h - float(page.mediabox.top)))
-                page.mediabox = page.cropbox = RectangleObject((0, 0, w, h))
-                lines[-1] += " | FEED THIS EDGE FIRST"
             top = float(page.mediabox.top)
-            commands = ["q", "0 g"]
-            if shifted:
-                commands.extend(landscape_registration(top))
-            commands.extend(("BT", f"/CLCPageIdentity {7 if shifted else 8} Tf"))
-            # Crowned's highest cards start at y=43.2pt from the top. Keep
-            # text outside the registration corners and the card bleed.
-            offsets = (15, 22, 29) if shifted else (16, 25, 34) if portrait else (20, 30, 40)
+            commands = ["q", "0 g", "BT", "/CLCPageIdentity 8 Tf"]
+            # Keep the label outside the registration corners and card bleed.
+            offsets = (16, 25, 34) if portrait else (20, 30, 40)
             for offset, text in zip(offsets, lines):
                 commands.extend((f"1 0 0 1 66 {top - offset:g} Tm", f"<{text.encode('ascii').hex()}> Tj"))
             commands.extend(("ET", "Q"))
@@ -243,44 +197,6 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             writer.write(destination)
         reader.close()
     temporary.replace(filename)
-
-
-def crowned_landscape_upstream(source, args):
-    """Run the normal upstream composer with only the grid and margin graphics replaced."""
-    approved_geometry(source, CROWNED_LANDSCAPE)
-    import page_manager
-    import utilities
-    from enums import Orientation
-    from create_pdf import cli
-
-    base_layout = page_manager.generate_layout
-
-    def shifted_layout(*args, **kwargs):
-        layout = base_layout(*args, **kwargs)
-        return layout._replace(x_pos=LANDSCAPE_CARD["x"][:], y_pos=LANDSCAPE_CARD["y"][:])
-
-    def blank_registration(paper_width, paper_height, inset, thickness, length, dpi, registration):
-        # Keep upstream's exact landscape canvas and 600 PPI encoding. CLC draws the
-        # asymmetric marks as vectors after normalizing the physical A4 page.
-        size = tuple(value * dpi // 600 for value in APPROVED_PAPER[CROWNED_LANDSCAPE]["raster_pixels"])
-        return Image.new("RGB", size, "white")
-
-    def append_pages(front, back, pages, page_width, page_height, ppi_ratio, template,
-                     only_fronts, label, orientation, label_margin_px, borderless):
-        if orientation != Orientation.LANDSCAPE:
-            raise ValueError("Crowned A4 Landscape requires landscape artwork imposition")
-        # The upstream raster label is at the paper's trailing edge. CLC supplies
-        # its own bounded identification at the physical leading edge.
-        pages.append(front)
-        if not only_fronts:
-            pages.append(back)
-
-    # These overrides exist only in the isolated subprocess. The job still uses
-    # upstream crop, bleed, card ordering, face rotation and PDF encoding.
-    page_manager.generate_layout = shifted_layout
-    page_manager.generate_reg_mark = blank_registration
-    utilities.add_front_back_pages = append_pages
-    cli.main(args=args, standalone_mode=False)
 
 
 def chunk(request):
@@ -307,8 +223,6 @@ def chunk(request):
         metadata.append(item)
     output = directory / "sheet.pdf"
     command = [sys.executable, str(source / "create_pdf.py")]
-    if recipe == CROWNED_LANDSCAPE:
-        command = [sys.executable, str(Path(__file__).resolve()), "crowned-landscape", str(source)]
     args = ["--front_dir_path", str(directory / "front"),
             "--back_dir_path", str(directory / "back"), "--double_sided_dir_path", str(directory / "double_sided"),
             "--output_path", str(output), "--card_size", "standard", "--paper_size", paper_size, "--registration", "3",
@@ -371,10 +285,10 @@ def smoke(source, directory):
 def smoke_paper(source, directory, cards, recipe):
     paper = APPROVED_PAPER[recipe]
     portrait = recipe == "crowned-a4"
-    shifted = recipe == CROWNED_LANDSCAPE
-    usable_slots = list(range(len(cards))) if portrait or shifted else [0, 1, 2, 3, 5, 6, 7]
+    centered = recipe == CROWNED_LANDSCAPE
+    usable_slots = list(range(len(cards))) if portrait or centered else [0, 1, 2, 3, 5, 6, 7]
     columns = len(paper["x"])
-    request_paper = {"paperSize": "a4", "printPreset": recipe} if portrait or shifted else {"paperSize": recipe}
+    request_paper = {"paperSize": "a4", "printPreset": recipe} if portrait or centered else {"paperSize": recipe}
 
     def pixel(raster, slot, local_y, expected):
         point = ((paper["x"][slot % columns] + 372) * 2, (paper["y"][slot // columns] + local_y) * 2)
@@ -383,13 +297,12 @@ def smoke_paper(source, directory, cards, recipe):
 
     def read_raster(page):
         image = page.images[0].image
-        if shifted:
-            # The PDF maps the landscape raster's right edge to the physical
-            # trailing edge. Keep the final 20 mm free of any card/bleed ink.
-            end = image.width - round(20 * 600 / 25.4)
-            strip = image.crop((end, 0, image.width, image.height))
-            if any(low < 252 for low, _ in strip.getextrema()):
-                raise ValueError("Crowned A4 Landscape artwork occupies the reserved trailing strip")
+        if centered:
+            # Check the A4 v5 registration square and both L marks with every slot filled.
+            for x_mm, y_mm in ((12.5, 12.5), (287, 16), (10, 194)):
+                point = (round(x_mm * 600 / 25.4), round(y_mm * 600 / 25.4))
+                if max(image.getpixel(point)) > 48:
+                    raise ValueError("Centered A4 registration marks moved out of their approved positions")
         if not portrait:
             return image
         image = image.transpose(Image.Transpose.ROTATE_270)
@@ -417,7 +330,7 @@ def smoke_paper(source, directory, cards, recipe):
         if ("REFEED FOR BACK" in reader.pages[0].extract_text()) != double_faced:
             raise ValueError("Generated front page does not identify which sheets need refeeding")
         raster = read_raster(reader.pages[0])
-        if not portrait and not shifted:
+        if not portrait and not centered:
             pixel(raster, 4, 519, (255, 255, 255))
         for index, slot in enumerate(usable_slots):
             pixel(raster, slot, 519, (30 + index * 20, 90, 180))
@@ -426,7 +339,7 @@ def smoke_paper(source, directory, cards, recipe):
             if "REFEED FOR BACK" in reader.pages[1].extract_text():
                 raise ValueError("Generated back page has a front-only refeed instruction")
             raster = read_raster(reader.pages[1])
-            if not portrait and not shifted:
+            if not portrait and not centered:
                 pixel(raster, 0, 519, (255, 255, 255))
             for index, slot in enumerate(usable_slots):
                 row, column = divmod(slot, columns)
@@ -446,7 +359,5 @@ if __name__ == "__main__":
         chunk(json.loads(Path(sys.argv[2]).read_text()))
     elif sys.argv[1] == "merge":
         merge(json.loads(Path(sys.argv[2]).read_text()))
-    elif sys.argv[1] == "crowned-landscape":
-        crowned_landscape_upstream(Path(sys.argv[2]), sys.argv[3:])
     else:
         raise ValueError("Unknown CLC print helper operation")

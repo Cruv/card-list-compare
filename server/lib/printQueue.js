@@ -502,7 +502,8 @@ export function assertStationWorkflow(row, deferredBacks, printRecovery = false,
 export const savedPrintJobPaper = row => printJobPaper(parse(row.plan_json), parse(row.manifest_json));
 const deferredStepOrder = steps => [...steps.filter(step => step.phase === 'fronts'), ...steps.filter(step => step.phase === 'backs')];
 
-export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER, mixedPrintSheets = false } = {}) {
+export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER,
+  eligibleRecipeIds = paper.supportedRecipeIds, mixedPrintSheets = false } = {}) {
   let row = all(`SELECT * FROM print_jobs WHERE station_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY queued_at, created_at, id LIMIT 1`, [STATION_ID, ...ACTIVE_STATES])[0];
   if (row) { assertStationArtifactCapacity(row, maxArtifacts); assertStationWorkflow(row, deferredBacks, printRecovery, mixedPrintSheets); }
   if (row && row.state === 'claimed' && parse(row.steps_json).every(step => step.state === 'pending') && !printCapabilities(row.user_id).canQueue) {
@@ -521,9 +522,14 @@ export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printR
   }
   // Reserving a saved packet is exclusive only after the prior physical work
   // has finished. Its original nonce and receipts survive days of parking.
+  function eligible(job) {
+    const jobPaper = savedPrintJobPaper(job);
+    return eligibleRecipeIds.includes(jobPaper.recipeId) && stationCanPrintPaper(paper, jobPaper)
+      && (!hasMixedPrintSheets(job) || (deferredBacks && mixedPrintSheets));
+  }
   const requested = all("SELECT * FROM print_jobs WHERE station_id = ? AND state = 'backs_pending' AND back_request_json IS NOT NULL ORDER BY json_extract(back_request_json, '$.requestedAt'), id", [STATION_ID]);
   for (const saved of requested) {
-    if (!stationCanPrintPaper(paper, savedPrintJobPaper(saved)) || (hasMixedPrintSheets(saved) && !(deferredBacks && mixedPrintSheets))) continue;
+    if (!eligible(saved)) continue;
     assertStationWorkflow(saved, deferredBacks, printRecovery, mixedPrintSheets);
     assertStationArtifactCapacity(saved, maxArtifacts);
     if (!printCapabilities(saved.user_id).canQueue) {
@@ -541,7 +547,7 @@ export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printR
       run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked; PDF remains available to its owner', now(), row.id]);
       continue;
     }
-    if (!stationCanPrintPaper(paper, savedPrintJobPaper(row)) || (hasMixedPrintSheets(row) && !(deferredBacks && mixedPrintSheets))) continue;
+    if (!eligible(row)) continue;
     // Check compatibility before hashing PDFs or creating a durable claim. Older
     // companions can upgrade without trapping this FIFO job in claimed state.
     assertStationArtifactCapacity(row, maxArtifacts);

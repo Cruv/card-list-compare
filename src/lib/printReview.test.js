@@ -181,7 +181,7 @@ it('keeps Crowned A4 distinct from standard A4 and plans nine cards per sheet', 
 it('matches Crowned landscape jobs by exact loaded preset and supported recipe', () => {
   const portrait = printPaperRequest('crowned-a4');
   const landscape = printPaperRequest('crowned-a4-landscape');
-  const recipeId = 'household-crowned-a4-landscape-v1';
+  const recipeId = 'household-crowned-a4-landscape-v2';
   const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: landscape.printPreset,
     supportedRecipeIds: ['household-a4-v5', 'household-crowned-a4-v2', recipeId] };
   expect(landscape).toEqual({ paperSize: 'a4', printPreset: 'crowned-a4-landscape' });
@@ -193,6 +193,10 @@ it('matches Crowned landscape jobs by exact loaded preset and supported recipe',
   expect(printPaperUnavailable(landscape, { ...station, loadedPrintPreset: undefined })).toMatch(/set up for A4/);
   expect(printPaperUnavailable(landscape, { ...station, loadedPaperSize: 'letter' })).toMatch(/set up for US Letter/);
   expect(printPaperUnavailable(landscape, { ...station, supportedRecipeIds: ['household-crowned-a4-v2'] })).toMatch(/Update and configure the Mac companion/);
+  const shifted = { ...landscape, recipeId: 'household-crowned-a4-landscape-v1' };
+  expect(printPaperLabel(shifted)).toMatch(/shifted/);
+  expect(printPaperUnavailable(shifted, { ...station, supportedRecipeIds: [shifted.recipeId, recipeId] })).toBe('');
+  expect(printPaperUnavailable(landscape, { ...station, supportedRecipeIds: [shifted.recipeId] })).toMatch(/Update and configure the Mac companion/);
   expect(printPaperUnavailable(landscape, { ...station, online: false })).toMatch(/must be online/);
   expect(printReviewSummary({ ...landscape, sheetPacking: 'double-faced-first', totalCopies: 8, ordinaryCopies: 7, doubleFacedCopies: 1 }))
     .toMatchObject({ ordinarySheets: 0, packets: 1, sheets: 1, pages: 2 });

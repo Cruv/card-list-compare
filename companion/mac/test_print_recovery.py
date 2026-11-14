@@ -207,7 +207,7 @@ class PrintRecoveryTests(unittest.TestCase):
 
     def test_landscape_held_pass_requires_its_own_crowned_recipe_and_bidirectional_off(self):
         self.cfg.update(crowned_a4_enabled=True, crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
-                        loaded_print_preset=native.CROWNED_LANDSCAPE_PRESET, crowned_a4_landscape_recipe_verified=True)
+                        loaded_print_preset=native.CROWNED_LANDSCAPE_PRESET, crowned_a4_landscape_centered_recipe_verified=True)
         self.client.job.update(recipeId=native.CROWNED_LANDSCAPE_RECIPE, printPreset=native.CROWNED_LANDSCAPE_PRESET,
                                paperSize="a4")
         boundary = self.interrupt(4)
@@ -215,9 +215,9 @@ class PrintRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(native.StationError, "requires Crowned A4 Landscape"):
             self.station.recover_print(self.request(boundary))
         self.cfg["loaded_print_preset"] = native.CROWNED_LANDSCAPE_PRESET
-        ticket = {"media": "A4", "sides": "one-sided", "orientation-requested": 3, **native.CROWNED_DRIVER_OPTIONS}
+        ticket = {"media": "A4", "sides": "one-sided", "orientation-requested": 4, **native.CROWNED_DRIVER_OPTIONS}
         self.cups.history[0]["ticket"] = ticket
-        for incorrect in ({}, {"EPIJ_OPT_Bi_D": "1"}, {"EPIJ_OPT_Bi_D": "0", "orientation-requested": 4}):
+        for incorrect in ({}, {"EPIJ_OPT_Bi_D": "1"}, {"EPIJ_OPT_Bi_D": "0", "orientation-requested": 3}):
             self.cups.history[0]["ticket"] = {**ticket, **incorrect}
             with self.assertRaisesRegex(native.StationError, "Cannot verify the held job"):
                 self.station.recover_print(self.request(boundary))

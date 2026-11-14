@@ -2,41 +2,50 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 
 const geometry = JSON.parse(readFileSync(new URL('../server/lib/crownedLandscapeGeometry.json', import.meta.url), 'utf8'));
 const outputDirectory = new URL('../public/print-templates/', import.meta.url);
-const output = new URL('crowned-a4-landscape-v1.dxf', outputDirectory);
+const output = new URL('crowned-a4-landscape-v2.dxf', outputDirectory);
 const { cardPixels, paperMillimeters, cornerRadiusMillimeters } = geometry;
 const mm = pixels => pixels * 25.4 / cardPixels.ppi;
 
-// Studio's 10 mm minimum inset is larger than the printed mark's 6 mm
-// inset. Place the real sheet 4 mm into this Studio-only page on the mat.
-const matOffset = 4;
-const studioHeight = paperMillimeters.height + matOffset;
 const records = [];
+let handle = 0x100;
 function write(...pairs) {
   for (const [code, value] of pairs) {
     records.push(code, typeof value === 'number' ? Number(value.toFixed(6)) : value);
   }
 }
 
-function roundedRectangle(x, top, width, height, radius) {
-  const y = studioHeight - top - height;
-  const corner = Math.tan(Math.PI / 8);
-  const vertices = [
-    [x + width - radius, y, corner], [x + width, y + radius],
-    [x + width, y + height - radius, corner], [x + width - radius, y + height],
-    [x + radius, y + height, corner], [x, y + height - radius],
-    [x, y + radius, corner], [x + radius, y],
-  ];
-  write([0, 'LWPOLYLINE'], [100, 'AcDbEntity'], [8, '0'], [100, 'AcDbPolyline'], [90, vertices.length], [70, 1]);
-  for (const [vx, vy, bulge = 0] of vertices) write([10, vx], [20, vy], [42, bulge]);
+function entity(type, ...pairs) {
+  write([0, type], [5, (handle++).toString(16).toUpperCase()], [100, 'AcDbEntity'], [8, '0'], ...pairs);
 }
 
-write([0, 'SECTION'], [2, 'HEADER'], [9, '$ACADVER'], [1, 'AC1015'], [9, '$INSUNITS'], [70, 4],
-  [9, '$MEASUREMENT'], [70, 1], [0, 'ENDSEC'], [0, 'SECTION'], [2, 'ENTITIES']);
-for (const x of cardPixels.x) {
-  for (const y of cardPixels.y) {
-    // The PDF rotates landscape artwork clockwise into portrait A4.
-    roundedRectangle(matOffset + paperMillimeters.width - mm(y + cardPixels.height), matOffset + mm(x),
-      mm(cardPixels.height), mm(cardPixels.width), cornerRadiusMillimeters);
+function roundedRectangle(x, top, width, height, radius) {
+  // DXF measures Y from the bottom of the physical A4 landscape page.
+  const y = paperMillimeters.height - top - height;
+  const centers = [
+    [x + width - radius, y + radius],
+    [x + width - radius, y + height - radius],
+    [x + radius, y + height - radius],
+    [x + radius, y + radius],
+  ];
+  // R13 closed polylines avoid the modern bulge encoding in Studio's DXF importer.
+  // Eight straight segments per corner deviate by less than 0.015 mm at a 3 mm radius.
+  const segments = 8;
+  entity('POLYLINE', [100, 'AcDb2dPolyline'], [66, 1], [10, 0], [20, 0], [30, 0], [70, 1]);
+  for (const [corner, [cx, cy]] of centers.entries()) {
+    for (let point = 0; point <= segments; point++) {
+      const angle = (corner - 1 + point / segments) * Math.PI / 2;
+      entity('VERTEX', [100, 'AcDbVertex'], [100, 'AcDb2dVertex'],
+        [10, cx + radius * Math.cos(angle)], [20, cy + radius * Math.sin(angle)], [30, 0]);
+    }
+  }
+  entity('SEQEND');
+}
+
+write([0, 'SECTION'], [2, 'HEADER'], [9, '$ACADVER'], [1, 'AC1012'],
+  [0, 'ENDSEC'], [0, 'SECTION'], [2, 'ENTITIES']);
+for (const y of cardPixels.y) {
+  for (const x of cardPixels.x) {
+    roundedRectangle(mm(x), mm(y), mm(cardPixels.width), mm(cardPixels.height), cornerRadiusMillimeters);
   }
 }
 write([0, 'ENDSEC'], [0, 'EOF']);

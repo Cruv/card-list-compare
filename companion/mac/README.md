@@ -75,6 +75,7 @@ terminal batch retains its receipt history without blocking future updates. Code
 rollback preserves configuration, the token, PDFs and the ledger. The first installation
 has no previous version to roll back to. No version change prints a test sheet automatically.
 An unresolved job containing a recovery attempt also blocks rollback below 2.57.0.
+Unresolved centered Crowned A4 Landscape batches block rollback below 2.59.1.
 
 For migration from a running checkout, pause it and unload its existing LaunchAgent first.
 Move that old plist to a backup path before installing; a conflicting existing LaunchAgent
@@ -162,11 +163,18 @@ Letter stock, remove `loaded_print_preset` and select the matching size.
 For **Crowned A4 · Landscape 2×4**, enable `crowned_a4_landscape_enabled` and select
 `loaded_paper_size: "a4"` and `loaded_print_preset: "crowned-a4-landscape"` when the
 station is ready to switch. Both passes use the standard rear paper feeder, actual
-size, Thick Paper and Envelopes, and Bidirectional Printing off. The PDF is portrait
-A4 with rotated card art and a labeled leading edge. Use the same short edge first for
-fronts and backs. Set `crowned_a4_landscape_recipe_verified` and
-`crowned_a4_landscape_duplex_verified` after their respective physical proofs. See
-the [matched Cameo template and workflow](../../docs/PRINT_WORKFLOW.md#crowned-a4-landscape-24).
+size, Thick Paper and Envelopes, and Bidirectional Printing off. Starting with
+companion 2.59.1, newly generated centered Landscape batches use the A4 landscape
+print ticket. Record `crowned_a4_landscape_centered_recipe_verified` and
+`crowned_a4_landscape_centered_duplex_verified` after a front proof and a one-sheet
+manual refeed test. Follow the verified flip direction for the batch's exact layout.
+See the [matched Cameo template and workflow](../../docs/PRINT_WORKFLOW.md#crowned-a4-landscape-24).
+
+Saved Landscape v1 batches use the same stock selection and their original portrait
+print ticket and cutter setup. Feed the same marked short edge first on both passes.
+Use the original `crowned_a4_landscape_recipe_verified` and
+`crowned_a4_landscape_duplex_verified` flags. Completing a proof for one layout leaves
+the other layout's proof settings as recorded.
 
 For the household's installed **ET-8550 driver 13.45**, the
 [driver-options example](epson-et8550-13.45-driver-options.example.json) captures the

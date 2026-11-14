@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.59.0"
+COMPANION_VERSION = "2.59.1"
 # launchd owns this socket while idle cupsd is stopped. A TCP-only request to
 # localhost cannot wake the service; the fixed socket also ignores shell hosts.
 LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
@@ -42,10 +42,12 @@ LETTER_RECIPE = "household-letter-v6"
 A4_RECIPE = "household-a4-v5"
 CROWNED_RECIPE = "household-crowned-a4-v2"
 CROWNED_PRESET = "crowned-a4"
-CROWNED_LANDSCAPE_RECIPE = "household-crowned-a4-landscape-v1"
+CROWNED_LANDSCAPE_V1_RECIPE = "household-crowned-a4-landscape-v1"
+CROWNED_LANDSCAPE_RECIPE = "household-crowned-a4-landscape-v2"
 CROWNED_LANDSCAPE_PRESET = "crowned-a4-landscape"
 CROWNED_PRESETS = {CROWNED_PRESET: CROWNED_RECIPE, CROWNED_LANDSCAPE_PRESET: CROWNED_LANDSCAPE_RECIPE}
 CROWNED_RECIPES = {recipe: preset for preset, recipe in CROWNED_PRESETS.items()}
+CROWNED_RECIPES[CROWNED_LANDSCAPE_V1_RECIPE] = CROWNED_LANDSCAPE_PRESET
 PAPER_RECIPES = {"letter": LETTER_RECIPE, "a4": A4_RECIPE}
 RECIPE_PAPER = {LETTER_RECIPE: "letter", A4_RECIPE: "a4", **dict.fromkeys(CROWNED_RECIPES, "a4")}
 CROWNED_DRIVER_OPTIONS = {
@@ -104,6 +106,7 @@ def load_config(path):
     for flag in ("allow_http", "recipe_verified", "duplex_verified", "a4_enabled", "a4_recipe_verified", "a4_duplex_verified",
                  "crowned_a4_enabled", "crowned_a4_recipe_verified", "crowned_a4_duplex_verified",
                  "crowned_a4_landscape_enabled", "crowned_a4_landscape_recipe_verified", "crowned_a4_landscape_duplex_verified",
+                 "crowned_a4_landscape_centered_recipe_verified", "crowned_a4_landscape_centered_duplex_verified",
                  "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
         if type(config.get(flag, False)) is not bool:
             raise StationError(flag + " must be the JSON boolean true or false")
@@ -175,7 +178,7 @@ def paper_capabilities(config):
     if config.get("crowned_a4_enabled") is True:
         recipes.append(CROWNED_RECIPE)
     if config.get("crowned_a4_landscape_enabled") is True:
-        recipes.append(CROWNED_LANDSCAPE_RECIPE)
+        recipes.extend((CROWNED_LANDSCAPE_RECIPE, CROWNED_LANDSCAPE_V1_RECIPE))
     preset = config.get("loaded_print_preset")
     return {"loadedPaperSize": config.get("loaded_paper_size", "letter"),
             "supportedRecipeIds": recipes,
@@ -192,13 +195,17 @@ def loaded_recipe(config):
 def recipe_proof(config, recipe_id, *, duplex=False):
     flag = "duplex_verified" if duplex else "recipe_verified"
     prefix = {A4_RECIPE: "a4_", CROWNED_RECIPE: "crowned_a4_",
-              CROWNED_LANDSCAPE_RECIPE: "crowned_a4_landscape_"}.get(recipe_id, "")
+              CROWNED_LANDSCAPE_V1_RECIPE: "crowned_a4_landscape_",
+              CROWNED_LANDSCAPE_RECIPE: "crowned_a4_landscape_centered_"}.get(recipe_id, "")
     return config.get(prefix + flag) is True
 
 
 def require_loaded_paper(config, recipe_id):
-    if recipe_id != loaded_recipe(config):
+    current = loaded_recipe(config)
+    legacy_landscape = recipe_id == CROWNED_LANDSCAPE_V1_RECIPE and current == CROWNED_LANDSCAPE_RECIPE
+    if recipe_id != current and not legacy_landscape:
         name = {LETTER_RECIPE: "US Letter", A4_RECIPE: "A4", CROWNED_RECIPE: "Crowned A4 Portrait 3×3",
+                CROWNED_LANDSCAPE_V1_RECIPE: "Crowned A4 Landscape 2×4",
                 CROWNED_LANDSCAPE_RECIPE: "Crowned A4 Landscape 2×4"}.get(recipe_id, "a supported paper size")
         raise StationError("This batch requires " + name + ". Match the rear feeder and Mac paper setting before continuing.")
 
@@ -221,11 +228,10 @@ def fixed_options(config, recipe_id):
         options.update({key: "1" for key in config["driver_options"] if key.lower() == "epij_size"})
         return options
     if recipe_id in CROWNED_RECIPES:
-        # Use the Epson standard page mode even though the cutter layout is
-        # called borderless upstream. Feed both PDFs short-edge first in portrait;
-        # the landscape recipe rotates the layout inside its portrait-sized PDF.
+        # Epson standard page mode avoids borderless expansion. The legacy
+        # landscape PDF was composed inside a portrait A4 page.
         driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_LANDSCAPE_DRIVER_OPTIONS
-        return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "3", **driver}
+        return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "4" if recipe_id == CROWNED_LANDSCAPE_RECIPE else "3", **driver}
     raise StationError("Unsupported paper recipe")
 
 
@@ -508,7 +514,7 @@ def checked_job(job, config):
             or any(not isinstance(item, dict) for item in artifacts)):
         raise StationError("Expected one to 37 finished PDF artifacts")
     packets = [item for item in artifacts if "packetIndex" in item or "packetCount" in item]
-    capacity = {CROWNED_RECIPE: 9, CROWNED_LANDSCAPE_RECIPE: 8}.get(recipe_id, 7)
+    capacity = {CROWNED_RECIPE: 9, CROWNED_LANDSCAPE_RECIPE: 8, CROWNED_LANDSCAPE_V1_RECIPE: 8}.get(recipe_id, 7)
     ids, size = set(), 0
     for artifact in artifacts:
         if "_selected_pages" in artifact:
@@ -1329,7 +1335,9 @@ class Station:
                 return "paused"
             if not allow_submit:
                 return "waiting for station management connection"
-            if not recipe_proof(self.config, loaded_recipe(self.config)) and self.config.get("allow_unverified_printing") is not True:
+            recipe_id = loaded_recipe(self.config)
+            legacy_proof = recipe_id == CROWNED_LANDSCAPE_RECIPE and recipe_proof(self.config, CROWNED_LANDSCAPE_V1_RECIPE)
+            if not (recipe_proof(self.config, recipe_id) or legacy_proof or self.config.get("allow_unverified_printing") is True):
                 return "waiting for local printer and cutting proof"
             job = self.client.claim()
             if job is None:

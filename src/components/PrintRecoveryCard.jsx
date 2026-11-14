@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CROWNED_A4_LANDSCAPE_PRESET, isCrownedPrintPreset, printPaperChoice, printPaperLabel } from '../lib/printPaper';
+import { CROWNED_A4_LANDSCAPE_V1_RECIPE, isCrownedPrintPreset, printPaperChoice, printPaperLabel } from '../lib/printPaper';
 
 export default function PrintRecoveryCard({ job, canControl, canRecoverBatch, paused, paperUnavailable, onRecover }) {
   const [firstSheet, setFirstSheet] = useState('');
@@ -44,7 +44,7 @@ export default function PrintRecoveryCard({ job, canControl, canRecoverBatch, pa
       ? 'I fixed the printer problem and checked the paper at the printer.'
       : reprint ? `I fixed the printer problem, removed incomplete output, and loaded only blank ${paperLabel} paper in the rear feeder.`
         : `I fixed the printer problem and loaded the ${paperLabel} paper needed to continue this job.`}</span></label>
-    {backs && <label className="station-paper-check"><input type="checkbox" checked={paperReloaded} disabled={!enabled} onChange={event => setPaperReloaded(event.target.checked)} /><span>{isCrownedPrintPreset(paperChoice) && 'I checked that the fronts are fully dry. '}I matched this batch and packet label and reloaded only the corresponding {paperLabel} front sheets for these remaining backs, in the verified direction and order{paperChoice === CROWNED_A4_LANDSCAPE_PRESET ? ', feeding the same short edge first.' : '.'}</span></label>}
+    {backs && <label className="station-paper-check"><input type="checkbox" checked={paperReloaded} disabled={!enabled} onChange={event => setPaperReloaded(event.target.checked)} /><span>{isCrownedPrintPreset(paperChoice) && 'I checked that the fronts are fully dry. '}I matched this batch and packet label and reloaded only the corresponding {paperLabel} front sheets for these remaining backs, in the verified direction and order{job?.recipeId === CROWNED_A4_LANDSCAPE_V1_RECIPE ? ', feeding the same short edge first.' : '.'}</span></label>}
     <button className="btn btn-primary" type="button" disabled={!ready} onClick={recover}>{reprint ? 'Print remaining sheets' : 'Continue printer job'}</button>
     {!canRecoverBatch && <p className="station-small">Only this batch’s owner or a CLC administrator can request recovery.</p>}
     {paused && <p className="station-small">Unpause the station before requesting recovery.</p>}

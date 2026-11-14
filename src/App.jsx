@@ -30,11 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.59.0';
+const APP_VERSION = '2.59.1';
 const WHATS_NEW = [
-  'Sheets with double-sided cards print first and use open slots for single-sided cards',
-  'Save sheets marked REFEED FOR BACK and match their labels in Printer when you are ready to finish them',
-  'Crowned A4 Landscape fits eight cards and leaves more room at the trailing edge',
+  'Crowned A4 Landscape centers eight upright cards in two rows of four',
+  'The printing guide links to the matching Silhouette Studio template and corrected DXF',
 ];
 
 function getResetToken() {

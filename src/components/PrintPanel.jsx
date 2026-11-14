@@ -537,7 +537,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         <button type="button" className="btn btn-secondary" disabled={busy || creationPending || selectedPaper === defaultPaper} onClick={savePaperDefault}>Save as default</button>
         <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
       </div>}
-      {selectedPaper === CROWNED_A4_LANDSCAPE_PRESET && <p className="print-panel-meta">Fits eight cards with a wider trailing margin. Find the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</p>}
+      {selectedPaper === CROWNED_A4_LANDSCAPE_PRESET && <p className="print-panel-meta">Centers two rows of four upright cards. Find the matching Silhouette Studio file in the <a href="#guide/printing">printing guide</a>.</p>}
       {isCrownedPrintPreset(selectedPaper) && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
       <div className="print-review-footer"><div><strong>

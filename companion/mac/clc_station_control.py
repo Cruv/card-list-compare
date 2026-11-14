@@ -190,6 +190,9 @@ class StationControl:
                 **paper,
                 "recipeVerified": recipe_proof(self.config, recipe_id),
                 "duplexVerified": recipe_proof(self.config, recipe_id, duplex=True),
+                "recipeProofs": {saved_recipe: {"recipeVerified": recipe_proof(self.config, saved_recipe),
+                                               "duplexVerified": recipe_proof(self.config, saved_recipe, duplex=True)}
+                                 for saved_recipe in paper["supportedRecipeIds"]},
                 "testPrintingEnabled": self.config.get("allow_unverified_printing") is True,
                 "recipeFingerprint": recipe_fingerprint(self.config, recipe_id), "activeJob": active,
                 "health": self.health, "update": self.update,

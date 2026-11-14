@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
-import crownedLandscapeGeometry from './crownedLandscapeGeometry.json' with { type: 'json' };
+import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET } from './printPaper.js';
 
 export const MAX_PRINT_COPIES = 250;
 export const PRINT_RECIPE = Object.freeze({
@@ -28,10 +28,9 @@ export const CROWNED_A4_RECIPE = Object.freeze({
   pageWidthPoints: 595.2, pageHeightPoints: 841.68,
 });
 export const CROWNED_A4_LANDSCAPE_RECIPE = Object.freeze({
-  ...CROWNED_A4_RECIPE, id: 'household-crowned-a4-landscape-v1', template: 'a4-standard-crowned-landscape-v1',
-  printPreset: 'crowned-a4-landscape', orientation: 'landscape', feedOrientation: 'portrait', cardsPerSheet: 8,
-  pageWidthPoints: crownedLandscapeGeometry.paperMillimeters.width * (72 / 25.4),
-  pageHeightPoints: crownedLandscapeGeometry.paperMillimeters.height * (72 / 25.4),
+  ...PRINT_RECIPES.a4, id: PAPER_PRESETS[CROWNED_LANDSCAPE_PRESET].recipeId,
+  printPreset: CROWNED_LANDSCAPE_PRESET, orientation: 'landscape', skip: Object.freeze([]),
+  cardsPerSheet: PAPER_PRESETS[CROWNED_LANDSCAPE_PRESET].cardsPerSheet,
 });
 const PRINT_PRESETS = Object.freeze({
   [CROWNED_A4_RECIPE.printPreset]: CROWNED_A4_RECIPE,
