@@ -1,4 +1,5 @@
 import { parse } from './parser';
+import { isPrintPaperSize } from './printPaper';
 
 /** Count physical source copies using the same parser as deck comparison. */
 export function printSourceCopies(text, includeSideboard = false) {
@@ -90,7 +91,8 @@ export function loadPrintCreationIntent(storage, key) {
 }
 
 function validSelectionOptions(value) {
-  return (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
+  return (value.paperSize === undefined || isPrintPaperSize(value.paperSize))
+    && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000
       && value.excludedCards.every(key => typeof key === 'string' && key.length > 0 && key.length <= 1000)))
@@ -117,6 +119,7 @@ export function loadStandalonePrintDraft(storage, key) {
     return { listName: value.listName, cardText: value.cardText, includeSideboard: value.includeSideboard,
       excludeBasicLands: value.excludeBasicLands ?? true, additionalCardText: value.additionalCardText ?? '',
       excludedCards: value.excludedCards ?? [], removedCards,
+      ...(value.paperSize ? { paperSize: value.paperSize } : {}),
       ...(value.printingOverrides ? { printingOverrides: value.printingOverrides } : {}),
       ...(value.comparison ? { comparison: value.comparison } : {}),
       ...(typeof value.replacePrintings === 'boolean' ? { replacePrintings: value.replacePrintings } : {}) };

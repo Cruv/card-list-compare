@@ -69,7 +69,7 @@ export function listPrintBatches(userId, query = {}, { deferredBacks = false } =
     jobs: page.map(row => {
       const plan = JSON.parse(row.plan_json), manifest = row.manifest_json && JSON.parse(row.manifest_json), canOpen = row.user_id === userId;
       return { id: row.id, deckName: typeof plan.deckName === 'string' ? plan.deckName.slice(0, 200) : 'Card batch',
-        totalCopies: number(plan.totalCopies), state: row.state, createdAt: row.created_at, updatedAt: row.updated_at,
+        totalCopies: number(plan.totalCopies), paperSize: plan.paperSize ?? 'letter', state: row.state, createdAt: row.created_at, updatedAt: row.updated_at,
         queueOnReady: !!row.queue_requested, sourceKind: row.tracked_deck_id === null ? 'list' : 'deck',
         canOpen, canCancel: canControl && (admin || canOpen) && (!!canCancelHouseholdBatch(row)
           || (deferredBacks === true && row.station_id === 'household' && canCancelRemaining(row))),

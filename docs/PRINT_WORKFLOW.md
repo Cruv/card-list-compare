@@ -4,11 +4,10 @@ Status: CLC includes comparison-to-print handoff, editable artwork review, PDF g
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet.
 
-The current recipe already uses `letter-standard-v6`. The
+US Letter batches use `letter-standard-v6` and A4 batches use `a4-standard-v5`. The
 [October 15 owner report](HOUSEHOLD_PRINT_RECIPE.md) accepts the working printing path;
-no v6 migration or repeat front calibration is a priority. Cutting/manual-duplex checks
-below apply to unproven setups or relevant changes. Proof flags, exact-paper confirmations
-and uncertain-submission safeguards remain unchanged.
+Letter recipe needs no v6 migration. Cutting and manual duplex checks apply to unproven
+setups or relevant changes. A4 has its own physical proof flags.
 
 ## Print from comparison results
 
@@ -74,6 +73,14 @@ ordinary sheets from one-sheet double-faced packets. Missing faces, unresolved p
 and unsupported meld layouts block generation before a job is created. Then choose
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
+
+In print review, choose **US Letter** or **A4** and save a default for your account in
+this browser. The reviewed batch keeps that choice through generation, printing, saved
+backs and interrupted-pass recovery. Existing batches use US Letter. Downloading a PDF
+works with either size. For direct printing, the Mac station must support the batch's
+size and be configured for the stock in the rear feeder. If the feeder's configured
+size changes, queued batches of the other size wait for matching stock. See the
+[Mac paper setup](../companion/mac/README.md#configure-without-printing) for the local settings.
 
 With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
 connected Discord channel, with the requester, saved batch label, card count, queue time
@@ -216,11 +223,15 @@ are preserved in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
   Upstream draws this label in its existing right margin on the front, followed by its
   sheet/template text. Card positions, registration marks and crop are unchanged.
 
+A4 uses landscape 297 × 210 mm and the upstream `a4-standard-v5.studio3` cutting
+template. It keeps seven standard cards per sheet, the 600 PPI, 1 mm crop and three
+registration marks. Match the Cameo template to the batch's PDF size.
+
 Every newly generated page also carries **Queued by**, the saved **Batch** label, its exact
 sheet/packet identity and **FRONT** or **BACK** in the top margin. These values are frozen
 when the job is created, so saved backs still match their requester and labeled front
-sheets later. Long labels are bounded to fit the margin. Existing PDFs are not rewritten;
-the added identification preserves the card artwork, registration marks and v6 geometry.
+sheets later. Long labels are bounded to fit the margin and preserve the card artwork
+and registration geometry.
 
 The historical Windows command was:
 
@@ -284,7 +295,8 @@ packet label/count and front-completion time. Save the physical sheets by their 
 stored across restarts and beyond the normal seven-day artifact expiry, until completed or
 canceled. They still consume the shared disk quota.
 
-When ready—even on another day—choose **Prepare this packet’s backs**. This selects one
+When ready—even on another day—select the batch's paper size on the Mac station, then
+choose **Prepare this packet’s backs**. This selects one
 exact job/artifact; it does not say paper is loaded and does not submit any backs. Keep
 blank paper in the rear feeder while the Mac finishes current work and reserves the
 printer. Once the selected packet becomes **Waiting for flip and reload**, match its
@@ -595,7 +607,7 @@ Use the recovery controls above to finish an interrupted pass without abandoning
 `resume JOB_ID` remains the exact DFC reload control, not a generic retry of canceled pages.
 Setup and dry-run commands do not print; `run` and `run --once` may submit authorized jobs.
 The Mac must stay awake, with the user logged in when using the optional LaunchAgent.
-Every pass explicitly requests landscape Letter at actual size; a landscape PDF alone does
+Every pass explicitly requests the batch's landscape paper size at actual size; a landscape PDF alone does
 not ensure the Mac command-line filter rotates it onto the loaded sheet. Fixed page settings
 are included in the durable recipe fingerprint so they cannot change during an active batch.
 

@@ -5,9 +5,9 @@ import tempfile
 import unittest
 
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject
+from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject, RectangleObject
 
-from printGeneratorWorker import identify_pages
+from printGeneratorWorker import identify_pages, validate_pdf
 
 
 class PageIdentificationTests(unittest.TestCase):
@@ -64,6 +64,26 @@ class PageIdentificationTests(unittest.TestCase):
                 self.assertEqual(tm[4], 66)
                 self.assertIn(tm[5], (572, 582, 592))
                 self.assertLessEqual(tm[4] + len(text.rstrip("\n")) * size * 0.6, 726)
+
+    def test_a4_labels_fit_each_side_and_paper_sizes_cannot_be_mixed(self):
+        writer = PdfWriter(clone_from=self.pdf)
+        for page in writer.pages:
+            page.mediabox = RectangleObject([0, 0, 841.68, 595.2])
+            image = page["/Resources"]["/XObject"]["/Artwork"]
+            image[NameObject("/Width")] = NumberObject(7014)
+            image[NameObject("/Height")] = NumberObject(4960)
+        with self.pdf.open("wb") as stream:
+            writer.write(stream)
+        identify_pages(self.pdf, self.identity, self.labels)
+        validate_pdf(self.pdf, 2, "a4")
+        with self.assertRaisesRegex(ValueError, "landscape Letter"):
+            validate_pdf(self.pdf, 2, "letter")
+        reader = PdfReader(self.pdf)
+        for index, page in enumerate(reader.pages):
+            runs = []
+            page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm)) if text.strip() else None)
+            self.assertEqual([round(tm[5], 2) for _, tm in runs], [575.2, 565.2, 555.2])
+            self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
 
     def test_rejects_unsafe_or_unbounded_identification_before_replacing_source(self):
         original = self.pdf.read_bytes()

@@ -54,7 +54,7 @@ beforeEach(async () => {
     front: { path: join(dir, 'front.png'), sha256: hash('front'), fileName: 'images/front.png' },
     ...(card.displayName.includes('Malakir') ? { back: { path: join(dir, 'back.png'), sha256: hash('back'), fileName: 'images/back.png' } } : {}),
   }))));
-  services.generatePrintPdfs.mockImplementation(async ({ cards, outputDir }) => {
+  services.generatePrintPdfs.mockImplementation(async ({ cards, outputDir, paperSize }) => {
     mkdirSync(outputDir, { recursive: true });
     const artifacts = [];
     for (const [id, kind, selected] of [['fronts', 'ordinary', cards.filter(card => !card.backPath)], ['double-faced', 'dfc', cards.filter(card => card.backPath)]]) {
@@ -64,7 +64,8 @@ beforeEach(async () => {
       const sheets = Math.ceil(selected.length / 7);
       artifacts.push({ id, kind, path, sha256: hash(bytes), size: bytes.length, pageCount: sheets * (kind === 'dfc' ? 2 : 1), sheetCount: sheets, cardCount: selected.length, slotMap: [] });
     }
-    return { revision: 'immutable-generator-revision', runtimeVersion: 'immutable-runtime-version', recipe: { id: 'household-letter-v6' }, artifacts, slots: [], images: [] };
+    const recipe = paperSize === 'a4' ? { id: 'household-a4-v5', paperSize } : { id: 'household-letter-v6' };
+    return { revision: 'immutable-generator-revision', runtimeVersion: 'immutable-runtime-version', recipe, artifacts, slots: [], images: [] };
   });
   const app = express(); app.use(express.json());
   const printRoutes = await import('./print.js');
@@ -92,6 +93,51 @@ async function ready(options = {}) { const { job } = await create(options); awai
 function station(path, method = 'GET', body) { return request(`/api/print-station${path}`, { method, body, token: stationToken }); }
 function report(job, state, extras = {}) { return queue.reportPrintJob(job.id, { claimToken: job.claimToken, eventId: crypto.randomUUID(), state, ...extras }); }
 function ordinary(job) { return { artifactId: 'fronts', phase: 'fronts', ...job }; }
+
+describe('batch paper size', () => {
+  const a4 = { supportedRecipeIds: ['household-letter-v6', 'household-a4-v5'], loadedPaperSize: 'a4' };
+  const heartbeat = { version: '2.58.0', paused: false, queue: 'EPSON', recipeVerified: true, duplexVerified: true,
+    recipeFingerprint: 'f'.repeat(64), health: { ok: true, known: true, message: 'Fixture ready' }, deferredBacks: true };
+
+  it('freezes size at review, generates A4 offline, and keeps existing Letter reviews valid', async () => {
+    const options = { mode: 'full', paperSize: 'a4' };
+    const response = await request('/api/decks/1/print-plan', { method: 'POST', body: options });
+    const { plan, capabilities } = await response.json();
+    expect(capabilities.paperSizes).toEqual(['letter', 'a4']);
+    expect(plan).toMatchObject({ paperSize: 'a4', recipeId: 'household-a4-v5' });
+    const letter = await preview({ mode: 'full' });
+    expect((await preview({ mode: 'full', paperSize: 'letter' })).planHash).toBe(letter.planHash);
+    expect(plan.planHash).not.toBe(letter.planHash);
+    const input = { ...options, idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash };
+    const submit = body => request('/api/decks/1/print-jobs', { method: 'POST', body });
+    expect((await submit({ ...input, paperSize: 'constructor' })).status).toBe(400);
+    expect((await submit({ ...input, paperSize: 'letter' })).status).toBe(409);
+    expect((await submit({ ...input, queueOnReady: true })).status).toBe(409);
+    const created = await submit(input);
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    expect(job).toMatchObject({ state: 'preparing', paperSize: 'a4', recipeId: 'household-a4-v5' });
+    expect((await submit({ ...input, paperSize: 'letter' })).status).toBe(409);
+    await queue.processNextPrintJob();
+    expect(services.generatePrintPdfs).toHaveBeenCalledWith(expect.objectContaining({ paperSize: 'a4' }));
+    expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'ready', paperSize: 'a4', recipeId: 'household-a4-v5' });
+  });
+
+  it('keeps older Letter work available and assigns A4 only to the matching station stock', async () => {
+    const letter = await ready({ mode: 'full' });
+    const a4job = await ready({ mode: 'full', paperSize: 'a4' });
+    const queueBatch = id => request(`/api/decks/1/print-jobs/${id}/queue`, { method: 'POST' });
+    expect((await queueBatch(letter.id)).status).toBe(200);
+    expect((await queueBatch(a4job.id)).status).toBe(409);
+    expect((await station('/heartbeat', 'POST', { ...heartbeat, ...a4 })).status).toBe(200);
+    expect((await queueBatch(a4job.id)).status).toBe(200);
+    expect(await (await station('/claim', 'POST', {})).json()).toEqual({ job: null });
+    expect(db.get('SELECT state FROM print_jobs WHERE id=?', [letter.id]).state).toBe('queued');
+    const result = await station('/claim', 'POST', { ...a4, deferredBacks: true });
+    expect((await result.json()).job).toMatchObject({ id: a4job.id, paperSize: 'a4', recipeId: 'household-a4-v5' });
+    expect((await station('/claim', 'POST', {})).status).toBe(409);
+  });
+});
 
 async function packetPdfs({ cards, outputDir, batchLabel }) {
   mkdirSync(outputDir, { recursive: true });

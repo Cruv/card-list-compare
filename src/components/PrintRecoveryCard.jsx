@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { printPaperLabel } from '../lib/printPaper';
 
-export default function PrintRecoveryCard({ job, canControl, canRecoverBatch, paused, onRecover }) {
+export default function PrintRecoveryCard({ job, canControl, canRecoverBatch, paused, paperUnavailable, onRecover }) {
   const [firstSheet, setFirstSheet] = useState('');
   const [paperReady, setPaperReady] = useState(false);
   const [paperReloaded, setPaperReloaded] = useState(false);
   const recovery = job.recovery;
   const reprint = recovery.mode === 'reprint_remaining';
   const backs = recovery.phase === 'backs';
+  const paperLabel = printPaperLabel(job);
   const first = Number(firstSheet);
   const validSheet = Number.isInteger(first) && first >= 1 && first <= recovery.totalSheets;
   const enabled = canControl && !paused && !job.cancelRequested;
@@ -22,7 +24,7 @@ export default function PrintRecoveryCard({ job, canControl, canRecoverBatch, pa
   return <section className="station-card station-refeed station-recovery" aria-label="Recover interrupted print">
     <h2>{reprint ? 'Print the remaining sheets' : 'Continue the existing printer job'}</h2>
     <h3>{job.deckName || 'Card batch'}</h3>
-    <p className="station-batch-id">Batch {job.id}</p>
+    <p className="station-batch-id">{paperLabel} · Batch {job.id}</p>
     {job.packet?.label && <p><strong>Margin label: {job.packet.label}</strong></p>}
     <p>{reprint
       ? 'The Mac spooler stopped or canceled this pass. Its saved PDF is available. Count the complete sheets from this interrupted attempt, discard any incomplete sheet, then select the first sheet still needed.'
@@ -39,12 +41,13 @@ export default function PrintRecoveryCard({ job, canControl, canRecoverBatch, pa
     </>}
     <label className="station-paper-check"><input type="checkbox" checked={paperReady} disabled={!enabled} onChange={event => setPaperReady(event.target.checked)} /><span>{backs
       ? 'I fixed the printer problem and checked the paper at the printer.'
-      : reprint ? 'I fixed the printer problem, removed incomplete output, and loaded only blank paper in the rear feeder.'
-        : 'I fixed the printer problem and loaded the paper needed to continue this job.'}</span></label>
-    {backs && <label className="station-paper-check"><input type="checkbox" checked={paperReloaded} disabled={!enabled} onChange={event => setPaperReloaded(event.target.checked)} /><span>I matched this batch and packet label and reloaded only the corresponding front sheets for these remaining backs, in the verified direction and order.</span></label>}
+      : reprint ? `I fixed the printer problem, removed incomplete output, and loaded only blank ${paperLabel} paper in the rear feeder.`
+        : `I fixed the printer problem and loaded the ${paperLabel} paper needed to continue this job.`}</span></label>
+    {backs && <label className="station-paper-check"><input type="checkbox" checked={paperReloaded} disabled={!enabled} onChange={event => setPaperReloaded(event.target.checked)} /><span>I matched this batch and packet label and reloaded only the corresponding {paperLabel} front sheets for these remaining backs, in the verified direction and order.</span></label>}
     <button className="btn btn-primary" type="button" disabled={!ready} onClick={recover}>{reprint ? 'Print remaining sheets' : 'Continue printer job'}</button>
     {!canRecoverBatch && <p className="station-small">Only this batch’s owner or a CLC administrator can request recovery.</p>}
     {paused && <p className="station-small">Unpause the station before requesting recovery.</p>}
+    {paperUnavailable && <p className="station-small">{paperUnavailable}</p>}
     {job.cancelRequested && <p className="station-small">This batch has a cancellation request. Wait for its paper-clearance instructions.</p>}
     <p className="station-small">The Mac checks the printer again before proceeding. If the device or Mac print queue still reports a fault, clear it there first. A remaining-sheet attempt keeps the original PDF and submission history. If status is uncertain, printing stays blocked for review.</p>
   </section>;

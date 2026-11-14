@@ -12,6 +12,14 @@ export const PRINT_RECIPE = Object.freeze({
   cardsPerSheet: 7, pageWidthPoints: 792, pageHeightPoints: 612,
   colorSpace: 'DeviceRGB', embeddedIcc: false, colorNormalized: false,
 });
+export const PRINT_RECIPES = Object.freeze({
+  letter: PRINT_RECIPE,
+  a4: Object.freeze({
+    ...PRINT_RECIPE, id: 'household-a4-v5', template: 'a4-standard-v5', paperSize: 'a4',
+    // Upstream's 600 PPI registration canvas uses integer raster dimensions.
+    pageWidthPoints: 841.68, pageHeightPoints: 595.2,
+  }),
+});
 const USABLE_SLOTS = [0, 1, 2, 3, 5, 6, 7];
 const MAX_PDF_BYTES = 1024 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;
@@ -71,7 +79,12 @@ export function createPrintGenerator(options = {}) {
   return {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
-    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES, batchLabel = 'CLC', requesterName, batchName }) {
+    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES,
+      batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter' }) {
+      if (typeof paperSize !== 'string' || !Object.hasOwn(PRINT_RECIPES, paperSize)) {
+        throw new Error('Paper size must be Letter or A4');
+      }
+      const recipe = PRINT_RECIPES[paperSize];
       const plan = planPrintSheets(cards);
       const printedIdentification = printPageIdentification({ requesterName, batchName });
       if (!path.isAbsolute(outputDir || '')) throw new Error('PDF output directory must be absolute');
@@ -118,7 +131,7 @@ export function createPrintGenerator(options = {}) {
               ...(group.kind === 'dfc' ? [{ page: 2, phase: 'backs', label: sheetLabel }] : [])];
             pageLabels.push(...chunkLabels.map(item => ({ ...item, page: pageLabels.length + item.page })));
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
-              label: sheetLabel, printedIdentification, pageLabels: chunkLabels,
+              label: sheetLabel, printedIdentification, pageLabels: chunkLabels, paperSize,
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
@@ -132,7 +145,7 @@ export function createPrintGenerator(options = {}) {
           const stagedOutput = path.join(working, `${group.id}.pdf`);
           const mergeInput = path.join(working, `${group.id}-merge.json`);
           const pageCount = group.chunks.length * (group.kind === 'dfc' ? 2 : 1);
-          await fs.writeFile(mergeInput, JSON.stringify({ inputs: parts, output: stagedOutput, pageCount }));
+          await fs.writeFile(mergeInput, JSON.stringify({ inputs: parts, output: stagedOutput, pageCount, paperSize }));
           await execute(['merge', mergeInput]);
           const size = (await fs.stat(stagedOutput)).size;
           if (!size || size > MAX_PDF_BYTES) throw new Error('Generated PDF exceeds the 1 GiB artifact limit');
@@ -156,7 +169,7 @@ export function createPrintGenerator(options = {}) {
           await fs.link(path.join(working, `${artifact.id}.pdf`), artifact.path);
           published.push(artifact.path);
         }
-        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe: PRINT_RECIPE, printedIdentification, artifacts, slots, images };
+        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe, printedIdentification, artifacts, slots, images };
       } catch (error) {
         // Any published paths belong to this invocation; existing artifacts were checked before generation.
         for (const filename of published) await fs.rm(filename, { force: true });

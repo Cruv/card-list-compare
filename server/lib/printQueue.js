@@ -10,6 +10,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from 
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
+import { LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, printJobPaper, stationCanPrintPaper, validatePaperSize } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -44,7 +45,7 @@ export function printCapabilities(userId) {
   const allowed = (process.env.PRINT_ALLOWED_USER_IDS || '').split(',').map(value => Number(value.trim())).filter(id => Number.isSafeInteger(id) && id > 0);
   return {
     stationConfigured, canQueue: !!(stationConfigured && user && !user.suspended && (user.is_admin || allowed.includes(userId))),
-    recipeId: 'household-letter-v6', retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
+    recipeId: PRINT_PAPER_RECIPES.letter, paperSizes: Object.keys(PRINT_PAPER_RECIPES), retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
   };
 }
 export function requireStationToken(token) {
@@ -139,7 +140,7 @@ export function formatPrintJob(row, station = false) {
     ...(plan.comparison ? { comparison: publicPlan.comparison } : {}),
     createdAt: row.created_at, updatedAt: row.updated_at, expiresAt: row.expires_at,
     queueOnReady: !!row.queue_requested, error: row.error, proxyStagingError: row.proxy_staging_error || null, progress: parse(row.progress_json),
-    recipeId: manifest?.recipe?.id || 'household-letter-v6', manifestSha256: row.manifest_sha256,
+    ...printJobPaper(plan, manifest), manifestSha256: row.manifest_sha256,
     artifacts: row.state === 'expired' ? [] : (manifest?.artifacts || []).map(artifact => artifactRecord(row, artifact, station)),
     steps: parse(row.steps_json) || [],
     ...workflowSummary(row),
@@ -152,11 +153,13 @@ export function listPrintJobs(userId, deckId) {
   return all('SELECT * FROM print_jobs WHERE user_id = ? AND tracked_deck_id IS ? ORDER BY created_at DESC, id DESC LIMIT 50', [userId, deckId]).map(row => formatPrintJob(row));
 }
 
-export async function createPrintJob(userId, deckId, request) {
+export async function createPrintJob(userId, deckId, request, assertQueuePaper = () => {}) {
   const requestKey = safeId(request.idempotencyKey, 'idempotencyKey');
+  const paperSize = validatePaperSize(request.paperSize === undefined ? 'letter' : request.paperSize);
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
-  const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady }));
+  const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady,
+    ...(paperSize === 'letter' ? {} : { paperSize }) }));
   const replay = () => {
     const existing = get('SELECT * FROM print_jobs WHERE user_id = ? AND request_key = ?', [userId, requestKey]);
     if (!existing) return null;
@@ -173,7 +176,10 @@ export async function createPrintJob(userId, deckId, request) {
   if (plan.planHash !== request.expectedPlanHash) throw printError('Snapshots or artwork changed after preview. Review a fresh plan.', 409);
   if (!plan.totalCopies) throw printError('This comparison has no copies to print');
   if (!plan.readyToGenerate) throw printError(`Review the missing or unsupported artwork before generating: ${plan.resolvedCards.filter(card => card.errors.length).map(card => `${card.displayName}: ${card.errors.join('; ')}`).join(', ')}`);
-  if (request.queueOnReady) assertCanQueue(userId);
+  if (request.queueOnReady) {
+    assertCanQueue(userId);
+    assertQueuePaper(printJobPaper(plan));
+  }
   const pending = get("SELECT COUNT(*) AS count FROM print_jobs WHERE user_id = ? AND state = 'preparing'", [userId]);
   if (pending.count >= 2) throw printError('Two PDFs are already being prepared for your account. Retry when one finishes generating.', 429);
   if (get("SELECT COUNT(*) AS count FROM print_jobs WHERE state = 'preparing'").count >= 10) throw printError('The PDF preparation queue is full', 429);
@@ -236,6 +242,7 @@ export async function processNextPrintJob() {
     const maxOutputBytes = MAX_PRINT_JOB_BYTES - totalStorage(jobDir(row.id)) - MANIFEST_RESERVE_BYTES;
     if (maxOutputBytes <= 0) throw printError('Source images exceed the print-job storage limit', 507);
     const generated = await generatePrintPdfs({
+      paperSize: plan.paperSize ?? 'letter',
       cards: copies.map(copy => ({ id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}) })),
       outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
       requesterName: plan.requesterName || 'Unknown requester', batchName: plan.deckName,
@@ -280,6 +287,7 @@ export async function processNextPrintJob() {
       images: generated.images || [], generatedAt: now(),
       ...(generated.printedIdentification ? { printedIdentification: generated.printedIdentification } : {}),
     };
+    printJobPaper(plan, manifest);
     const bytes = json(manifest), hash = sha256(bytes);
     if (Buffer.byteLength(bytes) > MANIFEST_RESERVE_BYTES) throw printError('Print manifest exceeds the storage limit', 507);
     writeFileSync(join(jobDir(row.id), 'manifest.json.tmp'), bytes, { flag: 'wx' });
@@ -311,12 +319,13 @@ export async function processNextPrintJob() {
   }
 }
 
-export function queuePrintJob(userId, deckId, id) {
+export function queuePrintJob(userId, deckId, id, assertQueuePaper = () => {}) {
   assertCanQueue(userId);
   const row = ownerJob(userId, deckId, id);
   if (row.state === 'queued') return formatPrintJob(row);
   if (row.state !== 'ready') throw printError('Only a ready PDF can be queued. Reprints require a new job.', 409);
   if (row.expires_at <= now()) throw printError('These PDFs have expired. Prepare a new job.', 410);
+  assertQueuePaper(savedPrintJobPaper(row));
   for (const artifact of parse(row.manifest_json).artifacts) verifiedPrintArtifact(row, artifact.id);
   const queuedAt = now();
   runTransaction([
@@ -463,7 +472,9 @@ export function assertStationWorkflow(row, deferredBacks, printRecovery = false)
   if (isDeferred(row) && !deferredBacks) throw printError('Upgrade the Mac print companion to continue deferred back-side printing.', 409);
   if (!printRecovery && readSteps(row).some(step => step.attemptId)) throw printError('Upgrade the Mac print companion to continue a recovered physical print attempt.', 409);
 }
-export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printRecovery = false } = {}) {
+export const savedPrintJobPaper = row => printJobPaper(parse(row.plan_json), parse(row.manifest_json));
+
+export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER } = {}) {
   let row = all(`SELECT * FROM print_jobs WHERE station_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY queued_at, created_at, id LIMIT 1`, [STATION_ID, ...ACTIVE_STATES])[0];
   if (row) { assertStationArtifactCapacity(row, maxArtifacts); assertStationWorkflow(row, deferredBacks, printRecovery); }
   if (row && row.state === 'claimed' && parse(row.steps_json).every(step => step.state === 'pending') && !printCapabilities(row.user_id).canQueue) {
@@ -471,6 +482,9 @@ export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printR
     row = null;
   }
   if (row) {
+    if (!paper.supportedRecipeIds.includes(savedPrintJobPaper(row).recipeId)) {
+      throw printError('Upgrade the Mac companion to continue this batch’s paper size', 409);
+    }
     if (row.state === 'claimed') {
       run('UPDATE print_jobs SET lease_expires_at = ? WHERE id = ?', [leaseExpiry(), row.id]);
       row.lease_expires_at = leaseExpiry();
@@ -481,6 +495,7 @@ export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printR
   // has finished. Its original nonce and receipts survive days of parking.
   const requested = all("SELECT * FROM print_jobs WHERE station_id = ? AND state = 'backs_pending' AND back_request_json IS NOT NULL ORDER BY json_extract(back_request_json, '$.requestedAt'), id", [STATION_ID]);
   for (const saved of requested) {
+    if (!stationCanPrintPaper(paper, savedPrintJobPaper(saved))) continue;
     assertStationWorkflow(saved, deferredBacks, printRecovery);
     assertStationArtifactCapacity(saved, maxArtifacts);
     if (!printCapabilities(saved.user_id).canQueue) {
@@ -492,11 +507,13 @@ export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printR
     run("UPDATE print_jobs SET state = 'awaiting_refeed', lease_expires_at = ?, updated_at = ? WHERE id = ?", [leaseExpiry(), now(), saved.id]);
     return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [saved.id]), true);
   }
-  while ((row = get("SELECT * FROM print_jobs WHERE state = 'queued' ORDER BY queued_at, created_at, id LIMIT 1"))) {
+  for (const queued of all("SELECT * FROM print_jobs WHERE state = 'queued' ORDER BY queued_at, created_at, id")) {
+    row = queued;
     if (!printCapabilities(row.user_id).canQueue) {
       run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked; PDF remains available to its owner', now(), row.id]);
       continue;
     }
+    if (!stationCanPrintPaper(paper, savedPrintJobPaper(row))) continue;
     // Check compatibility before hashing PDFs or creating a durable claim. Older
     // companions can upgrade without trapping this FIFO job in claimed state.
     assertStationArtifactCapacity(row, maxArtifacts);

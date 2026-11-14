@@ -26,6 +26,10 @@ an explicit retry. The Archiver 8 migration and ZIP interruption/cleanup fixes a
 
 ## Working printing path and conditional physical checks
 
+CLC v2.58.0 adds A4 alongside US Letter. The review choice is saved with the batch and
+the Mac uses it for fronts, deferred backs and recovery. Physical acceptance for the
+A4 layout and flip remains separate. See the [print workflow](PRINT_WORKFLOW.md#household-recipe).
+
 On **2026-10-15**, the owner reported several dozen pages printed successfully through the
 current workflow. Source and the running container already specify `household-letter-v6` /
 `letter-standard-v6`; the worker validates layout version 6 and its approved geometry.

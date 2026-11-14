@@ -204,6 +204,24 @@ class DeferredBacksTests(unittest.TestCase):
         self.assertEqual(len(complete), 1)
         self.assertEqual(complete[0]['allowed_mentions']['users'], [])
 
+    def test_saved_a4_backs_keep_batch_recipe_after_stock_change_and_restart(self):
+        self.config["a4_enabled"] = True
+        self.config.update(loaded_paper_size="a4", a4_recipe_verified=True, a4_duplex_verified=True)
+        self.client.job["recipeId"] = native.A4_RECIPE
+        self.finish_fronts()
+        self.config["loaded_paper_size"] = "letter"
+        self.restart()
+        self.reserve("double-faced-001")
+        with self.assertRaisesRegex(native.StationError, "requires A4"):
+            self.station.resume("job1")
+        self.assertEqual(len(self.cups.submissions), 3)
+
+        self.config["loaded_paper_size"] = "a4"
+        self.station.resume("job1")
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-4")
+        self.assertEqual(self.cups.submissions[-1][:2], ("double-faced-001", "backs"))
+        self.assertEqual(self.cups.recipe_ids, [native.A4_RECIPE] * 4)
+
     def test_saved_back_pdf_survives_retention_and_restart(self):
         self.finish_fronts()
         self.station.ledger.write("UPDATE jobs SET updated=0 WHERE id='job1'")

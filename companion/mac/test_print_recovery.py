@@ -41,9 +41,9 @@ class RecoveryCups(FakeCups):
         self.resumed = []
         self.canceled = []
 
-    def submit(self, artifact, phase, title, path):
+    def submit(self, artifact, phase, title, path, recipe_id=native.LETTER_RECIPE):
         self.selected_pages.append(artifact.get('_selected_pages'))
-        return super().submit(artifact, phase, title, path)
+        return super().submit(artifact, phase, title, path, recipe_id)
 
     def resume_held(self, spooler_id):
         self.resumed.append(spooler_id)
@@ -152,6 +152,35 @@ class PrintRecoveryTests(unittest.TestCase):
         self.assertEqual(self.cups.resumed, ['EPSON-1'])
         self.assertEqual(len(self.cups.submissions), 1)
         self.assertIsNone(self.station.ledger.passes('job1')[0]['attempt_id'])
+
+    def test_held_a4_pass_cannot_resume_while_letter_is_loaded(self):
+        self.cfg["a4_enabled"] = True
+        self.cfg.update(loaded_paper_size="a4", a4_recipe_verified=True)
+        self.client.job["recipeId"] = native.A4_RECIPE
+        boundary = self.interrupt(4)
+        self.cfg["loaded_paper_size"] = "letter"
+        with self.assertRaisesRegex(native.StationError, "requires A4"):
+            self.station.recover_print(self.request(boundary))
+        self.assertEqual(self.cups.resumed, [])
+        self.cfg["loaded_paper_size"] = "a4"
+        self.cfg["a4_recipe_verified"] = False
+        with self.assertRaisesRegex(native.StationError, "has not been physically verified"):
+            self.station.recover_print(self.request(boundary))
+        self.assertEqual(self.cups.resumed, [])
+        self.cfg["a4_recipe_verified"] = True
+        self.station.recover_print(self.request(boundary))
+        self.assertEqual(self.cups.resumed, ['EPSON-1'])
+        self.assertEqual(self.cups.recipe_ids, [native.A4_RECIPE])
+
+    def test_a4_remaining_sheets_keep_original_recipe(self):
+        self.cfg["a4_enabled"] = True
+        self.cfg.update(loaded_paper_size="a4", a4_recipe_verified=True)
+        self.client.job["recipeId"] = native.A4_RECIPE
+        boundary = self.interrupt()
+        self.station.recover_print(self.request(boundary, firstUnprintedSheet=2))
+        self.assertEqual(self.station.poll_once(), 'submitted EPSON-2')
+        self.assertEqual(self.cups.selected_pages, [None, [1, 2, 3]])
+        self.assertEqual(self.cups.recipe_ids, [native.A4_RECIPE, native.A4_RECIPE])
 
     def test_pending_and_processing_passes_are_retained_without_submission_or_cancel(self):
         for state in (3, 5):

@@ -11,7 +11,8 @@ import subprocess
 import time
 import uuid
 
-from clc_print_station import StationError, checked_id, recipe_fingerprint, clearance_id
+from clc_print_station import (PAPER_RECIPES, StationError, checked_id, clearance_id,
+                               paper_capabilities, recipe_fingerprint, recipe_proof, require_loaded_paper)
 from clc_station_alerts import (DISCORD_SETTING, DISCORD_TEST_SETTING, validate_alert_config,
                                 effective_alert_config, discord_status, discord_test_payload,
                                 discord_queued_payload)
@@ -180,13 +181,16 @@ class StationControl:
         else:
             active = None
         queue_receipts = self.queue_notification_receipts()
+        paper = paper_capabilities(self.config)
+        loaded_recipe = PAPER_RECIPES[paper["loadedPaperSize"]]
         return {"version": self.version, "paused": self.ledger.paused(), "queue": self.config["queue"],
                 "deferredBacks": True,
                 "printRecovery": True,
-                "recipeVerified": bool(self.config.get("recipe_verified")),
-                "duplexVerified": bool(self.config.get("duplex_verified")),
+                **paper,
+                "recipeVerified": recipe_proof(self.config, loaded_recipe),
+                "duplexVerified": recipe_proof(self.config, loaded_recipe, duplex=True),
                 "testPrintingEnabled": self.config.get("allow_unverified_printing") is True,
-                "recipeFingerprint": recipe_fingerprint(self.config), "activeJob": active,
+                "recipeFingerprint": recipe_fingerprint(self.config, loaded_recipe), "activeJob": active,
                 "health": self.health, "update": self.update,
                 "discord": discord_status(self.ledger, self.config),
                 "queueNotifications": self.queue_notifications_available,
@@ -237,10 +241,12 @@ class StationControl:
                         current = self.ledger.current()
                         if not current or current["id"] != request.get("jobId") or current["state"] != "awaiting_refeed":
                             raise StationError("This batch is no longer waiting for paper reload")
-                        pending = self.ledger.pending(json.loads(current["payload"]))
+                        job = json.loads(current["payload"])
+                        pending = self.ledger.pending(job)
                         if (not pending or pending["phase"] != "backs" or pending["state"] != "pending"
                                 or pending["artifact_id"] != request.get("artifactId")):
                             raise StationError("The paper reload request belongs to a different back pass")
+                        require_loaded_paper(self.config, job["recipeId"])
                         self.ledger.db.execute("UPDATE passes SET resume_requested=1 WHERE job_id=? AND artifact_id=? AND phase='backs'",
                                                (current["id"], pending["artifact_id"]))
                         message = "Paper reload confirmed for this back pass"

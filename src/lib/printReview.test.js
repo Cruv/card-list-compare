@@ -119,6 +119,12 @@ describe('durable print creation recovery', () => {
       expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...value, ...invalid }) }, 'key')).toBeNull();
     }
   });
+  it('preserves the reviewed paper size through an ambiguous creation and keeps legacy requests unchanged', () => {
+    const original = { ...request, paperSize: 'a4' };
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(original) }, 'key').paperSize).toBe('a4');
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(request) }, 'key')).not.toHaveProperty('paperSize');
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...request, paperSize: 'a3' }) }, 'key')).toBeNull();
+  });
   it('retains intent when transport or authorization can prevent an accepted receipt from being read', () => {
     for (const error of [new Error('offline'), { status: 401 }, { status: 403 }, { status: 408 }, { status: 429 }, { status: 500 }, { status: 503 }]) {
       expect(rejectedPrintCreation(error)).toBe(false);

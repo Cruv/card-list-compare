@@ -1,5 +1,16 @@
 # Current work checkpoint
 
+## A4 and US Letter printing
+
+The v2.58.0 source adds a browser default and a paper-size choice in print review. Each
+batch keeps its size through PDF generation, physical claims, deferred backs and recovery.
+Legacy batches retain Letter. Direct A4 printing requires companion 2.58.0 and a matching
+local stock setting. Setup and separate A4 physical checks are in the
+[Mac companion guide](../companion/mac/README.md#configure-without-printing).
+The household cutover and physical A4 confirmation remain separate.
+
+## Repository and registry history
+
 Repository-owned deployment and native publisher repairs are implemented. Source delivery
 is tracked by [PR #7](https://github.com/Cruv/card-list-compare/pull/7) (integrated as `4d58f3e`)
 and [PR #8](https://github.com/Cruv/card-list-compare/pull/8) (native publisher). On 2026-11-05
@@ -22,16 +33,11 @@ The PR/main workflow and registry receipts own the changing publication status.
   deployment checks, lint and both native image builds; publication was correctly skipped.
   Independent publication-boundary review closed. Documentation-only follow-up can reuse
   unchanged workflow/code evidence; exact selected main publication must still be verified.
-- **Preservation / live state:** Mac remains on local `clc-household:2.57.5-4c6fd80`, with
-  unchanged healthy container `7c209134c46e...`; companion remains enabled. No production
-  deployment/configuration, credential rotation, physical work or Discord test occurred.
-  Keep full data/hidden keys, original mtg/network/container/port identity, private runtime
-  values and native ledger/config/token/artifacts/profile. See
+- **Registry cutover:** on November 9 the owner applied the GHCR `latest` stack through
+  Portainer. The deployed v2.57.5 image matched `d329647`. Local and public health,
+  frontend bytes, database integrity and native reconnection passed. Keep the full
+  data directory, keys, existing stack identity, private runtime values and native
+  print receipts for later updates. See
   [the procedure](OPERATIONS.md#repository-deployment-and-registry-cutover).
-- **Next live action:** after verifying the selected published source/digest and reporting
-  preservation requirements, await a separate registry-cutover instruction. That cutover
-  needs fresh backups and exact-job idle checks; it does not require reinstalling the native
-  companion or discarding paper receipts. Historical private image-pin candidates remain
-  rollback/evidence, not the intended deployment definition.
 - **Handles:** no active disposable local backend/browser tab. CI watches/logs are outside
   Git; canceled logs retain the QEMU diagnosis. No foreign or paused implementation edits.
