@@ -5,7 +5,7 @@ import { printCardKey, isBasicLand } from '../../src/lib/printSelection.js';
 import { normalizeCardName, normalizedName } from '../../src/lib/cardIdentity.js';
 import { get } from '../db.js';
 import { fetchCardImageUrls } from './scryfallImages.js';
-import { PRINT_PAPER_RECIPES, validatePaperSize } from './printPaper.js';
+import { printPaperSelection } from './printPaper.js';
 
 export const MAX_PRINT_COPIES = 250;
 export const MAX_PRINT_LIST_TEXT_LENGTH = 100_000;
@@ -254,7 +254,7 @@ export function savedPrintArt(savedArtwork, card, face) {
 
 /** Resolve exact printing/face identities before review; no image bytes are downloaded here. */
 export async function buildPrintPlan(userId, deckId, options = {}) {
-  const paperSize = validatePaperSize(options.paperSize === undefined ? 'letter' : options.paperSize);
+  const { paperSize, printPreset } = printPaperSelection(options.paperSize, options.printPreset);
   const inputs = selectPrintInputs(readPrintInputs(userId, deckId, options), options);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('Artwork metadata review exceeded 60 seconds. Review the print list again.')), PRINT_METADATA_TIMEOUT_MS);
@@ -313,15 +313,14 @@ export async function buildPrintPlan(userId, deckId, options = {}) {
     doubleFacedCopies: identitiesComplete ? resolvedCards.filter(card => card.isDFC).reduce((sum, card) => sum + card.quantity, 0) : null,
   };
   // Preserve existing reviewed Letter plans and resumable creation intents.
-  const frozen = paperSize === 'letter' ? plan : { ...plan, paperSize };
+  const frozen = paperSize === 'letter' ? plan : { ...plan, paperSize, ...(printPreset ? { printPreset } : {}) };
   return { ...frozen, planHash: sha256(JSON.stringify(frozen)) };
 }
 
 export function publicPrintPlan(plan) {
   const version = snapshot => snapshot && ({ id: snapshot.id, createdAt: snapshot.createdAt, textHash: snapshot.textHash });
   const { savedArtwork: _saved, additionalCardText: _extraText, ...publicPlan } = plan;
-  const paperSize = plan.paperSize ?? 'letter';
-  return { ...publicPlan, paperSize, recipeId: PRINT_PAPER_RECIPES[paperSize], source: version(plan.source), target: version(plan.target),
+  return { ...publicPlan, ...printPaperSelection(plan.paperSize, plan.printPreset), source: version(plan.source), target: version(plan.target),
     ...(plan.list ? { list: { name: plan.list.name, textHash: plan.list.textHash } } : {}),
     ...(plan.comparison ? { comparison: { mode: plan.comparison.mode, beforeTextHash: plan.comparison.beforeTextHash } } : {}) };
 }

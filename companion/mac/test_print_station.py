@@ -924,6 +924,33 @@ class BoundaryTests(unittest.TestCase):
             cups.submit(artifact, "fronts", "CLC-safe", self.directory / "page.pdf", station.LETTER_RECIPE)
         runner.assert_not_called()
 
+    def test_crowned_profile_sets_portrait_rear_feed_and_thick_paper_on_both_faces(self):
+        self.config.update(crowned_a4_enabled=True, loaded_paper_size="a4", loaded_print_preset="crowned-a4")
+        self.config["driver_options"].update(PageSize="Letter", EPIJ_Size="4", EPIJ_FdSo="2",
+                                             EPIJ_PGEx="0", EPIJ_PSrc="3", EPIJ_RmMg="1", EPIJ_DbSidBin="1")
+        value = packet_job(1)
+        value.update(recipeId=station.CROWNED_RECIPE, printPreset=station.CROWNED_PRESET, paperSize="a4")
+        value["artifacts"][1]["cardCount"] = 9
+        result = station.dry_run(self.config, value)
+        self.assertEqual([entry["phase"] for entry in result["commands"]], ["fronts", "fronts", "backs"])
+        for entry in result["commands"]:
+            args = entry["argv"]
+            for option in ("media=A4", "PageSize=A4", "EPIJ_Size=1", "EPIJ_FdSo=0", "EPIJ_PGEx=1",
+                           "EPIJ_PSrc=2", "EPIJ_RmMg=0", "EPIJ_DbSidBin=0",
+                           "orientation-requested=3", "print-scaling=none", "sides=one-sided"):
+                self.assertEqual(args.count(option), 1)
+            self.assertNotIn("orientation-requested=4", args)
+        ordinary_a4 = {**self.config, "a4_enabled": True, "loaded_print_preset": None}
+        self.assertEqual(station.recipe_fingerprint(ordinary_a4, station.A4_RECIPE),
+                         station.recipe_fingerprint(self.config, station.A4_RECIPE))
+        self.assertEqual(station.recipe_fingerprint(ordinary_a4), station.recipe_fingerprint(self.config))
+        with self.assertRaisesRegex(station.StationError, "requires Crowned A4"):
+            station.Cups(ordinary_a4).submit(value["artifacts"][1], "backs", "CLC-proof",
+                                             self.directory / "page.pdf", station.CROWNED_RECIPE)
+        value["printPreset"] = None
+        with self.assertRaisesRegex(station.StationError, "preset does not match"):
+            station.checked_job(value, self.config)
+
     def test_job_paper_size_must_match_the_approved_recipe(self):
         self.config["a4_enabled"] = True
         value = job()
@@ -1022,6 +1049,20 @@ class BoundaryTests(unittest.TestCase):
         cups.jobs.assert_not_called()
         advertised += " 1"
         self.assertEqual(cups.doctor()["fixed_options"]["EPIJ_Size"], "1")
+
+    def test_crowned_doctor_rejects_missing_thick_paper_option(self):
+        self.config.update(crowned_a4_enabled=True, loaded_paper_size="a4", loaded_print_preset="crowned-a4",
+                           driver_options={})
+        def runner(args):
+            if "-e" in args:
+                return "EPSON\n"
+            if args[0].endswith("lpoptions"):
+                return "\n".join(f"{key}/option: {value}" for key, value in station.CROWNED_DRIVER_OPTIONS.items()
+                                 if key != "EPIJ_PGEx")
+            return "EPSON accepting requests\n"
+        cups = station.Cups(self.config, runner)
+        with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_PGEx=1"):
+            cups.doctor()
 
     def test_token_permissions_and_reserved_options_are_rejected(self):
         token = self.directory / "token"

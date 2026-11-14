@@ -10,7 +10,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from 
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, printJobPaper, stationCanPrintPaper, validatePaperSize } from './printPaper.js';
+import { CROWNED_PRESET, LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -45,7 +45,8 @@ export function printCapabilities(userId) {
   const allowed = (process.env.PRINT_ALLOWED_USER_IDS || '').split(',').map(value => Number(value.trim())).filter(id => Number.isSafeInteger(id) && id > 0);
   return {
     stationConfigured, canQueue: !!(stationConfigured && user && !user.suspended && (user.is_admin || allowed.includes(userId))),
-    recipeId: PRINT_PAPER_RECIPES.letter, paperSizes: Object.keys(PRINT_PAPER_RECIPES), retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
+    recipeId: PRINT_PAPER_RECIPES.letter, paperSizes: Object.keys(PRINT_PAPER_RECIPES),
+    printPresets: [CROWNED_PRESET], retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
   };
 }
 export function requireStationToken(token) {
@@ -155,11 +156,11 @@ export function listPrintJobs(userId, deckId) {
 
 export async function createPrintJob(userId, deckId, request, assertQueuePaper = () => {}) {
   const requestKey = safeId(request.idempotencyKey, 'idempotencyKey');
-  const paperSize = validatePaperSize(request.paperSize === undefined ? 'letter' : request.paperSize);
+  const { paperSize, printPreset } = printPaperSelection(request.paperSize, request.printPreset);
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
   const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady,
-    ...(paperSize === 'letter' ? {} : { paperSize }) }));
+    ...(paperSize === 'letter' ? {} : { paperSize }), ...(printPreset ? { printPreset } : {}) }));
   const replay = () => {
     const existing = get('SELECT * FROM print_jobs WHERE user_id = ? AND request_key = ?', [userId, requestKey]);
     if (!existing) return null;
@@ -243,6 +244,7 @@ export async function processNextPrintJob() {
     if (maxOutputBytes <= 0) throw printError('Source images exceed the print-job storage limit', 507);
     const generated = await generatePrintPdfs({
       paperSize: plan.paperSize ?? 'letter',
+      ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
       cards: copies.map(copy => ({ id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}) })),
       outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
       requesterName: plan.requesterName || 'Unknown requester', batchName: plan.deckName,
@@ -254,6 +256,7 @@ export async function processNextPrintJob() {
     if (!Array.isArray(generated.artifacts) || generated.artifacts.length > 37) throw printError('Generator returned too many artifacts', 500);
     const artifactIds = new Set();
     const packets = generated.artifacts.filter(artifact => /^double-faced-\d{3}$/.test(artifact.id));
+    const packetCapacity = plan.printPreset === CROWNED_PRESET ? 9 : 7;
     const artifacts = generated.artifacts.map(artifact => {
       const path = realpathSync(artifact.path);
       const root = realpathSync(jobDir(row.id)) + sep;
@@ -265,7 +268,7 @@ export async function processNextPrintJob() {
         if (artifact.id !== `double-faced-${String(index).padStart(3, '0')}` || artifact.kind !== 'dfc'
           || artifact.sheetCount !== 1 || artifact.pageCount !== 2 || artifact.packetIndex !== index
           || artifact.packetCount !== packets.length || !Number.isSafeInteger(artifact.cardCount)
-          || artifact.cardCount < 1 || artifact.cardCount > 7
+          || artifact.cardCount < 1 || artifact.cardCount > packetCapacity
           || artifact.label !== `CLC ${row.id.slice(0, 8)} DFC ${index}/${packets.length}`) {
           throw printError('Generator returned an invalid double-sided packet', 500);
         }

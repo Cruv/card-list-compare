@@ -49,6 +49,9 @@ class RecoveryCups(FakeCups):
         self.resumed.append(spooler_id)
         next(item for item in self.history if item['id'] == spooler_id)['state'] = 3
 
+    def verify_crowned_ticket(self, spooler_id, title, state):
+        native.Cups.verify_crowned_ticket(self, spooler_id, title, state)
+
     def cancel(self, spooler_id):
         self.canceled.append(spooler_id)
         next(item for item in self.history if item['id'] == spooler_id)['state'] = 7
@@ -181,6 +184,25 @@ class PrintRecoveryTests(unittest.TestCase):
         self.assertEqual(self.station.poll_once(), 'submitted EPSON-2')
         self.assertEqual(self.cups.selected_pages, [None, [1, 2, 3]])
         self.assertEqual(self.cups.recipe_ids, [native.A4_RECIPE, native.A4_RECIPE])
+
+    def test_crowned_held_pass_requires_crowned_stock_and_exact_driver_ticket(self):
+        self.cfg.update(crowned_a4_enabled=True, loaded_paper_size="a4", loaded_print_preset="crowned-a4",
+                        crowned_a4_recipe_verified=True)
+        self.client.job.update(recipeId=native.CROWNED_RECIPE, printPreset=native.CROWNED_PRESET, paperSize="a4")
+        boundary = self.interrupt(4)
+        self.cfg["loaded_print_preset"] = None
+        with self.assertRaisesRegex(native.StationError, "requires Crowned A4"):
+            self.station.recover_print(self.request(boundary))
+        self.cfg["loaded_print_preset"] = "crowned-a4"
+        self.cups.history[0]["ticket"] = {"media": "Letter"}
+        with self.assertRaisesRegex(native.StationError, "Cannot verify the held job"):
+            self.station.recover_print(self.request(boundary))
+        self.assertEqual(self.cups.resumed, [])
+        self.cups.history[0]["ticket"] = {"media": "A4", "sides": "one-sided", "orientation-requested": 3,
+                                         **native.CROWNED_DRIVER_OPTIONS}
+        self.station.recover_print(self.request(boundary))
+        self.assertEqual(self.cups.resumed, ['EPSON-1'])
+        self.assertEqual(self.cups.recipe_ids, [native.CROWNED_RECIPE])
 
     def test_pending_and_processing_passes_are_retained_without_submission_or_cancel(self):
         for state in (3, 5):

@@ -1,5 +1,5 @@
 import { parse } from './parser';
-import { isPrintPaperSize } from './printPaper';
+import { CROWNED_A4_PRESET, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
 
 /** Count physical source copies using the same parser as deck comparison. */
 export function printSourceCopies(text, includeSideboard = false) {
@@ -31,7 +31,8 @@ export function printReviewSummary(plan) {
   const ordinary = plan?.ordinaryCopies, doubleFaced = plan?.doubleFacedCopies;
   if (![ordinary, doubleFaced].every(value => Number.isSafeInteger(value) && value >= 0)
     || ordinary + doubleFaced !== plan.totalCopies) return null;
-  const ordinarySheets = Math.ceil(ordinary / 7), packets = Math.ceil(doubleFaced / 7);
+  const { cardsPerSheet } = PRINT_PAPER[printPaperChoice(plan)];
+  const ordinarySheets = Math.ceil(ordinary / cardsPerSheet), packets = Math.ceil(doubleFaced / cardsPerSheet);
   return { ordinary, doubleFaced, ordinarySheets, packets,
     sheets: ordinarySheets + packets, pages: ordinarySheets + packets * 2 };
 }
@@ -92,6 +93,7 @@ export function loadPrintCreationIntent(storage, key) {
 
 function validSelectionOptions(value) {
   return (value.paperSize === undefined || isPrintPaperSize(value.paperSize))
+    && (value.printPreset === undefined || (value.paperSize === 'a4' && value.printPreset === CROWNED_A4_PRESET))
     && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000
@@ -120,6 +122,7 @@ export function loadStandalonePrintDraft(storage, key) {
       excludeBasicLands: value.excludeBasicLands ?? true, additionalCardText: value.additionalCardText ?? '',
       excludedCards: value.excludedCards ?? [], removedCards,
       ...(value.paperSize ? { paperSize: value.paperSize } : {}),
+      ...(value.printPreset ? { printPreset: value.printPreset } : {}),
       ...(value.printingOverrides ? { printingOverrides: value.printingOverrides } : {}),
       ...(value.comparison ? { comparison: value.comparison } : {}),
       ...(typeof value.replacePrintings === 'boolean' ? { replacePrintings: value.replacePrintings } : {}) };

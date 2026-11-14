@@ -105,6 +105,13 @@ class ManagerTests(unittest.TestCase):
         self.ledger.write("UPDATE jobs SET state='canceled' WHERE id='saved'")
         manager.assert_workflow_compatible(self.config, '2.57.3')
 
+    def test_saved_crowned_backs_block_legacy_worker_rollback_after_stock_switch(self):
+        payload = {'workflow': 'deferred-backs-v1', 'recipeId': 'household-crowned-a4-v2'}
+        self.ledger.write("INSERT INTO jobs VALUES('saved',?,'recipe','backs_pending',NULL,0)", (json.dumps(payload),))
+        manager.assert_workflow_compatible(self.config, '2.58.0')
+        with self.assertRaisesRegex(manager.ManagerError, 'Finish or cancel saved A4 passes'):
+            manager.assert_workflow_compatible(self.config, '2.57.3')
+
     def install(self):
         return manager.install_bundle(self.bundle(), self.config_path, load_agent=False, launch_agents=self.root / "agents")
 

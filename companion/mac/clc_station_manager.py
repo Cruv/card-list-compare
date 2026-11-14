@@ -196,7 +196,7 @@ def assert_workflow_compatible(config, target_version):
     try:
         with contextlib.closing(sqlite3.connect(database.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
             saved = [json.loads(row[0]) for row in connection.execute("SELECT payload FROM jobs WHERE state NOT IN ('completed','failed','canceled')")]
-            if any(job.get("recipeId") == "household-a4-v5" for job in saved):
+            if any(job.get("recipeId") in {"household-a4-v5", "household-crowned-a4-v2"} for job in saved):
                 raise ManagerError("Finish or cancel saved A4 passes before installing a companion older than 2.58.0")
             if target < (2, 55, 0) and any(job.get("workflow") == "deferred-backs-v1" for job in saved):
                 raise ManagerError("Finish or cancel saved backs before installing a companion older than 2.55.0")

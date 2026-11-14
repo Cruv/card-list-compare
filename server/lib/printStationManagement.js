@@ -7,7 +7,7 @@ import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } fro
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
 import { queueNotificationInput, queueNotificationReceiptChanges, queueNotificationDelivery } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
+import { CROWNED_PRESET, LEGACY_STATION_PAPER, printPaperSelection, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
 
 const STATION = 'household';
@@ -34,8 +34,8 @@ export const supportsDeferredBacks = () => online() && latest?.deferredBacks ===
 export function assertQueuePaper(paper) {
   if (!stationCanPrintPaper(latest ?? LEGACY_STATION_PAPER, paper)
     || (paper.paperSize === 'a4' && !online())) {
-    const label = paper.paperSize === 'a4' ? 'A4' : 'US Letter';
-    throw printError(`Set the Mac print station to ${label} and load that paper before queueing this batch. You can still generate or download the PDF.`, 409);
+    const label = paper.printPreset === CROWNED_PRESET ? 'Crowned A4' : paper.paperSize === 'a4' ? 'standard A4' : 'US Letter';
+    throw printError(`Set the Mac print station to ${label} and load that stock before sending this batch to the printer.`, 409);
   }
 }
 
@@ -131,6 +131,7 @@ function householdPrintJobs(userId, canManage = false) {
     const canOpen = row.user_id === userId;
     return { id: row.id, deckName: typeof plan.deckName === 'string' ? plan.deckName.slice(0, 200) : 'Card batch',
       totalCopies: Number.isSafeInteger(plan.totalCopies) ? plan.totalCopies : 0, paperSize: plan.paperSize ?? 'letter',
+      ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
       state: row.state, createdAt: row.created_at, queuedAt: row.queued_at,
       completedAt: row.completed_at, canOpen, canCancel: (canManage || canOpen) && (!!canCancelHouseholdBatch(row) || (online() && latest?.deferredBacks && canCancelRemaining(row))),
       requesterName: typeof plan.requesterName === 'string' ? plan.requesterName.slice(0, 120) : get('SELECT username FROM users WHERE id = ?', [row.user_id])?.username || 'Deleted account',
@@ -281,7 +282,7 @@ export function printStationStatus(userId) {
     const row = get('SELECT * FROM print_jobs WHERE id = ? AND station_id = ?', [active.id, STATION]);
     const deckName = row && JSON.parse(row.plan_json).deckName;
     if (typeof deckName === 'string') active.deckName = deckName.slice(0, 200);
-    active.paperSize = row ? savedPrintJobPaper(row).paperSize : null;
+    if (row) Object.assign(active, savedPrintJobPaper(row));
     active.packet = activePacket(row, active);
     active.cancelRequested = row?.cancel_requested || null;
     active.workflow = row?.workflow || null;
@@ -294,6 +295,7 @@ export function printStationStatus(userId) {
     deferredBacks: latest?.deferredBacks || false,
     printRecovery: latest?.printRecovery || false,
     loadedPaperSize: latest?.loadedPaperSize ?? LEGACY_STATION_PAPER.loadedPaperSize,
+    ...(latest?.loadedPrintPreset ? { loadedPrintPreset: latest.loadedPrintPreset } : {}),
     supportedRecipeIds: latest?.supportedRecipeIds ?? LEGACY_STATION_PAPER.supportedRecipeIds,
     queue: latest?.queue || null, recipeVerified: latest?.recipeVerified || false, duplexVerified: latest?.duplexVerified || false,
     testPrintingEnabled: latest?.testPrintingEnabled || false,
@@ -618,8 +620,7 @@ export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, 
   expireCommands();
   const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
   const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
-  const matchesHeartbeat = online() && latest.loadedPaperSize === paper.loadedPaperSize
-    && latest.supportedRecipeIds.includes(PRINT_PAPER_RECIPES[paper.loadedPaperSize]);
+  const matchesHeartbeat = online() && stationCanPrintPaper(latest, printPaperSelection(paper.loadedPaperSize, paper.loadedPrintPreset));
   if (paused || pendingPause || ((online() || paper.loadedPaperSize === 'a4') && !matchesHeartbeat)
     || (latest?.recipeVerified === false && latest?.testPrintingEnabled !== true)) {
     const active = activeServerJob();

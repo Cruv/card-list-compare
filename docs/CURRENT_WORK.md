@@ -9,6 +9,10 @@ local stock setting. Setup and separate A4 physical checks are in the
 [Mac companion guide](../companion/mac/README.md#configure-without-printing).
 The household cutover and physical A4 confirmation remain separate.
 
+The Crowned A4 option adds nine-card portrait sheets and a separate Epson stock preset.
+It uses the rear feeder, thick-paper mode and actual size. Verify registration on one
+sheet and check the manual flip with a fully dried front before printing a batch.
+
 ## Repository and registry history
 
 Repository-owned deployment and native publisher repairs are implemented. Source delivery

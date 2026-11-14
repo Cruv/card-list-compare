@@ -32,7 +32,7 @@ import './App.css';
 
 const APP_VERSION = '2.58.0';
 const WHATS_NEW = [
-  'Choose A4 or US Letter in print review and save your default',
+  'Choose US Letter, A4 or Crowned A4 portrait sheets and save your default',
   'Print batches keep their paper size for fronts, saved backs and retries',
 ];
 

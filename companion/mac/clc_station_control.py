@@ -11,7 +11,7 @@ import subprocess
 import time
 import uuid
 
-from clc_print_station import (PAPER_RECIPES, StationError, checked_id, clearance_id,
+from clc_print_station import (StationError, checked_id, clearance_id, loaded_recipe,
                                paper_capabilities, recipe_fingerprint, recipe_proof, require_loaded_paper)
 from clc_station_alerts import (DISCORD_SETTING, DISCORD_TEST_SETTING, validate_alert_config,
                                 effective_alert_config, discord_status, discord_test_payload,
@@ -182,15 +182,15 @@ class StationControl:
             active = None
         queue_receipts = self.queue_notification_receipts()
         paper = paper_capabilities(self.config)
-        loaded_recipe = PAPER_RECIPES[paper["loadedPaperSize"]]
+        recipe_id = loaded_recipe(self.config)
         return {"version": self.version, "paused": self.ledger.paused(), "queue": self.config["queue"],
                 "deferredBacks": True,
                 "printRecovery": True,
                 **paper,
-                "recipeVerified": recipe_proof(self.config, loaded_recipe),
-                "duplexVerified": recipe_proof(self.config, loaded_recipe, duplex=True),
+                "recipeVerified": recipe_proof(self.config, recipe_id),
+                "duplexVerified": recipe_proof(self.config, recipe_id, duplex=True),
                 "testPrintingEnabled": self.config.get("allow_unverified_printing") is True,
-                "recipeFingerprint": recipe_fingerprint(self.config, loaded_recipe), "activeJob": active,
+                "recipeFingerprint": recipe_fingerprint(self.config, recipe_id), "activeJob": active,
                 "health": self.health, "update": self.update,
                 "discord": discord_status(self.ledger, self.config),
                 "queueNotifications": self.queue_notifications_available,

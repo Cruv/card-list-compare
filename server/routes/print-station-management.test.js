@@ -797,6 +797,27 @@ describe('saved back packets and physical clearance controls', () => {
     expect((await changed.json()).commands).toEqual([]);
     expect(await accepted(reload)).toMatchObject({ status: 'rejected', message: 'The Mac paper size no longer matches this batch' });
   });
+  it('requires the Crowned stock preset for backs even when standard A4 is loaded', async () => {
+    const jobId = seedDeferred();
+    const { plan_json, manifest_json } = db.get('SELECT plan_json, manifest_json FROM print_jobs WHERE id = ?', [jobId]);
+    const recipe = { id: 'household-crowned-a4-v2', paperSize: 'a4', printPreset: 'crowned-a4' };
+    const plan = { ...JSON.parse(plan_json), paperSize: recipe.paperSize, printPreset: recipe.printPreset };
+    const manifest = JSON.stringify({ ...JSON.parse(manifest_json), recipe });
+    db.run('UPDATE print_jobs SET plan_json=?, manifest_json=?, manifest_sha256=? WHERE id=?', [JSON.stringify(plan), manifest, digest(manifest), jobId]);
+    const native = { version: '2.58.0', deferredBacks: true, loadedPaperSize: 'a4',
+      supportedRecipeIds: ['household-letter-v6', 'household-a4-v5', recipe.id] };
+    const poll = body => request('/api/print-station/claim', { method: 'POST', body, token: credential });
+    await beat(heartbeat(native));
+    expect((await prepare(jobId)).status).toBe(409);
+    const crowned = { ...native, loadedPrintPreset: 'crowned-a4' };
+    await beat(heartbeat(crowned));
+    expect((await prepare(jobId)).status).toBe(200);
+    await beat(heartbeat(native));
+    expect(await (await poll(native)).json()).toEqual({ job: null });
+    expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [jobId]).state).toBe('backs_pending');
+    await beat(heartbeat(crowned));
+    expect((await (await poll(crowned)).json()).job).toMatchObject({ id: jobId, printPreset: 'crowned-a4', state: 'awaiting_refeed' });
+  });
   it('supports owner cancellation for parked work and leaves other users batches untouched', async () => {
     const mine = seedDeferred('backs_pending', 2), other = seedDeferred();
     expect((await cancelBacks(other, 2)).status).toBe(403);

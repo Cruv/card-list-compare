@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES } from './printGenerator.js';
+import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE } from './printGenerator.js';
 import { headlessRequirements, PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 
 const temporary = [];
@@ -208,7 +208,7 @@ describe('PDF adapter publication', () => {
     expect(() => printPageIdentification({ batchName: 'x'.repeat(4097) })).toThrow('bounded text');
   });
 
-  it.each([[1, undefined], [7, 'letter'], [8, 'a4'], [249, 'letter']])('publishes %i DFC copies (%s) as paired packets after ordinary fronts, with matching labels and checksums', async (count, paperSize) => {
+  it.each([[1, undefined], [7, 'letter'], [8, 'a4'], [249, 'letter'], [10, 'a4', 'crowned-a4']])('publishes %i DFC copies (%s) as paired packets after ordinary fronts, with matching labels and checksums', async (count, paperSize, printPreset) => {
     const directory = await temp();
     const release = vi.fn();
     const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed', release }) };
@@ -230,12 +230,12 @@ describe('PDF adapter publication', () => {
     }))];
     const onProgress = vi.fn();
     const result = await createPrintGenerator({ runtime, run }).generate({ cards, outputDir: directory, batchLabel: 'CLC 1234abcd',
-      requesterName: 'Dénny', batchName: 'Friday proxies', onProgress, paperSize });
-    const recipe = PRINT_RECIPES[paperSize ?? 'letter'];
+      requesterName: 'Dénny', batchName: 'Friday proxies', onProgress, paperSize, printPreset });
+    const recipe = printPreset ? CROWNED_A4_RECIPE : PRINT_RECIPES[paperSize ?? 'letter'];
     expect(result.recipe).toBe(recipe);
-    expect([...requests, ...merges].every(request => request.paperSize === recipe.paperSize)).toBe(true);
+    expect([...requests, ...merges].every(request => request.paperSize === recipe.paperSize && request.printPreset === printPreset)).toBe(true);
     expect(result.printedIdentification).toEqual({ version: 1, requesterName: 'Denny', batchName: 'Friday proxies' });
-    const packetCount = Math.ceil(count / 7);
+    const packetCount = Math.ceil(count / recipe.cardsPerSheet);
     expect(result.artifacts).toHaveLength(packetCount + 1);
     expect(result.artifacts[0]).toMatchObject({ id: 'fronts', kind: 'ordinary', pageCount: 1, cardCount: 1, label: 'CLC 1234abcd fronts' });
     expect(result.artifacts[0]).not.toHaveProperty('packetIndex');
@@ -245,7 +245,8 @@ describe('PDF adapter publication', () => {
       const artifact = result.artifacts[i];
       expect(artifact).toMatchObject({
         id: `double-faced-${String(i).padStart(3, '0')}`, kind: 'dfc', pageCount: 2, sheetCount: 1,
-        cardCount: Math.min(7, count - (i - 1) * 7), packetIndex: i, packetCount, label: `CLC 1234abcd DFC ${i}/${packetCount}`,
+        cardCount: Math.min(recipe.cardsPerSheet, count - (i - 1) * recipe.cardsPerSheet),
+        packetIndex: i, packetCount, label: `CLC 1234abcd DFC ${i}/${packetCount}`,
       });
       expect(requests[i]).toMatchObject({ label: artifact.label, doubleFaced: true });
       expect(artifact.printedIdentification).toEqual(result.printedIdentification);
@@ -254,6 +255,7 @@ describe('PDF adapter publication', () => {
       expect(requests[i].pageLabels).toEqual(artifact.pageLabels);
       expect(merges[i].pageCount).toBe(2);
       expect(artifact.slotMap.map(slot => slot.cardId)).toEqual(requests[i].cards.map(card => card.id));
+      if (printPreset) expect(artifact.slotMap.map(slot => slot.slot)).toEqual(Array.from({ length: artifact.cardCount }, (_, index) => index));
       expect(artifact.slotMap.every(slot => slot.frontPage === 1 && slot.backPage === 2)).toBe(true);
       expect(result.slots.filter(slot => slot.artifactId === artifact.id)).toEqual(artifact.slotMap.map(slot => ({ ...slot, artifactId: artifact.id })));
     }
@@ -276,6 +278,12 @@ describe('PDF adapter publication', () => {
   it.each(['legal', '', null, ['a4'], '__proto__'])('rejects unknown paper %s before capturing a runtime', async paperSize => {
     const capture = vi.fn();
     await expect(createPrintGenerator({ runtime: { capture } }).generate({ paperSize })).rejects.toThrow('Paper size');
+    expect(capture).not.toHaveBeenCalled();
+  });
+
+  it.each([['letter', 'crowned-a4'], ['a4', 'custom']])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {
+    const capture = vi.fn();
+    await expect(createPrintGenerator({ runtime: { capture } }).generate({ paperSize, printPreset })).rejects.toThrow('requires A4');
     expect(capture).not.toHaveBeenCalled();
   });
 

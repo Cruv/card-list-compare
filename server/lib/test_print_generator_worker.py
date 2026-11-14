@@ -85,6 +85,30 @@ class PageIdentificationTests(unittest.TestCase):
             self.assertEqual([round(tm[5], 2) for _, tm in runs], [575.2, 565.2, 555.2])
             self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
 
+    def test_crowned_portrait_restores_geometry_without_reencoding_and_keeps_margin_labels(self):
+        writer = PdfWriter(clone_from=self.pdf)
+        for page in writer.pages:
+            page.mediabox = RectangleObject([0, 0, 841.68, 595.2])
+            image = page["/Resources"]["/XObject"]["/Artwork"]
+            image[NameObject("/Width")] = NumberObject(7014)
+            image[NameObject("/Height")] = NumberObject(4960)
+        with self.pdf.open("wb") as stream:
+            writer.write(stream)
+        validate_pdf(self.pdf, 2, "crowned-a4", upstream=True)
+        identify_pages(self.pdf, self.identity, self.labels, "crowned-a4")
+        validate_pdf(self.pdf, 2, "crowned-a4")
+        with self.assertRaisesRegex(ValueError, "landscape A4"):
+            validate_pdf(self.pdf, 2, "a4")
+        reader = PdfReader(self.pdf)
+        for index, page in enumerate(reader.pages):
+            self.assertEqual(page["/Resources"]["/XObject"]["/Artwork"].get_data(), b"\x11\x22\x33")
+            transforms = [operands for operands, operator in page.get_contents().operations if operator == b"cm"]
+            self.assertEqual([round(float(value), 2) for value in transforms[0]], [0, -1, 1, 0, 0, 841.68])
+            runs = []
+            page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm)) if text.strip() else None)
+            self.assertEqual([round(tm[5], 2) for _, tm in runs], [825.68, 816.68, 807.68])
+            self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
+
     def test_rejects_unsafe_or_unbounded_identification_before_replacing_source(self):
         original = self.pdf.read_bytes()
         for identity in ({**self.identity, "requesterName": "name\nnext"}, {**self.identity, "batchName": "🐉"},

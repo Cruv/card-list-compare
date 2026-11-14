@@ -6,7 +6,7 @@ import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
 import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
-import { PRINT_PAPER, isPrintPaperSize, loadDefaultPrintPaper, printPaperLabel, printPaperSize, printPaperUnavailable } from '../lib/printPaper';
+import { CROWNED_A4_PRESET, PRINT_PAPER, isPrintPaperSize, loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -84,8 +84,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [target, setTarget] = useState('latest');
   const [baseline, setBaseline] = useState(String(deck?.paper_snapshot_id || snapshots[1]?.id || ''));
   const [artSource, setArtSource] = useState('scryfall');
-  const [defaultPaperSize, setDefaultPaperSize] = useState(() => loadDefaultPrintPaper(localStorage, paperDefaultKey));
-  const [paperOverride, setPaperOverride] = useState(storedDraft?.paperSize ?? null);
+  const [defaultPaper, setDefaultPaper] = useState(() => loadDefaultPrintPaper(localStorage, paperDefaultKey));
+  const [paperOverride, setPaperOverride] = useState(storedDraft?.paperSize ? printPaperChoice(storedDraft) : null);
   const [includeSideboard, setIncludeSideboard] = useState(standalone ? storedRequest?.includeSideboard ?? storedDraft?.includeSideboard ?? false : false);
   const [replacePrintings, setReplacePrintings] = useState(storedRequest?.replacePrintings ?? storedDraft?.replacePrintings ?? false);
   const [excludeBasicLands, setExcludeBasicLands] = useState(storedRequest ? storedRequest.excludeBasicLands ?? false : storedDraft?.excludeBasicLands ?? true);
@@ -116,12 +116,14 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const revisionRef = useRef(0);
   const creationPending = !!pendingRequest;
   const pendingAction = pendingRequest?.queueOnReady ?? null;
-  const availablePaperSizes = capabilities.paperSizes?.filter(isPrintPaperSize) ?? ['letter'];
-  const preferredPaperSize = paperOverride ?? defaultPaperSize;
-  const paperSize = pendingRequest ? printPaperSize(pendingRequest)
-    : availablePaperSizes.includes(preferredPaperSize) ? preferredPaperSize : 'letter';
-  const needsReview = reviewDirty || (!!plan && paperSize !== printPaperSize(plan));
-  const paperUnavailable = capabilities.canQueue ? printPaperUnavailable({ paperSize }, station) : '';
+  const availablePaper = capabilities.paperSizes?.filter(isPrintPaperSize) ?? ['letter'];
+  if (capabilities.printPresets?.includes(CROWNED_A4_PRESET)) availablePaper.push(CROWNED_A4_PRESET);
+  const preferredPaper = paperOverride ?? defaultPaper;
+  const selectedPaper = pendingRequest ? printPaperChoice(pendingRequest)
+    : availablePaper.includes(preferredPaper) ? preferredPaper : 'letter';
+  const paperPreset = PRINT_PAPER[selectedPaper];
+  const needsReview = reviewDirty || (!!plan && selectedPaper !== printPaperChoice(plan));
+  const paperUnavailable = capabilities.canQueue ? printPaperUnavailable(printPaperRequest(selectedPaper), station) : '';
   const summary = printReviewSummary(plan);
   const sourceCopies = useMemo(() => standalone && plan ? printSourceCopies(cardText, plan.includeSideboard) : undefined, [standalone, plan, cardText]);
   const copyCounts = printCopyBreakdown(plan, sourceCopies);
@@ -140,7 +142,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   useEffect(() => {
     if (!standalone) return;
     try {
-      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, paperSize: paperOverride ?? undefined }));
+      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, ...(paperOverride ? printPaperRequest(paperOverride) : {}) }));
       setDraftError('');
       if (autoComparison && !autoConsumedRef.current) {
         autoConsumedRef.current = true;
@@ -151,11 +153,12 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
   function switchDraft(draft, comparisonId) {
     if (requestRef.current || busy) return;
-    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, paperSize: paperOverride ?? undefined };
+    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, ...(paperOverride ? printPaperRequest(paperOverride) : {}) };
     const next = { listName: draft.listName || '', cardText: draft.cardText || '', comparison: draft.comparison || null,
       replacePrintings: draft.replacePrintings ?? false, includeSideboard: draft.includeSideboard ?? false,
       excludeBasicLands: draft.excludeBasicLands ?? true, additionalCardText: draft.additionalCardText || '',
-      excludedCards: draft.excludedCards || [], removedCards: draft.removedCards || [], printingOverrides: draft.printingOverrides || [], paperSize: draft.paperSize };
+      excludedCards: draft.excludedCards || [], removedCards: draft.removedCards || [], printingOverrides: draft.printingOverrides || [],
+      ...(draft.paperSize ? printPaperRequest(printPaperChoice(draft)) : {}) };
     try { saveStandaloneDraftReplacement(localStorage, draftStorageKey, recoveryStorageKey, current, next); }
     catch { setError('The browser could not save both drafts. Your current draft and compared lists are unchanged. Free browser storage and try again.'); return; }
     setPreviousDraft(current);
@@ -164,7 +167,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     setReplacePrintings(draft.replacePrintings ?? false); setIncludeSideboard(draft.includeSideboard ?? false);
     setExcludeBasicLands(draft.excludeBasicLands ?? true); setAdditionalCardText(draft.additionalCardText || '');
     setExcludedCards(draft.excludedCards || []); setRemovedCards(draft.removedCards || []);
-    setPaperOverride(draft.paperSize ?? null);
+    setPaperOverride(draft.paperSize ? printPaperChoice(draft) : null);
     setPrintingOverrides(draft.printingOverrides || []); setSelectedArtCard(null);
     setPlan(null); setEditingSource(true); setActiveView('prepare'); setFocusedJobId(null); setError(''); setNotice('');
     if (comparisonId) { setHandledComparisonId(comparisonId); onComparisonConsumed?.(comparisonId); }
@@ -275,11 +278,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
   function savePaperDefault() {
     try {
-      localStorage.setItem(paperDefaultKey, paperSize);
-      setDefaultPaperSize(paperSize);
+      localStorage.setItem(paperDefaultKey, selectedPaper);
+      setDefaultPaper(selectedPaper);
       setPaperOverride(null);
-      setNotice(`${PRINT_PAPER[paperSize].label} saved as your default in this browser.`);
-    } catch { setError('This browser could not save your default paper size. You can still use it for this batch.'); }
+      setNotice(`${paperPreset.label} saved as your default in this browser.`);
+    } catch { setError('This browser could not save your default print preset. You can still use it for this batch.'); }
   }
 
   async function preview(event) {
@@ -292,11 +295,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     try {
       const data = standalone ? await previewStandalonePrintJob({
         mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
-        excludeBasicLands, additionalCardText, excludedCards, printingOverrides, paperSize,
+        excludeBasicLands, additionalCardText, excludedCards, printingOverrides, ...printPaperRequest(selectedPaper),
       }) : await previewPrintPlan(deckId, {
         mode, targetSnapshotId: target === 'latest' ? undefined : Number(target),
         baselineSnapshotId: mode === 'changes' ? Number(baseline) : undefined,
-        artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, printingOverrides, paperSize,
+        artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, printingOverrides, ...printPaperRequest(selectedPaper),
       });
       if (revision !== revisionRef.current) return;
       setPlan(data.plan);
@@ -329,11 +332,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         const request = standalone ? {
           mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
           excludeBasicLands, additionalCardText, excludedCards, printingOverrides,
-          expectedPlanHash: plan.planHash, paperSize: printPaperSize(plan), queueOnReady, idempotencyKey: requestId(),
+          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan)), queueOnReady, idempotencyKey: requestId(),
         } : {
           mode, targetSnapshotId: plan.target.id, baselineSnapshotId: plan.source?.id,
           artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, printingOverrides, expectedPlanHash: plan.planHash,
-          paperSize: printPaperSize(plan), queueOnReady, idempotencyKey: requestId(),
+          ...printPaperRequest(printPaperChoice(plan)), queueOnReady, idempotencyKey: requestId(),
         };
         // Save before POST: a reload or lost response must recover this exact
         // request instead of creating a second potentially queued batch.
@@ -521,16 +524,17 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       {plan.missingArtwork?.length > 0 && <div className="print-panel-error" role="alert">Choose artwork for:{'\n'}{plan.missingArtwork.map(card => `${card.quantity}× ${card.displayName} (${card.face})`).join('\n')}</div>}
       {plan.totalCopies === 0 && <p>No copies remain. Restore removed cards, add extras or change the selection options.</p>}
       {summary?.doubleFaced > 0 && <p className="print-dfc-note">{summary.doubleFaced} double-sided {summary.doubleFaced === 1 ? 'card' : 'cards'} will use {summary.packets} separate labeled {summary.packets === 1 ? 'sheet' : 'sheets'}. With companion 2.55.0 or newer, all fronts print first. Keep those sheets and choose their backs later in Printer; other front jobs continue. Older companions keep their original front/back sequence.</p>}
-      {station?.online && (station.loadedPaperSize ?? 'letter') === paperSize && station.duplexVerified === false && summary?.doubleFaced > 0 && <p className="print-panel-meta">Double-sided alignment for {PRINT_PAPER[paperSize].label} is still unverified. Check <a href="#print-station">Printer</a> before continuing.</p>}
-      {availablePaperSizes.length > 1 && <div className="print-paper-controls">
-        <label className="print-list-name">Paper size<select value={paperSize} disabled={busy || creationPending} onChange={event => change(setPaperOverride, event.target.value, true)}>
-          {availablePaperSizes.map(size => <option key={size} value={size}>{PRINT_PAPER[size].label}</option>)}
+      {station?.online && stationPaperChoice(station) === selectedPaper && station.duplexVerified === false && summary?.doubleFaced > 0 && <p className="print-panel-meta">Double-sided alignment for {paperPreset.label} is still unverified. Check <a href="#print-station">Printer</a> before continuing.</p>}
+      {availablePaper.length > 1 && <div className="print-paper-controls">
+        <label className="print-list-name">Paper and layout<select value={selectedPaper} disabled={busy || creationPending} onChange={event => change(setPaperOverride, event.target.value, true)}>
+          {availablePaper.map(choice => <option key={choice} value={choice}>{PRINT_PAPER[choice].label}{choice === CROWNED_A4_PRESET ? ' · portrait 3×3' : choice === 'a4' ? ' · landscape' : ''}</option>)}
         </select></label>
-        <button type="button" className="btn btn-secondary" disabled={busy || creationPending || paperSize === defaultPaperSize} onClick={savePaperDefault}>Save as default</button>
-        <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaperSize].label}</span>
+        <button type="button" className="btn btn-secondary" disabled={busy || creationPending || selectedPaper === defaultPaper} onClick={savePaperDefault}>Save as default</button>
+        <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
       </div>}
+      {selectedPaper === CROWNED_A4_PRESET && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
-      <div className="print-review-footer"><div><strong>{plan.totalCopies} {plan.totalCopies === 1 ? 'copy' : 'copies'}{summary ? ` · ${summary.sheets} ${summary.sheets === 1 ? 'sheet' : 'sheets'}` : ''}</strong><span>{printPaperLabel(plan)} paper · {PRINT_PAPER[printPaperSize(plan)].template} cut template</span></div><div className="print-panel-actions">
+      <div className="print-review-footer"><div><strong>{plan.totalCopies} {plan.totalCopies === 1 ? 'copy' : 'copies'}{summary ? ` · ${summary.sheets} ${summary.sheets === 1 ? 'sheet' : 'sheets'}` : ''}</strong><span>{printPaperLabel(plan)} · {PRINT_PAPER[printPaperChoice(plan)].template} cut template</span></div><div className="print-panel-actions">
         {needsReview ? <button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : 'Review updated list'}</button> : <><button className={`btn ${capabilities.canQueue && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{capabilities.canQueue && <button className="btn btn-primary" disabled={busy || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
       </div></div>
     </section>}
@@ -545,7 +549,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     </section>
 
     <details className="print-help" aria-label="PDF generator status"><summary>{generator?.available ? 'PDF setup' : generator?.updating ? 'Preparing the PDF generator…' : 'PDF generator unavailable'}</summary>
-      <p>{generator?.available ? `Silhouette Card Maker ${generator.revision?.slice(0, 8)} · ${PRINT_PAPER[paperSize].template} · 600 PPI · 1 mm crop · 7 cards per sheet.` : 'CLC needs a working Silhouette Card Maker installation. Check the server setup or restart to retry the update.'}</p>
+      <p>{generator?.available ? `Silhouette Card Maker ${generator.revision?.slice(0, 8)} · ${paperPreset.template} · 600 PPI · 1 mm crop · ${paperPreset.cardsPerSheet} cards per sheet.` : 'CLC needs a working Silhouette Card Maker installation. Check the server setup or restart to retry the update.'}</p>
       {generator?.fallbackReason && <p>{generator.fallbackReason}</p>}
       <p>Open an artwork thumbnail to enlarge it; the PDF applies the household crop. Double-sided packets are handled in Printer.</p>
 
