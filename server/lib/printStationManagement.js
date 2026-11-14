@@ -1,13 +1,13 @@
 /** Household station controls. No executable paths, printer options or arbitrary commands. */
 import crypto from 'node:crypto';
 import { all, get, runTransaction } from '../db.js';
-import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, requestPrintCancellation, preparePrintBacks, assertStationArtifactCapacity, assertStationWorkflow, savedPrintJobPaper } from './printQueue.js';
+import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, requestPrintCancellation, preparePrintBacks, assertStationArtifactCapacity, assertStationWorkflow, savedPrintJobPaper, hasMixedPrintSheets } from './printQueue.js';
 import { printError, sha256 } from './printQueuePlan.js';
 import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } from './printStationNotifications.js';
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
 import { queueNotificationInput, queueNotificationReceiptChanges, queueNotificationDelivery } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { CROWNED_PRESET, LEGACY_STATION_PAPER, printPaperSelection, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
+import { PRINT_PRESETS, LEGACY_STATION_PAPER, printPaperSelection, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
 
 const STATION = 'household';
@@ -34,7 +34,7 @@ export const supportsDeferredBacks = () => online() && latest?.deferredBacks ===
 export function assertQueuePaper(paper) {
   if (!stationCanPrintPaper(latest ?? LEGACY_STATION_PAPER, paper)
     || (paper.paperSize === 'a4' && !online())) {
-    const label = paper.printPreset === CROWNED_PRESET ? 'Crowned A4' : paper.paperSize === 'a4' ? 'standard A4' : 'US Letter';
+    const label = PRINT_PRESETS[paper.printPreset]?.label ?? (paper.paperSize === 'a4' ? 'standard A4' : 'US Letter');
     throw printError(`Set the Mac print station to ${label} and load that stock before sending this batch to the printer.`, 409);
   }
 }
@@ -134,6 +134,7 @@ function householdPrintJobs(userId, canManage = false) {
       ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
       state: row.state, createdAt: row.created_at, queuedAt: row.queued_at,
       completedAt: row.completed_at, canOpen, canCancel: (canManage || canOpen) && (!!canCancelHouseholdBatch(row) || (online() && latest?.deferredBacks && canCancelRemaining(row))),
+      ...(hasMixedPrintSheets(row) ? { requiresMixedPrintSheets: true } : {}),
       requesterName: typeof plan.requesterName === 'string' ? plan.requesterName.slice(0, 120) : get('SELECT username FROM users WHERE id = ?', [row.user_id])?.username || 'Deleted account',
       ...workflowSummary(row),
       canCancelBacks: (canManage || canOpen) && (isDeferred(row) || canCancelUnstartedBacks(row) || (online() && latest?.deferredBacks)) && hasPendingBacks(row) && !row.cancel_requested,
@@ -269,7 +270,8 @@ function activePacket(row, active) {
     || packetIndex > packetCount) return null;
   return { artifactId: artifact.id,
     label: typeof artifact.label === 'string' && artifact.label.length <= 240 ? artifact.label : null,
-    packetIndex, packetCount, sheetCount: artifact.sheetCount, cardCount: artifact.cardCount };
+    packetIndex, packetCount, sheetCount: artifact.sheetCount, cardCount: artifact.cardCount,
+    ...(artifact.doubleFacedCardCount === undefined ? {} : { doubleFacedCardCount: artifact.doubleFacedCardCount }) };
 }
 
 export function printStationStatus(userId) {
@@ -294,6 +296,7 @@ export function printStationStatus(userId) {
     version: latest?.version || null, paused: latest?.paused ?? !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused,
     deferredBacks: latest?.deferredBacks || false,
     printRecovery: latest?.printRecovery || false,
+    mixedPrintSheets: latest?.mixedPrintSheets || false,
     loadedPaperSize: latest?.loadedPaperSize ?? LEGACY_STATION_PAPER.loadedPaperSize,
     ...(latest?.loadedPrintPreset ? { loadedPrintPreset: latest.loadedPrintPreset } : {}),
     supportedRecipeIds: latest?.supportedRecipeIds ?? LEGACY_STATION_PAPER.supportedRecipeIds,
@@ -517,6 +520,7 @@ function heartbeatInput(body) {
     ...stationPaperInput(body),
     deferredBacks: body.deferredBacks === undefined ? false : bool(body.deferredBacks, 'deferredBacks'),
     printRecovery: body.printRecovery === undefined ? false : bool(body.printRecovery, 'printRecovery'),
+    mixedPrintSheets: body.mixedPrintSheets === undefined ? false : bool(body.mixedPrintSheets, 'mixedPrintSheets'),
     recipeVerified: bool(body.recipeVerified, 'recipeVerified'), duplexVerified: bool(body.duplexVerified, 'duplexVerified'),
     testPrintingEnabled: body.testPrintingEnabled === undefined ? false : bool(body.testPrintingEnabled, 'testPrintingEnabled'),
     recipeFingerprint: body.recipeFingerprint.toLowerCase(), activeJob,
@@ -616,7 +620,7 @@ export function stationManagementHeartbeat(body) {
 }
 
 /** Pause blocks only fresh claims; existing durable claims remain recoverable. */
-export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER) {
+export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER, mixedPrintSheets = false) {
   expireCommands();
   const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
   const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
@@ -626,9 +630,9 @@ export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, 
     const active = activeServerJob();
     if (active) {
       if (!paper.supportedRecipeIds.includes(savedPrintJobPaper(active).recipeId)) throw printError('Upgrade the Mac companion to continue this batch’s paper size', 409);
-      assertStationArtifactCapacity(active, maxArtifacts); assertStationWorkflow(active, deferredBacks, printRecovery);
+      assertStationArtifactCapacity(active, maxArtifacts); assertStationWorkflow(active, deferredBacks, printRecovery, mixedPrintSheets);
     }
     return active ? formatPrintJob(active, true) : null;
   }
-  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper });
+  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper, mixedPrintSheets });
 }

@@ -49,8 +49,8 @@ class RecoveryCups(FakeCups):
         self.resumed.append(spooler_id)
         next(item for item in self.history if item['id'] == spooler_id)['state'] = 3
 
-    def verify_crowned_ticket(self, spooler_id, title, state):
-        native.Cups.verify_crowned_ticket(self, spooler_id, title, state)
+    def verify_crowned_ticket(self, spooler_id, title, state, recipe_id):
+        native.Cups.verify_crowned_ticket(self, spooler_id, title, state, recipe_id)
 
     def cancel(self, spooler_id):
         self.canceled.append(spooler_id)
@@ -64,6 +64,7 @@ class PrintRecoveryTests(unittest.TestCase):
         value = job()
         value['artifacts'][0].update(pageCount=4, frontPages=[1, 2, 3, 4])
         self.client, self.cups = RecoveryClient(value), RecoveryCups()
+        self.cups.config = self.cfg
         self.station = native.Station(self.cfg, self.client, self.cups)
 
     def tearDown(self):
@@ -203,6 +204,28 @@ class PrintRecoveryTests(unittest.TestCase):
         self.station.recover_print(self.request(boundary))
         self.assertEqual(self.cups.resumed, ['EPSON-1'])
         self.assertEqual(self.cups.recipe_ids, [native.CROWNED_RECIPE])
+
+    def test_landscape_held_pass_requires_its_own_crowned_recipe_and_bidirectional_off(self):
+        self.cfg.update(crowned_a4_enabled=True, crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
+                        loaded_print_preset=native.CROWNED_LANDSCAPE_PRESET, crowned_a4_landscape_recipe_verified=True)
+        self.client.job.update(recipeId=native.CROWNED_LANDSCAPE_RECIPE, printPreset=native.CROWNED_LANDSCAPE_PRESET,
+                               paperSize="a4")
+        boundary = self.interrupt(4)
+        self.cfg["loaded_print_preset"] = native.CROWNED_PRESET
+        with self.assertRaisesRegex(native.StationError, "requires Crowned A4 Landscape"):
+            self.station.recover_print(self.request(boundary))
+        self.cfg["loaded_print_preset"] = native.CROWNED_LANDSCAPE_PRESET
+        ticket = {"media": "A4", "sides": "one-sided", "orientation-requested": 3, **native.CROWNED_DRIVER_OPTIONS}
+        self.cups.history[0]["ticket"] = ticket
+        for incorrect in ({}, {"EPIJ_OPT_Bi_D": "1"}, {"EPIJ_OPT_Bi_D": "0", "orientation-requested": 4}):
+            self.cups.history[0]["ticket"] = {**ticket, **incorrect}
+            with self.assertRaisesRegex(native.StationError, "Cannot verify the held job"):
+                self.station.recover_print(self.request(boundary))
+        self.assertEqual(self.cups.resumed, [])
+        self.cups.history[0]["ticket"] = {**ticket, "EPIJ_OPT_Bi_D": "0"}
+        self.station.recover_print(self.request(boundary))
+        self.assertEqual(self.cups.resumed, ['EPSON-1'])
+        self.assertEqual(self.cups.recipe_ids, [native.CROWNED_LANDSCAPE_RECIPE])
 
     def test_pending_and_processing_passes_are_retained_without_submission_or_cancel(self):
         for state in (3, 5):

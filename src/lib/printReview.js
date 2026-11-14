@@ -1,5 +1,5 @@
 import { parse } from './parser';
-import { CROWNED_A4_PRESET, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
+import { isCrownedPrintPreset, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
 
 /** Count physical source copies using the same parser as deck comparison. */
 export function printSourceCopies(text, includeSideboard = false) {
@@ -26,15 +26,27 @@ export function canCancelReviewedPrintJob(job) {
     && Array.isArray(job.steps) && job.steps.every(step => step.state === 'pending');
 }
 
+export function mixedPrintCompanionWait(job, station) {
+  return job.state === 'queued' && job.requiresMixedPrintSheets === true && station?.online && station.mixedPrintSheets === false
+    ? 'Waiting for Mac companion 2.59.0 or newer' : '';
+}
+
 /** Sheet counts are meaningful only after every card's physical faces resolve. */
 export function printReviewSummary(plan) {
   const ordinary = plan?.ordinaryCopies, doubleFaced = plan?.doubleFacedCopies;
   if (![ordinary, doubleFaced].every(value => Number.isSafeInteger(value) && value >= 0)
     || ordinary + doubleFaced !== plan.totalCopies) return null;
   const { cardsPerSheet } = PRINT_PAPER[printPaperChoice(plan)];
-  const ordinarySheets = Math.ceil(ordinary / cardsPerSheet), packets = Math.ceil(doubleFaced / cardsPerSheet);
+  const packets = Math.ceil(doubleFaced / cardsPerSheet);
+  const openPacketSlots = plan.sheetPacking === 'double-faced-first' ? packets * cardsPerSheet - doubleFaced : 0;
+  const ordinarySheets = Math.ceil(Math.max(0, ordinary - openPacketSlots) / cardsPerSheet);
   return { ordinary, doubleFaced, ordinarySheets, packets,
     sheets: ordinarySheets + packets, pages: ordinarySheets + packets * 2 };
+}
+
+export function printPacketBackCountLabel(packet) {
+  const count = packet.doubleFacedCardCount ?? packet.cardCount;
+  return `${count} ${count === 1 ? 'card with a back' : 'cards with backs'}`;
 }
 
 export function printReviewReady(plan) {
@@ -93,7 +105,7 @@ export function loadPrintCreationIntent(storage, key) {
 
 function validSelectionOptions(value) {
   return (value.paperSize === undefined || isPrintPaperSize(value.paperSize))
-    && (value.printPreset === undefined || (value.paperSize === 'a4' && value.printPreset === CROWNED_A4_PRESET))
+    && (value.printPreset === undefined || (value.paperSize === 'a4' && isCrownedPrintPreset(value.printPreset)))
     && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000

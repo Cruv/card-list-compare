@@ -5,8 +5,8 @@ import DeckInput from './DeckInput';
 import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
-import { CROWNED_A4_PRESET, PRINT_PAPER, isPrintPaperSize, loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, stationPaperChoice } from '../lib/printPaper';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
+import { CROWNED_A4_LANDSCAPE_PRESET, PRINT_PAPER, isCrownedPrintPreset, isPrintPaperSize, loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -26,7 +26,7 @@ function artifactName(artifact) {
 }
 
 function WaitingPrintPacket({ job }) {
-  if (job.state === 'backs_pending') return <section className="print-panel-confirmation" aria-label="Backs saved for later"><strong>Fronts are printed. Backs are saved for later.</strong><p>Other front jobs can continue. Keep the labeled double-sided sheets, then choose their matching packets in <a href="#print-station">Printer → Backs for later</a> whenever you are ready. Select a packet before reloading paper.</p></section>;
+  if (job.state === 'backs_pending') return <section className="print-panel-confirmation" aria-label="Backs saved for later"><strong>Fronts are printed. Backs are saved for later.</strong><p>Other front jobs can continue. Set aside the labeled sheets that need backs, then choose their matching packets in <a href="#print-station">Printer → Backs for later</a> whenever you are ready. Select a packet before reloading paper.</p></section>;
   if (['awaiting_clearance', 'awaiting_paper_reset'].includes(job.state)) return <section className="print-panel-confirmation"><strong>{job.state === 'awaiting_clearance' ? 'Canceled-job paper needs clearing' : 'Backs finished — restore blank paper'}</strong><p>Remove printed or flipped paper, leave only blank paper in the rear feeder and confirm in <a href="#print-station">Printer</a> before other front jobs continue.</p></section>;
   if (job.state !== 'awaiting_refeed') return null;
   const artifact = waitingPrintArtifact(job);
@@ -116,15 +116,17 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const revisionRef = useRef(0);
   const creationPending = !!pendingRequest;
   const pendingAction = pendingRequest?.queueOnReady ?? null;
-  const availablePaper = capabilities.paperSizes?.filter(isPrintPaperSize) ?? ['letter'];
-  if (capabilities.printPresets?.includes(CROWNED_A4_PRESET)) availablePaper.push(CROWNED_A4_PRESET);
+  const availablePaper = [...(capabilities.paperSizes?.filter(isPrintPaperSize) ?? ['letter']),
+    ...(capabilities.printPresets?.filter(isCrownedPrintPreset) ?? [])];
   const preferredPaper = paperOverride ?? defaultPaper;
   const selectedPaper = pendingRequest ? printPaperChoice(pendingRequest)
     : availablePaper.includes(preferredPaper) ? preferredPaper : 'letter';
   const paperPreset = PRINT_PAPER[selectedPaper];
   const needsReview = reviewDirty || (!!plan && selectedPaper !== printPaperChoice(plan));
+  const reviewedPaper = PRINT_PAPER[printPaperChoice(plan)];
   const paperUnavailable = capabilities.canQueue ? printPaperUnavailable(printPaperRequest(selectedPaper), station) : '';
   const summary = printReviewSummary(plan);
+  const doubleFacedFirst = plan?.sheetPacking === 'double-faced-first';
   const sourceCopies = useMemo(() => standalone && plan ? printSourceCopies(cardText, plan.includeSideboard) : undefined, [standalone, plan, cardText]);
   const copyCounts = printCopyBreakdown(plan, sourceCopies);
   const incomingComparison = initialComparison && initialComparison.id !== handledComparisonId ? initialComparison : null;
@@ -411,11 +413,12 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
   function renderJob(job) {
     const queueUnavailable = job.state === 'ready' && capabilities.canQueue ? printPaperUnavailable(job, station) : '';
+    const companionWait = mixedPrintCompanionWait(job, station);
     return <article className="print-panel-card print-batch" key={job.id}>
       <div className="print-panel-heading"><div><h4>{job.deckName || 'Print batch'}</h4><p className="print-panel-meta">{job.totalCopies} cards · {printPaperLabel(job)} · Batch {job.id.slice(0, 8)}</p></div><span className={`print-panel-status print-batch-status print-batch-status--${job.state}`}>{STATES[job.state] || job.state}</span></div>
       {job.state === 'preparing' && <p>Creating your PDFs{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets ready` : '…'}</p>}
       {job.state === 'ready' && <p>Your PDFs are ready. Download them or send this batch to the Mac.</p>}
-      {['queued', 'claimed', 'submitting', 'submitted'].includes(job.state) && <p>The Mac is handling this batch. Follow its progress in <a href="#print-station">Printer</a>.</p>}
+      {['queued', 'claimed', 'submitting', 'submitted'].includes(job.state) && <p>{companionWait ? `${companionWait}. Open ` : 'Follow this batch in '}<a href="#print-station">Printer</a>.</p>}
       {job.error && <div className="print-panel-error" role="alert">{job.error}</div>}
       {job.proxyStagingError && <p className="print-panel-error" role="alert">Pending proxy review: {job.proxyStagingError}</p>}
       <WaitingPrintPacket job={job} />
@@ -523,22 +526,27 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       {plan.totalCopies > 0 && <PrintListReview key={plan.planHash} plan={plan} onRemove={removeCard} excludedCards={excludedCards} disabled={busy || creationPending} shoppingDisabled={needsReview} printingOverrides={printingOverrides} onPickArt={setSelectedArtCard} onResetArt={resetArt} />}
       {plan.missingArtwork?.length > 0 && <div className="print-panel-error" role="alert">Choose artwork for:{'\n'}{plan.missingArtwork.map(card => `${card.quantity}× ${card.displayName} (${card.face})`).join('\n')}</div>}
       {plan.totalCopies === 0 && <p>No copies remain. Restore removed cards, add extras or change the selection options.</p>}
-      {summary?.doubleFaced > 0 && <p className="print-dfc-note">{summary.doubleFaced} double-sided {summary.doubleFaced === 1 ? 'card' : 'cards'} will use {summary.packets} separate labeled {summary.packets === 1 ? 'sheet' : 'sheets'}. With companion 2.55.0 or newer, all fronts print first. Keep those sheets and choose their backs later in Printer; other front jobs continue. Older companions keep their original front/back sequence.</p>}
+      {summary?.doubleFaced > 0 && (doubleFacedFirst
+        ? <p className="print-dfc-note">Sheets with double-sided cards print first. {summary.ordinary > 0 && 'Single-sided cards fill any open slots on those sheets. '}Set sheets marked <strong>REFEED FOR BACK</strong> aside to dry, then choose their matching backs in <a href="#print-station">Printer</a>.</p>
+        : <p className="print-dfc-note">{summary.doubleFaced} double-sided {summary.doubleFaced === 1 ? 'card' : 'cards'} will use {summary.packets} separate labeled {summary.packets === 1 ? 'sheet' : 'sheets'}. With companion 2.55.0 or newer, all fronts print first. Keep those sheets and choose their backs later in Printer. Other front jobs can continue. Older companions keep their original front/back sequence.</p>)}
       {station?.online && stationPaperChoice(station) === selectedPaper && station.duplexVerified === false && summary?.doubleFaced > 0 && <p className="print-panel-meta">Double-sided alignment for {paperPreset.label} is still unverified. Check <a href="#print-station">Printer</a> before continuing.</p>}
       {availablePaper.length > 1 && <div className="print-paper-controls">
         <label className="print-list-name">Paper and layout<select value={selectedPaper} disabled={busy || creationPending} onChange={event => change(setPaperOverride, event.target.value, true)}>
-          {availablePaper.map(choice => <option key={choice} value={choice}>{PRINT_PAPER[choice].label}{choice === CROWNED_A4_PRESET ? ' · portrait 3×3' : choice === 'a4' ? ' · landscape' : ''}</option>)}
+          {availablePaper.map(choice => <option key={choice} value={choice}>{PRINT_PAPER[choice].optionLabel || PRINT_PAPER[choice].label}</option>)}
         </select></label>
         <button type="button" className="btn btn-secondary" disabled={busy || creationPending || selectedPaper === defaultPaper} onClick={savePaperDefault}>Save as default</button>
         <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
       </div>}
-      {selectedPaper === CROWNED_A4_PRESET && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
+      {selectedPaper === CROWNED_A4_LANDSCAPE_PRESET && <p className="print-panel-meta">Fits eight cards with a wider trailing margin. Find the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</p>}
+      {isCrownedPrintPreset(selectedPaper) && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
       <div className="print-review-footer"><div><strong>
         {plan.totalCopies} {plan.totalCopies === 1 ? 'copy' : 'copies'}
-        {summary?.ordinarySheets > 0 && ` · ${summary.ordinarySheets} single-sided ${summary.ordinarySheets === 1 ? 'sheet' : 'sheets'}`}
-        {summary?.packets > 0 && ` · ${summary.packets} double-sided ${summary.packets === 1 ? 'sheet' : 'sheets'}`}
-      </strong><span>{printPaperLabel(plan)} · {PRINT_PAPER[printPaperChoice(plan)].template} cut template</span></div><div className="print-panel-actions">
+        {summary?.ordinarySheets > 0 && ` · ${summary.ordinarySheets} ${doubleFacedFirst ? 'front-only' : 'single-sided'} ${summary.ordinarySheets === 1 ? 'sheet' : 'sheets'}`}
+        {summary?.packets > 0 && (doubleFacedFirst
+          ? ` · ${summary.packets} ${summary.packets === 1 ? 'sheet' : 'sheets'} to flip`
+          : ` · ${summary.packets} double-sided ${summary.packets === 1 ? 'sheet' : 'sheets'}`)}
+      </strong><span>{reviewedPaper.label} · {reviewedPaper.templateVersion || reviewedPaper.template} cut template</span></div><div className="print-panel-actions">
         {needsReview ? <button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : 'Review updated list'}</button> : <><button className={`btn ${capabilities.canQueue && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{capabilities.canQueue && <button className="btn btn-primary" disabled={busy || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
       </div></div>
     </section>}

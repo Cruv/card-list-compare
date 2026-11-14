@@ -54,7 +54,10 @@ beforeEach(async () => {
     front: { path: join(dir, 'front.png'), sha256: hash('front'), fileName: 'images/front.png' },
     ...(card.displayName.includes('Malakir') ? { back: { path: join(dir, 'back.png'), sha256: hash('back'), fileName: 'images/back.png' } } : {}),
   }))));
-  services.generatePrintPdfs.mockImplementation(async ({ cards, outputDir, paperSize }) => {
+  services.generatePrintPdfs.mockImplementation(async input => {
+    const { cards, outputDir, paperSize, sheetPacking } = input;
+    const recipe = paperSize === 'a4' ? { id: 'household-a4-v5', paperSize } : { id: 'household-letter-v6' };
+    if (sheetPacking) return { ...await packetPdfs(input), recipe };
     mkdirSync(outputDir, { recursive: true });
     const artifacts = [];
     for (const [id, kind, selected] of [['fronts', 'ordinary', cards.filter(card => !card.backPath)], ['double-faced', 'dfc', cards.filter(card => card.backPath)]]) {
@@ -64,7 +67,6 @@ beforeEach(async () => {
       const sheets = Math.ceil(selected.length / 7);
       artifacts.push({ id, kind, path, sha256: hash(bytes), size: bytes.length, pageCount: sheets * (kind === 'dfc' ? 2 : 1), sheetCount: sheets, cardCount: selected.length, slotMap: [] });
     }
-    const recipe = paperSize === 'a4' ? { id: 'household-a4-v5', paperSize } : { id: 'household-letter-v6' };
     return { revision: 'immutable-generator-revision', runtimeVersion: 'immutable-runtime-version', recipe, artifacts, slots: [], images: [] };
   });
   const app = express(); app.use(express.json());
@@ -162,24 +164,88 @@ describe('batch paper size', () => {
     expect((await (await station('/claim', 'POST', { ...loaded, deferredBacks: true })).json()).job)
       .toMatchObject({ id: job.id, recipeId: recipe.id, printPreset: 'crowned-a4' });
   });
+
+  it('uses the selected Crowned landscape layout for mixed packets and both physical passes', async () => {
+    const printPreset = 'crowned-a4-landscape';
+    const recipe = { id: 'household-crowned-a4-landscape-v1', paperSize: 'a4', printPreset };
+    const choice = { mode: 'full', paperSize: 'a4', printPreset };
+    const stationCapabilities = { ...a4, deferredBacks: true, mixedPrintSheets: true,
+      supportedRecipeIds: [...a4.supportedRecipeIds, 'household-crowned-a4-v2', recipe.id] };
+    const portrait = { ...stationCapabilities, loadedPrintPreset: 'crowned-a4' };
+    const landscape = { ...stationCapabilities, loadedPrintPreset: printPreset };
+    db.run("UPDATE deck_snapshots SET deck_text='7 Lightning Bolt (M10) [146]\n1 Malakir Rebirth' WHERE tracked_deck_id=1");
+    services.generatePrintPdfs.mockImplementationOnce(async input => ({ ...await packetPdfs(input, 8), recipe }));
+    const { job } = await create(choice);
+    await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({
+      state: 'ready', printPreset, recipeId: recipe.id, artifacts: [
+        expect.objectContaining({ cardCount: 8, doubleFacedCardCount: 1, frontPages: [1], backPages: [2] }),
+      ],
+    });
+    const enqueue = () => request(`/api/decks/1/print-jobs/${job.id}/queue`, { method: 'POST' });
+    const claim = body => station('/claim', 'POST', body);
+    const beat = body => station('/heartbeat', 'POST', { ...heartbeat, ...body });
+    expect((await beat(portrait)).status).toBe(200);
+    expect((await enqueue()).status).toBe(409);
+    expect((await beat(landscape)).status).toBe(200);
+    expect((await enqueue()).status).toBe(200);
+    const claimed = (await (await claim(landscape)).json()).job;
+    const artifactId = 'double-faced-001';
+    const front = { artifactId, phase: 'fronts' };
+    const receipt = { ...front, spoolerId: 'EPSON-landscape-front' };
+    expect(claimed).toMatchObject({ id: job.id, printPreset, recipeId: recipe.id });
+    report(claimed, 'submitting', front); report(claimed, 'submitted', receipt);
+    expect(report(claimed, 'completed', receipt).job.state).toBe('backs_pending');
+    const saved = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    queue.preparePrintBacks(saved, artifactId, 1);
+    expect((await beat(portrait)).status).toBe(200);
+    expect(await (await claim(portrait)).json()).toEqual({ job: null });
+    expect((await beat(landscape)).status).toBe(200);
+    expect((await (await claim(landscape)).json()).job).toMatchObject({
+      id: job.id, state: 'awaiting_refeed', printPreset, recipeId: recipe.id, backRequest: { artifactId },
+    });
+  });
 });
 
-async function packetPdfs({ cards, outputDir, batchLabel }, capacity = 7) {
+async function packetPdfs({ cards, outputDir, batchLabel, sheetPacking }, capacity = 7) {
   mkdirSync(outputDir, { recursive: true });
   const fronts = cards.filter(card => !card.backPath), dfcs = cards.filter(card => card.backPath);
-  const groups = fronts.length ? [{ id: 'fronts', kind: 'ordinary', cardCount: fronts.length, sheetCount: Math.ceil(fronts.length / capacity), pageCount: Math.ceil(fronts.length / capacity) }] : [];
   const packetCount = Math.ceil(dfcs.length / capacity);
-  for (let index = 1; index <= packetCount; index++) groups.push({
-    id: `double-faced-${String(index).padStart(3, '0')}`, kind: 'dfc', pageCount: 2, sheetCount: 1,
-    cardCount: Math.min(capacity, dfcs.length - (index - 1) * capacity), packetIndex: index, packetCount,
-    label: `${batchLabel} DFC ${index}/${packetCount}`,
+  const filler = sheetPacking ? Math.min(fronts.length, packetCount * capacity - dfcs.length) : 0;
+  const frontCount = fronts.length - filler, sheets = Math.ceil(frontCount / capacity);
+  const ordinary = frontCount ? [{ id: 'fronts', kind: 'ordinary', cardCount: frontCount, sheetCount: sheets, pageCount: sheets }] : [];
+  const packets = Array.from({ length: packetCount }, (_, i) => {
+    const index = i + 1, backs = Math.min(capacity, dfcs.length - i * capacity);
+    return {
+      id: `double-faced-${String(index).padStart(3, '0')}`, kind: 'dfc', pageCount: 2, sheetCount: 1,
+      cardCount: backs + (index === packetCount ? filler : 0), packetIndex: index, packetCount,
+      ...(sheetPacking ? { doubleFacedCardCount: backs } : {}), label: `${batchLabel} DFC ${index}/${packetCount}`,
+    };
   });
+  const groups = sheetPacking ? [...packets, ...ordinary] : [...ordinary, ...packets];
   return { revision: 'fixture', runtimeVersion: 'fixture', recipe: { id: 'household-letter-v6' }, slots: [], images: [],
     artifacts: groups.map(group => {
       const bytes = Buffer.from(`%PDF-1.4\n${group.id}\n%%EOF\n`), path = join(outputDir, `${group.id}.pdf`);
       writeFileSync(path, bytes);
       return { ...group, path, size: bytes.length, sha256: hash(bytes), slotMap: [] };
     }) };
+}
+
+async function readyLegacyPackets(doubleFacedCopies) {
+  const { deck_text: originalText } = db.get('SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = 1');
+  db.run('UPDATE deck_snapshots SET deck_text = ? WHERE tracked_deck_id = 1',
+    [`1 Lightning Bolt (M10) [146]\n${doubleFacedCopies} Malakir Rebirth // Malakir Mire (ZNR) [111]`]);
+  services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
+  const { job } = await create({ queueOnReady: true });
+  // Simulate a preparation created by the previous server before installing the new version.
+  const plan = JSON.parse(db.get('SELECT plan_json FROM print_jobs WHERE id = ?', [job.id]).plan_json);
+  delete plan.sheetPacking;
+  db.run('UPDATE print_jobs SET plan_json = ? WHERE id = ?', [JSON.stringify(plan), job.id]);
+  await queue.processNextPrintJob();
+  db.run('UPDATE deck_snapshots SET deck_text = ? WHERE tracked_deck_id = 1', [originalText]);
+  const prepared = queue.getOwnedPrintJob(1, 1, job.id);
+  expect(prepared).toMatchObject({ state: 'queued' });
+  return prepared;
 }
 
 describe('durable queued batch announcements', () => {
@@ -450,9 +516,9 @@ describe('standalone print lists', () => {
     await queue.processNextPrintJob();
     const ready = queue.getOwnedPrintJob(1, null, job.id);
     expect(ready).toMatchObject({ state: 'ready', mode: 'adhoc', deckId: null, totalCopies: 11 });
-    expect(ready.artifacts.map(item => item.id)).toEqual(['fronts', 'double-faced-001', 'double-faced-002']);
-    expect(ready.artifacts[1]).toMatchObject({ label: `CLC ${job.id.slice(0,8)} DFC 1/2`, frontPages: [1], backPages: [2], cardCount: 7 });
-    expect(ready.artifacts[2].cardCount).toBe(1);
+    expect(ready.artifacts.map(item => item.id)).toEqual(['double-faced-001', 'double-faced-002']);
+    expect(ready.artifacts[0]).toMatchObject({ label: `CLC ${job.id.slice(0,8)} DFC 1/2`, frontPages: [1], backPages: [2], cardCount: 7 });
+    expect(ready.artifacts[1]).toMatchObject({ cardCount: 4, doubleFacedCardCount: 1 });
     const manifest = await (await request(`/api/print-lists/jobs/${job.id}/manifest`)).json();
     expect(manifest.plan.list.text).toBe(body.cardText);
     expect(manifest.plan.additionalCardText).toBe(body.additionalCardText);
@@ -460,7 +526,7 @@ describe('standalone print lists', () => {
     expect(manifest.copies.filter(card => card.displayName === 'Sol Ring')).toHaveLength(2);
     expect(manifest.copies.some(card => card.displayName === 'Island')).toBe(false);
     const artifact = ready.artifacts[0];
-    expect(artifact.downloadUrl).toBe(`/api/print-lists/jobs/${job.id}/artifacts/fronts`);
+    expect(artifact.downloadUrl).toBe(`/api/print-lists/jobs/${job.id}/artifacts/double-faced-001`);
     const download = await request(artifact.downloadUrl);
     expect(download.status).toBe(200);
     expect(hash(Buffer.from(await download.arrayBuffer()))).toBe(artifact.sha256);
@@ -504,19 +570,63 @@ describe('standalone print lists', () => {
 });
 
  describe('immutable PDF jobs and owner access', () => {
-  it('publishes exact packet labels and local front/back page ranges to owner and station', async () => {
-    db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt (M10) [146]\n8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
+  it('prints mixed packets first and preserves exact labels and page ranges at the station', async () => {
+    const other = await ready({ queueOnReady: true });
+    db.run("UPDATE deck_snapshots SET deck_text = '8 Lightning Bolt (M10) [146]\n8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
     services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
     const job = await ready({ queueOnReady: true });
-    expect(job.artifacts.map(item => item.id)).toEqual(['fronts', 'double-faced-001', 'double-faced-002']);
-    expect(job.artifacts[1]).toMatchObject({ label: `CLC ${job.id.slice(0, 8)} DFC 1/2`, packetIndex: 1, packetCount: 2, cardCount: 7, frontPages: [1], backPages: [2] });
-    expect(job.artifacts[2]).toMatchObject({ sheetCount: 1, cardCount: 1, pageCount: 2 });
-    const claimed = queue.claimPrintJob();
-    expect(claimed.artifacts[1].label).toBe(job.artifacts[1].label);
+    db.run("UPDATE print_jobs SET queued_at = '2000-01-01' WHERE id = ?", [job.id]);
+    const old = { deferredBacks: true, printRecovery: true };
+    const capable = { ...old, mixedPrintSheets: true };
+    const listed = (await (await request('/api/print-batches?state=queued')).json()).jobs;
+    expect(listed.find(item => item.id === job.id)).toMatchObject({ requiresMixedPrintSheets: true });
+    expect(listed.find(item => item.id === other.id)).not.toHaveProperty('requiresMixedPrintSheets');
+    expect((await station('/claim', 'POST', { ...old, mixedPrintSheets: 'true' })).status).toBe(400);
+    expect((await (await station('/claim', 'POST', old)).json()).job.id).toBe(other.id);
+    expect(db.get('SELECT state, claim_nonce FROM print_jobs WHERE id = ?', [job.id])).toEqual({ state: 'queued', claim_nonce: null });
+    const legacy = queue.claimPrintJob(old);
+    report(legacy, 'submitting', ordinary()); report(legacy, 'submitted', ordinary({ spoolerId: 'EPSON-other' }));
+    report(legacy, 'completed', ordinary({ spoolerId: 'EPSON-other' }));
+    expect(await (await station('/claim', 'POST', { mixedPrintSheets: true })).json()).toEqual({ job: null });
+    expect(job.artifacts.map(item => item.id)).toEqual(['double-faced-001', 'double-faced-002', 'fronts']);
+    expect(job.artifacts[0]).toMatchObject({ label: `CLC ${job.id.slice(0, 8)} DFC 1/2`, packetIndex: 1, packetCount: 2, cardCount: 7, frontPages: [1], backPages: [2] });
+    expect(job.artifacts[1]).toMatchObject({ sheetCount: 1, cardCount: 7, doubleFacedCardCount: 1, pageCount: 2 });
+    expect(job.artifacts[2]).toMatchObject({ sheetCount: 1, cardCount: 2, pageCount: 1 });
+    const claimed = (await (await station('/claim', 'POST', capable)).json()).job;
+    expect(claimed).toMatchObject({ id: job.id, sheetPacking: 'double-faced-first', workflow: 'deferred-backs-v1' });
+    expect((await station('/claim', 'POST', old)).status).toBe(409);
+    expect(claimed.artifacts[0].label).toBe(job.artifacts[0].label);
     expect((await station(`/jobs/${job.id}/artifacts/double-faced-002`)).status).toBe(200);
     expect(claimed.steps.map(step => [step.artifactId, step.phase])).toEqual([
-      ['fronts', 'fronts'], ['double-faced-001', 'fronts'], ['double-faced-001', 'backs'], ['double-faced-002', 'fronts'], ['double-faced-002', 'backs'],
+      ['double-faced-001', 'fronts'], ['double-faced-002', 'fronts'], ['fronts', 'fronts'], ['double-faced-001', 'backs'], ['double-faced-002', 'backs'],
     ]);
+    expect(() => report(claimed, 'submitting', ordinary())).toThrow('not eligible');
+    for (const [index, pass] of claimed.steps.filter(step => step.phase === 'fronts').entries()) {
+      const step = { artifactId: pass.artifactId, phase: 'fronts' };
+      const receipt = { ...step, spoolerId: `EPSON-mixed-${index}` };
+      report(claimed, 'submitting', step); report(claimed, 'submitted', receipt); report(claimed, 'completed', receipt);
+    }
+    const saved = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    expect(saved.state).toBe('backs_pending');
+    queue.preparePrintBacks(saved, 'double-faced-002', 1);
+    expect(await (await station('/claim', 'POST', old)).json()).toEqual({ job: null });
+    expect((await (await station('/claim', 'POST', capable)).json()).job).toMatchObject({
+      state: 'awaiting_refeed', backRequest: { artifactId: 'double-faced-002' },
+    });
+    expect(() => report(claimed, 'submitting', { artifactId: 'double-faced-002', phase: 'backs' })).toThrow();
+  });
+  it('refuses wrong reverse-face counts before publishing a mixed batch', async () => {
+    db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt\n1 Malakir Rebirth' WHERE tracked_deck_id = 1");
+    services.generatePrintPdfs.mockImplementationOnce(async input => {
+      const result = await packetPdfs(input);
+      result.artifacts[0].doubleFacedCardCount = 2;
+      return result;
+    });
+    const { job } = await create({ queueOnReady: true });
+    await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({
+      state: 'failed', artifacts: [], error: 'Generated mixed sheet layout does not match the plan',
+    });
   });
   it.each([{ packetIndex: 2 }, { packetCount: 99 }, { label: 'Wrong printed sheet' }, { sheetCount: 2 }, { cardCount: 8 }])('refuses malformed generated packet metadata %j before queueing', async changes => {
     db.run("UPDATE deck_snapshots SET deck_text = '8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
@@ -687,9 +797,7 @@ describe('station submission, manual refeed, and ambiguity', () => {
   });
 
   async function readyLargePacketJob() {
-    db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt (M10) [146]\n50 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
-    services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
-    const job = await ready({ queueOnReady: true });
+    const job = await readyLegacyPackets(50);
     expect(job.artifacts).toHaveLength(9);
     return job;
   }
@@ -970,9 +1078,7 @@ describe('deferred back-side scheduling', () => {
     return report(job, 'completed', { ...pass, spoolerId }).job;
   }
   async function packets() {
-    db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt (M10) [146]\n8 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
-    services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
-    const readyJob = await ready({ queueOnReady: true });
+    const readyJob = await readyLegacyPackets(8);
     const original = row(readyJob);
     const job = queue.claimPrintJob({ deferredBacks: true });
     return { job, original };

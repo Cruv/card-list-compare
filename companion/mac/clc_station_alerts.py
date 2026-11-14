@@ -162,7 +162,8 @@ def alert_text(job, artifact):
     subtitle = f"{deck} · {display_text(job['id'], 12)} · Packet {index}/{total}"
     paper = "the 1 printed sheet" if count == 1 else f"the {count} printed sheets"
     label = display_text(artifact.get("label") or "", 180)
-    drying = "Wait until the Crowned front is fully dry before flipping. " if job.get("recipeId") == "household-crowned-a4-v2" else ""
+    drying = ("Wait until the Crowned front is fully dry before flipping. "
+              if job.get("recipeId") in {"household-crowned-a4-v2", "household-crowned-a4-landscape-v1"} else "")
     body = (f"Printed label: {label}. " if label else "") + drying + f"Flip only {paper} from this packet. Remove blank paper from the rear feeder. Reload only the matching printed paper, then confirm in CLC Print Station."
     return title, subtitle, body
 

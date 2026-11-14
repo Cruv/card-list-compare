@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
-import { loadDefaultPrintPaper, printPaperRequest, printPaperUnavailable } from './printPaper';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
+import { loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -35,6 +35,31 @@ describe('physical artwork review', () => {
     expect(printReviewSummary({ totalCopies: 9, ordinaryCopies: 1, doubleFacedCopies: 8 })).toEqual({
       ordinary: 1, doubleFaced: 8, ordinarySheets: 1, packets: 2, sheets: 3, pages: 5,
     });
+  });
+  it('counts Crowned A4 singles packed with a double-sided card as part of one physical sheet', () => {
+    expect(printReviewSummary({ ...printPaperRequest('crowned-a4'), sheetPacking: 'double-faced-first',
+      totalCopies: 9, ordinaryCopies: 8, doubleFacedCopies: 1 })).toEqual({
+      ordinary: 8, doubleFaced: 1, ordinarySheets: 0, packets: 1, sheets: 1, pages: 2,
+    });
+  });
+  it('allocates front-only sheets only for the singles left beyond the refeed sheets', () => {
+    expect(printReviewSummary({ sheetPacking: 'double-faced-first', totalCopies: 15,
+      ordinaryCopies: 7, doubleFacedCopies: 8 })).toEqual({
+      ordinary: 7, doubleFaced: 8, ordinarySheets: 1, packets: 2, sheets: 3, pages: 5,
+    });
+  });
+  it('uses the true back count for a mixed packet and the card count for a legacy packet', () => {
+    expect(printPacketBackCountLabel({ cardCount: 9, doubleFacedCardCount: 1 })).toBe('1 card with a back');
+    expect(printPacketBackCountLabel({ cardCount: 2 })).toBe('2 cards with backs');
+  });
+  it('explains the companion wait specifically for queued mixed batches on an online older Mac', () => {
+    const job = { state: 'queued', requiresMixedPrintSheets: true };
+    const station = { online: true, mixedPrintSheets: false };
+    expect(mixedPrintCompanionWait(job, station)).toBe('Waiting for Mac companion 2.59.0 or newer');
+    expect(mixedPrintCompanionWait(job, { ...station, mixedPrintSheets: true })).toBe('');
+    expect(mixedPrintCompanionWait(job, { ...station, online: false })).toBe('');
+    expect(mixedPrintCompanionWait({ ...job, state: 'ready' }, station)).toBe('');
+    expect(mixedPrintCompanionWait({ state: 'queued' }, station)).toBe('');
   });
   it('does not infer two printed sides from a split-card name', () => {
     const split = { readyToGenerate: true, totalCopies: 1, ordinaryCopies: 1, doubleFacedCopies: 0,
@@ -126,6 +151,9 @@ describe('durable print creation recovery', () => {
     const crowned = { ...original, printPreset: 'crowned-a4' };
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(crowned) }, 'key').printPreset).toBe('crowned-a4');
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...crowned, paperSize: 'letter' }) }, 'key')).toBeNull();
+    const landscape = { ...original, printPreset: 'crowned-a4-landscape' };
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(landscape) }, 'key')).toMatchObject(landscape);
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...landscape, paperSize: 'letter' }) }, 'key')).toBeNull();
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(request) }, 'key')).not.toHaveProperty('paperSize');
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...request, paperSize: 'a3' }) }, 'key')).toBeNull();
   });
@@ -150,6 +178,28 @@ it('keeps Crowned A4 distinct from standard A4 and plans nine cards per sheet', 
   expect(printPaperUnavailable({ paperSize: 'a4' }, { ...station, loadedPrintPreset: 'crowned-a4' })).toMatch(/set up for Crowned A4/);
 });
 
+it('matches Crowned landscape jobs by exact loaded preset and supported recipe', () => {
+  const portrait = printPaperRequest('crowned-a4');
+  const landscape = printPaperRequest('crowned-a4-landscape');
+  const recipeId = 'household-crowned-a4-landscape-v1';
+  const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: landscape.printPreset,
+    supportedRecipeIds: ['household-a4-v5', 'household-crowned-a4-v2', recipeId] };
+  expect(landscape).toEqual({ paperSize: 'a4', printPreset: 'crowned-a4-landscape' });
+  expect(loadDefaultPrintPaper({ getItem: () => landscape.printPreset }, 'key')).toBe(landscape.printPreset);
+  expect(printPaperChoice({ recipeId })).toBe(landscape.printPreset);
+  expect(printPaperLabel(landscape)).toBe('Crowned A4 · Landscape 2×4');
+  expect(printPaperUnavailable(landscape, station)).toBe('');
+  expect(printPaperUnavailable(landscape, { ...station, loadedPrintPreset: portrait.printPreset })).toMatch(/set up for Crowned A4 · Portrait 3×3/);
+  expect(printPaperUnavailable(landscape, { ...station, loadedPrintPreset: undefined })).toMatch(/set up for A4/);
+  expect(printPaperUnavailable(landscape, { ...station, loadedPaperSize: 'letter' })).toMatch(/set up for US Letter/);
+  expect(printPaperUnavailable(landscape, { ...station, supportedRecipeIds: ['household-crowned-a4-v2'] })).toMatch(/Update and configure the Mac companion/);
+  expect(printPaperUnavailable(landscape, { ...station, online: false })).toMatch(/must be online/);
+  expect(printReviewSummary({ ...landscape, sheetPacking: 'double-faced-first', totalCopies: 8, ordinaryCopies: 7, doubleFacedCopies: 1 }))
+    .toMatchObject({ ordinarySheets: 0, packets: 1, sheets: 1, pages: 2 });
+  expect(printReviewSummary({ ...landscape, sheetPacking: 'double-faced-first', totalCopies: 9, ordinaryCopies: 8, doubleFacedCopies: 1 }))
+    .toMatchObject({ ordinarySheets: 1, packets: 1, sheets: 2, pages: 3 });
+});
+
 describe('standalone print drafts', () => {
   const draft = { listName: 'Extras', cardText: '2 Lightning Bolt', includeSideboard: false,
     excludeBasicLands: true, additionalCardText: '1 Sol Ring', excludedCards: ['lightning bolt'],
@@ -158,6 +208,11 @@ describe('standalone print drafts', () => {
     const storage = { getItem: key => key === 'user:1' ? JSON.stringify(draft) : null };
     expect(loadStandalonePrintDraft(storage, 'user:1')).toEqual(draft);
     expect(loadStandalonePrintDraft(storage, 'user:2')).toBeNull();
+  });
+  it('retains a landscape preset in the draft when A4 paper is specified', () => {
+    const value = { ...draft, ...printPaperRequest('crowned-a4-landscape') };
+    expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key')).toEqual(value);
+    expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...value, paperSize: 'letter' }) }, 'key')).toBeNull();
   });
   it('allows an empty draft while rejecting corrupt, oversized, or mistyped data', () => {
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...draft, cardText: '' }) }, 'key').cardText).toBe('');

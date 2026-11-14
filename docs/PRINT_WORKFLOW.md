@@ -69,12 +69,12 @@ explicit baseline and target. The paper-deck marker is the default baseline when
 “latest” is resolved to a specific snapshot during review. Sideboards are optional and off
 by default. **Review print list** resolves the selected printing and displays its actual
 front/back thumbnails, source, copy count and double-sided status. The preview shows the total
-copies and separate counts for single-sided and double-sided sheets. Missing faces, unresolved printings
+copies and how many sheets print front-only or need a flip. Missing faces, unresolved printings
 and unsupported meld layouts block generation before a job is created. Then choose
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
 
-In print review, choose **US Letter**, **A4**, or **Crowned A4 · Portrait 3×3** and save
+In print review, choose **US Letter**, **A4**, or either **Crowned A4** layout and save
 a default for your account in this browser. The batch keeps that choice through generation, printing, saved
 backs and interrupted-pass recovery. Existing batches use US Letter. Downloading a PDF
 works with either size. For direct printing, the Mac station must support the batch's
@@ -216,12 +216,12 @@ are preserved in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
   Adoption of v6 does not select four marks or prove the installed cutting template.
 - Standard 63 × 88 mm cards, landscape Letter, **600 PPI**, quality **100**, crop **1 mm**,
   skipped zero-based slot **4**: seven cards per eight-position sheet.
-- Ordinary cards use `--only_fronts`. DFCs use a separate invocation without that flag,
-  paired filenames and no generic back. The current upstream fit mode is explicitly
+- Front-only sheets use `--only_fronts`. Sheets with DFCs use an invocation without that flag,
+  with paired filenames for those cards and no generic back. The current upstream fit mode is explicitly
   `stretch`, matching the earlier omitted default. Ordinary sheets carry the job and sheet
-  number; DFC sheets carry `CLC <first-eight-job-ID-characters> DFC <packet>/<total>`.
-  Upstream draws this label in its existing right margin on the front, followed by its
-  sheet/template text. Card positions, registration marks and crop are unchanged.
+  number. DFC sheets carry `CLC <first-eight-job-ID-characters> DFC <packet>/<total>`
+  and a **REFEED FOR BACK** tag on the front. This tag sits outside the cards and
+  registration marks. Card positions, registration marks and crop are unchanged.
 
 A4 uses landscape 297 × 210 mm and the upstream `a4-standard-v5.studio3` cutting
 template. It keeps seven standard cards per sheet, the 600 PPI, 1 mm crop and three
@@ -232,6 +232,29 @@ sheet. Use the matching [A4 standard borderless v2 Cameo file](https://github.co
 The Epson prints at actual size with expansion off. Its Rear Paper Feeder and Thick
 Paper and Envelopes settings apply to both sides. Test registration and cut settings
 on the resin-coated stock before committing a batch.
+
+### Crowned A4 Landscape 2×4
+
+Choose **Crowned A4 · Landscape 2×4** for eight full-size cards on the same 313 gsm stock.
+The cut grid starts about 12 mm from the leading short edge and ends about 29 mm from
+the trailing edge before bleed. The PDF uses physical portrait A4 with the 2×4 art
+turned on the page. Both passes mark the same short edge **FEED THIS EDGE FIRST**.
+
+Use the [Silhouette cut paths](../public/print-templates/crowned-a4-landscape-v1.dxf) and
+[Studio setup](../public/print-templates/crowned-a4-landscape-v1-setup.txt) from the
+in-app guide. The setup places the paper and cut paths on a 12-inch mat and gives the
+matching registration insets. Check all eight positions on plain A4 before saving the
+Studio document. A Crowned sheet proves the feed, scuff, color and registration results
+for the actual stock. The matching reverse pass needs a separate physical flip check.
+
+The Mac's Crowned Landscape recipe prints at actual size through the standard **Rear
+Paper Feeder** with Thick Paper and Envelopes on, Bidirectional Printing off,
+expansion off and automatic duplex off. Switch the loaded preset to **Crowned A4 ·
+Landscape 2×4** before releasing a matching batch. The current template clears the
+separate straight slot's last 20 mm in the PDF, but its Mac recipe selects the standard
+rear feeder. See the [Epson printable area](https://files.support.epson.com/docid/cpd5/cpd59879/source/specifications/references/et8500_8550_l8160_l8180/spex_printable_area_et8500_8550.html).
+
+### Printed sheet identification
 
 Every newly generated page also carries **Queued by**, the saved **Batch** label, its exact
 sheet/packet identity and **FRONT** or **BACK** in the top margin. These values are frozen
@@ -272,9 +295,9 @@ preserving the active, previous, in-use and retained job versions. The productio
 uses Debian for ARM64/AMD64 binary-wheel compatibility. The inspected upstream reference
 was `4d4aa73a95e93b09676c863a1861765863398c63`; it is not a permanent source pin.
 
-A single worker invokes upstream once per seven-card sheet, merging ordinary sheets into
-one PDF and retaining each DFC sheet as its own two-page packet. Separate jobs are never combined
-to fill a packet; a partly filled final sheet is intentional.
+A single worker invokes upstream once per sheet, with seven slots for Letter and standard A4,
+nine for Crowned A4 Portrait or eight for Crowned A4 Landscape. It merges front-only sheets into one PDF and retains each sheet
+that needs a flip as its own two-page packet. Each batch fills its own sheets.
 Limits are 250 physical copies, 20 MiB per source image, 1 GiB per PDF and 2 GiB per retained
 job, including staged sources. Saved MPC images are downloaded sequentially to disk with
 a 1.5 GiB source limit; Scryfall acquisition retains its 256 MiB unique-image limit.
@@ -292,8 +315,17 @@ was printed, and it does not complete the physical cutting or duplex proof.
 
 ## Double-faced packets and flip alerts
 
-For new jobs, companion **2.55.0+** prints the batch's ordinary fronts and every DFC front
-page on blank paper first. Their matching back passes are parked in durable
+For mixed jobs prepared in CLC **2.59.0+**, group the double-sided cards onto the first
+sheets printed. Single-sided cards fill any open slots there, and any overflow prints
+afterward. For example, eight singles and one double-sided card fit on one Crowned A4
+sheet. Page 2 of that packet prints only the matching reverse face, aligned to its front
+position. Look for **REFEED FOR BACK** on the front margin beside the batch and packet identifiers.
+A mixed batch can be downloaded or queued before updating the companion. The station
+claims it after the companion advertises mixed-sheet support (2.59.0+). Previously
+prepared batches keep their original PDFs and sequencing.
+
+Companion **2.55.0+** finishes the batch's fronts on blank paper before awaiting any flip.
+Matching back passes are parked in durable
 `backs_pending` state under **Print → Printer → Backs for later**. Other queued front jobs
 continue without an operator flip. The list keeps each job name, requester, full batch ID,
 packet label/count and front-completion time. Save the physical sheets by their printed
@@ -306,13 +338,14 @@ choose **Prepare this packet’s backs**. This selects one
 exact job/artifact; it does not say paper is loaded and does not submit any backs. Keep
 blank paper in the rear feeder while the Mac finishes current work and reserves the
 printer. Once the selected packet becomes **Waiting for flip and reload**, match its
-printed label, remove unused blank paper, and reload only its sheet in the physically
+printed label, let the front dry, remove unused blank paper, and reload the entire matching sheet in the physically
 verified orientation. Check the matching-paper acknowledgement, then choose **Confirm and
 print this packet’s backs**. Page 2 runs as a separate one-sided pass; automatic duplex
 remains disabled.
 
 For Crowned A4, let the front dry fully before reloading. Verify the portrait long-edge
-flip on one sheet before printing the rest of a batch. Crowned recommends an overnight
+flip on one sheet before printing the rest of a batch. On Landscape, feed the edge
+marked **FEED THIS EDGE FIRST** for both passes. Crowned recommends an overnight
 cure in a dry room after printing and before cutting or sleeving.
 
 When the backs finish, the station enters `awaiting_paper_reset`. Remove the finished

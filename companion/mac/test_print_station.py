@@ -53,6 +53,25 @@ def packet_job(packet_count=2):
     return value
 
 
+def mixed_job(with_ordinary=True):
+    value = packet_job(2)
+    ordinary, first, last = value["artifacts"]
+    ordinary["id"] = "fronts"
+    first.update(cardCount=7, doubleFacedCardCount=7)
+    last.update(cardCount=7 if with_ordinary else 4, doubleFacedCardCount=2)
+    value["artifacts"] = [first, last] + ([ordinary] if with_ordinary else [])
+    value["steps"] = value["steps"][1:]
+    for step in value["steps"]:
+        if step["phase"] == "backs":
+            step["requiresRefeed"] = True
+    if with_ordinary:
+        value["steps"].append({"artifactId": "fronts", "phase": "fronts", "state": "pending"})
+    value["steps"].sort(key=lambda step: step["phase"] == "backs")
+    value.update(workflow=station.DEFERRED_WORKFLOW, sheetPacking=station.DOUBLE_FACED_FIRST,
+                 totalCopies=sum(item["cardCount"] for item in value["artifacts"]))
+    return value
+
+
 class FakeClient:
     def __init__(self, value):
         self.job = value
@@ -702,6 +721,45 @@ class StationTests(unittest.TestCase):
         with self.assertRaisesRegex(station.StationError, "37"):
             station.checked_job(packet_job(37), self.config)
 
+    def test_mixed_packing_requires_exact_packet_counts_and_manual_back_steps(self):
+        for value in (mixed_job(), mixed_job(False)):
+            self.assertIs(station.checked_job(value, self.config), value)
+        exact_fill = mixed_job()
+        exact_fill["artifacts"][1]["doubleFacedCardCount"] = 7
+        self.assertIs(station.checked_job(exact_fill, self.config), exact_fill)
+        for label, tamper in {
+            "unknown packing": lambda value: value.update(sheetPacking="different-packing"),
+            "legacy workflow": lambda value: value.pop("workflow"),
+            "legacy marker": lambda value: value.pop("sheetPacking"),
+            "packet order": lambda value: value["artifacts"].insert(0, value["artifacts"].pop()),
+            "missing count": lambda value: value["artifacts"][1].pop("doubleFacedCardCount"),
+            "too many backs": lambda value: value["artifacts"][1].update(doubleFacedCardCount=8),
+            "boolean count": lambda value: value["artifacts"][1].update(doubleFacedCardCount=True),
+            "padding before the last packet": lambda value: value["artifacts"][0].update(doubleFacedCardCount=2),
+            "ordinary has backs": lambda value: value["artifacts"][-1].update(doubleFacedCardCount=1),
+            "step order": lambda value: value["steps"].reverse(),
+            "manual refeed": lambda value: value["steps"][-1].pop("requiresRefeed"),
+            "early refeed": lambda value: value.update(backRequest={"id": "early", "artifactId": "double-faced-001"}),
+            "total": lambda value: value.update(totalCopies=13),
+        }.items():
+            with self.subTest(label=label), self.assertRaises(station.StationError):
+                value = mixed_job()
+                tamper(value)
+                station.checked_job(value, self.config)
+
+    def test_mixed_saved_identity_pins_packing_and_artifact_metadata(self):
+        original = mixed_job()
+        self.station.adopt(original)
+        for changes in (lambda value: value.pop("sheetPacking"),
+                        lambda value: value["artifacts"][1].update(doubleFacedCardCount=3)):
+            with self.subTest(changes=changes):
+                current = copy.deepcopy(original)
+                changes(current)
+                self.client.job = current
+                with self.assertRaisesRegex(station.StationError, "identity changed"):
+                    self.station.refresh_job(original)
+        self.assertEqual(self.cups.submissions, [])
+
     def test_canceled_cups_job_requires_paper_clearance_not_automatic_next_job(self):
         self.station.poll_once()
         self.cups.history[0]["state"] = 7
@@ -794,6 +852,13 @@ class StationTests(unittest.TestCase):
         self.assertEqual(result["spooler_submissions"], 0)
         self.assertTrue(result["commands"][1]["requires_operator_refeed"])
 
+    def test_mixed_dry_run_shows_front_order_before_manual_backs(self):
+        result = station.dry_run(self.config, mixed_job())
+        self.assertEqual([(entry["artifact"], entry["phase"]) for entry in result["commands"]], [
+            ("double-faced-001", "fronts"), ("double-faced-002", "fronts"), ("fronts", "fronts"),
+            ("double-faced-001", "backs"), ("double-faced-002", "backs"),
+        ])
+
 
 class BoundaryTests(unittest.TestCase):
     def setUp(self):
@@ -812,6 +877,7 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(request.full_url, self.config["server_url"] + "/api/print-station/claim")
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(json.loads(request.data), {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+                                                   "mixedPrintSheets": True,
                                                    "loadedPaperSize": "letter", "supportedRecipeIds": [station.LETTER_RECIPE]})
 
     def test_checksums_stream_and_promote_download_atomically(self):
@@ -951,6 +1017,50 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(station.StationError, "preset does not match"):
             station.checked_job(value, self.config)
 
+    def test_crowned_landscape_feeds_portrait_and_disables_bidirectional_on_both_passes(self):
+        self.config.update(crowned_a4_enabled=True, crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=station.CROWNED_LANDSCAPE_PRESET)
+        self.config["driver_options"].update(EPIJ_OPT_Bi_D="1", epij_opt_bi_d="1", EPIJ_PGEx="0")
+        self.assertEqual(station.loaded_recipe(self.config), station.CROWNED_LANDSCAPE_RECIPE)
+        original = station.recipe_fingerprint(self.config, station.CROWNED_RECIPE)
+        value = mixed_job()
+        value.update(recipeId=station.CROWNED_LANDSCAPE_RECIPE, printPreset=station.CROWNED_LANDSCAPE_PRESET, paperSize="a4")
+        value["artifacts"][0].update(cardCount=8, doubleFacedCardCount=8)
+        value["artifacts"][1]["cardCount"] = 8
+        value["totalCopies"] = 17
+        for entry in station.dry_run(self.config, value)["commands"]:
+            args = entry["argv"]
+            for option in ("media=A4", "PageSize=A4", "EPIJ_PSrc=2", "EPIJ_FdSo=0", "EPIJ_PGEx=1", "EPIJ_RmMg=0",
+                           "orientation-requested=3", "print-scaling=none", "fit-to-page=false", "sides=one-sided", "EPIJ_OPT_Bi_D=0"):
+                self.assertEqual(args.count(option), 1)
+            self.assertNotIn("EPIJ_OPT_Bi_D=1", args)
+            self.assertNotIn("epij_opt_bi_d=1", args)
+        self.assertNotIn("EPIJ_OPT_Bi_D", station.fixed_options(self.config, station.CROWNED_RECIPE))
+        self.assertNotEqual(station.recipe_fingerprint(self.config, station.CROWNED_LANDSCAPE_RECIPE), original)
+        self.assertEqual(station.recipe_fingerprint({**self.config, "loaded_print_preset": station.CROWNED_PRESET}, station.CROWNED_RECIPE), original)
+        value["artifacts"][0].update(cardCount=9, doubleFacedCardCount=9)
+        with self.assertRaisesRegex(station.StationError, "packet identity or page count"):
+            station.checked_job(value, self.config)
+
+    def test_crowned_landscape_requires_independent_local_opt_in(self):
+        token = self.directory / "token"
+        token.write_text("t" * 40)
+        token.chmod(0o600)
+        path = self.directory / "config.json"
+        path.touch(mode=0o600)
+        value = {**self.config, "station_token_file": str(token), "loaded_paper_size": "a4",
+                 "loaded_print_preset": station.CROWNED_LANDSCAPE_PRESET, "crowned_a4_enabled": True}
+        path.write_text(json.dumps(value))
+        with self.assertRaisesRegex(station.StationError, "must be locally approved"):
+            station.load_config(path)
+        value["crowned_a4_landscape_enabled"] = True
+        path.write_text(json.dumps(value))
+        self.assertEqual(station.loaded_recipe(station.load_config(path)), station.CROWNED_LANDSCAPE_RECIPE)
+        value["loaded_paper_size"] = "letter"
+        path.write_text(json.dumps(value))
+        with self.assertRaisesRegex(station.StationError, "with A4 paper"):
+            station.load_config(path)
+
     def test_job_paper_size_must_match_the_approved_recipe(self):
         self.config["a4_enabled"] = True
         value = job()
@@ -1063,6 +1173,27 @@ class BoundaryTests(unittest.TestCase):
         cups = station.Cups(self.config, runner)
         with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_PGEx=1"):
             cups.doctor()
+
+    def test_crowned_landscape_doctor_requires_driver_bidirectional_off(self):
+        self.config.update(crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=station.CROWNED_LANDSCAPE_PRESET, driver_options={})
+        bidirectional = "*1"
+
+        def runner(args):
+            if "-e" in args:
+                return "EPSON\n"
+            if args[0].endswith("lpoptions"):
+                options = {**station.CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": bidirectional}
+                return "\n".join(f"{key}/option: {value}" for key, value in options.items())
+            return "EPSON accepting requests\n"
+
+        cups = station.Cups(self.config, runner)
+        cups.jobs = mock.Mock(return_value=[])
+        with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_OPT_Bi_D=0"):
+            cups.doctor()
+        cups.jobs.assert_not_called()
+        bidirectional = "0 *1"
+        self.assertEqual(cups.doctor()["fixed_options"]["EPIJ_OPT_Bi_D"], "0")
 
     def test_token_permissions_and_reserved_options_are_rejected(self):
         token = self.directory / "token"

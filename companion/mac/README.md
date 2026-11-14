@@ -12,10 +12,10 @@ described below.
 CLC generates the PDFs with Silhouette Card Maker. The companion keeps the server's card
 copies, 600 PPI, 1 mm crop, Letter v6 layout, skipped slot and registration geometry intact.
 It submits one copy in landscape at actual size, with automatic duplex disabled. In the
-deferred-backs workflow, ordinary fronts run first, followed by every DFC front. Matching
-backs stay saved until someone selects them later; they do not hold up other batches.
-DFCs use numbered packets of at most seven copies, each with one front page and one back
-page submitted separately. The local queue, media/color driver
+deferred-backs workflow, all fronts finish before any backs can be selected. For mixed
+batches prepared by CLC 2.59.0+, companion 2.59.0+ prints sheets with double-sided cards
+first and uses open slots for single-sided cards. Matching backs stay saved until someone
+selects them later, while the station can run other batches. The local queue, media/color driver
 options and page order are configured here; server data cannot supply executable paths,
 printer destinations or CUPS options.
 
@@ -159,6 +159,15 @@ Use the original driver profile as the starting point for color. Record
 physical checks. Dry the front fully before manually reloading it. For standard A4 or
 Letter stock, remove `loaded_print_preset` and select the matching size.
 
+For **Crowned A4 · Landscape 2×4**, enable `crowned_a4_landscape_enabled` and select
+`loaded_paper_size: "a4"` and `loaded_print_preset: "crowned-a4-landscape"` when the
+station is ready to switch. Both passes use the standard rear paper feeder, actual
+size, Thick Paper and Envelopes, and Bidirectional Printing off. The PDF is portrait
+A4 with rotated card art and a labeled leading edge. Use the same short edge first for
+fronts and backs. Set `crowned_a4_landscape_recipe_verified` and
+`crowned_a4_landscape_duplex_verified` after their respective physical proofs. See
+the [matched Cameo template and workflow](../../docs/PRINT_WORKFLOW.md#crowned-a4-landscape-24).
+
 For the household's installed **ET-8550 driver 13.45**, the
 [driver-options example](epson-et8550-13.45-driver-options.example.json) captures the
 advertised options saved by the native **CLC Uinkit 54lb - Fronts** preset. Copy its object
@@ -259,20 +268,24 @@ paper-snapshot marker.
 
 ### Saved backs and DFC packet sequence (2.55.0+)
 
-New jobs keep ordinary cards in `fronts.pdf`; each DFC sheet is a separate two-page PDF:
-`double-faced-001.pdf`, `double-faced-002.pdf`, and so on. Page 1 contains at most seven
-fronts, and page 2 contains their matching backs. An underfilled final sheet is intentional.
+Each sheet with a double-sided card is a two-page PDF, named `double-faced-001.pdf`,
+`double-faced-002.pdf`, and so on. Page 1 has a capacity of seven fronts on Letter or
+standard A4 and nine on Crowned A4. In new mixed batches, any open slots are filled with
+single-sided fronts. Page 2 prints the backs of the double-sided cards in the matching
+positions and leaves the reverse positions for single-sided cards blank. Front-only
+sheets are in `fronts.pdf`. Previously prepared jobs keep their original layout and order.
 Every newly generated page, including ordinary sheets and both DFC sides, has a top-margin
 tag with the requester, batch name, exact job/packet or sheet identifier, and **FRONT** or
 **BACK**. Names are normalized and bounded to fit; unsupported characters appear as `?`
 and truncated names end with `...`. The exact `CLC <first-eight-job-ID-characters> DFC x/y`
-identifier remains unchanged and also appears in CLC and alerts. The existing front-side
-upstream label is preserved. Card image bytes, three registration marks, crop and
+identifier appears in CLC and alerts. The front of each newly generated sheet with backs
+also reads **REFEED FOR BACK**. Card image bytes, three registration marks, crop and
 front/back transforms are unchanged.
 
 For jobs claimed by a compatible companion:
 
-1. Print all ordinary fronts and all DFC front pages with blank paper loaded. Wait for
+1. Print all fronts with blank paper loaded. For a new mixed batch, sheets to refeed come
+   out first. Wait for
    explicit CUPS completion for each pass. No automatic back pass follows a front.
 2. CLC shows **Fronts printed · backs saved**. Keep the labeled front sheets for later; other queued batches
    can print. Saved backs and their PDFs remain available without a time limit while pending.
@@ -280,8 +293,8 @@ For jobs claimed by a compatible companion:
 3. In **Print → Printer → Backs for later**, select the exact saved packet when ready to finish it. A request
    may wait for current printing. Leave blank paper loaded until CLC shows that packet as
    the active reload and sends its flip alert; only then is the physical station reserved.
-4. Match the batch and packet labels. Remove blank paper from the rear feeder, flip/reload
-   only the matching printed sheet using the physically verified procedure, and choose
+4. Match the batch and packet labels and check that the front is dry. Remove blank paper
+   from the rear feeder, flip and reload the entire matching sheet using the verified procedure, and choose
    **Confirm and print this packet’s backs**. This authorizes only the selected back page, printed one-sided.
 5. After CUPS confirms the back pass, the station waits again. Remove the printed output,
    return blank paper to the feeder, and choose **Confirm blank paper is ready**. The confirmation

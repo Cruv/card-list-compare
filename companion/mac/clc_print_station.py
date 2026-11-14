@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.58.0"
+COMPANION_VERSION = "2.59.0"
 # launchd owns this socket while idle cupsd is stopped. A TCP-only request to
 # localhost cannot wake the service; the fixed socket also ignores shell hosts.
 LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
@@ -42,19 +42,25 @@ LETTER_RECIPE = "household-letter-v6"
 A4_RECIPE = "household-a4-v5"
 CROWNED_RECIPE = "household-crowned-a4-v2"
 CROWNED_PRESET = "crowned-a4"
+CROWNED_LANDSCAPE_RECIPE = "household-crowned-a4-landscape-v1"
+CROWNED_LANDSCAPE_PRESET = "crowned-a4-landscape"
+CROWNED_PRESETS = {CROWNED_PRESET: CROWNED_RECIPE, CROWNED_LANDSCAPE_PRESET: CROWNED_LANDSCAPE_RECIPE}
+CROWNED_RECIPES = {recipe: preset for preset, recipe in CROWNED_PRESETS.items()}
 PAPER_RECIPES = {"letter": LETTER_RECIPE, "a4": A4_RECIPE}
-RECIPE_PAPER = {LETTER_RECIPE: "letter", A4_RECIPE: "a4", CROWNED_RECIPE: "a4"}
+RECIPE_PAPER = {LETTER_RECIPE: "letter", A4_RECIPE: "a4", **dict.fromkeys(CROWNED_RECIPES, "a4")}
 CROWNED_DRIVER_OPTIONS = {
     "PageSize": "A4", "EPIJ_Size": "1", "EPIJ_PSrc": "2", "EPIJ_FdSo": "0",
     "EPIJ_PGEx": "1", "EPIJ_RmMg": "0", "EPIJ_DbSidBin": "0",
 }
-CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_DRIVER_OPTIONS}
-JOB_IDENTITY_FIELDS = ("id", "manifestSha256", "claimToken", "workflow", "recipeId")
+CROWNED_LANDSCAPE_DRIVER_OPTIONS = {**CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": "0"}
+CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_LANDSCAPE_DRIVER_OPTIONS}
+JOB_IDENTITY_FIELDS = ("id", "manifestSha256", "claimToken", "workflow", "recipeId", "sheetPacking")
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
                                        "job-name", "job-hold-until", "job-sheets", "landscape", "job-error-policy", "job-cancel-after"}
 TERMINAL = {"completed", "failed", "canceled"}
 PASS_TERMINAL = {"completed", "canceled"}
 DEFERRED_WORKFLOW = "deferred-backs-v1"
+DOUBLE_FACED_FIRST = "double-faced-first"
 
 
 class StationError(Exception):
@@ -97,6 +103,7 @@ def load_config(path):
         config = json.load(stream)
     for flag in ("allow_http", "recipe_verified", "duplex_verified", "a4_enabled", "a4_recipe_verified", "a4_duplex_verified",
                  "crowned_a4_enabled", "crowned_a4_recipe_verified", "crowned_a4_duplex_verified",
+                 "crowned_a4_landscape_enabled", "crowned_a4_landscape_recipe_verified", "crowned_a4_landscape_duplex_verified",
                  "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
         if type(config.get(flag, False)) is not bool:
             raise StationError(flag + " must be the JSON boolean true or false")
@@ -123,14 +130,14 @@ def load_config(path):
         raise StationError("approved_recipe_ids must list at least one locally approved recipe")
     for recipe in recipes:
         checked_id(recipe, "recipe ID")
-    if A4_RECIPE in recipes or CROWNED_RECIPE in recipes:
+    if any(recipe in {A4_RECIPE, *CROWNED_RECIPES} for recipe in recipes):
         raise StationError("Use the local A4 preset opt-ins to approve these recipes without authorizing them in older companions")
     stock = config.setdefault("loaded_paper_size", "letter")
     if not isinstance(stock, str) or stock not in PAPER_RECIPES:
         raise StationError("loaded_paper_size must be letter or a4")
     preset = config.get("loaded_print_preset")
-    if preset is not None and (preset != CROWNED_PRESET or stock != "a4"):
-        raise StationError("loaded_print_preset must be crowned-a4 with A4 paper")
+    if preset is not None and (not isinstance(preset, str) or preset not in CROWNED_PRESETS or stock != "a4"):
+        raise StationError("loaded_print_preset must be crowned-a4 or crowned-a4-landscape with A4 paper")
     if loaded_recipe(config) not in paper_capabilities(config)["supportedRecipeIds"]:
         raise StationError("The loaded paper recipe must be locally approved")
     options = config.setdefault("driver_options", {})
@@ -167,28 +174,32 @@ def paper_capabilities(config):
         recipes.append(A4_RECIPE)
     if config.get("crowned_a4_enabled") is True:
         recipes.append(CROWNED_RECIPE)
+    if config.get("crowned_a4_landscape_enabled") is True:
+        recipes.append(CROWNED_LANDSCAPE_RECIPE)
+    preset = config.get("loaded_print_preset")
     return {"loadedPaperSize": config.get("loaded_paper_size", "letter"),
             "supportedRecipeIds": recipes,
-            **({"loadedPrintPreset": CROWNED_PRESET} if config.get("loaded_print_preset") == CROWNED_PRESET else {})}
+            **({"loadedPrintPreset": preset} if preset in CROWNED_PRESETS else {})}
 
 
 def loaded_recipe(config):
     stock = config.get("loaded_paper_size", "letter")
-    if stock == "a4" and config.get("loaded_print_preset") == CROWNED_PRESET:
-        return CROWNED_RECIPE
+    if stock == "a4":
+        return CROWNED_PRESETS.get(config.get("loaded_print_preset"), A4_RECIPE)
     return PAPER_RECIPES[stock]
 
 
 def recipe_proof(config, recipe_id, *, duplex=False):
     flag = "duplex_verified" if duplex else "recipe_verified"
-    prefix = {A4_RECIPE: "a4_", CROWNED_RECIPE: "crowned_a4_"}.get(recipe_id, "")
+    prefix = {A4_RECIPE: "a4_", CROWNED_RECIPE: "crowned_a4_",
+              CROWNED_LANDSCAPE_RECIPE: "crowned_a4_landscape_"}.get(recipe_id, "")
     return config.get(prefix + flag) is True
 
 
 def require_loaded_paper(config, recipe_id):
     if recipe_id != loaded_recipe(config):
-        name = {LETTER_RECIPE: "US Letter", A4_RECIPE: "A4", CROWNED_RECIPE: "Crowned A4"}.get(
-            recipe_id, "a supported paper size")
+        name = {LETTER_RECIPE: "US Letter", A4_RECIPE: "A4", CROWNED_RECIPE: "Crowned A4 Portrait 3×3",
+                CROWNED_LANDSCAPE_RECIPE: "Crowned A4 Landscape 2×4"}.get(recipe_id, "a supported paper size")
         raise StationError("This batch requires " + name + ". Match the rear feeder and Mac paper setting before continuing.")
 
 
@@ -209,10 +220,12 @@ def fixed_options(config, recipe_id):
         # The ET-8550's captured Epson profile also defines its vendor paper size.
         options.update({key: "1" for key in config["driver_options"] if key.lower() == "epij_size"})
         return options
-    if recipe_id == CROWNED_RECIPE:
+    if recipe_id in CROWNED_RECIPES:
         # Use the Epson standard page mode even though the cutter layout is
-        # called borderless upstream. Driver expansion would change the cut.
-        return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "3", **CROWNED_DRIVER_OPTIONS}
+        # called borderless upstream. Feed both PDFs short-edge first in portrait;
+        # the landscape recipe rotates the layout inside its portrait-sized PDF.
+        driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_LANDSCAPE_DRIVER_OPTIONS
+        return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "3", **driver}
     raise StationError("Unsupported paper recipe")
 
 
@@ -268,6 +281,7 @@ class Client:
 
     def claim(self):
         return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+                                                     "mixedPrintSheets": True,
                                                      **paper_capabilities(self.config)}).get("job")
 
     def management_heartbeat(self, status):
@@ -433,6 +447,44 @@ class Ledger:
         return bool(row and row[0] == "1")
 
 
+def checked_mixed_layout(job, artifacts, packets, capacity):
+    ordinary = artifacts[len(packets):]
+    if not packets or artifacts[:len(packets)] != packets or len(ordinary) > 1:
+        raise StationError("Mixed sheets must start with the numbered double-sided packets")
+    for packet in packets:
+        backs = packet.get("doubleFacedCardCount")
+        if type(backs) is not int or not 1 <= backs <= packet["cardCount"]:
+            raise StationError("Invalid double-sided card count in mixed sheet packet")
+    if any(packet["doubleFacedCardCount"] != capacity for packet in packets[:-1]):
+        raise StationError("Only the last double-sided packet can contain single-sided cards")
+    last = packets[-1]
+    if ordinary:
+        front = ordinary[0]
+        copies = front.get("cardCount")
+        if (front["kind"] != "ordinary" or front["id"] != "fronts" or type(copies) is not int or copies < 1
+                or front.get("sheetCount") != front["pageCount"] or front["pageCount"] != (copies + capacity - 1) // capacity
+                or last["cardCount"] != capacity):
+            raise StationError("Invalid ordinary front artifact in mixed sheet layout")
+    elif last["doubleFacedCardCount"] == last["cardCount"]:
+        raise StationError("Mixed sheet layout must contain single-sided copies")
+    if type(job.get("totalCopies")) is not int or job["totalCopies"] != sum(item["cardCount"] for item in artifacts):
+        raise StationError("Mixed sheet card count does not match the job total")
+
+    expected = [(artifact["id"], "fronts") for artifact in artifacts] + [(packet["id"], "backs") for packet in packets]
+    steps = job.get("steps")
+    if (not isinstance(steps, list) or any(not isinstance(step, dict) for step in steps)
+            or [(step.get("artifactId"), step.get("phase")) for step in steps] != expected
+            or any(step.get("requiresRefeed") is not True for step in steps if step["phase"] == "backs")):
+        raise StationError("Mixed sheet steps do not match the packet order or refeed requirements")
+    if job.get("backRequest") is not None and any(step.get("state") != "completed" for step in steps[:len(artifacts)]):
+        raise StationError("Mixed sheet backs require every front to complete before refeed")
+
+
+def same_job_identity(original, current):
+    return (isinstance(current, dict) and all(current.get(key) == original.get(key) for key in JOB_IDENTITY_FIELDS)
+            and (original.get("sheetPacking") != DOUBLE_FACED_FIRST or current.get("artifacts") == original.get("artifacts")))
+
+
 def checked_job(job, config):
     checked_id(job.get("id"), "job ID")
     if not isinstance(job.get("claimToken"), str) or not 16 <= len(job["claimToken"]) <= 512:
@@ -442,16 +494,21 @@ def checked_job(job, config):
         raise StationError("Job recipe is not locally approved")
     if "paperSize" in job and job["paperSize"] != RECIPE_PAPER[recipe_id]:
         raise StationError("Job paper size does not match its saved recipe")
-    if job.get("printPreset") != (CROWNED_PRESET if recipe_id == CROWNED_RECIPE else None):
+    if job.get("printPreset") != CROWNED_RECIPES.get(recipe_id):
         raise StationError("Job print preset does not match its saved recipe")
     if not SHA256.fullmatch(job.get("manifestSha256", "")):
         raise StationError("Job has no immutable manifest SHA-256")
     if job.get("workflow") not in {None, DEFERRED_WORKFLOW}:
         raise StationError("Unsupported saved print workflow")
+    mixed = job.get("sheetPacking") == DOUBLE_FACED_FIRST
+    if job.get("sheetPacking") is not None and (not mixed or job.get("workflow") != DEFERRED_WORKFLOW):
+        raise StationError("Unsupported sheet packing or saved workflow")
     artifacts = job.get("artifacts", [])
-    if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 37:
+    if (not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 37
+            or any(not isinstance(item, dict) for item in artifacts)):
         raise StationError("Expected one to 37 finished PDF artifacts")
     packets = [item for item in artifacts if "packetIndex" in item or "packetCount" in item]
+    capacity = {CROWNED_RECIPE: 9, CROWNED_LANDSCAPE_RECIPE: 8}.get(recipe_id, 7)
     ids, size = set(), 0
     for artifact in artifacts:
         if "_selected_pages" in artifact:
@@ -477,6 +534,8 @@ def checked_job(job, config):
                 raise StationError("Ordinary artifact must contain only all front pages")
         elif count % 2 or fronts != list(range(1, count + 1, 2)) or backs != list(range(2, count + 1, 2)):
             raise StationError("DFC artifact must identify alternating front/back page pairs")
+        if "doubleFacedCardCount" in artifact and (not mixed or artifact not in packets):
+            raise StationError("Double-sided card count requires a mixed sheet packet")
         if artifact in packets:
             index = packets.index(artifact) + 1
             if (artifact["kind"] != "dfc" or count != 2 or artifact.get("sheetCount") != 1
@@ -484,10 +543,12 @@ def checked_job(job, config):
                     or type(artifact.get("packetCount")) is not int or artifact["packetCount"] != len(packets)
                     or artifact["id"] != "double-faced-" + str(index).zfill(3)
                     or type(artifact.get("cardCount")) is not int
-                    or not 1 <= artifact["cardCount"] <= (9 if recipe_id == CROWNED_RECIPE else 7)
+                    or not 1 <= artifact["cardCount"] <= capacity
                     or not isinstance(artifact.get("label"), str)
                     or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _/-]{0,63}", artifact["label"])):
                 raise StationError("Invalid double-sided packet identity or page count")
+    if mixed:
+        checked_mixed_layout(job, artifacts, packets, capacity)
     if size > config["max_job_bytes"]:
         raise StationError("Job PDF size exceeds the local storage limit")
     for step in job.get("steps", []):
@@ -637,8 +698,9 @@ class Cups:
             for key, value in applied_options.items():
                 if key.lower() in {"pagesize", "epij_size"} and value not in supported.get(key, set()):
                     raise StationError("Driver does not advertise the A4 option " + key + "=" + value)
-        if recipe_id == CROWNED_RECIPE:
-            for key, value in CROWNED_DRIVER_OPTIONS.items():
+        if recipe_id in CROWNED_RECIPES:
+            driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_LANDSCAPE_DRIVER_OPTIONS
+            for key, value in driver.items():
                 if value not in supported.get(key, set()):
                     raise StationError("Driver does not advertise the Crowned A4 option " + key + "=" + value)
         if "disabled" in status_text or "not accepting" in accepting:
@@ -737,7 +799,7 @@ class Cups:
             # A captured Epson profile can contain the legacy Letter PPD option.
             driver_options = {key: value for key, value in driver_options.items() if key.lower() != "pagesize"}
         applied = fixed_options(self.config, recipe_id)
-        if recipe_id == CROWNED_RECIPE:
+        if recipe_id in CROWNED_RECIPES:
             # Retain the saved options used by older recipes, but discard aliases
             # of the fixed Crowned fields when assembling this print command.
             overridden = {key.lower() for key in applied}
@@ -758,13 +820,15 @@ class Cups:
             raise StationError("lp returned no recognizable spooler job ID; reconcile before any retry")
         return match[1]
 
-    def verify_crowned_ticket(self, spooler_id, title, state):
+    def verify_crowned_ticket(self, spooler_id, title, state, recipe_id):
         matches = [job for job in self.jobs() if job["id"] == spooler_id and job["title"] == title]
         if len(matches) != 1 or matches[0]["state"] != state:
             raise StationError("The Crowned printer job changed before recovery")
         ticket = matches[0].get("ticket", {})
-        expected = {"media": "A4", "sides": "one-sided", "orientation-requested": 3, **CROWNED_DRIVER_OPTIONS}
-        if ticket != expected:
+        applied = fixed_options(self.config, recipe_id)
+        expected = {key: value for key, value in applied.items() if key in CROWNED_TICKET_FIELDS}
+        expected["orientation-requested"] = int(expected["orientation-requested"])
+        if any(ticket.get(key) != value for key, value in expected.items()):
             raise StationError("Cannot verify the held job's Crowned A4 driver settings. Inspect the Epson queue before recovery.")
 
     def cancel(self, spooler_id):
@@ -810,7 +874,7 @@ class Station:
         artifact = next(item for item in job["artifacts"] if item["id"] == pending["artifact_id"])
         label = artifact.get("label") or artifact["id"]
         detail = "Flip and reload only " + label + "; confirm this packet in CLC Print Station"
-        if job.get("recipeId") == CROWNED_RECIPE:
+        if job.get("recipeId") in CROWNED_RECIPES:
             detail = "Let the Crowned front dry fully. " + detail
         self.ledger.set_job(job["id"], "awaiting_refeed", detail)
         notice = self.alerts.notify(job, artifact)
@@ -823,7 +887,7 @@ class Station:
         existing = self.ledger.db.execute("SELECT * FROM jobs WHERE id=?", (job["id"],)).fetchone()
         if existing:
             original = json.loads(existing["payload"])
-            if any(original.get(key) != job.get(key) for key in JOB_IDENTITY_FIELDS):
+            if not same_job_identity(original, job):
                 raise StationError("Previously seen job changed its manifest, claim or recipe; refusing to print")
             if existing["state"] == "backs_pending" and job.get("workflow") == DEFERRED_WORKFLOW:
                 if job.get("state") == "awaiting_refeed" and job.get("backRequest"):
@@ -841,9 +905,12 @@ class Station:
         with self.ledger.db:
             self.ledger.db.execute("INSERT INTO jobs(id,payload,recipe_hash,updated) VALUES(?,?,?,?)",
                                    (job["id"], json.dumps(job), recipe_fingerprint(self.config, job["recipeId"]), time.time()))
-            # Preserve stable pass rows/titles across upgrades. Scheduling uses
-            # the saved workflow and explicit back reservation, not row order.
-            for artifact in sorted(job["artifacts"], key=lambda a: a["kind"] == "dfc"):
+            # Save fronts in manifest order for mixed batches. Keep the original
+            # ordinary-first order for legacy batches and all existing pass rows.
+            artifacts = job["artifacts"]
+            if job.get("sheetPacking") != DOUBLE_FACED_FIRST:
+                artifacts = sorted(artifacts, key=lambda artifact: artifact["kind"] == "dfc")
+            for artifact in artifacts:
                 for phase in (["fronts", "backs"] if artifact["kind"] == "dfc" else ["fronts"]):
                     step = steps.get((artifact["id"], phase), {})
                     state_value = step.get("state", "pending")
@@ -864,7 +931,7 @@ class Station:
     def retire_canceled_before_cups(self, original, fresh):
         """Release only a verified cancellation with durable proof of no CUPS attempt."""
         if (not isinstance(fresh, dict) or fresh.get("state") != "canceled"
-                or any(fresh.get(key) != original.get(key) for key in ("id", "manifestSha256", "claimToken"))):
+                or any(fresh.get(key) != original.get(key) for key in ("id", "manifestSha256", "claimToken", "sheetPacking"))):
             return False
         entries = self.ledger.passes(original["id"])
         if not entries or any(entry["cups_started"] != 0 or entry["spooler_id"]
@@ -900,9 +967,10 @@ class Station:
         if reply is not None:
             return {**reply, "replayed": True}
         reply = self.client.report(job, event)
-        if (not isinstance(reply.get("job"), dict)
-                or any(reply["job"].get(key) != job.get(key) for key in JOB_IDENTITY_FIELDS)):
+        if not same_job_identity(job, reply.get("job")):
             raise StationError("CLC did not acknowledge the expected job")
+        if job.get("sheetPacking") == DOUBLE_FACED_FIRST:
+            checked_job(reply["job"], self.config)
         with self.ledger.db:
             self.ledger.db.execute("UPDATE events SET reply=? WHERE event_key=?", (json.dumps(reply), key))
             self.ledger.db.execute("UPDATE jobs SET payload=?,updated=? WHERE id=?",
@@ -914,8 +982,7 @@ class Station:
 
     def refresh_job(self, original):
         fresh = self.client.get_job(original["id"])
-        if (not isinstance(fresh, dict) or any(fresh.get(key) != original.get(key)
-                for key in JOB_IDENTITY_FIELDS)):
+        if not same_job_identity(original, fresh):
             raise StationError("Server job identity changed; refusing to continue")
         checked_job(fresh, self.config)
         self.ledger.write("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(fresh), fresh["id"]))
@@ -1151,7 +1218,7 @@ class Station:
         boundary = self.recovery_summary(job, entry)
         if not boundary or any(boundary.get(key) != request.get(key) for key in ("recoveryId", "artifactId", "phase", "spoolerId")):
             raise StationError("Printer recovery no longer matches the exact interrupted pass")
-        if job["recipeId"] in {A4_RECIPE, CROWNED_RECIPE}:
+        if job["recipeId"] in {A4_RECIPE, *CROWNED_RECIPES}:
             artifact = next(item for item in job["artifacts"] if item["id"] == entry["artifact_id"])
             require_recipe_proof(self.config, job["recipeId"], artifact)
         if entry["phase"] == "backs" and request.get("paperReloaded") is not True:
@@ -1163,8 +1230,8 @@ class Station:
         if boundary["mode"] == "resume":
             if request.get("firstUnprintedSheet") is not None:
                 raise StationError("An existing CUPS job must resume in place without a new sheet range")
-            if job["recipeId"] == CROWNED_RECIPE:
-                self.cups.verify_crowned_ticket(entry["spooler_id"], entry["title"], boundary["cupsState"])
+            if job["recipeId"] in CROWNED_RECIPES:
+                self.cups.verify_crowned_ticket(entry["spooler_id"], entry["title"], boundary["cupsState"], job["recipeId"])
             if boundary["cupsState"] == 4:
                 self.cups.resume_held(entry["spooler_id"])
             self.observe(job, entry)
@@ -1449,6 +1516,8 @@ def dry_run(config, job):
             commands.append({"artifact": artifact["id"], "phase": phase,
                              "requires_operator_refeed": phase == "backs",
                              "argv": cups.args(artifact, phase, "CLC-DRY-RUN", path, recipe_id=job["recipeId"])})
+    if job.get("sheetPacking") == DOUBLE_FACED_FIRST:
+        commands.sort(key=lambda entry: entry["requires_operator_refeed"])
     return {"dry_run": True, "claimed_jobs": 0, "spooler_submissions": 0, "commands": commands}
 
 

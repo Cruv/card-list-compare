@@ -8,7 +8,7 @@ from unittest import mock
 
 import clc_print_station as native
 from clc_station_control import StationControl
-from test_print_station import FakeClient, FakeCups, config, job, packet_job
+from test_print_station import FakeClient, FakeCups, config, job, mixed_job, packet_job
 
 
 class DeferredClient(FakeClient):
@@ -186,6 +186,30 @@ class DeferredBacksTests(unittest.TestCase):
         self.assertEqual(len(self.cups.submissions), 5)
         self.assertEqual(self.station.poll_once(), 'idle')
         self.assertEqual(len([call for call in self.transport.call_args_list if 'Fronts printed' in call.args[1]['content']]), 1)
+
+    def test_mixed_packet_fronts_stay_first_after_restart_and_backs_stay_manual(self):
+        self.client.values['job1'] = mixed_job()
+        expected = ['double-faced-001', 'double-faced-002', 'fronts']
+        for index, artifact in enumerate(expected):
+            self.assertEqual(self.station.poll_once(), f'submitted EPSON-{index + 1}')
+            self.assertEqual(self.cups.submissions[-1][:2], (artifact, 'fronts'))
+            self.cups.history[-1]['state'] = 9
+            self.assertEqual(self.station.poll_once(), 'reconciled')
+            if index == 0:
+                self.restart()
+        self.assertEqual(self.station.poll_once(), 'backs_pending')
+        self.restart()
+        self.reserve('double-faced-002')
+        self.assertEqual(len(self.cups.submissions), 3)
+        self.station.resume('job1')
+        self.assertEqual(self.station.poll_once(), 'submitted EPSON-4')
+        self.assertEqual(self.cups.submissions[-1][:2], ('double-faced-002', 'backs'))
+        self.cups.history[-1]['state'] = 9
+        self.station.poll_once()
+        self.assertEqual(self.station.poll_once(), 'awaiting_paper_reset')
+        self.station.clear_paper('job1', native.clearance_id(self.client.values['job1']))
+        self.assertEqual(self.client.values['job1']['state'], 'backs_pending')
+        self.assertEqual(len(self.cups.submissions), 4)
 
     def test_all_backs_require_separate_confirmation_and_whole_completion_after_reset(self):
         self.finish_fronts()
