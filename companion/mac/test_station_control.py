@@ -162,6 +162,33 @@ class ControlTests(unittest.TestCase):
             client.claim()
         self.assertEqual(request.call_args.args[1]["loadedPrintPreset"], snapshot["loadedPrintPreset"])
 
+    def test_crowned_landscape_claim_and_heartbeat_keep_proof_separate_from_portrait(self):
+        self.config.update(crowned_a4_enabled=True, crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=native.CROWNED_LANDSCAPE_PRESET,
+                           crowned_a4_recipe_verified=True, crowned_a4_duplex_verified=True)
+        self.client.job.update(recipeId=native.CROWNED_LANDSCAPE_RECIPE, printPreset=native.CROWNED_LANDSCAPE_PRESET,
+                               paperSize="a4")
+        snapshot = self.control.snapshot()
+        self.assertEqual(snapshot["supportedRecipeIds"], [native.LETTER_RECIPE, native.CROWNED_RECIPE, native.CROWNED_LANDSCAPE_RECIPE])
+        self.assertEqual(snapshot["loadedPrintPreset"], native.CROWNED_LANDSCAPE_PRESET)
+        self.assertIs(snapshot["recipeVerified"], False)
+        self.assertIs(snapshot["duplexVerified"], False)
+        self.assertIn("proof", self.station.poll_once())
+        self.assertEqual(self.client.claims, 0)
+        self.config["crowned_a4_landscape_recipe_verified"] = True
+        self.assertIs(self.control.snapshot()["recipeVerified"], True)
+        self.assertIs(self.control.snapshot()["duplexVerified"], False)
+        with self.assertRaisesRegex(native.StationError, "refeed orientation have not been physically verified"):
+            native.require_recipe_proof(self.config, native.CROWNED_LANDSCAPE_RECIPE, {"kind": "dfc"})
+        self.config["crowned_a4_landscape_duplex_verified"] = True
+        native.require_recipe_proof(self.config, native.CROWNED_LANDSCAPE_RECIPE, {"kind": "dfc"})
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.assertEqual(self.cups.recipe_ids, [native.CROWNED_LANDSCAPE_RECIPE])
+        client = native.Client(self.config)
+        with mock.patch.object(client, "json", return_value={}) as request:
+            client.claim()
+        self.assertEqual(request.call_args.args[1]["loadedPrintPreset"], snapshot["loadedPrintPreset"])
+
     def test_management_disconnection_blocks_new_claims_but_reconciles_submitted_job(self):
         self.assertIn("connection", self.station.poll_once(allow_submit=False))
         self.assertEqual(self.client.claims, 0)

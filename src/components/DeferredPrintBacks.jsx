@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ConfirmModal from './ConfirmModal';
-import { CROWNED_A4_PRESET, printPaperChoice, printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
+import { isCrownedPrintPreset, printPaperChoice, printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
 import { printPacketBackCountLabel } from '../lib/printReview';
 
 const PACKET_STATES = {
@@ -23,7 +23,7 @@ export default function DeferredPrintBacks({ jobs, station, fresh, canPrepare, u
         <div className="station-card-heading"><div><h3>{job.deckName || 'Card batch'}</h3>{job.requesterName && <p className="station-small">Requested by {job.requesterName}</p>}</div>
           {job.canCancelBacks && <button type="button" className="btn btn-secondary btn-sm" disabled={!fresh || busy || !!job.cancelRequested} onClick={() => setCancelJob(job)}>Cancel remaining backs</button>}</div>
         <p className="station-batch-id">{printPaperLabel(job)} · Batch {job.id}</p>
-        {(printPaperChoice(job) === CROWNED_A4_PRESET || job.packets.some(packet => packet.doubleFacedCardCount != null)) && <p className="station-small">Let the fronts dry fully before preparing the backs.</p>}
+        {(isCrownedPrintPreset(printPaperChoice(job)) || job.packets.some(packet => packet.doubleFacedCardCount != null)) && <p className="station-small">Let the fronts dry fully before preparing the backs.</p>}
         {paperUnavailable && <p className="station-small">{paperUnavailable}</p>}
         {job.cancelRequested && <p role="status">Cancellation requested. Waiting for the Mac to stop any submitted pages; follow its paper-clearance instructions.</p>}
         {job.backRequest && <p className="station-message" role="status">Backs requested for {job.packets.find(packet => packet.artifactId === job.backRequest.artifactId)?.label || job.backRequest.artifactId}. Keep blank paper loaded until this packet is ready to reload.</p>}

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE } from './printGenerator.js';
+import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE } from './printGenerator.js';
 import { headlessRequirements, PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
@@ -50,7 +50,7 @@ describe('physical PDF sheet planning', () => {
     expect(groups.map(group => group.id)).toEqual([...groups.map(group => group.id)].sort((a, b) => a === 'fronts' ? -1 : b === 'fronts' ? 1 : a.localeCompare(b)));
     expect(new Set(groups.flatMap(group => group.slotMap.map(slot => slot.cardId))).size).toBe(250);
   });
-  it.each(Object.values(PRINT_RECIPES).concat(CROWNED_A4_RECIPE))('builds full sheets and preserves each face slot with $id', recipe => {
+  it.each(Object.values(PRINT_RECIPES).concat(CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE))('builds full sheets and preserves each face slot with $id', recipe => {
     const capacity = recipe.cardsPerSheet;
     const ordinary = Array.from({ length: capacity + 2 }, (_, i) => ({ id: `single-${i}`, frontPath: '/a' }));
     const double = Array.from({ length: capacity + 1 }, (_, i) => ({ id: `double-${i}`, frontPath: '/a', backPath: '/b' }));
@@ -223,7 +223,7 @@ describe('PDF adapter publication', () => {
     expect(() => printPageIdentification({ batchName: 'x'.repeat(4097) })).toThrow('bounded text');
   });
 
-  it.each([[1, undefined], [7, 'letter'], [8, 'a4'], [249, 'letter'], [10, 'a4', 'crowned-a4']])('publishes %i DFC copies (%s) as paired packets after ordinary fronts, with matching labels and checksums', async (count, paperSize, printPreset) => {
+  it.each([[1, undefined], [7, 'letter'], [8, 'a4'], [249, 'letter'], [10, 'a4', 'crowned-a4'], [9, 'a4', 'crowned-a4-landscape']])('publishes %i DFC copies (%s) as paired packets after ordinary fronts, with matching labels and checksums', async (count, paperSize, printPreset) => {
     const directory = await temp();
     const release = vi.fn();
     const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed', release }) };
@@ -246,7 +246,7 @@ describe('PDF adapter publication', () => {
     const onProgress = vi.fn();
     const result = await createPrintGenerator({ runtime, run }).generate({ cards, outputDir: directory, batchLabel: 'CLC 1234abcd',
       requesterName: 'Dénny', batchName: 'Friday proxies', onProgress, paperSize, printPreset });
-    const recipe = printPreset ? CROWNED_A4_RECIPE : PRINT_RECIPES[paperSize ?? 'letter'];
+    const recipe = printPreset === 'crowned-a4-landscape' ? CROWNED_A4_LANDSCAPE_RECIPE : printPreset ? CROWNED_A4_RECIPE : PRINT_RECIPES[paperSize ?? 'letter'];
     expect(result.recipe).toBe(recipe);
     expect([...requests, ...merges].every(request => request.paperSize === recipe.paperSize && request.printPreset === printPreset)).toBe(true);
     expect(result.printedIdentification).toEqual({ version: 1, requesterName: 'Denny', batchName: 'Friday proxies' });
@@ -323,7 +323,7 @@ describe('PDF adapter publication', () => {
     expect(onProgress).toHaveBeenCalledExactlyOnceWith({ phase: 'generating', completedSheets: 1, totalSheets: 1 });
   });
 
-  it.each([['letter', 'crowned-a4'], ['a4', 'custom']])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {
+  it.each([['letter', 'crowned-a4'], ['letter', 'crowned-a4-landscape'], ['a4', 'custom']])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {
     const capture = vi.fn();
     await expect(createPrintGenerator({ runtime: { capture } }).generate({ paperSize, printPreset })).rejects.toThrow('requires A4');
     expect(capture).not.toHaveBeenCalled();

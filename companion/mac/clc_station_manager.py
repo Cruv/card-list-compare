@@ -188,6 +188,8 @@ def assert_workflow_compatible(config, target_version):
     target = tuple(map(int, version(target_version).split(".")))
     if target >= (2, 59, 0):
         return
+    if config.get("loaded_print_preset") == "crowned-a4-landscape":
+        raise ManagerError("Select a supported paper preset before installing a companion older than 2.59.0")
     if target < (2, 58, 0) and config.get("loaded_paper_size", "letter") == "a4":
         raise ManagerError("Restore US Letter stock and its Mac paper setting before installing a companion older than 2.58.0")
     database = Path(config["state_dir"]).expanduser() / "station.sqlite3"
@@ -196,6 +198,8 @@ def assert_workflow_compatible(config, target_version):
     try:
         with contextlib.closing(sqlite3.connect(database.absolute().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
             saved = [json.loads(row[0]) for row in connection.execute("SELECT payload FROM jobs WHERE state NOT IN ('completed','failed','canceled')")]
+            if any(job.get("recipeId") == "household-crowned-a4-landscape-v1" for job in saved):
+                raise ManagerError("Finish or cancel saved Crowned A4 Landscape passes before installing a companion older than 2.59.0")
             if any(job.get("sheetPacking") == "double-faced-first" for job in saved):
                 raise ManagerError("Finish or cancel saved mixed sheets before installing a companion older than 2.59.0")
             if target < (2, 58, 0) and any(job.get("recipeId") in {"household-a4-v5", "household-crowned-a4-v2"} for job in saved):

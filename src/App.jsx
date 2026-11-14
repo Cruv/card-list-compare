@@ -34,6 +34,7 @@ const APP_VERSION = '2.59.0';
 const WHATS_NEW = [
   'Sheets with double-sided cards print first and use open slots for single-sided cards',
   'Save sheets marked REFEED FOR BACK and match their labels in Printer when you are ready to finish them',
+  'Crowned A4 Landscape fits eight cards and leaves more room at the trailing edge',
 ];
 
 function getResetToken() {

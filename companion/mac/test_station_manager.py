@@ -104,6 +104,18 @@ class ManagerTests(unittest.TestCase):
         self.ledger.write("UPDATE jobs SET state='canceled' WHERE id='saved'")
         manager.assert_workflow_compatible(self.config, '2.58.0')
 
+    def test_crowned_landscape_preset_and_saved_backs_prevent_rollback(self):
+        selected = {**self.config, "loaded_paper_size": "a4", "loaded_print_preset": "crowned-a4-landscape"}
+        with self.assertRaisesRegex(manager.ManagerError, 'Select a supported paper preset'):
+            manager.assert_workflow_compatible(selected, '2.58.1')
+        payload = {'workflow': 'deferred-backs-v1', 'recipeId': 'household-crowned-a4-landscape-v1'}
+        self.ledger.write("INSERT INTO jobs VALUES('saved',?,'recipe','backs_pending',NULL,0)", (json.dumps(payload),))
+        manager.assert_workflow_compatible(selected, '2.59.0')
+        with self.assertRaisesRegex(manager.ManagerError, 'Finish or cancel saved Crowned A4 Landscape passes'):
+            manager.assert_workflow_compatible(self.config, '2.58.1')
+        self.ledger.write("UPDATE jobs SET state='canceled' WHERE id='saved'")
+        manager.assert_workflow_compatible(self.config, '2.58.1')
+
     def test_a4_stock_or_saved_pass_blocks_legacy_worker_rollback(self):
         with self.assertRaisesRegex(manager.ManagerError, 'Restore US Letter stock'):
             manager.assert_workflow_compatible({**self.config, "loaded_paper_size": "a4"}, '2.57.3')

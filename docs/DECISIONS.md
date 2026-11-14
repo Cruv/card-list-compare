@@ -224,6 +224,12 @@ The PDF prints only the required reverse faces on page 2. The checked layout is 
 in the job plan, requires the native mixed-sheet capability, and leaves earlier prepared
 artifacts and their receipt order intact.
 
+**Crowned A4 Landscape (2026-11-14).** An eight-card layout gives the Crowned 313 gsm
+sheet more clearance at the trailing edge. The physical PDF page is portrait to fix
+which short edge feeds first. The printed mark positions and Cameo cut paths derive
+from the same geometry. The Mac uses a separate recipe identity and proof flags with
+bidirectional printing off for both passes. A manual flip keeps the same edge leading.
+
 **Deferred backs (2026-09-12).** At the owner's request, new jobs accepted by a compatible
 companion print all ordinary and DFC fronts before parking unfinished backs. A durable
 `backs_pending` state releases the household front queue and preserves the immutable PDFs

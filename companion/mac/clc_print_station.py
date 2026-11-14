@@ -42,13 +42,18 @@ LETTER_RECIPE = "household-letter-v6"
 A4_RECIPE = "household-a4-v5"
 CROWNED_RECIPE = "household-crowned-a4-v2"
 CROWNED_PRESET = "crowned-a4"
+CROWNED_LANDSCAPE_RECIPE = "household-crowned-a4-landscape-v1"
+CROWNED_LANDSCAPE_PRESET = "crowned-a4-landscape"
+CROWNED_PRESETS = {CROWNED_PRESET: CROWNED_RECIPE, CROWNED_LANDSCAPE_PRESET: CROWNED_LANDSCAPE_RECIPE}
+CROWNED_RECIPES = {recipe: preset for preset, recipe in CROWNED_PRESETS.items()}
 PAPER_RECIPES = {"letter": LETTER_RECIPE, "a4": A4_RECIPE}
-RECIPE_PAPER = {LETTER_RECIPE: "letter", A4_RECIPE: "a4", CROWNED_RECIPE: "a4"}
+RECIPE_PAPER = {LETTER_RECIPE: "letter", A4_RECIPE: "a4", **dict.fromkeys(CROWNED_RECIPES, "a4")}
 CROWNED_DRIVER_OPTIONS = {
     "PageSize": "A4", "EPIJ_Size": "1", "EPIJ_PSrc": "2", "EPIJ_FdSo": "0",
     "EPIJ_PGEx": "1", "EPIJ_RmMg": "0", "EPIJ_DbSidBin": "0",
 }
-CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_DRIVER_OPTIONS}
+CROWNED_LANDSCAPE_DRIVER_OPTIONS = {**CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": "0"}
+CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_LANDSCAPE_DRIVER_OPTIONS}
 JOB_IDENTITY_FIELDS = ("id", "manifestSha256", "claimToken", "workflow", "recipeId", "sheetPacking")
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
                                        "job-name", "job-hold-until", "job-sheets", "landscape", "job-error-policy", "job-cancel-after"}
@@ -98,6 +103,7 @@ def load_config(path):
         config = json.load(stream)
     for flag in ("allow_http", "recipe_verified", "duplex_verified", "a4_enabled", "a4_recipe_verified", "a4_duplex_verified",
                  "crowned_a4_enabled", "crowned_a4_recipe_verified", "crowned_a4_duplex_verified",
+                 "crowned_a4_landscape_enabled", "crowned_a4_landscape_recipe_verified", "crowned_a4_landscape_duplex_verified",
                  "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
         if type(config.get(flag, False)) is not bool:
             raise StationError(flag + " must be the JSON boolean true or false")
@@ -124,14 +130,14 @@ def load_config(path):
         raise StationError("approved_recipe_ids must list at least one locally approved recipe")
     for recipe in recipes:
         checked_id(recipe, "recipe ID")
-    if A4_RECIPE in recipes or CROWNED_RECIPE in recipes:
+    if any(recipe in {A4_RECIPE, *CROWNED_RECIPES} for recipe in recipes):
         raise StationError("Use the local A4 preset opt-ins to approve these recipes without authorizing them in older companions")
     stock = config.setdefault("loaded_paper_size", "letter")
     if not isinstance(stock, str) or stock not in PAPER_RECIPES:
         raise StationError("loaded_paper_size must be letter or a4")
     preset = config.get("loaded_print_preset")
-    if preset is not None and (preset != CROWNED_PRESET or stock != "a4"):
-        raise StationError("loaded_print_preset must be crowned-a4 with A4 paper")
+    if preset is not None and (not isinstance(preset, str) or preset not in CROWNED_PRESETS or stock != "a4"):
+        raise StationError("loaded_print_preset must be crowned-a4 or crowned-a4-landscape with A4 paper")
     if loaded_recipe(config) not in paper_capabilities(config)["supportedRecipeIds"]:
         raise StationError("The loaded paper recipe must be locally approved")
     options = config.setdefault("driver_options", {})
@@ -168,28 +174,32 @@ def paper_capabilities(config):
         recipes.append(A4_RECIPE)
     if config.get("crowned_a4_enabled") is True:
         recipes.append(CROWNED_RECIPE)
+    if config.get("crowned_a4_landscape_enabled") is True:
+        recipes.append(CROWNED_LANDSCAPE_RECIPE)
+    preset = config.get("loaded_print_preset")
     return {"loadedPaperSize": config.get("loaded_paper_size", "letter"),
             "supportedRecipeIds": recipes,
-            **({"loadedPrintPreset": CROWNED_PRESET} if config.get("loaded_print_preset") == CROWNED_PRESET else {})}
+            **({"loadedPrintPreset": preset} if preset in CROWNED_PRESETS else {})}
 
 
 def loaded_recipe(config):
     stock = config.get("loaded_paper_size", "letter")
-    if stock == "a4" and config.get("loaded_print_preset") == CROWNED_PRESET:
-        return CROWNED_RECIPE
+    if stock == "a4":
+        return CROWNED_PRESETS.get(config.get("loaded_print_preset"), A4_RECIPE)
     return PAPER_RECIPES[stock]
 
 
 def recipe_proof(config, recipe_id, *, duplex=False):
     flag = "duplex_verified" if duplex else "recipe_verified"
-    prefix = {A4_RECIPE: "a4_", CROWNED_RECIPE: "crowned_a4_"}.get(recipe_id, "")
+    prefix = {A4_RECIPE: "a4_", CROWNED_RECIPE: "crowned_a4_",
+              CROWNED_LANDSCAPE_RECIPE: "crowned_a4_landscape_"}.get(recipe_id, "")
     return config.get(prefix + flag) is True
 
 
 def require_loaded_paper(config, recipe_id):
     if recipe_id != loaded_recipe(config):
-        name = {LETTER_RECIPE: "US Letter", A4_RECIPE: "A4", CROWNED_RECIPE: "Crowned A4"}.get(
-            recipe_id, "a supported paper size")
+        name = {LETTER_RECIPE: "US Letter", A4_RECIPE: "A4", CROWNED_RECIPE: "Crowned A4 Portrait 3×3",
+                CROWNED_LANDSCAPE_RECIPE: "Crowned A4 Landscape 2×4"}.get(recipe_id, "a supported paper size")
         raise StationError("This batch requires " + name + ". Match the rear feeder and Mac paper setting before continuing.")
 
 
@@ -210,10 +220,12 @@ def fixed_options(config, recipe_id):
         # The ET-8550's captured Epson profile also defines its vendor paper size.
         options.update({key: "1" for key in config["driver_options"] if key.lower() == "epij_size"})
         return options
-    if recipe_id == CROWNED_RECIPE:
+    if recipe_id in CROWNED_RECIPES:
         # Use the Epson standard page mode even though the cutter layout is
-        # called borderless upstream. Driver expansion would change the cut.
-        return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "3", **CROWNED_DRIVER_OPTIONS}
+        # called borderless upstream. Feed both PDFs short-edge first in portrait;
+        # the landscape recipe rotates the layout inside its portrait-sized PDF.
+        driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_LANDSCAPE_DRIVER_OPTIONS
+        return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "3", **driver}
     raise StationError("Unsupported paper recipe")
 
 
@@ -482,7 +494,7 @@ def checked_job(job, config):
         raise StationError("Job recipe is not locally approved")
     if "paperSize" in job and job["paperSize"] != RECIPE_PAPER[recipe_id]:
         raise StationError("Job paper size does not match its saved recipe")
-    if job.get("printPreset") != (CROWNED_PRESET if recipe_id == CROWNED_RECIPE else None):
+    if job.get("printPreset") != CROWNED_RECIPES.get(recipe_id):
         raise StationError("Job print preset does not match its saved recipe")
     if not SHA256.fullmatch(job.get("manifestSha256", "")):
         raise StationError("Job has no immutable manifest SHA-256")
@@ -496,7 +508,7 @@ def checked_job(job, config):
             or any(not isinstance(item, dict) for item in artifacts)):
         raise StationError("Expected one to 37 finished PDF artifacts")
     packets = [item for item in artifacts if "packetIndex" in item or "packetCount" in item]
-    capacity = 9 if recipe_id == CROWNED_RECIPE else 7
+    capacity = {CROWNED_RECIPE: 9, CROWNED_LANDSCAPE_RECIPE: 8}.get(recipe_id, 7)
     ids, size = set(), 0
     for artifact in artifacts:
         if "_selected_pages" in artifact:
@@ -686,8 +698,9 @@ class Cups:
             for key, value in applied_options.items():
                 if key.lower() in {"pagesize", "epij_size"} and value not in supported.get(key, set()):
                     raise StationError("Driver does not advertise the A4 option " + key + "=" + value)
-        if recipe_id == CROWNED_RECIPE:
-            for key, value in CROWNED_DRIVER_OPTIONS.items():
+        if recipe_id in CROWNED_RECIPES:
+            driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_LANDSCAPE_DRIVER_OPTIONS
+            for key, value in driver.items():
                 if value not in supported.get(key, set()):
                     raise StationError("Driver does not advertise the Crowned A4 option " + key + "=" + value)
         if "disabled" in status_text or "not accepting" in accepting:
@@ -786,7 +799,7 @@ class Cups:
             # A captured Epson profile can contain the legacy Letter PPD option.
             driver_options = {key: value for key, value in driver_options.items() if key.lower() != "pagesize"}
         applied = fixed_options(self.config, recipe_id)
-        if recipe_id == CROWNED_RECIPE:
+        if recipe_id in CROWNED_RECIPES:
             # Retain the saved options used by older recipes, but discard aliases
             # of the fixed Crowned fields when assembling this print command.
             overridden = {key.lower() for key in applied}
@@ -807,13 +820,15 @@ class Cups:
             raise StationError("lp returned no recognizable spooler job ID; reconcile before any retry")
         return match[1]
 
-    def verify_crowned_ticket(self, spooler_id, title, state):
+    def verify_crowned_ticket(self, spooler_id, title, state, recipe_id):
         matches = [job for job in self.jobs() if job["id"] == spooler_id and job["title"] == title]
         if len(matches) != 1 or matches[0]["state"] != state:
             raise StationError("The Crowned printer job changed before recovery")
         ticket = matches[0].get("ticket", {})
-        expected = {"media": "A4", "sides": "one-sided", "orientation-requested": 3, **CROWNED_DRIVER_OPTIONS}
-        if ticket != expected:
+        applied = fixed_options(self.config, recipe_id)
+        expected = {key: value for key, value in applied.items() if key in CROWNED_TICKET_FIELDS}
+        expected["orientation-requested"] = int(expected["orientation-requested"])
+        if any(ticket.get(key) != value for key, value in expected.items()):
             raise StationError("Cannot verify the held job's Crowned A4 driver settings. Inspect the Epson queue before recovery.")
 
     def cancel(self, spooler_id):
@@ -859,7 +874,7 @@ class Station:
         artifact = next(item for item in job["artifacts"] if item["id"] == pending["artifact_id"])
         label = artifact.get("label") or artifact["id"]
         detail = "Flip and reload only " + label + "; confirm this packet in CLC Print Station"
-        if job.get("recipeId") == CROWNED_RECIPE:
+        if job.get("recipeId") in CROWNED_RECIPES:
             detail = "Let the Crowned front dry fully. " + detail
         self.ledger.set_job(job["id"], "awaiting_refeed", detail)
         notice = self.alerts.notify(job, artifact)
@@ -1203,7 +1218,7 @@ class Station:
         boundary = self.recovery_summary(job, entry)
         if not boundary or any(boundary.get(key) != request.get(key) for key in ("recoveryId", "artifactId", "phase", "spoolerId")):
             raise StationError("Printer recovery no longer matches the exact interrupted pass")
-        if job["recipeId"] in {A4_RECIPE, CROWNED_RECIPE}:
+        if job["recipeId"] in {A4_RECIPE, *CROWNED_RECIPES}:
             artifact = next(item for item in job["artifacts"] if item["id"] == entry["artifact_id"])
             require_recipe_proof(self.config, job["recipeId"], artifact)
         if entry["phase"] == "backs" and request.get("paperReloaded") is not True:
@@ -1215,8 +1230,8 @@ class Station:
         if boundary["mode"] == "resume":
             if request.get("firstUnprintedSheet") is not None:
                 raise StationError("An existing CUPS job must resume in place without a new sheet range")
-            if job["recipeId"] == CROWNED_RECIPE:
-                self.cups.verify_crowned_ticket(entry["spooler_id"], entry["title"], boundary["cupsState"])
+            if job["recipeId"] in CROWNED_RECIPES:
+                self.cups.verify_crowned_ticket(entry["spooler_id"], entry["title"], boundary["cupsState"], job["recipeId"])
             if boundary["cupsState"] == 4:
                 self.cups.resume_held(entry["spooler_id"])
             self.observe(job, entry)

@@ -7,7 +7,7 @@ import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } fro
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
 import { queueNotificationInput, queueNotificationReceiptChanges, queueNotificationDelivery } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { CROWNED_PRESET, LEGACY_STATION_PAPER, printPaperSelection, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
+import { PRINT_PRESETS, LEGACY_STATION_PAPER, printPaperSelection, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
 
 const STATION = 'household';
@@ -34,7 +34,7 @@ export const supportsDeferredBacks = () => online() && latest?.deferredBacks ===
 export function assertQueuePaper(paper) {
   if (!stationCanPrintPaper(latest ?? LEGACY_STATION_PAPER, paper)
     || (paper.paperSize === 'a4' && !online())) {
-    const label = paper.printPreset === CROWNED_PRESET ? 'Crowned A4' : paper.paperSize === 'a4' ? 'standard A4' : 'US Letter';
+    const label = PRINT_PRESETS[paper.printPreset]?.label ?? (paper.paperSize === 'a4' ? 'standard A4' : 'US Letter');
     throw printError(`Set the Mac print station to ${label} and load that stock before sending this batch to the printer.`, 409);
   }
 }

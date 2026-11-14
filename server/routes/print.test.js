@@ -164,6 +164,47 @@ describe('batch paper size', () => {
     expect((await (await station('/claim', 'POST', { ...loaded, deferredBacks: true })).json()).job)
       .toMatchObject({ id: job.id, recipeId: recipe.id, printPreset: 'crowned-a4' });
   });
+
+  it('uses the selected Crowned landscape layout for mixed packets and both physical passes', async () => {
+    const printPreset = 'crowned-a4-landscape';
+    const recipe = { id: 'household-crowned-a4-landscape-v1', paperSize: 'a4', printPreset };
+    const choice = { mode: 'full', paperSize: 'a4', printPreset };
+    const stationCapabilities = { ...a4, deferredBacks: true, mixedPrintSheets: true,
+      supportedRecipeIds: [...a4.supportedRecipeIds, 'household-crowned-a4-v2', recipe.id] };
+    const portrait = { ...stationCapabilities, loadedPrintPreset: 'crowned-a4' };
+    const landscape = { ...stationCapabilities, loadedPrintPreset: printPreset };
+    db.run("UPDATE deck_snapshots SET deck_text='7 Lightning Bolt (M10) [146]\n1 Malakir Rebirth' WHERE tracked_deck_id=1");
+    services.generatePrintPdfs.mockImplementationOnce(async input => ({ ...await packetPdfs(input, 8), recipe }));
+    const { job } = await create(choice);
+    await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({
+      state: 'ready', printPreset, recipeId: recipe.id, artifacts: [
+        expect.objectContaining({ cardCount: 8, doubleFacedCardCount: 1, frontPages: [1], backPages: [2] }),
+      ],
+    });
+    const enqueue = () => request(`/api/decks/1/print-jobs/${job.id}/queue`, { method: 'POST' });
+    const claim = body => station('/claim', 'POST', body);
+    const beat = body => station('/heartbeat', 'POST', { ...heartbeat, ...body });
+    expect((await beat(portrait)).status).toBe(200);
+    expect((await enqueue()).status).toBe(409);
+    expect((await beat(landscape)).status).toBe(200);
+    expect((await enqueue()).status).toBe(200);
+    const claimed = (await (await claim(landscape)).json()).job;
+    const artifactId = 'double-faced-001';
+    const front = { artifactId, phase: 'fronts' };
+    const receipt = { ...front, spoolerId: 'EPSON-landscape-front' };
+    expect(claimed).toMatchObject({ id: job.id, printPreset, recipeId: recipe.id });
+    report(claimed, 'submitting', front); report(claimed, 'submitted', receipt);
+    expect(report(claimed, 'completed', receipt).job.state).toBe('backs_pending');
+    const saved = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    queue.preparePrintBacks(saved, artifactId, 1);
+    expect((await beat(portrait)).status).toBe(200);
+    expect(await (await claim(portrait)).json()).toEqual({ job: null });
+    expect((await beat(landscape)).status).toBe(200);
+    expect((await (await claim(landscape)).json()).job).toMatchObject({
+      id: job.id, state: 'awaiting_refeed', printPreset, recipeId: recipe.id, backRequest: { artifactId },
+    });
+  });
 });
 
 async function packetPdfs({ cards, outputDir, batchLabel, sheetPacking }, capacity = 7) {

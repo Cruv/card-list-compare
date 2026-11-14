@@ -74,7 +74,7 @@ and unsupported meld layouts block generation before a job is created. Then choo
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
 
-In print review, choose **US Letter**, **A4**, or **Crowned A4 · Portrait 3×3** and save
+In print review, choose **US Letter**, **A4**, or either **Crowned A4** layout and save
 a default for your account in this browser. The batch keeps that choice through generation, printing, saved
 backs and interrupted-pass recovery. Existing batches use US Letter. Downloading a PDF
 works with either size. For direct printing, the Mac station must support the batch's
@@ -233,6 +233,29 @@ The Epson prints at actual size with expansion off. Its Rear Paper Feeder and Th
 Paper and Envelopes settings apply to both sides. Test registration and cut settings
 on the resin-coated stock before committing a batch.
 
+### Crowned A4 Landscape 2×4
+
+Choose **Crowned A4 · Landscape 2×4** for eight full-size cards on the same 313 gsm stock.
+The cut grid starts about 12 mm from the leading short edge and ends about 29 mm from
+the trailing edge before bleed. The PDF uses physical portrait A4 with the 2×4 art
+turned on the page. Both passes mark the same short edge **FEED THIS EDGE FIRST**.
+
+Use the [Silhouette cut paths](../public/print-templates/crowned-a4-landscape-v1.dxf) and
+[Studio setup](../public/print-templates/crowned-a4-landscape-v1-setup.txt) from the
+in-app guide. The setup places the paper and cut paths on a 12-inch mat and gives the
+matching registration insets. Check all eight positions on plain A4 before saving the
+Studio document. A Crowned sheet proves the feed, scuff, color and registration results
+for the actual stock. The matching reverse pass needs a separate physical flip check.
+
+The Mac's Crowned Landscape recipe prints at actual size through the standard **Rear
+Paper Feeder** with Thick Paper and Envelopes on, Bidirectional Printing off,
+expansion off and automatic duplex off. Switch the loaded preset to **Crowned A4 ·
+Landscape 2×4** before releasing a matching batch. The current template clears the
+separate straight slot's last 20 mm in the PDF, but its Mac recipe selects the standard
+rear feeder. See the [Epson printable area](https://files.support.epson.com/docid/cpd5/cpd59879/source/specifications/references/et8500_8550_l8160_l8180/spex_printable_area_et8500_8550.html).
+
+### Printed sheet identification
+
 Every newly generated page also carries **Queued by**, the saved **Batch** label, its exact
 sheet/packet identity and **FRONT** or **BACK** in the top margin. These values are frozen
 when the job is created, so saved backs still match their requester and labeled front
@@ -272,8 +295,8 @@ preserving the active, previous, in-use and retained job versions. The productio
 uses Debian for ARM64/AMD64 binary-wheel compatibility. The inspected upstream reference
 was `4d4aa73a95e93b09676c863a1861765863398c63`; it is not a permanent source pin.
 
-A single worker invokes upstream once per sheet, with seven slots for Letter and standard A4
-or nine for Crowned A4. It merges front-only sheets into one PDF and retains each sheet
+A single worker invokes upstream once per sheet, with seven slots for Letter and standard A4,
+nine for Crowned A4 Portrait or eight for Crowned A4 Landscape. It merges front-only sheets into one PDF and retains each sheet
 that needs a flip as its own two-page packet. Each batch fills its own sheets.
 Limits are 250 physical copies, 20 MiB per source image, 1 GiB per PDF and 2 GiB per retained
 job, including staged sources. Saved MPC images are downloaded sequentially to disk with
@@ -321,7 +344,8 @@ print this packet’s backs**. Page 2 runs as a separate one-sided pass; automat
 remains disabled.
 
 For Crowned A4, let the front dry fully before reloading. Verify the portrait long-edge
-flip on one sheet before printing the rest of a batch. Crowned recommends an overnight
+flip on one sheet before printing the rest of a batch. On Landscape, feed the edge
+marked **FEED THIS EDGE FIRST** for both passes. Crowned recommends an overnight
 cure in a dry room after printing and before cutting or sleeving.
 
 When the backs finish, the station enters `awaiting_paper_reset`. Remove the finished

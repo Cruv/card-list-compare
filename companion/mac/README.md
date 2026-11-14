@@ -159,6 +159,15 @@ Use the original driver profile as the starting point for color. Record
 physical checks. Dry the front fully before manually reloading it. For standard A4 or
 Letter stock, remove `loaded_print_preset` and select the matching size.
 
+For **Crowned A4 · Landscape 2×4**, enable `crowned_a4_landscape_enabled` and select
+`loaded_paper_size: "a4"` and `loaded_print_preset: "crowned-a4-landscape"` when the
+station is ready to switch. Both passes use the standard rear paper feeder, actual
+size, Thick Paper and Envelopes, and Bidirectional Printing off. The PDF is portrait
+A4 with rotated card art and a labeled leading edge. Use the same short edge first for
+fronts and backs. Set `crowned_a4_landscape_recipe_verified` and
+`crowned_a4_landscape_duplex_verified` after their respective physical proofs. See
+the [matched Cameo template and workflow](../../docs/PRINT_WORKFLOW.md#crowned-a4-landscape-24).
+
 For the household's installed **ET-8550 driver 13.45**, the
 [driver-options example](epson-et8550-13.45-driver-options.example.json) captures the
 advertised options saved by the native **CLC Uinkit 54lb - Fronts** preset. Copy its object

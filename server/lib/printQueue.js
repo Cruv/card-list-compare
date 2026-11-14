@@ -10,7 +10,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from 
 import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { CROWNED_PRESET, LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
+import { LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, PRINT_PRESETS, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -46,7 +46,7 @@ export function printCapabilities(userId) {
   return {
     stationConfigured, canQueue: !!(stationConfigured && user && !user.suspended && (user.is_admin || allowed.includes(userId))),
     recipeId: PRINT_PAPER_RECIPES.letter, paperSizes: Object.keys(PRINT_PAPER_RECIPES),
-    printPresets: [CROWNED_PRESET], retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
+    printPresets: Object.keys(PRINT_PRESETS), retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
   };
 }
 export function requireStationToken(token) {
@@ -259,7 +259,7 @@ export async function processNextPrintJob() {
     if (!Array.isArray(generated.artifacts) || generated.artifacts.length > 37) throw printError('Generator returned too many artifacts', 500);
     const artifactIds = new Set();
     const packets = generated.artifacts.filter(artifact => /^double-faced-\d{3}$/.test(artifact.id));
-    const packetCapacity = plan.printPreset === CROWNED_PRESET ? 9 : 7;
+    const packetCapacity = PRINT_PRESETS[plan.printPreset]?.cardsPerSheet ?? 7;
     const mixed = plan.sheetPacking === DOUBLE_FACED_FIRST;
     if (mixed) {
       const expectedPackets = Math.ceil(plan.doubleFacedCopies / packetCapacity);

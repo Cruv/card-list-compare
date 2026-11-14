@@ -1,5 +1,5 @@
 import { parse } from './parser';
-import { CROWNED_A4_PRESET, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
+import { isCrownedPrintPreset, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
 
 /** Count physical source copies using the same parser as deck comparison. */
 export function printSourceCopies(text, includeSideboard = false) {
@@ -105,7 +105,7 @@ export function loadPrintCreationIntent(storage, key) {
 
 function validSelectionOptions(value) {
   return (value.paperSize === undefined || isPrintPaperSize(value.paperSize))
-    && (value.printPreset === undefined || (value.paperSize === 'a4' && value.printPreset === CROWNED_A4_PRESET))
+    && (value.printPreset === undefined || (value.paperSize === 'a4' && isCrownedPrintPreset(value.printPreset)))
     && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000

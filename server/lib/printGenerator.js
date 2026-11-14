@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
+import crownedLandscapeGeometry from './crownedLandscapeGeometry.json' with { type: 'json' };
 
 export const MAX_PRINT_COPIES = 250;
 export const PRINT_RECIPE = Object.freeze({
@@ -25,6 +26,16 @@ export const CROWNED_A4_RECIPE = Object.freeze({
   ...PRINT_RECIPES.a4, id: 'household-crowned-a4-v2', template: 'a4-standard-borderless-v2',
   printPreset: 'crowned-a4', orientation: 'portrait', skip: Object.freeze([]), cardsPerSheet: 9,
   pageWidthPoints: 595.2, pageHeightPoints: 841.68,
+});
+export const CROWNED_A4_LANDSCAPE_RECIPE = Object.freeze({
+  ...CROWNED_A4_RECIPE, id: 'household-crowned-a4-landscape-v1', template: 'a4-standard-crowned-landscape-v1',
+  printPreset: 'crowned-a4-landscape', orientation: 'landscape', feedOrientation: 'portrait', cardsPerSheet: 8,
+  pageWidthPoints: crownedLandscapeGeometry.paperMillimeters.width * (72 / 25.4),
+  pageHeightPoints: crownedLandscapeGeometry.paperMillimeters.height * (72 / 25.4),
+});
+const PRINT_PRESETS = Object.freeze({
+  [CROWNED_A4_RECIPE.printPreset]: CROWNED_A4_RECIPE,
+  [CROWNED_A4_LANDSCAPE_RECIPE.printPreset]: CROWNED_A4_LANDSCAPE_RECIPE,
 });
 const MAX_PDF_BYTES = 1024 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;
@@ -104,10 +115,10 @@ export function createPrintGenerator(options = {}) {
       if (typeof paperSize !== 'string' || !Object.hasOwn(PRINT_RECIPES, paperSize)) {
         throw new Error('Paper size must be Letter or A4');
       }
-      if (printPreset !== undefined && (printPreset !== CROWNED_A4_RECIPE.printPreset || paperSize !== 'a4')) {
+      if (printPreset !== undefined && (typeof printPreset !== 'string' || !Object.hasOwn(PRINT_PRESETS, printPreset) || paperSize !== 'a4')) {
         throw new Error('The Crowned preset requires A4');
       }
-      const recipe = printPreset ? CROWNED_A4_RECIPE : PRINT_RECIPES[paperSize];
+      const recipe = printPreset ? PRINT_PRESETS[printPreset] : PRINT_RECIPES[paperSize];
       const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
       const plan = planPrintSheets(cards, recipe, sheetPacking);
       const printedIdentification = printPageIdentification({ requesterName, batchName });

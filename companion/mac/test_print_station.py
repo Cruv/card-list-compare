@@ -1017,6 +1017,50 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(station.StationError, "preset does not match"):
             station.checked_job(value, self.config)
 
+    def test_crowned_landscape_feeds_portrait_and_disables_bidirectional_on_both_passes(self):
+        self.config.update(crowned_a4_enabled=True, crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=station.CROWNED_LANDSCAPE_PRESET)
+        self.config["driver_options"].update(EPIJ_OPT_Bi_D="1", epij_opt_bi_d="1", EPIJ_PGEx="0")
+        self.assertEqual(station.loaded_recipe(self.config), station.CROWNED_LANDSCAPE_RECIPE)
+        original = station.recipe_fingerprint(self.config, station.CROWNED_RECIPE)
+        value = mixed_job()
+        value.update(recipeId=station.CROWNED_LANDSCAPE_RECIPE, printPreset=station.CROWNED_LANDSCAPE_PRESET, paperSize="a4")
+        value["artifacts"][0].update(cardCount=8, doubleFacedCardCount=8)
+        value["artifacts"][1]["cardCount"] = 8
+        value["totalCopies"] = 17
+        for entry in station.dry_run(self.config, value)["commands"]:
+            args = entry["argv"]
+            for option in ("media=A4", "PageSize=A4", "EPIJ_PSrc=2", "EPIJ_FdSo=0", "EPIJ_PGEx=1", "EPIJ_RmMg=0",
+                           "orientation-requested=3", "print-scaling=none", "fit-to-page=false", "sides=one-sided", "EPIJ_OPT_Bi_D=0"):
+                self.assertEqual(args.count(option), 1)
+            self.assertNotIn("EPIJ_OPT_Bi_D=1", args)
+            self.assertNotIn("epij_opt_bi_d=1", args)
+        self.assertNotIn("EPIJ_OPT_Bi_D", station.fixed_options(self.config, station.CROWNED_RECIPE))
+        self.assertNotEqual(station.recipe_fingerprint(self.config, station.CROWNED_LANDSCAPE_RECIPE), original)
+        self.assertEqual(station.recipe_fingerprint({**self.config, "loaded_print_preset": station.CROWNED_PRESET}, station.CROWNED_RECIPE), original)
+        value["artifacts"][0].update(cardCount=9, doubleFacedCardCount=9)
+        with self.assertRaisesRegex(station.StationError, "packet identity or page count"):
+            station.checked_job(value, self.config)
+
+    def test_crowned_landscape_requires_independent_local_opt_in(self):
+        token = self.directory / "token"
+        token.write_text("t" * 40)
+        token.chmod(0o600)
+        path = self.directory / "config.json"
+        path.touch(mode=0o600)
+        value = {**self.config, "station_token_file": str(token), "loaded_paper_size": "a4",
+                 "loaded_print_preset": station.CROWNED_LANDSCAPE_PRESET, "crowned_a4_enabled": True}
+        path.write_text(json.dumps(value))
+        with self.assertRaisesRegex(station.StationError, "must be locally approved"):
+            station.load_config(path)
+        value["crowned_a4_landscape_enabled"] = True
+        path.write_text(json.dumps(value))
+        self.assertEqual(station.loaded_recipe(station.load_config(path)), station.CROWNED_LANDSCAPE_RECIPE)
+        value["loaded_paper_size"] = "letter"
+        path.write_text(json.dumps(value))
+        with self.assertRaisesRegex(station.StationError, "with A4 paper"):
+            station.load_config(path)
+
     def test_job_paper_size_must_match_the_approved_recipe(self):
         self.config["a4_enabled"] = True
         value = job()
@@ -1129,6 +1173,27 @@ class BoundaryTests(unittest.TestCase):
         cups = station.Cups(self.config, runner)
         with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_PGEx=1"):
             cups.doctor()
+
+    def test_crowned_landscape_doctor_requires_driver_bidirectional_off(self):
+        self.config.update(crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=station.CROWNED_LANDSCAPE_PRESET, driver_options={})
+        bidirectional = "*1"
+
+        def runner(args):
+            if "-e" in args:
+                return "EPSON\n"
+            if args[0].endswith("lpoptions"):
+                options = {**station.CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": bidirectional}
+                return "\n".join(f"{key}/option: {value}" for key, value in options.items())
+            return "EPSON accepting requests\n"
+
+        cups = station.Cups(self.config, runner)
+        cups.jobs = mock.Mock(return_value=[])
+        with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_OPT_Bi_D=0"):
+            cups.doctor()
+        cups.jobs.assert_not_called()
+        bidirectional = "0 *1"
+        self.assertEqual(cups.doctor()["fixed_options"]["EPIJ_OPT_Bi_D"], "0")
 
     def test_token_permissions_and_reserved_options_are_rejected(self):
         token = self.directory / "token"

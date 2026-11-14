@@ -1,5 +1,18 @@
 # Current work checkpoint
 
+## Crowned A4 Landscape 2×4
+
+The 2.59.0 branch adds an eight-card option for Crowned stock. The grid leaves
+about 12 mm at the leading short edge and 29 mm at the trailing edge before bleed.
+The Mac selects portrait A4 feed at actual size, rear paper feeder, Thick Paper
+and bidirectional printing off. Each pass labels the same leading edge.
+[Print workflow and cut paths](PRINT_WORKFLOW.md#crowned-a4-landscape-24).
+
+Real upstream PDF smoke, the installed Epson raster filter, the DXF geometry check,
+browser exercise and software tests covered the layout. The two-page synthetic proof
+uses eight front targets and two back targets. Physical Crowned feed, print quality,
+Cameo registration and manual flip alignment are still to be checked.
+
 ## Mixed print sheets and refeed labels
 
 CLC and the Mac companion 2.59.0 add shared sheets for new mixed batches. Fronts with
