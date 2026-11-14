@@ -299,6 +299,15 @@ truth; they remain rollback/evidence until a separately authorized registry cuto
 
 ### Household print jobs
 
+#### Print review sheet-count release — v2.58.1
+
+On 2026-11-14, PR [#10](https://github.com/Cruv/card-list-compare/pull/10) passed CI,
+merged as `4be64c4`, and published to GHCR. The Mac activated the verified arm64 image
+after both front passes completed and the Epson queue was clear. The saved double-sided
+back remained parked. The cutover verified a complete stopped backup, database integrity,
+local and public health, matching frontend bytes, and the companion's authenticated
+heartbeat. The current stack still uses the repository's published-image Compose contract.
+
 #### ManaSync traffic reduction — v2.57.5
 
 The source fix removes repeated per-card checks for published/terminal pending prints and
