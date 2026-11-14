@@ -8,6 +8,6 @@
   ATTR uri printer-uri $uri
   ATTR name requesting-user-name $clc_user
   ATTR keyword which-jobs all
-  ATTR keyword requested-attributes job-id,job-name,job-state,job-printer-uri
+  ATTR keyword requested-attributes job-id,job-name,job-state,job-printer-uri,media,PageSize,orientation-requested,sides,EPIJ_Size,EPIJ_PSrc,EPIJ_FdSo,EPIJ_PGEx,EPIJ_RmMg,EPIJ_DbSidBin
   STATUS successful-ok
 }

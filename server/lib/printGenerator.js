@@ -12,7 +12,19 @@ export const PRINT_RECIPE = Object.freeze({
   cardsPerSheet: 7, pageWidthPoints: 792, pageHeightPoints: 612,
   colorSpace: 'DeviceRGB', embeddedIcc: false, colorNormalized: false,
 });
-const USABLE_SLOTS = [0, 1, 2, 3, 5, 6, 7];
+export const PRINT_RECIPES = Object.freeze({
+  letter: PRINT_RECIPE,
+  a4: Object.freeze({
+    ...PRINT_RECIPE, id: 'household-a4-v5', template: 'a4-standard-v5', paperSize: 'a4',
+    // Upstream's 600 PPI registration canvas uses integer raster dimensions.
+    pageWidthPoints: 841.68, pageHeightPoints: 595.2,
+  }),
+});
+export const CROWNED_A4_RECIPE = Object.freeze({
+  ...PRINT_RECIPES.a4, id: 'household-crowned-a4-v2', template: 'a4-standard-borderless-v2',
+  printPreset: 'crowned-a4', orientation: 'portrait', skip: Object.freeze([]), cardsPerSheet: 9,
+  pageWidthPoints: 595.2, pageHeightPoints: 841.68,
+});
 const MAX_PDF_BYTES = 1024 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;
 const DEFAULT_DATA = process.env.DB_PATH ? path.dirname(path.resolve(process.env.DB_PATH))
@@ -33,7 +45,7 @@ export function printPageIdentification({ requesterName = 'Unknown requester', b
     batchName: printable(batchName, 96, 'Print list') };
 }
 
-export function planPrintSheets(cards) {
+export function planPrintSheets(cards, recipe = PRINT_RECIPE) {
   if (!Array.isArray(cards) || !cards.length || cards.length > MAX_PRINT_COPIES) {
     throw new Error(`PDF generation requires 1–${MAX_PRINT_COPIES} physical card copies`);
   }
@@ -45,21 +57,25 @@ export function planPrintSheets(cards) {
   }
   const ordinary = cards.filter(card => !card.backPath);
   const doubleFaced = cards.filter(card => card.backPath);
-  const packetCount = Math.ceil(doubleFaced.length / PRINT_RECIPE.cardsPerSheet);
+  const { cardsPerSheet, skip } = recipe;
+  const usableSlots = Array.from({ length: cardsPerSheet + skip.length }, (_, index) => index)
+    .filter(index => !skip.includes(index));
+  const packetCount = Math.ceil(doubleFaced.length / cardsPerSheet);
   return [
     ...(ordinary.length ? [{ id: 'fronts', kind: 'ordinary', cards: ordinary }] : []),
     ...Array.from({ length: packetCount }, (_, index) => ({
       id: `double-faced-${String(index + 1).padStart(3, '0')}`, kind: 'dfc',
-      cards: doubleFaced.slice(index * PRINT_RECIPE.cardsPerSheet, (index + 1) * PRINT_RECIPE.cardsPerSheet),
+      cards: doubleFaced.slice(index * cardsPerSheet, (index + 1) * cardsPerSheet),
       packetIndex: index + 1, packetCount,
     })),
   ].map(group => ({
     ...group,
-    chunks: Array.from({ length: Math.ceil(group.cards.length / 7) }, (_, i) => group.cards.slice(i * 7, i * 7 + 7)),
+    chunks: Array.from({ length: Math.ceil(group.cards.length / cardsPerSheet) },
+      (_, index) => group.cards.slice(index * cardsPerSheet, (index + 1) * cardsPerSheet)),
     slotMap: group.cards.map((card, i) => ({
-      cardId: card.id, sheet: Math.floor(i / 7) + 1, slot: USABLE_SLOTS[i % 7],
-      frontPage: Math.floor(i / 7) * (group.kind === 'dfc' ? 2 : 1) + 1,
-      ...(group.kind === 'dfc' ? { backPage: Math.floor(i / 7) * 2 + 2 } : {}),
+      cardId: card.id, sheet: Math.floor(i / cardsPerSheet) + 1, slot: usableSlots[i % cardsPerSheet],
+      frontPage: Math.floor(i / cardsPerSheet) * (group.kind === 'dfc' ? 2 : 1) + 1,
+      ...(group.kind === 'dfc' ? { backPage: Math.floor(i / cardsPerSheet) * 2 + 2 } : {}),
     })),
   }));
 }
@@ -71,8 +87,17 @@ export function createPrintGenerator(options = {}) {
   return {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
-    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES, batchLabel = 'CLC', requesterName, batchName }) {
-      const plan = planPrintSheets(cards);
+    async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES,
+      batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter', printPreset }) {
+      if (typeof paperSize !== 'string' || !Object.hasOwn(PRINT_RECIPES, paperSize)) {
+        throw new Error('Paper size must be Letter or A4');
+      }
+      if (printPreset !== undefined && (printPreset !== CROWNED_A4_RECIPE.printPreset || paperSize !== 'a4')) {
+        throw new Error('The Crowned preset requires A4');
+      }
+      const recipe = printPreset ? CROWNED_A4_RECIPE : PRINT_RECIPES[paperSize];
+      const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
+      const plan = planPrintSheets(cards, recipe);
       const printedIdentification = printPageIdentification({ requesterName, batchName });
       if (!path.isAbsolute(outputDir || '')) throw new Error('PDF output directory must be absolute');
       if (typeof batchLabel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$/.test(batchLabel)) {
@@ -118,7 +143,7 @@ export function createPrintGenerator(options = {}) {
               ...(group.kind === 'dfc' ? [{ page: 2, phase: 'backs', label: sheetLabel }] : [])];
             pageLabels.push(...chunkLabels.map(item => ({ ...item, page: pageLabels.length + item.page })));
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
-              label: sheetLabel, printedIdentification, pageLabels: chunkLabels,
+              label: sheetLabel, printedIdentification, pageLabels: chunkLabels, ...paper,
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
@@ -132,7 +157,7 @@ export function createPrintGenerator(options = {}) {
           const stagedOutput = path.join(working, `${group.id}.pdf`);
           const mergeInput = path.join(working, `${group.id}-merge.json`);
           const pageCount = group.chunks.length * (group.kind === 'dfc' ? 2 : 1);
-          await fs.writeFile(mergeInput, JSON.stringify({ inputs: parts, output: stagedOutput, pageCount }));
+          await fs.writeFile(mergeInput, JSON.stringify({ inputs: parts, output: stagedOutput, pageCount, ...paper }));
           await execute(['merge', mergeInput]);
           const size = (await fs.stat(stagedOutput)).size;
           if (!size || size > MAX_PDF_BYTES) throw new Error('Generated PDF exceeds the 1 GiB artifact limit');
@@ -156,7 +181,7 @@ export function createPrintGenerator(options = {}) {
           await fs.link(path.join(working, `${artifact.id}.pdf`), artifact.path);
           published.push(artifact.path);
         }
-        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe: PRINT_RECIPE, printedIdentification, artifacts, slots, images };
+        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe, printedIdentification, artifacts, slots, images };
       } catch (error) {
         // Any published paths belong to this invocation; existing artifacts were checked before generation.
         for (const filename of published) await fs.rm(filename, { force: true });

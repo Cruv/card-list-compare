@@ -150,8 +150,9 @@ a trusted local network; do not place the token in URLs or source control.
 Standalone `/api/print-lists` routes require the same authenticated session and household
 queue grant as tracked-deck printing. Jobs with no deck are isolated by owner and null deck
 scope; they cannot be accessed through another user's job ID or a tracked-deck route.
-Standalone lists accept card text and a bounded label, not image URLs, commands or printer
-settings. Their drafts remain in account-scoped browser storage; frozen jobs remain private.
+Standalone lists accept card text, a bounded label and a paper size limited to US Letter
+or A4. The paper size resolves to a fixed print recipe. The Mac still owns driver options
+and loaded stock. Drafts remain in account-scoped browser storage and frozen jobs remain private.
 
 Print manifests freeze input text, artwork and file hashes. Source images are size-limited
 and decoded before generation. Upstream code is fetched from the fixed Silhouette repository,

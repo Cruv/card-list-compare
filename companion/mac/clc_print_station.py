@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.57.3"
+COMPANION_VERSION = "2.58.0"
 # launchd owns this socket while idle cupsd is stopped. A TCP-only request to
 # localhost cannot wake the service; the fixed socket also ignores shell hosts.
 LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
@@ -38,6 +38,18 @@ OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
 VALUE = re.compile(r"[A-Za-z0-9_.:/+-]{1,100}\Z")
 FIXED_OPTIONS = {"media": "Letter", "sides": "one-sided", "number-up": "1",
                  "print-scaling": "none", "fit-to-page": "false", "orientation-requested": "4"}
+LETTER_RECIPE = "household-letter-v6"
+A4_RECIPE = "household-a4-v5"
+CROWNED_RECIPE = "household-crowned-a4-v2"
+CROWNED_PRESET = "crowned-a4"
+PAPER_RECIPES = {"letter": LETTER_RECIPE, "a4": A4_RECIPE}
+RECIPE_PAPER = {LETTER_RECIPE: "letter", A4_RECIPE: "a4", CROWNED_RECIPE: "a4"}
+CROWNED_DRIVER_OPTIONS = {
+    "PageSize": "A4", "EPIJ_Size": "1", "EPIJ_PSrc": "2", "EPIJ_FdSo": "0",
+    "EPIJ_PGEx": "1", "EPIJ_RmMg": "0", "EPIJ_DbSidBin": "0",
+}
+CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_DRIVER_OPTIONS}
+JOB_IDENTITY_FIELDS = ("id", "manifestSha256", "claimToken", "workflow", "recipeId")
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
                                        "job-name", "job-hold-until", "job-sheets", "landscape", "job-error-policy", "job-cancel-after"}
 TERMINAL = {"completed", "failed", "canceled"}
@@ -83,7 +95,9 @@ def private_directory(path):
 def load_config(path):
     with private_file(path).open() as stream:
         config = json.load(stream)
-    for flag in ("allow_http", "recipe_verified", "duplex_verified", "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
+    for flag in ("allow_http", "recipe_verified", "duplex_verified", "a4_enabled", "a4_recipe_verified", "a4_duplex_verified",
+                 "crowned_a4_enabled", "crowned_a4_recipe_verified", "crowned_a4_duplex_verified",
+                 "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
         if type(config.get(flag, False)) is not bool:
             raise StationError(flag + " must be the JSON boolean true or false")
     config.setdefault("allow_unverified_printing", False)
@@ -109,6 +123,16 @@ def load_config(path):
         raise StationError("approved_recipe_ids must list at least one locally approved recipe")
     for recipe in recipes:
         checked_id(recipe, "recipe ID")
+    if A4_RECIPE in recipes or CROWNED_RECIPE in recipes:
+        raise StationError("Use the local A4 preset opt-ins to approve these recipes without authorizing them in older companions")
+    stock = config.setdefault("loaded_paper_size", "letter")
+    if not isinstance(stock, str) or stock not in PAPER_RECIPES:
+        raise StationError("loaded_paper_size must be letter or a4")
+    preset = config.get("loaded_print_preset")
+    if preset is not None and (preset != CROWNED_PRESET or stock != "a4"):
+        raise StationError("loaded_print_preset must be crowned-a4 with A4 paper")
+    if loaded_recipe(config) not in paper_capabilities(config)["supportedRecipeIds"]:
+        raise StationError("The loaded paper recipe must be locally approved")
     options = config.setdefault("driver_options", {})
     if not isinstance(options, dict):
         raise StationError("driver_options must be a local option/value object")
@@ -118,7 +142,7 @@ def load_config(path):
         if key.lower() in {x.lower() for x in RESERVED_OPTIONS}:
             raise StationError("The companion controls option " + key)
         if key.lower() == "pagesize" and value != "Letter":
-            raise StationError("This recipe requires PageSize=Letter")
+            raise StationError("Keep the original driver PageSize=Letter; set loaded_paper_size to select the paper")
     for field in ("ordinary_output_order", "dfc_front_output_order", "dfc_back_output_order"):
         config.setdefault(field, "reverse")
         if config[field] not in {"normal", "reverse"}:
@@ -137,11 +161,66 @@ def load_config(path):
     return config
 
 
-def recipe_fingerprint(config):
+def paper_capabilities(config):
+    recipes = [LETTER_RECIPE] if LETTER_RECIPE in config["approved_recipe_ids"] else []
+    if config.get("a4_enabled") is True:
+        recipes.append(A4_RECIPE)
+    if config.get("crowned_a4_enabled") is True:
+        recipes.append(CROWNED_RECIPE)
+    return {"loadedPaperSize": config.get("loaded_paper_size", "letter"),
+            "supportedRecipeIds": recipes,
+            **({"loadedPrintPreset": CROWNED_PRESET} if config.get("loaded_print_preset") == CROWNED_PRESET else {})}
+
+
+def loaded_recipe(config):
+    stock = config.get("loaded_paper_size", "letter")
+    if stock == "a4" and config.get("loaded_print_preset") == CROWNED_PRESET:
+        return CROWNED_RECIPE
+    return PAPER_RECIPES[stock]
+
+
+def recipe_proof(config, recipe_id, *, duplex=False):
+    flag = "duplex_verified" if duplex else "recipe_verified"
+    prefix = {A4_RECIPE: "a4_", CROWNED_RECIPE: "crowned_a4_"}.get(recipe_id, "")
+    return config.get(prefix + flag) is True
+
+
+def require_loaded_paper(config, recipe_id):
+    if recipe_id != loaded_recipe(config):
+        name = {LETTER_RECIPE: "US Letter", A4_RECIPE: "A4", CROWNED_RECIPE: "Crowned A4"}.get(
+            recipe_id, "a supported paper size")
+        raise StationError("This batch requires " + name + ". Match the rear feeder and Mac paper setting before continuing.")
+
+
+def require_recipe_proof(config, recipe_id, artifact):
+    if config.get("allow_unverified_printing") is True:
+        return
+    if not recipe_proof(config, recipe_id):
+        raise StationError("The local printer/color recipe has not been physically verified")
+    if artifact["kind"] == "dfc" and not recipe_proof(config, recipe_id, duplex=True):
+        raise StationError("The local DFC page order and refeed orientation have not been physically verified")
+
+
+def fixed_options(config, recipe_id):
+    if recipe_id == LETTER_RECIPE:
+        return FIXED_OPTIONS  # Preserve the historic Letter options and ledger hash.
+    if recipe_id == A4_RECIPE:
+        options = {**FIXED_OPTIONS, "media": "A4", "PageSize": "A4"}
+        # The ET-8550's captured Epson profile also defines its vendor paper size.
+        options.update({key: "1" for key in config["driver_options"] if key.lower() == "epij_size"})
+        return options
+    if recipe_id == CROWNED_RECIPE:
+        # Use the Epson standard page mode even though the cutter layout is
+        # called borderless upstream. Driver expansion would change the cut.
+        return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "3", **CROWNED_DRIVER_OPTIONS}
+    raise StationError("Unsupported paper recipe")
+
+
+def recipe_fingerprint(config, recipe_id=LETTER_RECIPE):
     fields = ["queue", "driver_options", "ordinary_output_order", "dfc_front_output_order",
               "dfc_back_output_order"]
     recipe = {key: config.get(key) for key in fields}
-    recipe["fixed_options"] = FIXED_OPTIONS
+    recipe["fixed_options"] = fixed_options(config, recipe_id)
     return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
 
 
@@ -188,7 +267,8 @@ class Client:
         return result
 
     def claim(self):
-        return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True}).get("job")
+        return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+                                                     **paper_capabilities(self.config)}).get("job")
 
     def management_heartbeat(self, status):
         return self.json("/api/print-station/heartbeat", status)
@@ -357,8 +437,13 @@ def checked_job(job, config):
     checked_id(job.get("id"), "job ID")
     if not isinstance(job.get("claimToken"), str) or not 16 <= len(job["claimToken"]) <= 512:
         raise StationError("Job has no valid durable claim token")
-    if job.get("recipeId") not in config["approved_recipe_ids"]:
+    recipe_id = checked_id(job.get("recipeId"), "paper recipe")
+    if recipe_id not in paper_capabilities(config)["supportedRecipeIds"]:
         raise StationError("Job recipe is not locally approved")
+    if "paperSize" in job and job["paperSize"] != RECIPE_PAPER[recipe_id]:
+        raise StationError("Job paper size does not match its saved recipe")
+    if job.get("printPreset") != (CROWNED_PRESET if recipe_id == CROWNED_RECIPE else None):
+        raise StationError("Job print preset does not match its saved recipe")
     if not SHA256.fullmatch(job.get("manifestSha256", "")):
         raise StationError("Job has no immutable manifest SHA-256")
     if job.get("workflow") not in {None, DEFERRED_WORKFLOW}:
@@ -398,7 +483,8 @@ def checked_job(job, config):
                     or type(artifact.get("packetIndex")) is not int or artifact["packetIndex"] != index
                     or type(artifact.get("packetCount")) is not int or artifact["packetCount"] != len(packets)
                     or artifact["id"] != "double-faced-" + str(index).zfill(3)
-                    or type(artifact.get("cardCount")) is not int or not 1 <= artifact["cardCount"] <= 7
+                    or type(artifact.get("cardCount")) is not int
+                    or not 1 <= artifact["cardCount"] <= (9 if recipe_id == CROWNED_RECIPE else 7)
                     or not isinstance(artifact.get("label"), str)
                     or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _/-]{0,63}", artifact["label"])):
                 raise StationError("Invalid double-sided packet identity or page count")
@@ -517,7 +603,9 @@ def parse_ipp_jobs(text, queue):
             uri = group.get("job-printer-uri", "")
             if urllib.parse.urlsplit(uri).path != "/printers/" + queue:
                 continue
-            jobs.append({"id": queue + "-" + str(number), "title": title, "state": state_value})
+            ticket = {key: group[key] for key in CROWNED_TICKET_FIELDS if key in group}
+            jobs.append({"id": queue + "-" + str(number), "title": title, "state": state_value,
+                         **({"ticket": ticket} if ticket else {})})
         return jobs
     except (KeyError, ValueError, TypeError, plistlib.InvalidFileException):
         raise StationError("Cannot read authoritative CUPS job titles/states") from None
@@ -543,14 +631,24 @@ class Cups:
         for key, value in self.config["driver_options"].items():
             if key not in supported or value not in supported[key]:
                 raise StationError("Driver does not advertise configured option " + key + "=" + value)
+        recipe_id = loaded_recipe(self.config)
+        applied_options = fixed_options(self.config, recipe_id)
+        if recipe_id == A4_RECIPE:
+            for key, value in applied_options.items():
+                if key.lower() in {"pagesize", "epij_size"} and value not in supported.get(key, set()):
+                    raise StationError("Driver does not advertise the A4 option " + key + "=" + value)
+        if recipe_id == CROWNED_RECIPE:
+            for key, value in CROWNED_DRIVER_OPTIONS.items():
+                if value not in supported.get(key, set()):
+                    raise StationError("Driver does not advertise the Crowned A4 option " + key + "=" + value)
         if "disabled" in status_text or "not accepting" in accepting:
             raise StationError("Configured printer is paused or not accepting jobs")
         self.jobs()  # Validate the read-only reconciliation path before accepting work.
         return {"queue": queue, "status": status_text, "accepting": accepting,
                 "advertised_options": options, "configured_options": self.config["driver_options"],
-                "fixed_options": FIXED_OPTIONS, "recipe_verified": bool(self.config.get("recipe_verified")),
-                "duplex_verified": bool(self.config.get("duplex_verified")),
-                "recipe_fingerprint": recipe_fingerprint(self.config)}
+                "fixed_options": applied_options, "recipe_verified": recipe_proof(self.config, recipe_id),
+                "duplex_verified": recipe_proof(self.config, recipe_id, duplex=True),
+                "recipe_fingerprint": recipe_fingerprint(self.config, recipe_id)}
 
     def status(self, spooler_id=None):
         # Fixed local destination and operation; no printer settings or job changes.
@@ -628,13 +726,23 @@ class Cups:
                 raise StationError("CUPS queue changed during inspection; retry reconciliation")
         return jobs
 
-    def args(self, artifact, phase, title, path):
+    def args(self, artifact, phase, title, path, recipe_id=LETTER_RECIPE):
         pages = artifact.get("_selected_pages") or (artifact["backPages"] if phase == "backs" else artifact["frontPages"])
         order = (self.config["ordinary_output_order"] if artifact["kind"] == "ordinary"
                  else self.config["dfc_back_output_order" if phase == "backs" else "dfc_front_output_order"])
         # Preserve an interrupted pass for explicit operator recovery. Retrying
         # partial sheets or aborting a paper-out pass loses the safe checkpoint.
-        options = {**self.config["driver_options"], **FIXED_OPTIONS, "outputorder": order,
+        driver_options = self.config["driver_options"]
+        if recipe_id == A4_RECIPE:
+            # A captured Epson profile can contain the legacy Letter PPD option.
+            driver_options = {key: value for key, value in driver_options.items() if key.lower() != "pagesize"}
+        applied = fixed_options(self.config, recipe_id)
+        if recipe_id == CROWNED_RECIPE:
+            # Retain the saved options used by older recipes, but discard aliases
+            # of the fixed Crowned fields when assembling this print command.
+            overridden = {key.lower() for key in applied}
+            driver_options = {key: value for key, value in driver_options.items() if key.lower() not in overridden}
+        options = {**driver_options, **applied, "outputorder": order,
                    "job-error-policy": "stop-printer", "job-cancel-after": "2147483647"}
         args = ["/usr/bin/lp", "-h", LOCAL_CUPS_SERVER, "-d", self.config["queue"], "-n", "1", "-t", title,
                 "-P", ",".join(str(page) for page in pages)]
@@ -642,12 +750,22 @@ class Cups:
             args.extend(["-o", key + "=" + value])
         return args + [str(path.absolute())]
 
-    def submit(self, artifact, phase, title, path):
-        output = self.runner(self.args(artifact, phase, title, path))
+    def submit(self, artifact, phase, title, path, recipe_id=LETTER_RECIPE):
+        require_loaded_paper(self.config, recipe_id)
+        output = self.runner(self.args(artifact, phase, title, path, recipe_id))
         match = re.search(r"request id is (" + re.escape(self.config["queue"]) + r"-\d+)\b", output)
         if not match:
             raise StationError("lp returned no recognizable spooler job ID; reconcile before any retry")
         return match[1]
+
+    def verify_crowned_ticket(self, spooler_id, title, state):
+        matches = [job for job in self.jobs() if job["id"] == spooler_id and job["title"] == title]
+        if len(matches) != 1 or matches[0]["state"] != state:
+            raise StationError("The Crowned printer job changed before recovery")
+        ticket = matches[0].get("ticket", {})
+        expected = {"media": "A4", "sides": "one-sided", "orientation-requested": 3, **CROWNED_DRIVER_OPTIONS}
+        if ticket != expected:
+            raise StationError("Cannot verify the held job's Crowned A4 driver settings. Inspect the Epson queue before recovery.")
 
     def cancel(self, spooler_id):
         if not isinstance(spooler_id, str) or not re.fullmatch(re.escape(self.config["queue"]) + r"-[1-9]\d*", spooler_id):
@@ -692,6 +810,8 @@ class Station:
         artifact = next(item for item in job["artifacts"] if item["id"] == pending["artifact_id"])
         label = artifact.get("label") or artifact["id"]
         detail = "Flip and reload only " + label + "; confirm this packet in CLC Print Station"
+        if job.get("recipeId") == CROWNED_RECIPE:
+            detail = "Let the Crowned front dry fully. " + detail
         self.ledger.set_job(job["id"], "awaiting_refeed", detail)
         notice = self.alerts.notify(job, artifact)
         if self.management and notice.get("message") and notice.get("level"):
@@ -703,9 +823,8 @@ class Station:
         existing = self.ledger.db.execute("SELECT * FROM jobs WHERE id=?", (job["id"],)).fetchone()
         if existing:
             original = json.loads(existing["payload"])
-            if (original["manifestSha256"] != job["manifestSha256"] or original["claimToken"] != job["claimToken"]
-                    or original.get("workflow") != job.get("workflow")):
-                raise StationError("Previously seen job changed its manifest or claim token; refusing to print")
+            if any(original.get(key) != job.get(key) for key in JOB_IDENTITY_FIELDS):
+                raise StationError("Previously seen job changed its manifest, claim or recipe; refusing to print")
             if existing["state"] == "backs_pending" and job.get("workflow") == DEFERRED_WORKFLOW:
                 if job.get("state") == "awaiting_refeed" and job.get("backRequest"):
                     selected = job["backRequest"]["artifactId"]
@@ -721,7 +840,7 @@ class Station:
         steps = {(step["artifactId"], step["phase"]): step for step in job.get("steps", [])}
         with self.ledger.db:
             self.ledger.db.execute("INSERT INTO jobs(id,payload,recipe_hash,updated) VALUES(?,?,?,?)",
-                                   (job["id"], json.dumps(job), recipe_fingerprint(self.config), time.time()))
+                                   (job["id"], json.dumps(job), recipe_fingerprint(self.config, job["recipeId"]), time.time()))
             # Preserve stable pass rows/titles across upgrades. Scheduling uses
             # the saved workflow and explicit back reservation, not row order.
             for artifact in sorted(job["artifacts"], key=lambda a: a["kind"] == "dfc"):
@@ -781,7 +900,8 @@ class Station:
         if reply is not None:
             return {**reply, "replayed": True}
         reply = self.client.report(job, event)
-        if not isinstance(reply.get("job"), dict) or reply["job"].get("id") != job["id"]:
+        if (not isinstance(reply.get("job"), dict)
+                or any(reply["job"].get(key) != job.get(key) for key in JOB_IDENTITY_FIELDS)):
             raise StationError("CLC did not acknowledge the expected job")
         with self.ledger.db:
             self.ledger.db.execute("UPDATE events SET reply=? WHERE event_key=?", (json.dumps(reply), key))
@@ -795,7 +915,7 @@ class Station:
     def refresh_job(self, original):
         fresh = self.client.get_job(original["id"])
         if (not isinstance(fresh, dict) or any(fresh.get(key) != original.get(key)
-                for key in ("id", "manifestSha256", "claimToken", "workflow"))):
+                for key in JOB_IDENTITY_FIELDS)):
             raise StationError("Server job identity changed; refusing to continue")
         checked_job(fresh, self.config)
         self.ledger.write("UPDATE jobs SET payload=? WHERE id=?", (json.dumps(fresh), fresh["id"]))
@@ -1024,10 +1144,16 @@ class Station:
         job = self.refresh_job(original)
         if job.get("cancelRequested") or job.get("state") in TERMINAL:
             raise StationError("This batch has ended or has an explicit cancellation pending")
+        if current["recipe_hash"] != recipe_fingerprint(self.config, job["recipeId"]):
+            raise StationError("Local queue/options changed during this job; restore its original recipe before continuing")
+        require_loaded_paper(self.config, job["recipeId"])
         entry = self.ledger.pending(job)
         boundary = self.recovery_summary(job, entry)
         if not boundary or any(boundary.get(key) != request.get(key) for key in ("recoveryId", "artifactId", "phase", "spoolerId")):
             raise StationError("Printer recovery no longer matches the exact interrupted pass")
+        if job["recipeId"] in {A4_RECIPE, CROWNED_RECIPE}:
+            artifact = next(item for item in job["artifacts"] if item["id"] == entry["artifact_id"])
+            require_recipe_proof(self.config, job["recipeId"], artifact)
         if entry["phase"] == "backs" and request.get("paperReloaded") is not True:
             raise StationError("Confirm only the matching front sheet is flipped and reloaded for this back pass")
         # Device-only health excludes the old terminal job's canceled reason.
@@ -1037,6 +1163,8 @@ class Station:
         if boundary["mode"] == "resume":
             if request.get("firstUnprintedSheet") is not None:
                 raise StationError("An existing CUPS job must resume in place without a new sheet range")
+            if job["recipeId"] == CROWNED_RECIPE:
+                self.cups.verify_crowned_ticket(entry["spooler_id"], entry["title"], boundary["cupsState"])
             if boundary["cupsState"] == 4:
                 self.cups.resume_held(entry["spooler_id"])
             self.observe(job, entry)
@@ -1134,7 +1262,7 @@ class Station:
                 return "paused"
             if not allow_submit:
                 return "waiting for station management connection"
-            if not self.config.get("recipe_verified") and self.config.get("allow_unverified_printing") is not True:
+            if not recipe_proof(self.config, loaded_recipe(self.config)) and self.config.get("allow_unverified_printing") is not True:
                 return "waiting for local printer and cutting proof"
             job = self.client.claim()
             if job is None:
@@ -1145,7 +1273,8 @@ class Station:
                 # A replay of a locally completed/failed job is never a reprint.
                 return "already processed"
         job = json.loads(current["payload"])
-        if current["recipe_hash"] != recipe_fingerprint(self.config):
+        recipe_id = job["recipeId"]
+        if current["recipe_hash"] != recipe_fingerprint(self.config, recipe_id):
             raise StationError("Local queue/options changed during this job; restore its original recipe before continuing")
         pending = self.ledger.pending(job)
         # A legacy local front completion still surfaces its existing flip hold
@@ -1191,11 +1320,8 @@ class Station:
         if not allow_submit:
             return "waiting for station management connection"
         artifact = next(item for item in job["artifacts"] if item["id"] == pending["artifact_id"])
-        if not self.config.get("recipe_verified") and self.config.get("allow_unverified_printing") is not True:
-            raise StationError("The local printer/color recipe has not been physically verified")
-        if (artifact["kind"] == "dfc" and not self.config.get("duplex_verified")
-                and self.config.get("allow_unverified_printing") is not True):
-            raise StationError("The local DFC page order and refeed orientation have not been physically verified")
+        require_loaded_paper(self.config, recipe_id)
+        require_recipe_proof(self.config, recipe_id, artifact)
         if pending["phase"] == "backs":
             remote = next((step for step in job.get("steps", []) if step["artifactId"] == pending["artifact_id"]
                            and step["phase"] == "backs"), {})
@@ -1239,7 +1365,7 @@ class Station:
             self.ledger.write("UPDATE passes SET cups_started=1 WHERE job_id=? AND artifact_id=? AND phase=?",
                               (job["id"], pending["artifact_id"], pending["phase"]))
             selected = {**artifact, "_selected_pages": json.loads(pending["pages_json"])} if pending["pages_json"] else artifact
-            spooler_id = self.cups.submit(selected, pending["phase"], pending["title"], path)
+            spooler_id = self.cups.submit(selected, pending["phase"], pending["title"], path, recipe_id=recipe_id)
             self.ledger.set_pass(pending, "submitted", spooler_id=spooler_id)
         except (StationError, OSError, subprocess.TimeoutExpired) as error:
             if all(entry["cups_started"] == 0 for entry in self.ledger.passes(job["id"])):
@@ -1261,9 +1387,11 @@ class Station:
         if not row or row["state"] != "awaiting_refeed":
             raise StationError("This job is not waiting for an operator refeed")
         saved = self.ledger.db.execute("SELECT payload FROM jobs WHERE id=?", (job_id,)).fetchone()
-        entry = self.ledger.pending(json.loads(saved["payload"]))
+        job = json.loads(saved["payload"])
+        entry = self.ledger.pending(job)
         if not entry or entry["phase"] != "backs" or entry["state"] != "pending":
             raise StationError("No unsubmitted back pass is eligible for refeed")
+        require_loaded_paper(self.config, job["recipeId"])
         self.ledger.write("UPDATE passes SET resume_requested=1 WHERE job_id=? AND artifact_id=? AND phase='backs'",
                           (job_id, entry["artifact_id"]))
 
@@ -1320,7 +1448,7 @@ def dry_run(config, job):
             path = Path(config["state_dir"]).expanduser() / job["id"] / (artifact["id"] + ".pdf")
             commands.append({"artifact": artifact["id"], "phase": phase,
                              "requires_operator_refeed": phase == "backs",
-                             "argv": cups.args(artifact, phase, "CLC-DRY-RUN", path)})
+                             "argv": cups.args(artifact, phase, "CLC-DRY-RUN", path, recipe_id=job["recipeId"])})
     return {"dry_run": True, "claimed_jobs": 0, "spooler_submissions": 0, "commands": commands}
 
 

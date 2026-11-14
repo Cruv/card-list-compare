@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.57.5';
+const APP_VERSION = '2.58.0';
 const WHATS_NEW = [
-  'ManaSync print records refresh without constant background requests',
-  'Blocked artwork uploads keep your saved plan and offer an explicit retry',
+  'Choose US Letter, A4 or Crowned A4 portrait sheets and save your default',
+  'Print batches keep their paper size for fronts, saved backs and retries',
 ];
 
 function getResetToken() {

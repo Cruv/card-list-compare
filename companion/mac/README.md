@@ -140,6 +140,25 @@ invented universal Epson option names. `doctor` rejects unadvertised configured 
 checks queue availability and tests read-only job reconciliation. It reports the chosen
 recipe fingerprint and proof flags. A successful report is not a color or alignment proof.
 
+Deploy the v2.58.0 server before switching an existing companion to A4. Set
+`a4_enabled` to `true` in private configuration. When the station is idle, load matching
+stock in the rear feeder, set `loaded_paper_size` to `"a4"` or `"letter"`, and restart
+the companion so it reports the selection to CLC. Keep `approved_recipe_ids` and the
+captured Epson driver options as saved. The companion sets CUPS media and the Epson
+page size for A4 from the batch and uses the saved driver profile for Letter.
+The print review default is a separate browser preference. Use the matching Cameo
+template for each batch. Record `a4_recipe_verified` and `a4_duplex_verified` separately
+after verifying the A4 front layout and front-to-back alignment.
+
+For **Crowned A4 · Portrait 3×3**, set `crowned_a4_enabled` to `true`,
+`loaded_paper_size` to `"a4"`, and `loaded_print_preset` to `"crowned-a4"`
+after loading the stock and checking the station is idle. The recipe uses the Epson rear
+feeder and Thick Paper and Envelopes with borderless expansion and automatic duplex off.
+Use the original driver profile as the starting point for color. Record
+`crowned_a4_recipe_verified` and `crowned_a4_duplex_verified` only after their
+physical checks. Dry the front fully before manually reloading it. For standard A4 or
+Letter stock, remove `loaded_print_preset` and select the matching size.
+
 For the household's installed **ET-8550 driver 13.45**, the
 [driver-options example](epson-et8550-13.45-driver-options.example.json) captures the
 advertised options saved by the native **CLC Uinkit 54lb - Fronts** preset. Copy its object

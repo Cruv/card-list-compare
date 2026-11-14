@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { cancelHouseholdPrintJob, cancelPrintJobBacks, getPrintBatches } from '../lib/api';
+import { printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
 import ConfirmModal from './ConfirmModal';
 import Icon from './Icon';
 import './PrintBatchList.css';
@@ -36,21 +37,23 @@ function queueDetail(job) {
   return null;
 }
 
-function BatchRow({ job, scope, fresh, busy, onCancel }) {
+function BatchRow({ job, station, scope, fresh, busy, onCancel }) {
   const detail = queueDetail(job);
+  const paperUnavailable = job.state === 'queued' && station?.online && printPaperUnavailable(job, station);
   const href = job.canOpen ? (job.deckId == null
     ? `#print-list?batch=${encodeURIComponent(job.id)}`
     : Number.isSafeInteger(job.deckId) && job.deckId > 0 ? `#library/${job.deckId}?printBatch=${encodeURIComponent(job.id)}` : null) : null;
   return <li className="batch-list-row">
     <div className="batch-list-identity">
       <strong>{job.deckName || 'Card batch'}</strong>
-      <p>{job.totalCopies} {job.totalCopies === 1 ? 'copy' : 'copies'} · {job.sourceKind === 'deck' ? 'Deck' : 'Print list'}{scope === 'all' && job.requesterName ? ` · ${job.requesterName}` : ''}</p>
+      <p>{job.totalCopies} {job.totalCopies === 1 ? 'copy' : 'copies'} · {printPaperLabel(job)} · {job.sourceKind === 'deck' ? 'Deck' : 'Print list'}{scope === 'all' && job.requesterName ? ` · ${job.requesterName}` : ''}</p>
       <time dateTime={job.createdAt}>{timestamp(job.createdAt)}</time>
       <details className="batch-list-details"><summary>Batch ID</summary><code>{job.id}</code></details>
     </div>
     <div className="batch-list-status">
       <span className={`batch-list-badge${ATTENTION.has(job.state) ? ' batch-list-badge--attention' : ''}${job.state === 'completed' ? ' batch-list-badge--done' : ''}`}>{job.state === 'canceled' && job.frontsCompleted && job.backsCanceled > 0 ? 'Finished · backs canceled' : STATES[job.state] || 'Status unavailable'}</span>
       {detail && <p>{detail}</p>}
+      {paperUnavailable && <p>{paperUnavailable}</p>}
       {job.cancelRequested && <p>Cancellation requested · waiting for the Mac</p>}
       {job.progress && Number.isFinite(job.progress.completed) && Number.isFinite(job.progress.total) && job.progress.total > 0 && job.state === 'preparing' && <p>{job.progress.completed} of {job.progress.total} prepared</p>}
       {job.error && <p className="batch-list-error-detail">{job.error}</p>}
@@ -63,7 +66,7 @@ function BatchRow({ job, scope, fresh, busy, onCancel }) {
   </li>;
 }
 
-function BatchHistory({ state, order, onBusyChange }) {
+function BatchHistory({ state, order, onBusyChange, station }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -159,7 +162,7 @@ function BatchHistory({ state, order, onBusyChange }) {
     {error && <p className="batch-list-message batch-list-message--error" role="alert">{data ? 'Showing the last loaded batches; their status may have changed. ' : ''}{error}</p>}
     {actionError && <p className="batch-list-message batch-list-message--error" role="alert">{actionError}</p>}
     {notice && <p className="batch-list-message" role="status">{notice}</p>}
-    {data && data.jobs.length > 0 && <ol className="batch-list-rows" aria-label={data.scope === 'all' ? 'Household print batches' : 'Your print batches'} aria-busy={loading}>{data.jobs.map(job => <BatchRow key={job.id} job={job} scope={data.scope} fresh={fresh} busy={canceling} onCancel={chooseCancel} />)}</ol>}
+    {data && data.jobs.length > 0 && <ol className="batch-list-rows" aria-label={data.scope === 'all' ? 'Household print batches' : 'Your print batches'} aria-busy={loading}>{data.jobs.map(job => <BatchRow key={job.id} job={job} station={station} scope={data.scope} fresh={fresh} busy={canceling} onCancel={chooseCancel} />)}</ol>}
     {data && !data.jobs.length && <div className="batch-list-empty"><Icon name="print" size={28} /><p>{state === 'all' ? 'No saved print batches yet.' : `No batches with status “${STATES[state]}”.`}</p><a href="#print-list">Create a print list</a></div>}
     {data?.nextCursor && <button className="btn btn-secondary batch-list-more" type="button" disabled={loading || canceling} onClick={() => refreshRef.current(true)}>{loading ? 'Loading…' : 'Load more batches'}</button>}
     {fetchedAt > 0 && <p className="batch-list-updated">Updated {timestamp(fetchedAt)} · Refreshes every 30 seconds while this page is visible.</p>}
@@ -167,7 +170,7 @@ function BatchHistory({ state, order, onBusyChange }) {
   </>;
 }
 
-export default function PrintBatchList() {
+export default function PrintBatchList({ station }) {
   const { user } = useAuth();
   const [state, setState] = useState('all');
   const [order, setOrder] = useState('queue');
@@ -179,6 +182,6 @@ export default function PrintBatchList() {
       <label>Order<select aria-label="Batch order" value={order} disabled={busy} onChange={event => setOrder(event.target.value)}><option value="queue">Printer order</option><option value="newest">Newest first</option></select></label>
       <p>{order === 'queue' ? 'Active batches first, then waiting batches in CLC queue order. Ready PDFs and history follow.' : 'Most recently created batches first.'} {state === 'all' && 'You can create another print list while other batches are waiting.'}</p>
     </div>
-    <BatchHistory key={`${user.id}:${state}:${order}`} state={state} order={order} onBusyChange={setBusy} />
+    <BatchHistory key={`${user.id}:${state}:${order}`} state={state} order={order} onBusyChange={setBusy} station={station} />
   </section>;
 }

@@ -8,7 +8,7 @@ import {
 } from '../lib/printQueue.js';
 import { getPrintGeneratorStatus } from '../lib/printGenerator.js';
 import { listPrintBatches } from '../lib/printBatchHistory.js';
-import { supportsDeferredBacks } from '../lib/printStationManagement.js';
+import { assertQueuePaper, supportsDeferredBacks } from '../lib/printStationManagement.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -38,14 +38,14 @@ router.get('/:deckId/print-jobs', route((req, res) => {
   res.json({ jobs: listPrintJobs(req.user.userId, deckId(req)), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
 }));
 router.post('/:deckId/print-jobs', route(async (req, res) => {
-  const result = await createPrintJob(req.user.userId, deckId(req), req.body || {});
+  const result = await createPrintJob(req.user.userId, deckId(req), req.body || {}, assertQueuePaper);
   res.status(result.isExisting ? 200 : 202).json(result);
 }));
 router.get('/:deckId/print-jobs/:jobId', route((req, res) => {
   res.json({ job: getOwnedPrintJob(req.user.userId, deckId(req), req.params.jobId) });
 }));
 router.post('/:deckId/print-jobs/:jobId/queue', route((req, res) => {
-  res.json({ job: queuePrintJob(req.user.userId, deckId(req), req.params.jobId) });
+  res.json({ job: queuePrintJob(req.user.userId, deckId(req), req.params.jobId, assertQueuePaper) });
 }));
 router.post('/:deckId/print-jobs/:jobId/cancel', route((req, res) => {
   res.json({ job: cancelPrintJob(req.user.userId, deckId(req), req.params.jobId) });
@@ -68,14 +68,14 @@ standalonePrintRouter.get('/jobs', route((req, res) => {
   res.json({ jobs: listPrintJobs(req.user.userId, null), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
 }));
 standalonePrintRouter.post('/jobs', route(async (req, res) => {
-  const result = await createPrintJob(req.user.userId, null, req.body || {});
+  const result = await createPrintJob(req.user.userId, null, req.body || {}, assertQueuePaper);
   res.status(result.isExisting ? 200 : 202).json(result);
 }));
 standalonePrintRouter.get('/jobs/:jobId', route((req, res) => {
   res.json({ job: getOwnedPrintJob(req.user.userId, null, req.params.jobId) });
 }));
 standalonePrintRouter.post('/jobs/:jobId/queue', route((req, res) => {
-  res.json({ job: queuePrintJob(req.user.userId, null, req.params.jobId) });
+  res.json({ job: queuePrintJob(req.user.userId, null, req.params.jobId, assertQueuePaper) });
 }));
 standalonePrintRouter.post('/jobs/:jobId/cancel', route((req, res) => {
   res.json({ job: cancelPrintJob(req.user.userId, null, req.params.jobId) });

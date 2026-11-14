@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireStationToken, stationPrintJob, reportPrintJob, formatPrintJob, verifiedPrintArtifact } from '../lib/printQueue.js';
 import { claimForManagedStation, stationManagementHeartbeat } from '../lib/printStationManagement.js';
+import { stationPaperInput } from '../lib/printPaper.js';
 import { sendPdf } from './print.js';
 
 const router = Router();
@@ -27,7 +28,7 @@ router.post('/claim', route((req, res) => {
   }
   if (req.body?.deferredBacks !== undefined && typeof req.body.deferredBacks !== 'boolean') return res.status(400).json({ error: 'deferredBacks must be true or false' });
   if (req.body?.printRecovery !== undefined && typeof req.body.printRecovery !== 'boolean') return res.status(400).json({ error: 'printRecovery must be true or false' });
-  res.json({ job: claimForManagedStation(maxArtifacts, req.body?.deferredBacks === true, req.body?.printRecovery === true) });
+  res.json({ job: claimForManagedStation(maxArtifacts, req.body?.deferredBacks === true, req.body?.printRecovery === true, stationPaperInput(req.body ?? {})) });
 }));
 router.get('/jobs/:jobId', route((req, res) => res.json({ job: formatPrintJob(stationPrintJob(req.params.jobId), true) })));
 router.post('/jobs/:jobId/report', route((req, res) => res.json(reportPrintJob(req.params.jobId, req.body || {}))));

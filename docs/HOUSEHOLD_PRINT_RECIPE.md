@@ -32,6 +32,7 @@ implemented Epson submission path. The Windows settings below remain the color r
 
 - Epson ET-8550, **Rear Paper Feeder** (the driver's exact source name).
 - Uinkit double-sided glossy inkjet paper, Letter 8.5 × 11 inches, 200 gsm / 54 lb;
+  A4 batches use A4 (297 × 210 mm) stock and the matching `a4-standard-v5.studio3` template.
   the product listing supplied by the owner states 9.5 mil thickness.
 - Silhouette Cameo 5 Alpha. Existing command uses the generator's default three marks;
   retain that recipe until its Studio template/machine selection is verified.

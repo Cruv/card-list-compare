@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
+import { loadDefaultPrintPaper, printPaperRequest, printPaperUnavailable } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -119,12 +120,34 @@ describe('durable print creation recovery', () => {
       expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...value, ...invalid }) }, 'key')).toBeNull();
     }
   });
+  it('preserves the reviewed paper size through an ambiguous creation and keeps legacy requests unchanged', () => {
+    const original = { ...request, paperSize: 'a4' };
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(original) }, 'key').paperSize).toBe('a4');
+    const crowned = { ...original, printPreset: 'crowned-a4' };
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(crowned) }, 'key').printPreset).toBe('crowned-a4');
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...crowned, paperSize: 'letter' }) }, 'key')).toBeNull();
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(request) }, 'key')).not.toHaveProperty('paperSize');
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...request, paperSize: 'a3' }) }, 'key')).toBeNull();
+  });
   it('retains intent when transport or authorization can prevent an accepted receipt from being read', () => {
     for (const error of [new Error('offline'), { status: 401 }, { status: 403 }, { status: 408 }, { status: 429 }, { status: 500 }, { status: 503 }]) {
       expect(rejectedPrintCreation(error)).toBe(false);
     }
     for (const status of [400, 404, 409]) expect(rejectedPrintCreation({ status })).toBe(true);
   });
+});
+
+it('keeps Crowned A4 distinct from standard A4 and plans nine cards per sheet', () => {
+  const crowned = printPaperRequest('crowned-a4');
+  const plan = { totalCopies: 18, ordinaryCopies: 9, doubleFacedCopies: 9 };
+  const station = { online: true, loadedPaperSize: 'a4', supportedRecipeIds: ['household-a4-v5', 'household-crowned-a4-v2'] };
+  expect(crowned).toEqual({ paperSize: 'a4', printPreset: 'crowned-a4' });
+  expect(loadDefaultPrintPaper({ getItem: () => 'crowned-a4' }, 'key')).toBe('crowned-a4');
+  expect(printReviewSummary({ ...plan, ...crowned })).toMatchObject({ ordinarySheets: 1, packets: 1, pages: 3 });
+  expect(printReviewSummary({ ...plan, paperSize: 'a4' })).toMatchObject({ ordinarySheets: 2, packets: 2, pages: 6 });
+  expect(printPaperUnavailable(crowned, station)).toMatch(/set up for A4/);
+  expect(printPaperUnavailable(crowned, { ...station, loadedPrintPreset: 'crowned-a4' })).toBe('');
+  expect(printPaperUnavailable({ paperSize: 'a4' }, { ...station, loadedPrintPreset: 'crowned-a4' })).toMatch(/set up for Crowned A4/);
 });
 
 describe('standalone print drafts', () => {

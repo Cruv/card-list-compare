@@ -79,6 +79,9 @@
 .print-buy-list { border-top: 1px solid var(--border-color); padding-top: var(--space-sm); }
 .print-buy-cards label { display: flex; align-items: center; gap: 8px; color: var(--text-primary); font-size: var(--fs-sm); }
 .print-dfc-note { border-left: 3px solid var(--accent-blue); padding-left: var(--space-md); font-size: var(--fs-sm); }
+.print-paper-controls { display: flex; align-items: end; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-lg); }
+.print-paper-controls select { min-width: 9rem; }
+.print-paper-controls > .print-panel-meta { align-self: center; }
 .print-review-footer { position: sticky; bottom: 16px; z-index: 20; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow-md); margin-top: 24px; }
 .print-review-footer strong { font-size: 17px; }
 .print-review-footer > div:first-child { display: grid; gap: 4px; }

@@ -133,25 +133,26 @@ export class PrintGeneratorRuntime {
       phase = 'update';
       const mirror = path.join(this.root, 'repository.git');
       await this.run('git', ['init', '--bare', mirror], { timeout: 15_000 });
-      let revision;
       try {
         await this.run('git', ['--git-dir', mirror, 'fetch', '--depth=1', '--force', this.repository, 'main:refs/heads/main'], { timeout: 30_000 });
-        revision = await this.run('git', ['--git-dir', mirror, 'rev-parse', 'refs/heads/main'], { timeout: 15_000 });
+        const revision = await this.run('git', ['--git-dir', mirror, 'rev-parse', 'refs/heads/main'], { timeout: 15_000 });
+        if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('Invalid upstream revision');
+        if (!this.active || this.active.revision !== revision || this.active.adapterHash !== adapterHash) {
+          phase = 'candidate validation';
+          await this.prepare(revision, compatibility, adapterHash, { mirror });
+        }
       } catch (error) {
-        // A new compatible Python environment can be recreated offline from saved source/wheels.
+        // An adapter/Python upgrade can rebuild the last saved source offline even
+        // when fetching works but the newer upstream fails our geometry checks.
         if (!this.active && saved) {
+          const updatePhase = phase;
           phase = 'cached runtime rebuild';
           const oldDirectory = path.join(this.root, 'versions', saved.version);
           const old = JSON.parse(await fs.readFile(path.join(oldDirectory, 'ready.json'), 'utf8'));
           await this.prepare(old.revision, compatibility, adapterHash, { cachedSource: path.join(oldDirectory, 'source'), offline: true });
-          phase = 'update';
+          phase = updatePhase;
         }
         throw error;
-      }
-      if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('Invalid upstream revision');
-      if (!this.active || this.active.revision !== revision || this.active.adapterHash !== adapterHash) {
-        phase = 'candidate validation';
-        await this.prepare(revision, compatibility, adapterHash, { mirror });
       }
       this.status.lastSuccessfulCheckAt = new Date().toISOString();
       await atomicJson(path.join(this.root, 'active.json'), {

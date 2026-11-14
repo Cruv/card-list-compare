@@ -130,6 +130,7 @@ class FakeClient:
 class FakeCups:
     def __init__(self):
         self.submissions, self.history = [], []
+        self.recipe_ids = []
         self.after_accept_error = False
         self.before_submit = lambda: None
 
@@ -142,8 +143,9 @@ class FakeCups:
     def jobs(self):
         return copy.deepcopy(self.history)
 
-    def submit(self, artifact, phase, title, path):
+    def submit(self, artifact, phase, title, path, recipe_id=station.LETTER_RECIPE):
         self.before_submit()
+        self.recipe_ids.append(recipe_id)
         spooler_id = "EPSON-" + str(len(self.submissions) + 1)
         self.submissions.append((artifact["id"], phase, title, path))
         self.history.append({"id": spooler_id, "title": title, "state": 3})
@@ -809,7 +811,8 @@ class BoundaryTests(unittest.TestCase):
         request = opener.open.call_args.args[0]
         self.assertEqual(request.full_url, self.config["server_url"] + "/api/print-station/claim")
         self.assertEqual(request.get_method(), "POST")
-        self.assertEqual(json.loads(request.data), {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True})
+        self.assertEqual(json.loads(request.data), {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+                                                   "loadedPaperSize": "letter", "supportedRecipeIds": [station.LETTER_RECIPE]})
 
     def test_checksums_stream_and_promote_download_atomically(self):
         opener = mock.Mock()
@@ -880,6 +883,98 @@ class BoundaryTests(unittest.TestCase):
                 self.assertIn("fit-to-page=false", args)
                 self.assertIn("sides=one-sided", args)
 
+    def test_a4_batch_preserves_legacy_letter_settings_and_overrides_both_media_options(self):
+        config = {**self.config, "loaded_paper_size": "a4",
+                  "a4_enabled": True,
+                  "driver_options": {"MediaType": "Glossy", "PageSize": "Letter", "EPIJ_Size": "4"}}
+        old_config = {key: value for key, value in config.items() if key != "loaded_paper_size"}
+        legacy_hash = station.recipe_fingerprint(old_config)
+        self.assertEqual(station.recipe_fingerprint(config, station.LETTER_RECIPE), legacy_hash)
+        self.assertNotEqual(station.recipe_fingerprint(config, station.A4_RECIPE), legacy_hash)
+        self.assertEqual(station.recipe_fingerprint(config, station.A4_RECIPE),
+                         station.recipe_fingerprint(old_config, station.A4_RECIPE))
+
+        value = job("dfc")
+        value["recipeId"] = station.A4_RECIPE
+        desired = station.dry_run(config, value)
+        self.assertEqual([entry["phase"] for entry in desired["commands"]], ["fronts", "backs"])
+        for entry, wanted in zip(desired["commands"], ["1,3", "2,4"]):
+            args = entry["argv"]
+            self.assertEqual(args[args.index("-P") + 1], wanted)
+            self.assertIn("media=A4", args)
+            self.assertIn("PageSize=A4", args)
+            self.assertIn("EPIJ_Size=1", args)
+            self.assertIn("print-scaling=none", args)
+            self.assertNotIn("PageSize=Letter", args)
+            self.assertNotIn("EPIJ_Size=4", args)
+        for entry in station.dry_run(config, job("dfc"))["commands"]:
+            self.assertIn("media=Letter", entry["argv"])
+            self.assertIn("PageSize=Letter", entry["argv"])
+            self.assertIn("EPIJ_Size=4", entry["argv"])
+
+    def test_native_submit_blocks_wrong_stock_before_calling_cups(self):
+        runner = mock.Mock(return_value="request id is EPSON-42 (1 file(s))")
+        cups = station.Cups(self.config, runner)
+        artifact = job()["artifacts"][0]
+        with self.assertRaisesRegex(station.StationError, "requires A4"):
+            cups.submit(artifact, "fronts", "CLC-safe", self.directory / "page.pdf", station.A4_RECIPE)
+        runner.assert_not_called()
+        self.config["loaded_paper_size"] = "a4"
+        with self.assertRaisesRegex(station.StationError, "requires US Letter"):
+            cups.submit(artifact, "fronts", "CLC-safe", self.directory / "page.pdf", station.LETTER_RECIPE)
+        runner.assert_not_called()
+
+    def test_crowned_profile_sets_portrait_rear_feed_and_thick_paper_on_both_faces(self):
+        self.config.update(crowned_a4_enabled=True, loaded_paper_size="a4", loaded_print_preset="crowned-a4")
+        self.config["driver_options"].update(PageSize="Letter", EPIJ_Size="4", EPIJ_FdSo="2",
+                                             EPIJ_PGEx="0", EPIJ_PSrc="3", EPIJ_RmMg="1", EPIJ_DbSidBin="1")
+        value = packet_job(1)
+        value.update(recipeId=station.CROWNED_RECIPE, printPreset=station.CROWNED_PRESET, paperSize="a4")
+        value["artifacts"][1]["cardCount"] = 9
+        result = station.dry_run(self.config, value)
+        self.assertEqual([entry["phase"] for entry in result["commands"]], ["fronts", "fronts", "backs"])
+        for entry in result["commands"]:
+            args = entry["argv"]
+            for option in ("media=A4", "PageSize=A4", "EPIJ_Size=1", "EPIJ_FdSo=0", "EPIJ_PGEx=1",
+                           "EPIJ_PSrc=2", "EPIJ_RmMg=0", "EPIJ_DbSidBin=0",
+                           "orientation-requested=3", "print-scaling=none", "sides=one-sided"):
+                self.assertEqual(args.count(option), 1)
+            self.assertNotIn("orientation-requested=4", args)
+        ordinary_a4 = {**self.config, "a4_enabled": True, "loaded_print_preset": None}
+        self.assertEqual(station.recipe_fingerprint(ordinary_a4, station.A4_RECIPE),
+                         station.recipe_fingerprint(self.config, station.A4_RECIPE))
+        self.assertEqual(station.recipe_fingerprint(ordinary_a4), station.recipe_fingerprint(self.config))
+        with self.assertRaisesRegex(station.StationError, "requires Crowned A4"):
+            station.Cups(ordinary_a4).submit(value["artifacts"][1], "backs", "CLC-proof",
+                                             self.directory / "page.pdf", station.CROWNED_RECIPE)
+        value["printPreset"] = None
+        with self.assertRaisesRegex(station.StationError, "preset does not match"):
+            station.checked_job(value, self.config)
+
+    def test_job_paper_size_must_match_the_approved_recipe(self):
+        self.config["a4_enabled"] = True
+        value = job()
+        station.checked_job(value, self.config)  # Legacy Letter has no paperSize.
+        value["paperSize"] = "a4"
+        with self.assertRaisesRegex(station.StationError, "does not match its saved recipe"):
+            station.checked_job(value, self.config)
+        value["recipeId"] = station.A4_RECIPE
+        station.checked_job(value, self.config)
+        self.config["a4_enabled"] = False
+        with self.assertRaisesRegex(station.StationError, "not locally approved"):
+            station.checked_job(value, self.config)
+
+    def test_changed_recipe_cannot_replace_the_saved_batch_identity(self):
+        self.config["a4_enabled"] = True
+        client, cups = FakeClient(job()), FakeCups()
+        worker = station.Station(self.config, client, cups)
+        self.addCleanup(worker.ledger.db.close)
+        worker.adopt(client.job)
+        client.job["recipeId"] = station.A4_RECIPE
+        with self.assertRaisesRegex(station.StationError, "identity changed"):
+            worker.poll_once()
+        self.assertEqual(cups.submissions, [])
+
     def test_ipptool_job_states_and_titles_are_parsed_without_inferring_absence(self):
         body = {"Tests": [{"Successful": True, "ResponseAttributes": [
             {"attributes-charset": "utf-8"},
@@ -936,6 +1031,39 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(station.StationError, "does not advertise"):
             station.Cups(self.config, runner).doctor()
 
+    def test_doctor_requires_captured_epson_a4_size_options_before_submission(self):
+        self.config.update(loaded_paper_size="a4", driver_options={"PageSize": "Letter", "EPIJ_Size": "4"})
+        advertised = "PageSize/Paper size: *Letter A4\nEPIJ_Size/Paper size: *4"
+
+        def runner(args):
+            if "-e" in args:
+                return "EPSON\n"
+            if args[0].endswith("lpoptions"):
+                return advertised
+            return "EPSON accepting requests\n"
+
+        cups = station.Cups(self.config, runner)
+        cups.jobs = mock.Mock(return_value=[])
+        with self.assertRaisesRegex(station.StationError, "EPIJ_Size=1"):
+            cups.doctor()
+        cups.jobs.assert_not_called()
+        advertised += " 1"
+        self.assertEqual(cups.doctor()["fixed_options"]["EPIJ_Size"], "1")
+
+    def test_crowned_doctor_rejects_missing_thick_paper_option(self):
+        self.config.update(crowned_a4_enabled=True, loaded_paper_size="a4", loaded_print_preset="crowned-a4",
+                           driver_options={})
+        def runner(args):
+            if "-e" in args:
+                return "EPSON\n"
+            if args[0].endswith("lpoptions"):
+                return "\n".join(f"{key}/option: {value}" for key, value in station.CROWNED_DRIVER_OPTIONS.items()
+                                 if key != "EPIJ_PGEx")
+            return "EPSON accepting requests\n"
+        cups = station.Cups(self.config, runner)
+        with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_PGEx=1"):
+            cups.doctor()
+
     def test_token_permissions_and_reserved_options_are_rejected(self):
         token = self.directory / "token"
         token.write_text("t" * 40)
@@ -965,7 +1093,8 @@ class BoundaryTests(unittest.TestCase):
 
     def test_proof_flags_require_real_booleans_not_truthy_strings(self):
         path = self.directory / "config.json"
-        for field in ("allow_http", "recipe_verified", "duplex_verified", "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
+        for field in ("allow_http", "recipe_verified", "duplex_verified", "a4_enabled", "a4_recipe_verified",
+                      "a4_duplex_verified", "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
             path.write_text(json.dumps({**self.config, field: "false"}))
             path.chmod(0o600)
             with self.assertRaisesRegex(station.StationError, "must be the JSON boolean"):
