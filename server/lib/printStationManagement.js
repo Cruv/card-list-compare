@@ -285,6 +285,7 @@ export function printStationStatus(userId) {
     const deckName = row && JSON.parse(row.plan_json).deckName;
     if (typeof deckName === 'string') active.deckName = deckName.slice(0, 200);
     if (row) Object.assign(active, savedPrintJobPaper(row));
+    if (latest.recipeProofs && active.recipeId) active.duplexVerified = latest.recipeProofs[active.recipeId]?.duplexVerified === true;
     active.packet = activePacket(row, active);
     active.cancelRequested = row?.cancel_requested || null;
     active.workflow = row?.workflow || null;
