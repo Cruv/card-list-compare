@@ -141,6 +141,26 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(request.call_args.args[1]["supportedRecipeIds"], snapshot["supportedRecipeIds"])
         self.assertEqual(request.call_args.args[1]["loadedPaperSize"], "a4")
 
+    def test_crowned_claim_and_heartbeat_bind_preset_and_separate_proof(self):
+        self.config.update(crowned_a4_enabled=True, loaded_paper_size="a4", loaded_print_preset="crowned-a4",
+                           a4_recipe_verified=True, a4_duplex_verified=True)
+        self.client.job.update(recipeId=native.CROWNED_RECIPE, printPreset=native.CROWNED_PRESET, paperSize="a4")
+        snapshot = self.control.snapshot()
+        self.assertEqual(snapshot["supportedRecipeIds"], [native.LETTER_RECIPE, native.CROWNED_RECIPE])
+        self.assertEqual(snapshot["loadedPaperSize"], "a4")
+        self.assertEqual(snapshot["loadedPrintPreset"], "crowned-a4")
+        self.assertIs(snapshot["recipeVerified"], False)
+        self.assertIs(snapshot["duplexVerified"], False)
+        self.assertIn("proof", self.station.poll_once())
+        self.assertEqual(self.client.claims, 0)
+        self.config["crowned_a4_recipe_verified"] = True
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.assertEqual(self.cups.recipe_ids, [native.CROWNED_RECIPE])
+        client = native.Client(self.config)
+        with mock.patch.object(client, "json", return_value={}) as request:
+            client.claim()
+        self.assertEqual(request.call_args.args[1]["loadedPrintPreset"], snapshot["loadedPrintPreset"])
+
     def test_management_disconnection_blocks_new_claims_but_reconciles_submitted_job(self):
         self.assertIn("connection", self.station.poll_once(allow_submit=False))
         self.assertEqual(self.client.claims, 0)
