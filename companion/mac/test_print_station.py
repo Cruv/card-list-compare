@@ -1017,30 +1017,43 @@ class BoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(station.StationError, "preset does not match"):
             station.checked_job(value, self.config)
 
-    def test_crowned_landscape_feeds_portrait_and_disables_bidirectional_on_both_passes(self):
+    def test_crowned_landscape_retains_saved_orientation_and_disables_bidirectional_on_both_passes(self):
         self.config.update(crowned_a4_enabled=True, crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
                            loaded_print_preset=station.CROWNED_LANDSCAPE_PRESET)
         self.config["driver_options"].update(EPIJ_OPT_Bi_D="1", epij_opt_bi_d="1", EPIJ_PGEx="0")
         self.assertEqual(station.loaded_recipe(self.config), station.CROWNED_LANDSCAPE_RECIPE)
         original = station.recipe_fingerprint(self.config, station.CROWNED_RECIPE)
         value = mixed_job()
-        value.update(recipeId=station.CROWNED_LANDSCAPE_RECIPE, printPreset=station.CROWNED_LANDSCAPE_PRESET, paperSize="a4")
+        value.update(printPreset=station.CROWNED_LANDSCAPE_PRESET, paperSize="a4")
         value["artifacts"][0].update(cardCount=8, doubleFacedCardCount=8)
         value["artifacts"][1]["cardCount"] = 8
         value["totalCopies"] = 17
-        for entry in station.dry_run(self.config, value)["commands"]:
-            args = entry["argv"]
-            for option in ("media=A4", "PageSize=A4", "EPIJ_PSrc=2", "EPIJ_FdSo=0", "EPIJ_PGEx=1", "EPIJ_RmMg=0",
-                           "orientation-requested=3", "print-scaling=none", "fit-to-page=false", "sides=one-sided", "EPIJ_OPT_Bi_D=0"):
-                self.assertEqual(args.count(option), 1)
-            self.assertNotIn("EPIJ_OPT_Bi_D=1", args)
-            self.assertNotIn("epij_opt_bi_d=1", args)
+        for recipe, orientation in ((station.CROWNED_LANDSCAPE_V1_RECIPE, 3), (station.CROWNED_LANDSCAPE_RECIPE, 4)):
+            with self.subTest(recipe=recipe):
+                value["recipeId"] = recipe
+                station.require_loaded_paper(self.config, recipe)
+                for entry in station.dry_run(self.config, value)["commands"]:
+                    args = entry["argv"]
+                    for option in ("media=A4", "PageSize=A4", "EPIJ_PSrc=2", "EPIJ_FdSo=0", "EPIJ_PGEx=1", "EPIJ_RmMg=0",
+                                   f"orientation-requested={orientation}", "print-scaling=none", "fit-to-page=false", "sides=one-sided", "EPIJ_OPT_Bi_D=0"):
+                        self.assertEqual(args.count(option), 1)
+                    self.assertNotIn("EPIJ_OPT_Bi_D=1", args)
+                    self.assertNotIn("epij_opt_bi_d=1", args)
         self.assertNotIn("EPIJ_OPT_Bi_D", station.fixed_options(self.config, station.CROWNED_RECIPE))
+        old_fingerprint_doc = {key: self.config.get(key) for key in ("queue", "driver_options", "ordinary_output_order",
+                                                                    "dfc_front_output_order", "dfc_back_output_order")}
+        old_fingerprint_doc["fixed_options"] = {**station.FIXED_OPTIONS, "media": "A4", "orientation-requested": "3",
+                                                **station.CROWNED_LANDSCAPE_DRIVER_OPTIONS}
+        old_hash = hashlib.sha256(json.dumps(old_fingerprint_doc, sort_keys=True).encode()).hexdigest()
+        self.assertEqual(station.recipe_fingerprint(self.config, station.CROWNED_LANDSCAPE_V1_RECIPE), old_hash)
+        self.assertNotEqual(station.recipe_fingerprint(self.config, station.CROWNED_LANDSCAPE_RECIPE), old_hash)
         self.assertNotEqual(station.recipe_fingerprint(self.config, station.CROWNED_LANDSCAPE_RECIPE), original)
         self.assertEqual(station.recipe_fingerprint({**self.config, "loaded_print_preset": station.CROWNED_PRESET}, station.CROWNED_RECIPE), original)
         value["artifacts"][0].update(cardCount=9, doubleFacedCardCount=9)
-        with self.assertRaisesRegex(station.StationError, "packet identity or page count"):
-            station.checked_job(value, self.config)
+        for recipe in (station.CROWNED_LANDSCAPE_V1_RECIPE, station.CROWNED_LANDSCAPE_RECIPE):
+            value["recipeId"] = recipe
+            with self.assertRaisesRegex(station.StationError, "packet identity or page count"):
+                station.checked_job(value, self.config)
 
     def test_crowned_landscape_requires_independent_local_opt_in(self):
         token = self.directory / "token"

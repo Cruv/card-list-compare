@@ -7,7 +7,7 @@ import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } fro
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
 import { queueNotificationInput, queueNotificationReceiptChanges, queueNotificationDelivery } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { PRINT_PRESETS, LEGACY_STATION_PAPER, printPaperSelection, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
+import { PRINT_PRESETS, LEGACY_STATION_PAPER, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
 import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
 
 const STATION = 'household';
@@ -131,7 +131,7 @@ function householdPrintJobs(userId, canManage = false) {
     const canOpen = row.user_id === userId;
     return { id: row.id, deckName: typeof plan.deckName === 'string' ? plan.deckName.slice(0, 200) : 'Card batch',
       totalCopies: Number.isSafeInteger(plan.totalCopies) ? plan.totalCopies : 0, paperSize: plan.paperSize ?? 'letter',
-      ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
+      ...(plan.printPreset ? savedPrintJobPaper(row) : {}),
       state: row.state, createdAt: row.created_at, queuedAt: row.queued_at,
       completedAt: row.completed_at, canOpen, canCancel: (canManage || canOpen) && (!!canCancelHouseholdBatch(row) || (online() && latest?.deferredBacks && canCancelRemaining(row))),
       ...(hasMixedPrintSheets(row) ? { requiresMixedPrintSheets: true } : {}),
@@ -285,6 +285,7 @@ export function printStationStatus(userId) {
     const deckName = row && JSON.parse(row.plan_json).deckName;
     if (typeof deckName === 'string') active.deckName = deckName.slice(0, 200);
     if (row) Object.assign(active, savedPrintJobPaper(row));
+    if (latest.recipeProofs && active.recipeId) active.duplexVerified = latest.recipeProofs[active.recipeId]?.duplexVerified === true;
     active.packet = activePacket(row, active);
     active.cancelRequested = row?.cancel_requested || null;
     active.workflow = row?.workflow || null;
@@ -516,8 +517,20 @@ function heartbeatInput(body) {
   const events = body.events ?? [], receipts = body.receipts ?? [];
   if (!Array.isArray(events) || events.length > 50 || !Array.isArray(receipts) || receipts.length > 20) throw printError('Heartbeat supports at most 50 events and 20 receipts');
   const eventIds = new Set(), receiptIds = new Set();
+  const paper = stationPaperInput(body);
+  let recipeProofs;
+  if (body.recipeProofs !== undefined) {
+    const proofs = Object.entries(object(body.recipeProofs, 'recipeProofs'));
+    if (proofs.length !== paper.supportedRecipeIds.length || proofs.some(([id]) => !paper.supportedRecipeIds.includes(id))) {
+      throw printError('Print proofs must match the station’s supported recipes');
+    }
+    recipeProofs = Object.fromEntries(proofs.map(([id, value]) => {
+      const proof = object(value, 'recipe proof');
+      return [id, { recipeVerified: bool(proof.recipeVerified, 'recipeVerified'), duplexVerified: bool(proof.duplexVerified, 'duplexVerified') }];
+    }));
+  }
   return { queueNotifications: queueNotificationInput(body), snapshot: { version: version(body.version), paused: bool(body.paused, 'paused'), queue,
-    ...stationPaperInput(body),
+    ...paper, recipeProofs,
     deferredBacks: body.deferredBacks === undefined ? false : bool(body.deferredBacks, 'deferredBacks'),
     printRecovery: body.printRecovery === undefined ? false : bool(body.printRecovery, 'printRecovery'),
     mixedPrintSheets: body.mixedPrintSheets === undefined ? false : bool(body.mixedPrintSheets, 'mixedPrintSheets'),
@@ -624,9 +637,9 @@ export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, 
   expireCommands();
   const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
   const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
-  const matchesHeartbeat = online() && stationCanPrintPaper(latest, printPaperSelection(paper.loadedPaperSize, paper.loadedPrintPreset));
-  if (paused || pendingPause || ((online() || paper.loadedPaperSize === 'a4') && !matchesHeartbeat)
-    || (latest?.recipeVerified === false && latest?.testPrintingEnabled !== true)) {
+  const matchesHeartbeat = online() && latest.loadedPaperSize === paper.loadedPaperSize
+    && latest.loadedPrintPreset === paper.loadedPrintPreset;
+  if (paused || pendingPause || ((online() || paper.loadedPaperSize === 'a4') && !matchesHeartbeat)) {
     const active = activeServerJob();
     if (active) {
       if (!paper.supportedRecipeIds.includes(savedPrintJobPaper(active).recipeId)) throw printError('Upgrade the Mac companion to continue this batch’s paper size', 409);
@@ -634,5 +647,8 @@ export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, 
     }
     return active ? formatPrintJob(active, true) : null;
   }
-  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper, mixedPrintSheets });
+  const eligibleRecipeIds = paper.supportedRecipeIds.filter(id =>
+    (!latest || latest.supportedRecipeIds.includes(id))
+    && (latest?.testPrintingEnabled === true || (latest?.recipeProofs?.[id]?.recipeVerified ?? latest?.recipeVerified) !== false));
+  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper, eligibleRecipeIds, mixedPrintSheets });
 }

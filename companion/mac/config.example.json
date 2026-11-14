@@ -17,6 +17,8 @@
   "crowned_a4_duplex_verified": false,
   "crowned_a4_landscape_recipe_verified": false,
   "crowned_a4_landscape_duplex_verified": false,
+  "crowned_a4_landscape_centered_recipe_verified": false,
+  "crowned_a4_landscape_centered_duplex_verified": false,
   "allow_unverified_printing": false,
   "refeed_notifications": true,
   "refeed_sound": true,

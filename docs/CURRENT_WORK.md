@@ -2,16 +2,14 @@
 
 ## Crowned A4 Landscape 2×4
 
-The 2.59.0 branch adds an eight-card option for Crowned stock. The grid leaves
-about 12 mm at the leading short edge and 29 mm at the trailing edge before bleed.
-The Mac selects portrait A4 feed at actual size, rear paper feeder, Thick Paper
-and bidirectional printing off. Each pass labels the same leading edge.
-[Print workflow and cut paths](PRINT_WORKFLOW.md#crowned-a4-landscape-24).
+CLC 2.59.1 generates the standard centered A4 v5 layout for Crowned Landscape.
+The matching upstream Studio file contains four upright cards across and two rows down.
+The alternative centered R13 DXF uses eight closed rounded rectangles. The Mac uses a
+landscape A4 ticket through its rear feeder with Thick Paper and bidirectional printing off.
+See [the print workflow and template downloads](PRINT_WORKFLOW.md#crowned-a4-landscape-24).
 
-Real upstream PDF smoke, the installed Epson raster filter, the DXF geometry check,
-browser exercise and software tests covered the layout. The two-page synthetic proof
-uses eight front targets and two back targets. Physical Crowned feed, print quality,
-Cameo registration and manual flip alignment are still to be checked.
+The shifted 2.59.0 PDFs keep their original layout and ticket. The centered layout
+needs a separate physical Cameo registration and refeed check.
 
 ## Mixed print sheets and refeed labels
 
@@ -27,8 +25,7 @@ revision `0da09b729814` for Letter, A4 and Crowned A4. The Crowned 8+1 test prod
 one sheet with nine fronts and one aligned reverse face. Physical feed and alignment
 on this mixed layout still need a separate check.
 
-The household remains on the verified [v2.58.1 server release](OPERATIONS.md#print-review-sheet-count-release--v2581)
-with the 2.58.0 companion. The v2.59.0 source and companion need their own rollout.
+The household verified server and companion 2.59.0 before the centered layout update.
 
 ## A4 and US Letter printing
 

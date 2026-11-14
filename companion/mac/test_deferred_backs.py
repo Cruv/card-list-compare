@@ -246,6 +246,23 @@ class DeferredBacksTests(unittest.TestCase):
         self.assertEqual(self.cups.submissions[-1][:2], ("double-faced-001", "backs"))
         self.assertEqual(self.cups.recipe_ids, [native.A4_RECIPE] * 4)
 
+    def test_saved_landscape_v1_back_runs_with_centered_stock_selected_and_only_v1_proof(self):
+        self.config.update(crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=native.CROWNED_LANDSCAPE_PRESET,
+                           crowned_a4_landscape_recipe_verified=True, crowned_a4_landscape_duplex_verified=True)
+        self.client.job.update(recipeId=native.CROWNED_LANDSCAPE_V1_RECIPE, printPreset=native.CROWNED_LANDSCAPE_PRESET,
+                               paperSize="a4")
+        self.finish_fronts()
+        self.restart()
+        self.assertEqual(native.loaded_recipe(self.config), native.CROWNED_LANDSCAPE_RECIPE)
+        self.assertFalse(native.recipe_proof(self.config, native.CROWNED_LANDSCAPE_RECIPE))
+        self.reserve("double-faced-001")
+        self.assertIn("fully dry", self.transport.call_args.args[1]["content"])
+        self.station.resume("job1")
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-4")
+        self.assertEqual(self.cups.submissions[-1][:2], ("double-faced-001", "backs"))
+        self.assertEqual(self.cups.recipe_ids, [native.CROWNED_LANDSCAPE_V1_RECIPE] * 4)
+
     def test_saved_back_pdf_survives_retention_and_restart(self):
         self.finish_fronts()
         self.station.ledger.write("UPDATE jobs SET updated=0 WHERE id='job1'")

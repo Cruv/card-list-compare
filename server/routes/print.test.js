@@ -165,12 +165,14 @@ describe('batch paper size', () => {
       .toMatchObject({ id: job.id, recipeId: recipe.id, printPreset: 'crowned-a4' });
   });
 
-  it('uses the selected Crowned landscape layout for mixed packets and both physical passes', async () => {
+  it.each(['v1', 'v2'])('preserves Crowned Landscape %s for mixed packets and both physical passes', async variant => {
     const printPreset = 'crowned-a4-landscape';
-    const recipe = { id: 'household-crowned-a4-landscape-v1', paperSize: 'a4', printPreset };
+    const legacy = 'household-crowned-a4-landscape-v1';
+    const centered = 'household-crowned-a4-landscape-v2';
+    const recipe = { id: variant === 'v1' ? legacy : centered, paperSize: 'a4', printPreset };
     const choice = { mode: 'full', paperSize: 'a4', printPreset };
     const stationCapabilities = { ...a4, deferredBacks: true, mixedPrintSheets: true,
-      supportedRecipeIds: [...a4.supportedRecipeIds, 'household-crowned-a4-v2', recipe.id] };
+      supportedRecipeIds: [...a4.supportedRecipeIds, 'household-crowned-a4-v2', legacy, centered] };
     const portrait = { ...stationCapabilities, loadedPrintPreset: 'crowned-a4' };
     const landscape = { ...stationCapabilities, loadedPrintPreset: printPreset };
     db.run("UPDATE deck_snapshots SET deck_text='7 Lightning Bolt (M10) [146]\n1 Malakir Rebirth' WHERE tracked_deck_id=1");
@@ -187,8 +189,17 @@ describe('batch paper size', () => {
     const beat = body => station('/heartbeat', 'POST', { ...heartbeat, ...body });
     expect((await beat(portrait)).status).toBe(200);
     expect((await enqueue()).status).toBe(409);
+    const oldCompanion = { ...landscape, supportedRecipeIds: landscape.supportedRecipeIds.filter(id => id !== centered) };
+    expect((await beat(oldCompanion)).status).toBe(200);
+    if (variant === 'v2') expect((await enqueue()).status).toBe(409);
     expect((await beat(landscape)).status).toBe(200);
     expect((await enqueue()).status).toBe(200);
+    const withProofs = verified => ({ ...landscape, recipeVerified: variant === 'v2' && verified,
+      recipeProofs: Object.fromEntries(landscape.supportedRecipeIds.map(id => [id,
+        { recipeVerified: id === recipe.id && verified, duplexVerified: id === recipe.id && verified }])) });
+    expect((await beat(withProofs(false))).status).toBe(200);
+    expect(await (await claim(landscape)).json()).toEqual({ job: null });
+    expect((await beat(withProofs(true))).status).toBe(200);
     const claimed = (await (await claim(landscape)).json()).job;
     const artifactId = 'double-faced-001';
     const front = { artifactId, phase: 'fronts' };
@@ -200,7 +211,7 @@ describe('batch paper size', () => {
     queue.preparePrintBacks(saved, artifactId, 1);
     expect((await beat(portrait)).status).toBe(200);
     expect(await (await claim(portrait)).json()).toEqual({ job: null });
-    expect((await beat(landscape)).status).toBe(200);
+    expect((await beat(withProofs(true))).status).toBe(200);
     expect((await (await claim(landscape)).json()).job).toMatchObject({
       id: job.id, state: 'awaiting_refeed', printPreset, recipeId: recipe.id, backRequest: { artifactId },
     });

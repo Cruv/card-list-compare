@@ -235,24 +235,23 @@ on the resin-coated stock before committing a batch.
 
 ### Crowned A4 Landscape 2×4
 
-Choose **Crowned A4 · Landscape 2×4** for eight full-size cards on the same 313 gsm stock.
-The cut grid starts about 12 mm from the leading short edge and ends about 29 mm from
-the trailing edge before bleed. The PDF uses physical portrait A4 with the 2×4 art
-turned on the page. Both passes mark the same short edge **FEED THIS EDGE FIRST**.
+Choose **Crowned A4 · Landscape 2×4** for eight upright cards centered on landscape
+A4 (297 × 210 mm). CLC 2.59.1+ uses Silhouette Card Maker’s standard `--paper_size a4`
+layout with all eight slots. The Mac companion 2.59.1+ sends both passes at actual size
+with the standard Rear Paper Feeder, Thick Paper and Envelopes on, Bidirectional
+Printing off, expansion off and automatic duplex off.
 
-Use the [Silhouette cut paths](../public/print-templates/crowned-a4-landscape-v1.dxf) and
-[Studio setup](../public/print-templates/crowned-a4-landscape-v1-setup.txt) from the
-in-app guide. The setup places the paper and cut paths on a 12-inch mat and gives the
-matching registration insets. Check all eight positions on plain A4 before saving the
-Studio document. A Crowned sheet proves the feed, scuff, color and registration results
-for the actual stock. The matching reverse pass needs a separate physical flip check.
+Open the [Silhouette Card Maker A4 v5 Studio file](https://raw.githubusercontent.com/Alan-Cha/silhouette-card-maker/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates/a4-standard-v5.studio3)
+for its saved page and marks. The [centered DXF](../public/print-templates/crowned-a4-landscape-v2.dxf)
+is available for importing the eight cut paths by themselves. Set Studio to A4 landscape
+with a 12 × 12 inch mat. If the DXF imports at another scale or position, group the paths
+and set the group to 255.778 × 177.207 mm at X 20.659 mm and Y 16.425 mm from the
+page’s top-left. Use three registration marks, square at top left, 10 mm insets,
+9.4 mm length and 1 mm thickness. Check all eight positions on plain A4 before cutting Crowned stock.
 
-The Mac's Crowned Landscape recipe prints at actual size through the standard **Rear
-Paper Feeder** with Thick Paper and Envelopes on, Bidirectional Printing off,
-expansion off and automatic duplex off. Switch the loaded preset to **Crowned A4 ·
-Landscape 2×4** before releasing a matching batch. The current template clears the
-separate straight slot's last 20 mm in the PDF, but its Mac recipe selects the standard
-rear feeder. See the [Epson printable area](https://files.support.epson.com/docid/cpd5/cpd59879/source/specifications/references/et8500_8550_l8160_l8180/spex_printable_area_et8500_8550.html).
+Saved batches from the earlier shifted layout keep their original PDF and print ticket.
+Use the template that matches those sheets. The centered layout needs its own physical
+registration and manual refeed checks.
 
 ### Printed sheet identification
 
@@ -344,8 +343,9 @@ print this packet’s backs**. Page 2 runs as a separate one-sided pass; automat
 remains disabled.
 
 For Crowned A4, let the front dry fully before reloading. Verify the portrait long-edge
-flip on one sheet before printing the rest of a batch. On Landscape, feed the edge
-marked **FEED THIS EDGE FIRST** for both passes. Crowned recommends an overnight
+flip on one sheet before printing the rest of a batch. For centered Landscape, use the standard A4 refeed direction after a one-sheet
+alignment check. Older shifted sheets marked **FEED THIS EDGE FIRST** use that
+marked short edge for both passes. Crowned recommends an overnight
 cure in a dry room after printing and before cutting or sleeving.
 
 When the backs finish, the station enters `awaiting_paper_reset`. Remove the finished

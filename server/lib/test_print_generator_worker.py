@@ -7,7 +7,7 @@ import unittest
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject, RectangleObject
 
-from printGeneratorWorker import CROWNED_LANDSCAPE, POINTS_PER_MM, identify_pages, validate_pdf
+from printGeneratorWorker import CROWNED_LANDSCAPE, identify_pages, validate_pdf
 
 
 class PageIdentificationTests(unittest.TestCase):
@@ -109,7 +109,7 @@ class PageIdentificationTests(unittest.TestCase):
             self.assertEqual([round(tm[5], 2) for _, tm in runs], [825.68, 816.68, 807.68])
             self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
 
-    def test_crowned_landscape_has_exact_portrait_feed_box_and_asymmetric_marks_without_rescaling_art(self):
+    def test_crowned_landscape_retains_the_standard_a4_box_and_upright_art(self):
         writer = PdfWriter(clone_from=self.pdf)
         for page in writer.pages:
             page.mediabox = RectangleObject([0, 0, 841.68, 595.2])
@@ -124,22 +124,12 @@ class PageIdentificationTests(unittest.TestCase):
         validate_pdf(self.pdf, 2, CROWNED_LANDSCAPE)
         reader = PdfReader(self.pdf)
         for index, page in enumerate(reader.pages):
-            self.assertAlmostEqual(float(page.mediabox.right) / POINTS_PER_MM, 210, places=5)
-            self.assertAlmostEqual(float(page.mediabox.top) / POINTS_PER_MM, 297, places=5)
-            self.assertEqual(page.cropbox, page.mediabox)
+            self.assertEqual(list(page.mediabox), [0, 0, 841.68, 595.2])
+            self.assertEqual(page.rotation, 0)
             self.assertEqual(page["/Resources"]["/XObject"]["/Artwork"].get_data(), b"\x11\x22\x33")
-            operators = page.get_contents().operations
-            transforms = [values for values, operator in operators if operator == b"cm"]
-            self.assertEqual([round(float(value), 3) for value in transforms[0]], [1, 0, 0, 1, 0.076, 0.210])
-            self.assertEqual([round(float(value), 3) for value in transforms[1]], [0, -1, 1, 0, 0, 841.68])
-            square = next(values for values, operator in operators if operator == b"re")
-            self.assertEqual([round(float(value) / POINTS_PER_MM, 3) for value in square], [6, 286, 5, 5])
-            corners = [tuple(round(float(value) / POINTS_PER_MM, 3) for value in values)
-                       for values, operator in operators if operator in (b"m", b"l")]
-            self.assertEqual(corners, [(199.5, 291), (204, 291), (204, 291), (204, 286.5),
-                                       (6, 23), (10.5, 23), (6, 23), (6, 27.5)])
+            transforms = [values for values, operator in page.get_contents().operations if operator == b"cm"]
+            self.assertEqual(transforms, [[10, 0, 0, 10, 100, 100]])
             text = page.extract_text()
-            self.assertIn("FEED THIS EDGE FIRST", text)
             self.assertEqual("REFEED FOR BACK" in text, index == 0)
 
     def test_rejects_unsafe_or_unbounded_identification_before_replacing_source(self):
