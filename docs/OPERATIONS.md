@@ -227,7 +227,7 @@ its atomic publication guarantees.
 The adapter invokes upstream once per seven-card sheet at 600 PPI and merges ordinary
 fronts into `fronts.pdf`. DFC sheets stay in numbered two-page packets
 (`double-faced-001.pdf`, etc.), each holding at most seven copies. Jobs keep decks separate;
-the maximum mixed job has 37 artifacts. Allow at least 2 GiB of container
+the six-card layout can produce up to 42 artifacts in a mixed job. Allow at least 2 GiB of container
 memory for generation; disk usage depends on artwork and retained jobs. No Linux printer
 driver is used. See [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md) for the print API and Mac
 companion work. Drying, lamination and cutting remain outside CLC.
@@ -745,7 +745,7 @@ The **Print → Printer** page centralizes health, version, event history, pause
 batch-specific DFC reload controls. It requires the same household authorization as
 physical queue requests; only administrators may request version checks/changes. Install
 matching server and companion versions for the heartbeat/control protocol. A companion
-advertises its artifact capacity when claiming (37 from v2.48.0 onward; eight for older clients).
+advertises its artifact capacity when claiming (43 from v2.60.0, 37 from v2.48.0, and eight for older clients).
 A larger queued job requires the newer companion and remains unclaimed until it connects;
 the server does not skip the waiting job or create a physical recovery record. A companion
 that cannot contact this protocol stops new submissions while retaining its ledger for

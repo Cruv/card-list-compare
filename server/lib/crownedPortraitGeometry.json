@@ -1,0 +1,7 @@
+{
+  "paperMillimeters": { "width": 210, "height": 297 },
+  "cardPixels": { "width": 744, "height": 1039, "ppi": 300, "x": [109, 868, 1627], "y": [180, 1234, 2288] },
+  "registrationMillimeters": { "inset": 3.5, "length": 10.5, "thickness": 1 },
+  "cornerRadiusMillimeters": 3,
+  "sixCardRows": 2
+}

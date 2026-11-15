@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireStationToken, stationPrintJob, reportPrintJob, formatPrintJob, verifiedPrintArtifact } from '../lib/printQueue.js';
+import { MAX_PRINT_ARTIFACTS, requireStationToken, stationPrintJob, reportPrintJob, formatPrintJob, verifiedPrintArtifact } from '../lib/printQueue.js';
 import { claimForManagedStation, stationManagementHeartbeat } from '../lib/printStationManagement.js';
 import { stationPaperInput } from '../lib/printPaper.js';
 import { sendPdf } from './print.js';
@@ -23,8 +23,8 @@ router.get('/status', (_req, res) => res.json({ stationId: 'household', recipeId
 router.post('/heartbeat', route((req, res) => res.json(stationManagementHeartbeat(req.body))));
 router.post('/claim', route((req, res) => {
   const maxArtifacts = req.body?.maxArtifacts === undefined ? 8 : req.body.maxArtifacts;
-  if (!Number.isSafeInteger(maxArtifacts) || maxArtifacts < 1 || maxArtifacts > 37) {
-    return res.status(400).json({ error: 'maxArtifacts must be an integer between 1 and 37' });
+  if (!Number.isSafeInteger(maxArtifacts) || maxArtifacts < 1 || maxArtifacts > MAX_PRINT_ARTIFACTS) {
+    return res.status(400).json({ error: `maxArtifacts must be an integer between 1 and ${MAX_PRINT_ARTIFACTS}` });
   }
   if (req.body?.deferredBacks !== undefined && typeof req.body.deferredBacks !== 'boolean') return res.status(400).json({ error: 'deferredBacks must be true or false' });
   if (req.body?.printRecovery !== undefined && typeof req.body.printRecovery !== 'boolean') return res.status(400).json({ error: 'printRecovery must be true or false' });

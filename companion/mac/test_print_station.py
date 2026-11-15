@@ -20,6 +20,16 @@ import clc_print_station as station
 PDF = b"%PDF-1.7\nfixture\n%%EOF\n"
 
 
+def ppd_fixture(options):
+    lines = ['*PPD-Adobe: "4.3"']
+    for name, choices in options.items():
+        lines.append(f"*OpenUI *{name}/{name}: PickOne")
+        for choice in choices.split():
+            lines.append(f'*{name} {choice}/Label: ""')
+        lines.append(f"*CloseUI: *{name}")
+    return "\n".join(lines).encode("ascii")
+
+
 def config(directory):
     return {"queue": "EPSON", "server_url": "https://clc.test", "token": "test-token-" * 4,
             "state_dir": str(directory / "state"), "approved_recipe_ids": ["household-letter-v6"],
@@ -711,15 +721,15 @@ class StationTests(unittest.TestCase):
         self.assertEqual(len(self.cups.submissions), 1)
 
     def test_maximum_packet_job_and_corrupt_packet_identity(self):
-        value = packet_job(36)
-        self.assertEqual(len(station.checked_job(value, self.config)["artifacts"]), 37)
+        value = packet_job(42)
+        self.assertEqual(len(station.checked_job(value, self.config)["artifacts"]), 43)
         for changes in [{"packetIndex": 2}, {"packetCount": 35}, {"sheetCount": 2}, {"cardCount": 8}, {"label": "bad\nlabel"}]:
             bad = copy.deepcopy(value)
             bad["artifacts"][1].update(changes)
             with self.assertRaisesRegex(station.StationError, "packet"):
                 station.checked_job(bad, self.config)
-        with self.assertRaisesRegex(station.StationError, "37"):
-            station.checked_job(packet_job(37), self.config)
+        with self.assertRaisesRegex(station.StationError, "43"):
+            station.checked_job(packet_job(43), self.config)
 
     def test_mixed_packing_requires_exact_packet_counts_and_manual_back_steps(self):
         for value in (mixed_job(), mixed_job(False)):
@@ -876,7 +886,7 @@ class BoundaryTests(unittest.TestCase):
         request = opener.open.call_args.args[0]
         self.assertEqual(request.full_url, self.config["server_url"] + "/api/print-station/claim")
         self.assertEqual(request.get_method(), "POST")
-        self.assertEqual(json.loads(request.data), {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+        self.assertEqual(json.loads(request.data), {"maxArtifacts": 43, "deferredBacks": True, "printRecovery": True,
                                                    "mixedPrintSheets": True,
                                                    "loadedPaperSize": "letter", "supportedRecipeIds": [station.LETTER_RECIPE]})
 
@@ -1043,7 +1053,7 @@ class BoundaryTests(unittest.TestCase):
         old_fingerprint_doc = {key: self.config.get(key) for key in ("queue", "driver_options", "ordinary_output_order",
                                                                     "dfc_front_output_order", "dfc_back_output_order")}
         old_fingerprint_doc["fixed_options"] = {**station.FIXED_OPTIONS, "media": "A4", "orientation-requested": "3",
-                                                **station.CROWNED_LANDSCAPE_DRIVER_OPTIONS}
+                                                **station.CROWNED_BIDIRECTIONAL_OFF_OPTIONS}
         old_hash = hashlib.sha256(json.dumps(old_fingerprint_doc, sort_keys=True).encode()).hexdigest()
         self.assertEqual(station.recipe_fingerprint(self.config, station.CROWNED_LANDSCAPE_V1_RECIPE), old_hash)
         self.assertNotEqual(station.recipe_fingerprint(self.config, station.CROWNED_LANDSCAPE_RECIPE), old_hash)
@@ -1073,6 +1083,26 @@ class BoundaryTests(unittest.TestCase):
         path.write_text(json.dumps(value))
         with self.assertRaisesRegex(station.StationError, "with A4 paper"):
             station.load_config(path)
+
+    def test_crowned_portrait_six_freezes_the_six_slot_portrait_ticket(self):
+        self.config.update(crowned_a4_enabled=True, crowned_a4_portrait_six_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=station.CROWNED_PORTRAIT_SIX_PRESET)
+        recipe = station.CROWNED_PORTRAIT_SIX_RECIPE
+        self.assertEqual(station.loaded_recipe(self.config), recipe)
+        self.assertEqual(station.fixed_options(self.config, recipe), {
+            **station.fixed_options(self.config, station.CROWNED_RECIPE), "EPIJ_OPT_Bi_D": "0",
+        })
+        value = packet_job(42)
+        value.update(recipeId=recipe, printPreset=station.CROWNED_PORTRAIT_SIX_PRESET, paperSize="a4")
+        value["artifacts"][1]["cardCount"] = 6
+        for entry in station.dry_run(self.config, value)["commands"]:
+            self.assertIn("orientation-requested=3", entry["argv"])
+            self.assertIn("EPIJ_OPT_Bi_D=0", entry["argv"])
+        value["artifacts"][1]["cardCount"] = 7
+        with self.assertRaisesRegex(station.StationError, "packet identity or page count"):
+            station.checked_job(value, self.config)
+        with self.assertRaisesRegex(station.StationError, "Crowned A4 Portrait 3×3"):
+            station.require_loaded_paper(self.config, station.CROWNED_RECIPE)
 
     def test_job_paper_size_must_match_the_approved_recipe(self):
         self.config["a4_enabled"] = True
@@ -1146,67 +1176,97 @@ class BoundaryTests(unittest.TestCase):
 
     def test_doctor_rejects_an_option_not_exposed_by_installed_driver(self):
         def runner(args):
+            self.assertEqual(args[0], "/usr/bin/lpstat")
             if "-e" in args:
                 return "EPSON\n"
-            if args[0].endswith("lpoptions"):
-                return "MediaType/Media: *Plain Photo\n"
             return "EPSON accepting requests\n"
         with self.assertRaisesRegex(station.StationError, "does not advertise"):
-            station.Cups(self.config, runner).doctor()
+            station.Cups(self.config, runner, ppd_reader=lambda queue: ppd_fixture({"MediaType": "Plain Photo"})).doctor()
 
     def test_doctor_requires_captured_epson_a4_size_options_before_submission(self):
         self.config.update(loaded_paper_size="a4", driver_options={"PageSize": "Letter", "EPIJ_Size": "4"})
-        advertised = "PageSize/Paper size: *Letter A4\nEPIJ_Size/Paper size: *4"
+        advertised = {"PageSize": "Letter A4", "EPIJ_Size": "4"}
 
         def runner(args):
+            self.assertEqual(args[0], "/usr/bin/lpstat")
             if "-e" in args:
                 return "EPSON\n"
-            if args[0].endswith("lpoptions"):
-                return advertised
             return "EPSON accepting requests\n"
 
-        cups = station.Cups(self.config, runner)
+        cups = station.Cups(self.config, runner, ppd_reader=lambda queue: ppd_fixture(advertised))
         cups.jobs = mock.Mock(return_value=[])
         with self.assertRaisesRegex(station.StationError, "EPIJ_Size=1"):
             cups.doctor()
         cups.jobs.assert_not_called()
-        advertised += " 1"
+        advertised["EPIJ_Size"] = "4 1"
         self.assertEqual(cups.doctor()["fixed_options"]["EPIJ_Size"], "1")
 
     def test_crowned_doctor_rejects_missing_thick_paper_option(self):
         self.config.update(crowned_a4_enabled=True, loaded_paper_size="a4", loaded_print_preset="crowned-a4",
                            driver_options={})
         def runner(args):
+            self.assertEqual(args[0], "/usr/bin/lpstat")
             if "-e" in args:
                 return "EPSON\n"
-            if args[0].endswith("lpoptions"):
-                return "\n".join(f"{key}/option: {value}" for key, value in station.CROWNED_DRIVER_OPTIONS.items()
-                                 if key != "EPIJ_PGEx")
             return "EPSON accepting requests\n"
-        cups = station.Cups(self.config, runner)
+        advertised = {key: value for key, value in station.CROWNED_DRIVER_OPTIONS.items() if key != "EPIJ_PGEx"}
+        # A lone keyword line outside the advertised UI must not count as support.
+        cups = station.Cups(self.config, runner,
+                            ppd_reader=lambda queue: ppd_fixture(advertised) + b'\n*EPIJ_PGEx 1/Enabled: ""')
         with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_PGEx=1"):
             cups.doctor()
 
-    def test_crowned_landscape_doctor_requires_driver_bidirectional_off(self):
-        self.config.update(crowned_a4_landscape_enabled=True, loaded_paper_size="a4",
-                           loaded_print_preset=station.CROWNED_LANDSCAPE_PRESET, driver_options={})
-        bidirectional = "*1"
-
+    def test_crowned_landscape_and_portrait_six_doctor_require_driver_bidirectional_off(self):
         def runner(args):
+            self.assertEqual(args[0], "/usr/bin/lpstat")
             if "-e" in args:
                 return "EPSON\n"
-            if args[0].endswith("lpoptions"):
-                options = {**station.CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": bidirectional}
-                return "\n".join(f"{key}/option: {value}" for key, value in options.items())
             return "EPSON accepting requests\n"
 
-        cups = station.Cups(self.config, runner)
-        cups.jobs = mock.Mock(return_value=[])
-        with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_OPT_Bi_D=0"):
-            cups.doctor()
-        cups.jobs.assert_not_called()
-        bidirectional = "0 *1"
-        self.assertEqual(cups.doctor()["fixed_options"]["EPIJ_OPT_Bi_D"], "0")
+        self.config.update(crowned_a4_landscape_enabled=True, crowned_a4_portrait_six_enabled=True,
+                           loaded_paper_size="a4", driver_options={})
+        for preset in (station.CROWNED_LANDSCAPE_PRESET, station.CROWNED_PORTRAIT_SIX_PRESET):
+            with self.subTest(preset=preset):
+                self.config["loaded_print_preset"] = preset
+                advertised = {**station.CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": "1"}
+                cups = station.Cups(self.config, runner, ppd_reader=lambda queue: ppd_fixture(advertised))
+                cups.jobs = mock.Mock(return_value=[])
+                with self.assertRaisesRegex(station.StationError, "Crowned A4 option EPIJ_OPT_Bi_D=0"):
+                    cups.doctor()
+                cups.jobs.assert_not_called()
+                advertised["EPIJ_OPT_Bi_D"] = "0 1"
+                self.assertEqual(cups.doctor()["fixed_options"]["EPIJ_OPT_Bi_D"], "0")
+
+    def test_installed_ppd_reader_rejects_unsafe_or_missing_local_driver(self):
+        directory = self.directory / "ppd"
+        directory.mkdir(mode=0o755)
+        ppd = directory / "EPSON.ppd"
+        content = ppd_fixture({"MediaType": "Glossy"})
+        fstat = os.fstat
+
+        def owned_by_root(fd):
+            info = fstat(fd)
+            result = list(info)
+            result[4] = 0  # st_uid
+            return os.stat_result(result)
+
+        with mock.patch.object(station, "LOCAL_CUPS_PPD_DIR", str(directory)), mock.patch.object(os, "fstat", side_effect=owned_by_root):
+            with self.assertRaisesRegex(station.StationError, "Cannot read"):
+                station.read_installed_ppd("EPSON")
+            target = self.directory / "elsewhere.ppd"
+            target.write_bytes(content)
+            ppd.symlink_to(target)
+            with self.assertRaisesRegex(station.StationError, "Cannot read"):
+                station.read_installed_ppd("EPSON")
+            ppd.unlink()
+            ppd.write_bytes(content)
+            ppd.chmod(0o666)
+            with self.assertRaisesRegex(station.StationError, "unsafe"):
+                station.read_installed_ppd("EPSON")
+            ppd.chmod(0o644)
+            self.assertEqual(station.read_installed_ppd("EPSON"), content)
+        with self.assertRaisesRegex(station.StationError, "Invalid CUPS queue"):
+            station.read_installed_ppd("../EPSON")
 
     def test_token_permissions_and_reserved_options_are_rejected(self):
         token = self.directory / "token"

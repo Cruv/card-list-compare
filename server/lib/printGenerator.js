@@ -5,7 +5,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
-import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET } from './printPaper.js';
+import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET } from './printPaper.js';
+import crownedPortraitGeometry from './crownedPortraitGeometry.json' with { type: 'json' };
 
 export const MAX_PRINT_COPIES = 250;
 export const PRINT_RECIPE = Object.freeze({
@@ -32,9 +33,18 @@ export const CROWNED_A4_LANDSCAPE_RECIPE = Object.freeze({
   printPreset: CROWNED_LANDSCAPE_PRESET, orientation: 'landscape', skip: Object.freeze([]),
   cardsPerSheet: PAPER_PRESETS[CROWNED_LANDSCAPE_PRESET].cardsPerSheet,
 });
+const portraitSlots = crownedPortraitGeometry.cardPixels.x.length * crownedPortraitGeometry.cardPixels.y.length;
+const portraitSixCapacity = PAPER_PRESETS[CROWNED_PORTRAIT_SIX_PRESET].cardsPerSheet;
+export const CROWNED_A4_PORTRAIT_SIX_RECIPE = Object.freeze({
+  ...CROWNED_A4_RECIPE, id: PAPER_PRESETS[CROWNED_PORTRAIT_SIX_PRESET].recipeId,
+  template: 'a4-standard-crowned-portrait-six-v1', printPreset: CROWNED_PORTRAIT_SIX_PRESET,
+  cardsPerSheet: portraitSixCapacity,
+  skip: Object.freeze(Array.from({ length: portraitSlots - portraitSixCapacity }, (_, index) => portraitSixCapacity + index)),
+});
 const PRINT_PRESETS = Object.freeze({
   [CROWNED_A4_RECIPE.printPreset]: CROWNED_A4_RECIPE,
   [CROWNED_A4_LANDSCAPE_RECIPE.printPreset]: CROWNED_A4_LANDSCAPE_RECIPE,
+  [CROWNED_A4_PORTRAIT_SIX_RECIPE.printPreset]: CROWNED_A4_PORTRAIT_SIX_RECIPE,
 });
 const MAX_PDF_BYTES = 1024 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;

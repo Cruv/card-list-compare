@@ -164,7 +164,7 @@ def alert_text(job, artifact):
     label = display_text(artifact.get("label") or "", 180)
     drying = ("Wait until the Crowned front is fully dry before flipping. "
               if job.get("recipeId") in {"household-crowned-a4-v2", "household-crowned-a4-landscape-v1",
-                                         "household-crowned-a4-landscape-v2"} else "")
+                                         "household-crowned-a4-landscape-v2", "household-crowned-a4-portrait-six-v1"} else "")
     body = (f"Printed label: {label}. " if label else "") + drying + f"Flip only {paper} from this packet. Remove blank paper from the rear feeder. Reload only the matching printed paper, then confirm in CLC Print Station."
     return title, subtitle, body
 

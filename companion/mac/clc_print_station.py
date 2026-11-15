@@ -28,10 +28,13 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.59.1"
+COMPANION_VERSION = "2.60.0"
 # launchd owns this socket while idle cupsd is stopped. A TCP-only request to
 # localhost cannot wake the service; the fixed socket also ignores shell hosts.
 LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
+LOCAL_CUPS_PPD_DIR = "/private/etc/cups/ppd"
+MAX_DRIVER_PPD_BYTES = 8 * 1024 * 1024
+MAX_JOB_ARTIFACTS = 43
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}\Z")
 SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 OPTION = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,63}\Z")
@@ -42,10 +45,13 @@ LETTER_RECIPE = "household-letter-v6"
 A4_RECIPE = "household-a4-v5"
 CROWNED_RECIPE = "household-crowned-a4-v2"
 CROWNED_PRESET = "crowned-a4"
+CROWNED_PORTRAIT_SIX_RECIPE = "household-crowned-a4-portrait-six-v1"
+CROWNED_PORTRAIT_SIX_PRESET = "crowned-a4-portrait-six"
 CROWNED_LANDSCAPE_V1_RECIPE = "household-crowned-a4-landscape-v1"
 CROWNED_LANDSCAPE_RECIPE = "household-crowned-a4-landscape-v2"
 CROWNED_LANDSCAPE_PRESET = "crowned-a4-landscape"
-CROWNED_PRESETS = {CROWNED_PRESET: CROWNED_RECIPE, CROWNED_LANDSCAPE_PRESET: CROWNED_LANDSCAPE_RECIPE}
+CROWNED_PRESETS = {CROWNED_PRESET: CROWNED_RECIPE, CROWNED_LANDSCAPE_PRESET: CROWNED_LANDSCAPE_RECIPE,
+                   CROWNED_PORTRAIT_SIX_PRESET: CROWNED_PORTRAIT_SIX_RECIPE}
 CROWNED_RECIPES = {recipe: preset for preset, recipe in CROWNED_PRESETS.items()}
 CROWNED_RECIPES[CROWNED_LANDSCAPE_V1_RECIPE] = CROWNED_LANDSCAPE_PRESET
 PAPER_RECIPES = {"letter": LETTER_RECIPE, "a4": A4_RECIPE}
@@ -54,8 +60,8 @@ CROWNED_DRIVER_OPTIONS = {
     "PageSize": "A4", "EPIJ_Size": "1", "EPIJ_PSrc": "2", "EPIJ_FdSo": "0",
     "EPIJ_PGEx": "1", "EPIJ_RmMg": "0", "EPIJ_DbSidBin": "0",
 }
-CROWNED_LANDSCAPE_DRIVER_OPTIONS = {**CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": "0"}
-CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_LANDSCAPE_DRIVER_OPTIONS}
+CROWNED_BIDIRECTIONAL_OFF_OPTIONS = {**CROWNED_DRIVER_OPTIONS, "EPIJ_OPT_Bi_D": "0"}
+CROWNED_TICKET_FIELDS = {"media", "sides", "orientation-requested", *CROWNED_BIDIRECTIONAL_OFF_OPTIONS}
 JOB_IDENTITY_FIELDS = ("id", "manifestSha256", "claimToken", "workflow", "recipeId", "sheetPacking")
 RESERVED_OPTIONS = set(FIXED_OPTIONS) | {"copies", "page-ranges", "page-set", "outputorder",
                                        "job-name", "job-hold-until", "job-sheets", "landscape", "job-error-policy", "job-cancel-after"}
@@ -105,6 +111,7 @@ def load_config(path):
         config = json.load(stream)
     for flag in ("allow_http", "recipe_verified", "duplex_verified", "a4_enabled", "a4_recipe_verified", "a4_duplex_verified",
                  "crowned_a4_enabled", "crowned_a4_recipe_verified", "crowned_a4_duplex_verified",
+                 "crowned_a4_portrait_six_enabled", "crowned_a4_portrait_six_recipe_verified", "crowned_a4_portrait_six_duplex_verified",
                  "crowned_a4_landscape_enabled", "crowned_a4_landscape_recipe_verified", "crowned_a4_landscape_duplex_verified",
                  "crowned_a4_landscape_centered_recipe_verified", "crowned_a4_landscape_centered_duplex_verified",
                  "allow_unverified_printing", "refeed_notifications", "refeed_sound"):
@@ -140,7 +147,7 @@ def load_config(path):
         raise StationError("loaded_paper_size must be letter or a4")
     preset = config.get("loaded_print_preset")
     if preset is not None and (not isinstance(preset, str) or preset not in CROWNED_PRESETS or stock != "a4"):
-        raise StationError("loaded_print_preset must be crowned-a4 or crowned-a4-landscape with A4 paper")
+        raise StationError("loaded_print_preset must be an approved Crowned preset with A4 paper")
     if loaded_recipe(config) not in paper_capabilities(config)["supportedRecipeIds"]:
         raise StationError("The loaded paper recipe must be locally approved")
     options = config.setdefault("driver_options", {})
@@ -179,6 +186,8 @@ def paper_capabilities(config):
         recipes.append(CROWNED_RECIPE)
     if config.get("crowned_a4_landscape_enabled") is True:
         recipes.extend((CROWNED_LANDSCAPE_RECIPE, CROWNED_LANDSCAPE_V1_RECIPE))
+    if config.get("crowned_a4_portrait_six_enabled") is True:
+        recipes.append(CROWNED_PORTRAIT_SIX_RECIPE)
     preset = config.get("loaded_print_preset")
     return {"loadedPaperSize": config.get("loaded_paper_size", "letter"),
             "supportedRecipeIds": recipes,
@@ -195,6 +204,7 @@ def loaded_recipe(config):
 def recipe_proof(config, recipe_id, *, duplex=False):
     flag = "duplex_verified" if duplex else "recipe_verified"
     prefix = {A4_RECIPE: "a4_", CROWNED_RECIPE: "crowned_a4_",
+              CROWNED_PORTRAIT_SIX_RECIPE: "crowned_a4_portrait_six_",
               CROWNED_LANDSCAPE_V1_RECIPE: "crowned_a4_landscape_",
               CROWNED_LANDSCAPE_RECIPE: "crowned_a4_landscape_centered_"}.get(recipe_id, "")
     return config.get(prefix + flag) is True
@@ -205,6 +215,7 @@ def require_loaded_paper(config, recipe_id):
     legacy_landscape = recipe_id == CROWNED_LANDSCAPE_V1_RECIPE and current == CROWNED_LANDSCAPE_RECIPE
     if recipe_id != current and not legacy_landscape:
         name = {LETTER_RECIPE: "US Letter", A4_RECIPE: "A4", CROWNED_RECIPE: "Crowned A4 Portrait 3×3",
+                CROWNED_PORTRAIT_SIX_RECIPE: "Crowned A4 Portrait 3×2",
                 CROWNED_LANDSCAPE_V1_RECIPE: "Crowned A4 Landscape 2×4",
                 CROWNED_LANDSCAPE_RECIPE: "Crowned A4 Landscape 2×4"}.get(recipe_id, "a supported paper size")
         raise StationError("This batch requires " + name + ". Match the rear feeder and Mac paper setting before continuing.")
@@ -230,7 +241,7 @@ def fixed_options(config, recipe_id):
     if recipe_id in CROWNED_RECIPES:
         # Epson standard page mode avoids borderless expansion. The legacy
         # landscape PDF was composed inside a portrait A4 page.
-        driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_LANDSCAPE_DRIVER_OPTIONS
+        driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_BIDIRECTIONAL_OFF_OPTIONS
         return {**FIXED_OPTIONS, "media": "A4", "orientation-requested": "4" if recipe_id == CROWNED_LANDSCAPE_RECIPE else "3", **driver}
     raise StationError("Unsupported paper recipe")
 
@@ -240,6 +251,9 @@ def recipe_fingerprint(config, recipe_id=LETTER_RECIPE):
               "dfc_back_output_order"]
     recipe = {key: config.get(key) for key in fields}
     recipe["fixed_options"] = fixed_options(config, recipe_id)
+    if recipe_id == CROWNED_PORTRAIT_SIX_RECIPE:
+        # The two portrait layouts share a ticket but need independent cutting proof.
+        recipe["recipe_id"] = recipe_id
     return hashlib.sha256(json.dumps(recipe, sort_keys=True).encode()).hexdigest()
 
 
@@ -286,7 +300,7 @@ class Client:
         return result
 
     def claim(self):
-        return self.json("/api/print-station/claim", {"maxArtifacts": 37, "deferredBacks": True, "printRecovery": True,
+        return self.json("/api/print-station/claim", {"maxArtifacts": MAX_JOB_ARTIFACTS, "deferredBacks": True, "printRecovery": True,
                                                      "mixedPrintSheets": True,
                                                      **paper_capabilities(self.config)}).get("job")
 
@@ -510,11 +524,12 @@ def checked_job(job, config):
     if job.get("sheetPacking") is not None and (not mixed or job.get("workflow") != DEFERRED_WORKFLOW):
         raise StationError("Unsupported sheet packing or saved workflow")
     artifacts = job.get("artifacts", [])
-    if (not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 37
+    if (not isinstance(artifacts, list) or not 1 <= len(artifacts) <= MAX_JOB_ARTIFACTS
             or any(not isinstance(item, dict) for item in artifacts)):
-        raise StationError("Expected one to 37 finished PDF artifacts")
+        raise StationError(f"Expected one to {MAX_JOB_ARTIFACTS} finished PDF artifacts")
     packets = [item for item in artifacts if "packetIndex" in item or "packetCount" in item]
-    capacity = {CROWNED_RECIPE: 9, CROWNED_LANDSCAPE_RECIPE: 8, CROWNED_LANDSCAPE_V1_RECIPE: 8}.get(recipe_id, 7)
+    capacity = {CROWNED_RECIPE: 9, CROWNED_LANDSCAPE_RECIPE: 8, CROWNED_LANDSCAPE_V1_RECIPE: 8,
+                CROWNED_PORTRAIT_SIX_RECIPE: 6}.get(recipe_id, 7)
     ids, size = set(), 0
     for artifact in artifacts:
         if "_selected_pages" in artifact:
@@ -678,9 +693,51 @@ def parse_ipp_jobs(text, queue):
         raise StationError("Cannot read authoritative CUPS job titles/states") from None
 
 
+def read_installed_ppd(queue):
+    checked_id(queue, "CUPS queue")
+    # lpoptions -l can wait on destination discovery even when cupsd has the
+    # driver installed and its direct IPPS destination is healthy.
+    try:
+        directory = os.open(LOCAL_CUPS_PPD_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(directory)
+            if info.st_uid != 0 or info.st_mode & 0o022:
+                raise StationError("The local CUPS driver directory has unsafe ownership or permissions")
+            flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+            with os.fdopen(os.open(queue + ".ppd", flags, dir_fd=directory), "rb") as stream:
+                info = os.fstat(stream.fileno())
+                if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022
+                        or not 1 <= info.st_size <= MAX_DRIVER_PPD_BYTES):
+                    raise StationError("The installed CUPS driver file is unsafe or exceeds its size limit")
+                raw = stream.read(MAX_DRIVER_PPD_BYTES + 1)
+        finally:
+            os.close(directory)
+    except OSError as error:
+        raise StationError("Cannot read the installed CUPS driver for " + queue) from error
+    if len(raw) != info.st_size:
+        raise StationError("The installed CUPS driver changed during inspection")
+    return raw
+
+
+def ppd_options(raw):
+    if not raw.startswith(b"*PPD-Adobe:"):
+        raise StationError("The installed CUPS driver is not a PPD")
+    text = raw.decode("latin-1")
+    supported = {name: set() for name in re.findall(
+        r"^\*(?:JCL)?OpenUI[ \t]+\*([A-Za-z][A-Za-z0-9_-]{0,63})(?:/[^:\r\n]+)?:[ \t]*(?:PickOne|PickMany|Boolean)[ \t\r]*$",
+        text, re.MULTILINE)}
+    for name, value in re.findall(r"^\*([A-Za-z][A-Za-z0-9_-]{0,63})[ \t]+([A-Za-z0-9_.+\-]{1,100})(?:/[^:\r\n]+)?:",
+                                  text, re.MULTILINE):
+        if name in supported:
+            supported[name].add(value)
+    if not any(supported.values()):
+        raise StationError("The installed CUPS driver exposes no verifiable print options")
+    return supported
+
+
 class Cups:
-    def __init__(self, config, runner=command, discovery=dns_sd_lookup):
-        self.config, self.runner, self.discovery = config, runner, discovery
+    def __init__(self, config, runner=command, discovery=dns_sd_lookup, ppd_reader=read_installed_ppd):
+        self.config, self.runner, self.discovery, self.ppd_reader = config, runner, discovery, ppd_reader
 
     def doctor(self):
         queue = self.config["queue"]
@@ -689,12 +746,7 @@ class Cups:
             raise StationError("Configured Epson queue is not installed: " + queue)
         status_text = self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-p", queue, "-l"])
         accepting = self.runner(["/usr/bin/lpstat", "-h", LOCAL_CUPS_SERVER, "-a", queue])
-        options = self.runner(["/usr/bin/lpoptions", "-h", LOCAL_CUPS_SERVER, "-p", queue, "-l"])
-        supported = {}
-        for line in options.splitlines():
-            match = re.match(r"([^/:\s]+)(?:/[^:]+)?:\s*(.*)", line)
-            if match:
-                supported[match[1]] = {item.lstrip("*") for item in match[2].split()}
+        supported = ppd_options(self.ppd_reader(queue))
         for key, value in self.config["driver_options"].items():
             if key not in supported or value not in supported[key]:
                 raise StationError("Driver does not advertise configured option " + key + "=" + value)
@@ -705,7 +757,7 @@ class Cups:
                 if key.lower() in {"pagesize", "epij_size"} and value not in supported.get(key, set()):
                     raise StationError("Driver does not advertise the A4 option " + key + "=" + value)
         if recipe_id in CROWNED_RECIPES:
-            driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_LANDSCAPE_DRIVER_OPTIONS
+            driver = CROWNED_DRIVER_OPTIONS if recipe_id == CROWNED_RECIPE else CROWNED_BIDIRECTIONAL_OFF_OPTIONS
             for key, value in driver.items():
                 if value not in supported.get(key, set()):
                     raise StationError("Driver does not advertise the Crowned A4 option " + key + "=" + value)
@@ -713,7 +765,8 @@ class Cups:
             raise StationError("Configured printer is paused or not accepting jobs")
         self.jobs()  # Validate the read-only reconciliation path before accepting work.
         return {"queue": queue, "status": status_text, "accepting": accepting,
-                "advertised_options": options, "configured_options": self.config["driver_options"],
+                "advertised_options": "\n".join(f"{key}: {' '.join(sorted(values))}" for key, values in sorted(supported.items())),
+                "configured_options": self.config["driver_options"],
                 "fixed_options": applied_options, "recipe_verified": recipe_proof(self.config, recipe_id),
                 "duplex_verified": recipe_proof(self.config, recipe_id, duplex=True),
                 "recipe_fingerprint": recipe_fingerprint(self.config, recipe_id)}

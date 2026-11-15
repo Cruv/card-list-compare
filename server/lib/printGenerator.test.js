@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE } from './printGenerator.js';
+import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE, CROWNED_A4_PORTRAIT_SIX_RECIPE } from './printGenerator.js';
 import { headlessRequirements, PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
@@ -50,7 +50,7 @@ describe('physical PDF sheet planning', () => {
     expect(groups.map(group => group.id)).toEqual([...groups.map(group => group.id)].sort((a, b) => a === 'fronts' ? -1 : b === 'fronts' ? 1 : a.localeCompare(b)));
     expect(new Set(groups.flatMap(group => group.slotMap.map(slot => slot.cardId))).size).toBe(250);
   });
-  it.each(Object.values(PRINT_RECIPES).concat(CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE))('builds full sheets and preserves each face slot with $id', recipe => {
+  it.each(Object.values(PRINT_RECIPES).concat(CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE, CROWNED_A4_PORTRAIT_SIX_RECIPE))('builds full sheets and preserves each face slot with $id', recipe => {
     const capacity = recipe.cardsPerSheet;
     const ordinary = Array.from({ length: capacity + 2 }, (_, i) => ({ id: `single-${i}`, frontPath: '/a' }));
     const double = Array.from({ length: capacity + 1 }, (_, i) => ({ id: `double-${i}`, frontPath: '/a', backPath: '/b' }));
@@ -60,9 +60,31 @@ describe('physical PDF sheet planning', () => {
     expect(second).toMatchObject({ packetIndex: 2, packetCount: 2, doubleFacedCardCount: 1 });
     expect(second.cards).toEqual([...ordinary.slice(0, capacity - 1), double.at(-1)]);
     expect(second.slotMap.slice(0, -1).every(slot => slot.frontPage === 1 && !Object.hasOwn(slot, 'backPage'))).toBe(true);
-    expect(second.slotMap.at(-1)).toEqual({ cardId: double.at(-1).id, sheet: 1, slot: capacity - 1 + recipe.skip.length,
+    const slots = Array.from({ length: capacity + recipe.skip.length }, (_, i) => i).filter(slot => !recipe.skip.includes(slot));
+    expect(second.slotMap.at(-1)).toEqual({ cardId: double.at(-1).id, sheet: 1, slot: slots.at(-1),
       frontPage: 1, backPage: 2 });
     expect(remaining).toMatchObject({ id: 'fronts', cards: ordinary.slice(capacity - 1) });
+  });
+  it('keeps the last row clear and packs a 250-copy mixed or split batch into six-card sheets', () => {
+    const recipe = CROWNED_A4_PORTRAIT_SIX_RECIPE;
+    const cards = Array.from({ length: 250 }, (_, id) => ({ id: String(id), frontPath: '/a', ...(id === 0 ? {} : { backPath: '/b' }) }));
+    expect(recipe.skip).toEqual([6, 7, 8]);
+    const mixed = planPrintSheets(cards, recipe, DOUBLE_FACED_FIRST);
+    expect(mixed).toHaveLength(42);
+    expect(mixed.at(-1)).toMatchObject({ id: 'double-faced-042', doubleFacedCardCount: 3 });
+    expect(mixed.at(-1).slotMap.map(({ cardId, slot, backPage }) => [cardId, slot, backPage])).toEqual([
+      ['0', 0, undefined], ['247', 1, 2], ['248', 2, 2], ['249', 3, 2],
+    ]);
+    const separate = planPrintSheets(cards, recipe);
+    expect(separate).toHaveLength(43);
+    expect(separate[0]).toMatchObject({ id: 'fronts', kind: 'ordinary' });
+    for (const plan of [mixed, separate]) {
+      const slots = plan.flatMap(artifact => artifact.slotMap);
+      expect(new Set(slots.map(slot => slot.cardId)).size).toBe(250);
+      expect(slots.filter(slot => slot.backPage === 2)).toHaveLength(249);
+      expect(slots.every(({ slot }) => slot < 6)).toBe(true);
+    }
+    expect(planPrintSheets(cards.slice(0, 13).map(({ id, frontPath }) => ({ id, frontPath })), recipe)[0].chunks.map(chunk => chunk.length)).toEqual([6, 6, 1]);
   });
   it('rejects duplicate copies, missing staged paths, empty and oversized requests', () => {
     expect(() => planPrintSheets([])).toThrow('physical card copies');
@@ -223,7 +245,8 @@ describe('PDF adapter publication', () => {
     expect(() => printPageIdentification({ batchName: 'x'.repeat(4097) })).toThrow('bounded text');
   });
 
-  it.each([[1, undefined], [7, 'letter'], [8, 'a4'], [249, 'letter'], [10, 'a4', 'crowned-a4'], [9, 'a4', 'crowned-a4-landscape']])('publishes %i DFC copies (%s) as paired packets after ordinary fronts, with matching labels and checksums', async (count, paperSize, printPreset) => {
+  it.each([[1, undefined], [7, 'letter'], [8, 'a4'], [249, 'letter'], [10, 'a4', 'crowned-a4'], [9, 'a4', 'crowned-a4-landscape'],
+    [7, 'a4', 'crowned-a4-portrait-six']])('publishes %i DFC copies (%s) as paired packets after ordinary fronts, with matching labels and checksums', async (count, paperSize, printPreset) => {
     const directory = await temp();
     const release = vi.fn();
     const runtime = { capture: () => ({ directory: '/runtime/immutable', revision: 'fixed', release }) };
@@ -246,7 +269,8 @@ describe('PDF adapter publication', () => {
     const onProgress = vi.fn();
     const result = await createPrintGenerator({ runtime, run }).generate({ cards, outputDir: directory, batchLabel: 'CLC 1234abcd',
       requesterName: 'Dénny', batchName: 'Friday proxies', onProgress, paperSize, printPreset });
-    const recipe = printPreset === 'crowned-a4-landscape' ? CROWNED_A4_LANDSCAPE_RECIPE : printPreset ? CROWNED_A4_RECIPE : PRINT_RECIPES[paperSize ?? 'letter'];
+    const presets = [CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE, CROWNED_A4_PORTRAIT_SIX_RECIPE];
+    const recipe = presets.find(preset => preset.printPreset === printPreset) || PRINT_RECIPES[paperSize ?? 'letter'];
     expect(result.recipe).toBe(recipe);
     expect([...requests, ...merges].every(request => request.paperSize === recipe.paperSize && request.printPreset === printPreset)).toBe(true);
     expect(result.printedIdentification).toEqual({ version: 1, requesterName: 'Denny', batchName: 'Friday proxies' });
@@ -323,7 +347,7 @@ describe('PDF adapter publication', () => {
     expect(onProgress).toHaveBeenCalledExactlyOnceWith({ phase: 'generating', completedSheets: 1, totalSheets: 1 });
   });
 
-  it.each([['letter', 'crowned-a4'], ['letter', 'crowned-a4-landscape'], ['a4', 'custom']])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {
+  it.each([['letter', 'crowned-a4'], ['letter', 'crowned-a4-landscape'], ['letter', 'crowned-a4-portrait-six'], ['a4', 'custom']])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {
     const capture = vi.fn();
     await expect(createPrintGenerator({ runtime: { capture } }).generate({ paperSize, printPreset })).rejects.toThrow('requires A4');
     expect(capture).not.toHaveBeenCalled();

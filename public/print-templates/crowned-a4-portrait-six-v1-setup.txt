@@ -1,0 +1,23 @@
+Crowned A4 Portrait 3×2
+Cut six cards from the top two rows of a portrait A4 sheet
+
+1. Download and open the Silhouette Card Maker A4 Standard Borderless v2
+   Studio template. It contains the matching portrait page and registration marks.
+   https://raw.githubusercontent.com/Alan-Cha/silhouette-card-maker/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates/borderless/a4-standard-borderless-v2.studio3
+2. Save a copy for Portrait 3×2. Delete only the three lowest card cut paths.
+   Leave the remaining six positions, page, mat and registration settings as saved.
+   The PDF and cut sheet still use all three marks, including the mark near the
+   bottom-left corner. Match the mat orientation shown in Studio.
+3. If importing the DXF instead, retain the saved v2 page and registration setup
+   and replace its cut paths. The DXF has six closed rounded rectangles in mm.
+   Relative to the top-left edge of the PHYSICAL A4 sheet, the group is
+   191.516 mm wide and 177.207 mm tall, at X 9.229 mm and Y 15.240 mm.
+   Use that physical origin even if the saved Studio page has an offset.
+4. Print at actual size. The Epson receives portrait A4 through its Rear Paper
+   Feeder. This layout keeps the bottom card row free of artwork while preserving
+   the page marks. Set finished fronts aside flat to dry.
+5. If there are backs, flip around the portrait long edge and feed the same
+   short edge first. Print only the matching packet's backs from Printer in CLC.
+   Confirm feed direction and front/back alignment on a single proof sheet first.
+6. Verify registration and all six cut positions on a proof sheet before
+   sending a batch. The printed card cuts are approximately 63 × 88 mm.

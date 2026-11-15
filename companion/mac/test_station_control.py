@@ -204,6 +204,27 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
         self.assertEqual(self.cups.recipe_ids, [native.CROWNED_LANDSCAPE_V1_RECIPE])
 
+    def test_portrait_six_advertises_independent_proofs_and_requires_its_own_front_proof(self):
+        recipe = native.CROWNED_PORTRAIT_SIX_RECIPE
+        self.config.update(crowned_a4_portrait_six_enabled=True, loaded_paper_size="a4",
+                           loaded_print_preset=native.CROWNED_PORTRAIT_SIX_PRESET,
+                           crowned_a4_enabled=True, crowned_a4_recipe_verified=True, crowned_a4_duplex_verified=True)
+        self.client.job.update(recipeId=recipe, printPreset=native.CROWNED_PORTRAIT_SIX_PRESET, paperSize="a4")
+        snapshot = self.control.snapshot()
+        self.assertIn(recipe, snapshot["supportedRecipeIds"])
+        self.assertEqual(snapshot["loadedPrintPreset"], native.CROWNED_PORTRAIT_SIX_PRESET)
+        self.assertEqual(snapshot["recipeProofs"][recipe], {"recipeVerified": False, "duplexVerified": False})
+        self.assertEqual(snapshot["recipeProofs"][native.CROWNED_RECIPE], {"recipeVerified": True, "duplexVerified": True})
+        self.assertIn("proof", self.station.poll_once())
+        self.assertEqual(self.client.claims, 0)
+        self.config["crowned_a4_portrait_six_recipe_verified"] = True
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        self.assertEqual(self.cups.recipe_ids, [recipe])
+        with self.assertRaisesRegex(native.StationError, "refeed orientation have not been physically verified"):
+            native.require_recipe_proof(self.config, recipe, {"kind": "dfc"})
+        self.config["crowned_a4_portrait_six_duplex_verified"] = True
+        native.require_recipe_proof(self.config, recipe, {"kind": "dfc"})
+
     def test_management_disconnection_blocks_new_claims_but_reconciles_submitted_job(self):
         self.assertIn("connection", self.station.poll_once(allow_submit=False))
         self.assertEqual(self.client.claims, 0)

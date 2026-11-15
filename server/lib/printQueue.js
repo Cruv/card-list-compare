@@ -17,6 +17,8 @@ const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlis
 export const PRINT_JOBS_DIR = process.env.PRINT_JOBS_DIR || join(dataDir, 'print-jobs');
 export const PRINT_RETENTION_DAYS = 7;
 export const MAX_PRINT_JOB_BYTES = 2 * 1024 * 1024 * 1024;
+// A six-card layout can have 42 back-side packets and a separate ordinary PDF.
+export const MAX_PRINT_ARTIFACTS = 43;
 // Includes the retained job, duplicate PDF merge parts, and one decoded chunk's
 // source copies. Preparation runs serially, so only one allowance is reserved.
 export const PRINT_WORKING_RESERVE_BYTES = 5 * 1024 * 1024 * 1024;
@@ -256,7 +258,7 @@ export async function processNextPrintJob() {
     assertActive();
     if (totalStorage(jobDir(row.id)) > MAX_PRINT_JOB_BYTES) throw printError('Generated job exceeds the 2 GiB storage limit', 507);
     let outputBytes = 0;
-    if (!Array.isArray(generated.artifacts) || generated.artifacts.length > 37) throw printError('Generator returned too many artifacts', 500);
+    if (!Array.isArray(generated.artifacts) || generated.artifacts.length > MAX_PRINT_ARTIFACTS) throw printError('Generator returned too many artifacts', 500);
     const artifactIds = new Set();
     const packets = generated.artifacts.filter(artifact => /^double-faced-\d{3}$/.test(artifact.id));
     const packetCapacity = PRINT_PRESETS[plan.printPreset]?.cardsPerSheet ?? 7;
@@ -484,8 +486,8 @@ export function purgeUserPrintJobs(userId) {
 }
 
 export function assertStationArtifactCapacity(row, maxArtifacts) {
-  if (!Number.isSafeInteger(maxArtifacts) || maxArtifacts < 1 || maxArtifacts > 37) {
-    throw printError('maxArtifacts must be an integer between 1 and 37', 400);
+  if (!Number.isSafeInteger(maxArtifacts) || maxArtifacts < 1 || maxArtifacts > MAX_PRINT_ARTIFACTS) {
+    throw printError(`maxArtifacts must be an integer between 1 and ${MAX_PRINT_ARTIFACTS}`, 400);
   }
   const artifacts = parse(row.manifest_json)?.artifacts;
   if (!Array.isArray(artifacts)) throw printError('Print job manifest has no artifacts', 409);
@@ -502,7 +504,7 @@ export function assertStationWorkflow(row, deferredBacks, printRecovery = false,
 export const savedPrintJobPaper = row => printJobPaper(parse(row.plan_json), parse(row.manifest_json));
 const deferredStepOrder = steps => [...steps.filter(step => step.phase === 'fronts'), ...steps.filter(step => step.phase === 'backs')];
 
-export function claimPrintJob({ maxArtifacts = 37, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER,
+export function claimPrintJob({ maxArtifacts = MAX_PRINT_ARTIFACTS, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER,
   eligibleRecipeIds = paper.supportedRecipeIds, mixedPrintSheets = false } = {}) {
   let row = all(`SELECT * FROM print_jobs WHERE station_id = ? AND state IN (${ACTIVE_STATES.map(() => '?').join(',')}) ORDER BY queued_at, created_at, id LIMIT 1`, [STATION_ID, ...ACTIVE_STATES])[0];
   if (row) { assertStationArtifactCapacity(row, maxArtifacts); assertStationWorkflow(row, deferredBacks, printRecovery, mixedPrintSheets); }

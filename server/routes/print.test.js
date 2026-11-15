@@ -140,29 +140,32 @@ describe('batch paper size', () => {
     expect((await station('/claim', 'POST', {})).status).toBe(409);
   });
 
-  it('keeps the Crowned layout and nine-card packets distinct from standard A4', async () => {
-    const choice = { mode: 'full', paperSize: 'a4', printPreset: 'crowned-a4' };
-    const recipe = { id: 'household-crowned-a4-v2', paperSize: 'a4', printPreset: 'crowned-a4' };
-    db.run("UPDATE deck_snapshots SET deck_text='9 Malakir Rebirth' WHERE tracked_deck_id=1");
-    services.generatePrintPdfs.mockImplementationOnce(async input => ({ ...await packetPdfs(input, 9), recipe }));
+  it.each([
+    ['crowned-a4', 'household-crowned-a4-v2', 9],
+    ['crowned-a4-portrait-six', 'household-crowned-a4-portrait-six-v1', 6],
+  ])('keeps %s packets on their selected A4 layout', async (printPreset, id, capacity) => {
+    const choice = { mode: 'full', paperSize: 'a4', printPreset };
+    const recipe = { id, paperSize: 'a4', printPreset };
+    db.run('UPDATE deck_snapshots SET deck_text=? WHERE tracked_deck_id=1', [`${capacity} Malakir Rebirth`]);
+    services.generatePrintPdfs.mockImplementationOnce(async input => ({ ...await packetPdfs(input, capacity), recipe }));
     const { job } = await create(choice);
-    expect(job).toMatchObject({ paperSize: 'a4', printPreset: 'crowned-a4', recipeId: recipe.id });
+    expect(job).toMatchObject({ paperSize: 'a4', printPreset, recipeId: recipe.id });
     expect((await preview(choice)).planHash).not.toBe((await preview({ mode: 'full', paperSize: 'a4' })).planHash);
     await expect(preview({ ...choice, paperSize: 'letter' })).rejects.toMatchObject({ status: 400 });
     await queue.processNextPrintJob();
     expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({
-      state: 'ready', artifacts: [expect.objectContaining({ cardCount: 9, pageCount: 2 })],
+      state: 'ready', artifacts: [expect.objectContaining({ cardCount: capacity, pageCount: 2 })],
     });
     const send = () => request(`/api/decks/1/print-jobs/${job.id}/queue`, { method: 'POST' });
     const supported = { ...a4, supportedRecipeIds: [...a4.supportedRecipeIds, recipe.id] };
     await station('/heartbeat', 'POST', { ...heartbeat, ...supported });
     expect((await send()).status).toBe(409);
-    const loaded = { ...supported, loadedPrintPreset: 'crowned-a4' };
+    const loaded = { ...supported, loadedPrintPreset: printPreset };
     await station('/heartbeat', 'POST', { ...heartbeat, ...loaded });
     expect((await send()).status).toBe(200);
     expect(await (await station('/claim', 'POST', { ...supported, deferredBacks: true })).json()).toEqual({ job: null });
-    expect((await (await station('/claim', 'POST', { ...loaded, deferredBacks: true })).json()).job)
-      .toMatchObject({ id: job.id, recipeId: recipe.id, printPreset: 'crowned-a4' });
+    expect((await (await station('/claim', 'POST', { ...loaded, deferredBacks: true, maxArtifacts: capacity === 6 ? 43 : 37 })).json()).job)
+      .toMatchObject({ id: job.id, recipeId: recipe.id, printPreset });
   });
 
   it.each(['v1', 'v2'])('preserves Crowned Landscape %s for mixed packets and both physical passes', async variant => {
@@ -835,12 +838,12 @@ describe('station submission, manual refeed, and ambiguity', () => {
     expect(claimed.steps.every(step => step.state === 'pending')).toBe(true);
     expect(db.get('SELECT claim_nonce FROM print_jobs WHERE id = ?', [job.id]).claim_nonce).toBeTruthy();
   });
-  it.each([null, 0, 38, 8.5, '37', true, [], {}])('rejects an invalid artifact capability %j without claiming work', async maxArtifacts => {
+  it.each([null, 0, 44, 8.5, '43', true, [], {}])('rejects an invalid artifact capability %j without claiming work', async maxArtifacts => {
     const job = await ready({ queueOnReady: true });
     const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
     const response = await station('/claim', 'POST', { maxArtifacts });
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: expect.stringContaining('integer between 1 and 37') });
+    expect(await response.json()).toMatchObject({ error: expect.stringContaining('integer between 1 and 43') });
     expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(before);
   });
   it('preserves an active physical claim when an older or paused client cannot handle its artifacts', async () => {

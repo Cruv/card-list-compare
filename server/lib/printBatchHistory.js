@@ -1,7 +1,7 @@
 import { all, get } from '../db.js';
 import { printError } from './printQueuePlan.js';
 import { DOUBLE_FACED_FIRST, isDeferred, canCancelRemaining, hasPendingBacks, canCancelUnstartedBacks, workflowSummary } from './printWorkflow.js';
-import { printCapabilities } from './printQueue.js';
+import { MAX_PRINT_ARTIFACTS, printCapabilities } from './printQueue.js';
 
 const STATES = new Set(['all', 'preparing', 'ready', 'queued', 'claimed', 'submitting', 'submitted', 'awaiting_refeed', 'backs_pending', 'awaiting_paper_reset', 'awaiting_clearance', 'uncertain', 'completed', 'failed', 'canceled', 'expired']);
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -81,7 +81,7 @@ export function listPrintBatches(userId, query = {}, { deferredBacks = false } =
         ...workflowSummary(row),
         ...(canOpen ? { deckId: row.tracked_deck_id } : {}),
         ...(admin ? { requesterName: typeof row.requester_name === 'string' ? row.requester_name.slice(0, 120) : 'Deleted account' } : {}),
-        progress: publicProgress(row.progress_json), artifactsCount: row.state === 'expired' ? 0 : Math.min(manifest?.artifacts?.length || 0, 37),
+        progress: publicProgress(row.progress_json), artifactsCount: row.state === 'expired' ? 0 : Math.min(manifest?.artifacts?.length || 0, MAX_PRINT_ARTIFACTS),
         error: !row.error ? null : row.state === 'uncertain' ? 'The submission needs review at the Mac.' : 'This batch reported an error. Its owner can open the batch for details.',
       };
     }),
