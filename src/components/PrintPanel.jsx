@@ -6,7 +6,7 @@ import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
 import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
-import { CROWNED_A4_LANDSCAPE_PRESET, PRINT_PAPER, isCrownedPrintPreset, isPrintPaperSize, loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, stationPaperChoice } from '../lib/printPaper';
+import { CROWNED_A4_LANDSCAPE_PRESET, CROWNED_A4_PORTRAIT_SIX_PRESET, PRINT_PAPER, isCrownedPrintPreset, isPrintPaperSize, loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -538,6 +538,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
       </div>}
       {selectedPaper === CROWNED_A4_LANDSCAPE_PRESET && <p className="print-panel-meta">Centers two rows of four upright cards. Find the matching Silhouette Studio file in the <a href="#guide/printing">printing guide</a>.</p>}
+      {selectedPaper === CROWNED_A4_PORTRAIT_SIX_PRESET && <p className="print-panel-meta">Prints six cards in the top two rows, leaving the bottom row free of cards. Get the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</p>}
       {isCrownedPrintPreset(selectedPaper) && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
       <div className="print-review-footer"><div><strong>

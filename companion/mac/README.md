@@ -2,7 +2,7 @@
 
 This companion polls CLC for explicitly queued print jobs and submits their verified PDFs
 to one locally configured Epson CUPS queue. It runs outside Docker, uses Python 3.9+ and
-macOS's native `lp`, `lpstat`, `lpoptions` and `ipptool`, and needs no Python packages.
+macOS's native `lp`, `lpstat`, and `ipptool`, and needs no Python packages.
 The managed installer bundles its own Python runtime; it does not require a Git checkout
 or a separately installed Python. Source-based operation remains available for development.
 Installing or running this code does not install an Epson driver or reproduce an Adobe
@@ -76,6 +76,8 @@ rollback preserves configuration, the token, PDFs and the ledger. The first inst
 has no previous version to roll back to. No version change prints a test sheet automatically.
 An unresolved job containing a recovery attempt also blocks rollback below 2.57.0.
 Unresolved centered Crowned A4 Landscape batches block rollback below 2.59.1.
+Unresolved Crowned A4 Portrait 3×2 batches block rollback below 2.60.0. If that
+preset is selected, switch the local configuration to a supported preset before rolling back.
 
 For migration from a running checkout, pause it and unload its existing LaunchAgent first.
 Move that old plist to a backup path before installing; a conflicting existing LaunchAgent
@@ -129,16 +131,17 @@ Edit `config.json` to set the reachable CLC origin and exact installed Epson que
 destinations and their actual supported options with these read-only commands:
 
 ```bash
-lpstat -h localhost -e
-lpoptions -h localhost -p YOUR_EPSON_QUEUE -l
+lpstat -h /private/var/run/cupsd -e
 python3 companion/mac/clc_print_station.py doctor
 ```
 
 `driver_options` is a local map of advertised option keywords to advertised values. Add the
 actual media, quality, rear-feed and color-control choices offered by the full Epson Mac
 driver. Their names vary by installed driver; this repository deliberately contains no
-invented universal Epson option names. `doctor` rejects unadvertised configured values,
-checks queue availability and tests read-only job reconciliation. It reports the chosen
+invented universal Epson option names. `doctor` reads the exact queue's root-owned local
+driver definition and rejects unadvertised configured values. It checks queue availability
+and tests read-only job reconciliation without waiting for network printer discovery.
+It reports the chosen
 recipe fingerprint and proof flags. A successful report is not a color or alignment proof.
 
 Deploy the v2.58.0 server before switching an existing companion to A4. Set
@@ -159,6 +162,15 @@ Use the original driver profile as the starting point for color. Record
 `crowned_a4_recipe_verified` and `crowned_a4_duplex_verified` only after their
 physical checks. Dry the front fully before manually reloading it. For standard A4 or
 Letter stock, remove `loaded_print_preset` and select the matching size.
+
+For **Crowned A4 · Portrait 3×2**, deploy CLC 2.60.0 before upgrading the Mac companion.
+Enable `crowned_a4_portrait_six_enabled` and select `loaded_paper_size: "a4"` and
+`loaded_print_preset: "crowned-a4-portrait-six"` once the station is idle. Both passes
+use portrait A4 at actual size with the standard rear paper feeder, Thick Paper and
+Envelopes on, and Bidirectional Printing off. Record the separate
+`crowned_a4_portrait_six_recipe_verified` and `crowned_a4_portrait_six_duplex_verified`
+flags after checking the front layout and doing a one-sheet manual refeed test.
+Use the matching Portrait 3×2 cutter file for these batches.
 
 For **Crowned A4 · Landscape 2×4**, enable `crowned_a4_landscape_enabled` and select
 `loaded_paper_size: "a4"` and `loaded_print_preset: "crowned-a4-landscape"` when the
@@ -407,7 +419,7 @@ and labels, paired slots, empty positions and unchanged v6 dimensions were verif
 No paper was printed. Physical v6 cutting and manual duplex proof are still required.
 
 Upgrade the companion before large packet jobs. The claim request advertises its supported
-artifact count (37 in v2.48.0); older clients default to eight. A larger waiting job stays
+artifact count (43 in v2.60.0, 37 in v2.48.0); older clients default to eight. A larger waiting job stays
 queued with an upgrade error before a new durable claim or print attempt is made.
 
 ### New-job queue messages (2.56.0+)

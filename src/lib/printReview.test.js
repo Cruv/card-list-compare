@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
-import { loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable } from './printPaper';
+import { loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -154,6 +154,9 @@ describe('durable print creation recovery', () => {
     const landscape = { ...original, printPreset: 'crowned-a4-landscape' };
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(landscape) }, 'key')).toMatchObject(landscape);
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...landscape, paperSize: 'letter' }) }, 'key')).toBeNull();
+    const portraitSix = { ...original, printPreset: 'crowned-a4-portrait-six' };
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(portraitSix) }, 'key')).toMatchObject(portraitSix);
+    expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...portraitSix, paperSize: 'letter' }) }, 'key')).toBeNull();
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(request) }, 'key')).not.toHaveProperty('paperSize');
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...request, paperSize: 'a3' }) }, 'key')).toBeNull();
   });
@@ -204,6 +207,26 @@ it('matches Crowned landscape jobs by exact loaded preset and supported recipe',
     .toMatchObject({ ordinarySheets: 1, packets: 1, sheets: 2, pages: 3 });
 });
 
+it('counts six top-row slots and matches the Crowned 3×2 preset independently', () => {
+  const six = printPaperRequest('crowned-a4-portrait-six');
+  const recipeId = 'household-crowned-a4-portrait-six-v1';
+  const fullPortraitRecipeId = 'household-crowned-a4-v2';
+  const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: six.printPreset,
+    supportedRecipeIds: [fullPortraitRecipeId, recipeId] };
+  expect(six).toEqual({ paperSize: 'a4', printPreset: 'crowned-a4-portrait-six' });
+  expect(loadDefaultPrintPaper({ getItem: () => six.printPreset }, 'key')).toBe(six.printPreset);
+  expect(printPaperChoice({ recipeId })).toBe(six.printPreset);
+  expect(printPaperLabel(six)).toBe('Crowned A4 · Portrait 3×2');
+  expect(printPaperUnavailable(six, station)).toBe('');
+  expect(printPaperUnavailable(six, { ...station, loadedPrintPreset: 'crowned-a4' })).toMatch(/set up for Crowned A4 · Portrait 3×3/);
+  expect(printPaperUnavailable(six, { ...station, supportedRecipeIds: [fullPortraitRecipeId] })).toMatch(/Update and configure the Mac companion/);
+  expect(refeedSameShortEdge({ recipeId })).toBe(true);
+  expect(refeedSameShortEdge({ recipeId: 'household-crowned-a4-landscape-v2' })).toBe(false);
+  const mixed = { ...six, sheetPacking: 'double-faced-first', doubleFacedCopies: 1 };
+  expect(printReviewSummary({ ...mixed, totalCopies: 6, ordinaryCopies: 5 })).toMatchObject({ sheets: 1, packets: 1, ordinarySheets: 0, pages: 2 });
+  expect(printReviewSummary({ ...mixed, totalCopies: 7, ordinaryCopies: 6 })).toMatchObject({ sheets: 2, packets: 1, ordinarySheets: 1, pages: 3 });
+});
+
 describe('standalone print drafts', () => {
   const draft = { listName: 'Extras', cardText: '2 Lightning Bolt', includeSideboard: false,
     excludeBasicLands: true, additionalCardText: '1 Sol Ring', excludedCards: ['lightning bolt'],
@@ -213,8 +236,8 @@ describe('standalone print drafts', () => {
     expect(loadStandalonePrintDraft(storage, 'user:1')).toEqual(draft);
     expect(loadStandalonePrintDraft(storage, 'user:2')).toBeNull();
   });
-  it('retains a landscape preset in the draft when A4 paper is specified', () => {
-    const value = { ...draft, ...printPaperRequest('crowned-a4-landscape') };
+  it.each(['crowned-a4-landscape', 'crowned-a4-portrait-six'])('retains preset %s in the draft when A4 paper is specified', preset => {
+    const value = { ...draft, ...printPaperRequest(preset) };
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key')).toEqual(value);
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...value, paperSize: 'letter' }) }, 'key')).toBeNull();
   });

@@ -1,9 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
-const template = new URL('../../public/print-templates/crowned-a4-landscape-v2.dxf', import.meta.url);
-const geometry = JSON.parse(readFileSync(new URL('./crownedLandscapeGeometry.json', import.meta.url), 'utf8'));
-
 function readEntities(records) {
   const start = records.findIndex(([code, value]) => code === 2 && value === 'ENTITIES');
   expect(start).toBeGreaterThanOrEqual(0);
@@ -16,7 +13,14 @@ function readEntities(records) {
   return entities;
 }
 
-it('exports eight closed R13 cut outlines with straight sides and rounded corners at the PDF card positions', () => {
+it.each([
+  { name: 'Crowned Landscape 2×4', file: 'crowned-a4-landscape-v2.dxf', geometryFile: 'crownedLandscapeGeometry.json',
+    paper: [297, 210], x: [244, 1003, 1762, 2521], y: [194, 1248], count: 8 },
+  { name: 'Crowned Portrait 3×2', file: 'crowned-a4-portrait-six-v1.dxf', geometryFile: 'crownedPortraitGeometry.json',
+    paper: [210, 297], x: [109, 868, 1627], y: [180, 1234], count: 6 },
+])('exports $count closed R13 outlines at the $name PDF card positions', ({ file, geometryFile, paper, x: xPositions, y: yPositions, count }) => {
+  const template = new URL(`../../public/print-templates/${file}`, import.meta.url);
+  const geometry = JSON.parse(readFileSync(new URL(`./${geometryFile}`, import.meta.url), 'utf8'));
   const lines = readFileSync(template, 'utf8').trimEnd().split(/\r?\n/);
   expect(lines.length % 2).toBe(0);
   const records = [];
@@ -27,16 +31,16 @@ it('exports eight closed R13 cut outlines with straight sides and rounded corner
 
   const entities = readEntities(records);
   const pathStarts = entities.flatMap(({ type }, index) => type === 'POLYLINE' ? [index] : []);
-  expect(pathStarts).toHaveLength(8);
+  expect(pathStarts).toHaveLength(count);
   expect(pathStarts[0]).toBe(0);
   const { cardPixels, paperMillimeters, cornerRadiusMillimeters: radius } = geometry;
-  expect(paperMillimeters).toEqual({ width: 297, height: 210 });
-  expect(cardPixels.x).toEqual([244, 1003, 1762, 2521]);
-  expect(cardPixels.y).toEqual([194, 1248]);
+  expect(paperMillimeters).toEqual({ width: paper[0], height: paper[1] });
+  expect(cardPixels.x).toEqual(xPositions);
+  expect(cardPixels.y.slice(0, geometry.sixCardRows ?? cardPixels.y.length)).toEqual(yPositions);
   const mm = pixels => pixels * 25.4 / cardPixels.ppi;
   const width = mm(cardPixels.width);
   const height = mm(cardPixels.height);
-  const expectedPositions = cardPixels.y.flatMap(y => cardPixels.x.map(x => [mm(x), mm(y)]));
+  const expectedPositions = yPositions.flatMap(y => xPositions.map(x => [mm(x), mm(y)]));
 
   for (const [index, start] of pathStarts.entries()) {
     const [header, ...components] = entities.slice(start, pathStarts[index + 1]);

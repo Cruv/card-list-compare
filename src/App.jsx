@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.59.1';
+const APP_VERSION = '2.60.0';
 const WHATS_NEW = [
-  'Crowned A4 Landscape centers eight upright cards in two rows of four',
-  'The printing guide links to the matching Silhouette Studio template and corrected DXF',
+  'Crowned A4 Portrait 3×2 prints six cards in the top two rows and leaves the bottom row empty',
+  'The Mac checks its installed Epson driver without relying on printer discovery',
 ];
 
 function getResetToken() {

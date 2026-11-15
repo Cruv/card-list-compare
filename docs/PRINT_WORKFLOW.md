@@ -74,12 +74,12 @@ and unsupported meld layouts block generation before a job is created. Then choo
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
 
-In print review, choose **US Letter**, **A4**, or either **Crowned A4** layout and save
+In print review, choose **US Letter**, **A4**, or a **Crowned A4** layout and save
 a default for your account in this browser. The batch keeps that choice through generation, printing, saved
-backs and interrupted-pass recovery. Existing batches use US Letter. Downloading a PDF
-works with either size. For direct printing, the Mac station must support the batch's
-size and be configured for the stock in the rear feeder. If the feeder's configured
-size or preset changes, queued batches of the other stock wait for matching stock. See the
+backs and interrupted-pass recovery. Older batches without a saved paper size use US Letter.
+Downloading a PDF works for every layout. For direct printing, the Mac station must support the batch's
+paper size and be configured for the exact stock and layout in the rear feeder. If the station's
+size or preset changes, queued batches wait for their matching paper and layout. See the
 [Mac paper setup](../companion/mac/README.md#configure-without-printing) for the local settings.
 
 With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
@@ -90,9 +90,9 @@ repeated queue requests and later saved-back requests do not create another anno
 The Mac delivers through its regular heartbeat; an offline Mac delays pending notices.
 No historical queue entries are backfilled, and delivery failures do not change printing.
 
-Each job produces `fronts.pdf` for ordinary cards, followed by one-sheet double-faced
-packets: `double-faced-001.pdf`, `double-faced-002.pdf`, and so on. A packet holds at most
-seven copies, or nine with the Crowned preset. Page 1 contains fronts and page 2 matching backs. It reports its
+Jobs can include `fronts.pdf` for front-only sheets and one-sheet double-faced
+packets such as `double-faced-001.pdf` and `double-faced-002.pdf`. A packet holds up to
+one sheet’s worth of cards for its layout. Page 1 contains fronts and page 2 matching backs. It reports its
 packet number/count, printed label, sheets, pages and copies. A job
 fails if required artwork or a face is missing; it never publishes a partial batch PDF.
 Errors and previous batches remain visible after reloading. Downloads include the exact
@@ -227,11 +227,24 @@ A4 uses landscape 297 × 210 mm and the upstream `a4-standard-v5.studio3` cuttin
 template. It keeps seven standard cards per sheet, the 600 PPI, 1 mm crop and three
 registration marks. Match the Cameo template to the batch's PDF size.
 
-The **Crowned A4** preset uses portrait 210 × 297 mm and nine standard cards per full
+**Crowned A4 · Portrait 3×3** uses portrait 210 × 297 mm and nine standard cards per full
 sheet. Use the matching [A4 standard borderless v2 Cameo file](https://github.com/Alan-Cha/silhouette-card-maker/blob/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates/borderless/a4-standard-borderless-v2.studio3).
 The Epson prints at actual size with expansion off. Its Rear Paper Feeder and Thick
 Paper and Envelopes settings apply to both sides. Test registration and cut settings
 on the resin-coated stock before committing a batch.
+
+### Crowned A4 Portrait 3×2
+
+Choose **Crowned A4 · Portrait 3×2** for six upright cards in the top two rows of
+portrait A4 (210 × 297 mm). The bottom row has no cards, and all three registration
+marks remain. The Mac prints both passes at actual size using the Rear Paper Feeder,
+Thick Paper and Envelopes on, Bidirectional Printing off, expansion off and automatic
+duplex off. Set the Mac to the matching 3×2 preset for fronts and saved backs.
+
+Import the [six-position DXF](../public/print-templates/crowned-a4-portrait-six-v1.dxf)
+into Silhouette Studio using the [setup instructions](../public/print-templates/crowned-a4-portrait-six-v1-setup.txt).
+Check registration, cut alignment and the portrait long-edge flip on one test sheet.
+For the back pass, let the fronts dry fully and feed the same short edge first.
 
 ### Crowned A4 Landscape 2×4
 
@@ -295,7 +308,7 @@ uses Debian for ARM64/AMD64 binary-wheel compatibility. The inspected upstream r
 was `4d4aa73a95e93b09676c863a1861765863398c63`; it is not a permanent source pin.
 
 A single worker invokes upstream once per sheet, with seven slots for Letter and standard A4,
-nine for Crowned A4 Portrait or eight for Crowned A4 Landscape. It merges front-only sheets into one PDF and retains each sheet
+nine for Crowned A4 Portrait 3×3, six for Portrait 3×2 or eight for Landscape 2×4. It merges front-only sheets into one PDF and retains each sheet
 that needs a flip as its own two-page packet. Each batch fills its own sheets.
 Limits are 250 physical copies, 20 MiB per source image, 1 GiB per PDF and 2 GiB per retained
 job, including staged sources. Saved MPC images are downloaded sequentially to disk with
@@ -317,7 +330,8 @@ was printed, and it does not complete the physical cutting or duplex proof.
 For mixed jobs prepared in CLC **2.59.0+**, group the double-sided cards onto the first
 sheets printed. Single-sided cards fill any open slots there, and any overflow prints
 afterward. For example, eight singles and one double-sided card fit on one Crowned A4
-sheet. Page 2 of that packet prints only the matching reverse face, aligned to its front
+Portrait 3×3 sheet, while Portrait 3×2 fits five singles and one double-sided card.
+Page 2 of that packet prints only the matching reverse face, aligned to its front
 position. Look for **REFEED FOR BACK** on the front margin beside the batch and packet identifiers.
 A mixed batch can be downloaded or queued before updating the companion. The station
 claims it after the companion advertises mixed-sheet support (2.59.0+). Previously
@@ -343,7 +357,8 @@ print this packet’s backs**. Page 2 runs as a separate one-sided pass; automat
 remains disabled.
 
 For Crowned A4, let the front dry fully before reloading. Verify the portrait long-edge
-flip on one sheet before printing the rest of a batch. For centered Landscape, use the standard A4 refeed direction after a one-sheet
+flip on one sheet before printing the rest of a batch. For Portrait 3×2, feed the same
+short edge first on both passes. For centered Landscape, use the standard A4 refeed direction after a one-sheet
 alignment check. Older shifted sheets marked **FEED THIS EDGE FIRST** use that
 marked short edge for both passes. Crowned recommends an overnight
 cure in a dry room after printing and before cutting or sleeving.
@@ -628,7 +643,7 @@ Overrides use stable original row keys and verified exact card IDs. Station endp
 under `/api/print-station` are `/status`, `/claim`, and job status, reports and artifacts.
 All are authenticated; PDF bytes are streamed without nginx disk buffering. See
 [OPERATIONS.md](OPERATIONS.md) and [SECURITY.md](../SECURITY.md) for deployment details.
-The station claim accepts a bounded `maxArtifacts` capability (1–37, default eight for
+The station claim accepts a bounded `maxArtifacts` capability (1–43, default eight for
 older clients). An oversized waiting job remains queued and reports an upgrade requirement
 before a fresh claim; existing physical submissions must still be reconciled.
 

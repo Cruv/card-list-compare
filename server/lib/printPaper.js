@@ -2,10 +2,12 @@ const printError = (message, status = 400) => Object.assign(new Error(message), 
 
 export const PRINT_PAPER_RECIPES = Object.freeze({ letter: 'household-letter-v6', a4: 'household-a4-v5' });
 export const CROWNED_PRESET = 'crowned-a4';
+export const CROWNED_PORTRAIT_SIX_PRESET = 'crowned-a4-portrait-six';
 export const CROWNED_LANDSCAPE_PRESET = 'crowned-a4-landscape';
 export const CROWNED_LANDSCAPE_V1_RECIPE = 'household-crowned-a4-landscape-v1';
 export const PRINT_PRESETS = Object.freeze({
   [CROWNED_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-v2', cardsPerSheet: 9, label: 'Crowned A4 · Portrait 3×3' }),
+  [CROWNED_PORTRAIT_SIX_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-portrait-six-v1', cardsPerSheet: 6, label: 'Crowned A4 · Portrait 3×2' }),
   [CROWNED_LANDSCAPE_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-landscape-v2', cardsPerSheet: 8, label: 'Crowned A4 · Landscape 2×4' }),
 });
 export const LEGACY_STATION_PAPER = Object.freeze({

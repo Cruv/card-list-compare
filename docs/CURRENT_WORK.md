@@ -1,5 +1,16 @@
 # Current work checkpoint
 
+## Crowned A4 Portrait 3×2
+
+CLC 2.60.0 adds a six-card portrait preset. It uses the two upper rows of the
+Crowned A4 portrait grid and keeps cards off the trailing third of the sheet.
+Existing batches keep the layouts and print settings they were created with.
+The Mac companion 2.60.0 checks the installed Epson driver locally, so printer
+discovery can no longer stall verification of its options.
+
+The six-card layout needs its own physical Epson, Cameo registration and refeed
+checks. The registration marks still use the full paper size.
+
 ## Crowned A4 Landscape 2×4
 
 CLC 2.59.1 generates the standard centered A4 v5 layout for Crowned Landscape.

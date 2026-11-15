@@ -14,7 +14,13 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject
 
 CROWNED_LANDSCAPE = "crowned-a4-landscape"
+CROWNED_PORTRAIT = "crowned-a4"
+CROWNED_PORTRAIT_SIX = "crowned-a4-portrait-six"
+PORTRAIT_PRESETS = {CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX}
 CROWNED_LANDSCAPE_GEOMETRY = json.loads(Path(__file__).with_name("crownedLandscapeGeometry.json").read_text())
+CROWNED_PORTRAIT_GEOMETRY = json.loads(Path(__file__).with_name("crownedPortraitGeometry.json").read_text())
+PORTRAIT_CARD = CROWNED_PORTRAIT_GEOMETRY["cardPixels"]
+PORTRAIT_MARKS = CROWNED_PORTRAIT_GEOMETRY["registrationMillimeters"]
 
 # The largest approved sheet is A4 at 7014 × 4960 pixels. Source cards keep their smaller cap.
 APPROVED_PAPER = {
@@ -29,14 +35,20 @@ APPROVED_PAPER = {
         "registration_length": "9.4mm", "layout_pixels": (3508, 2480), "raster_pixels": (7014, 4960),
         "x": CROWNED_LANDSCAPE_GEOMETRY["cardPixels"]["x"], "y": CROWNED_LANDSCAPE_GEOMETRY["cardPixels"]["y"],
     },
-    "crowned-a4": {
+    CROWNED_PORTRAIT: {
         "name": "Crowned A4", "version": 2, "width": "297mm", "height": "210mm",
-        "registration_inset": "3.5mm", "registration_length": "10.5mm",
+        "registration_inset": f"{PORTRAIT_MARKS['inset']}mm", "registration_length": f"{PORTRAIT_MARKS['length']}mm",
         "layout_pixels": (2480, 3508), "raster_pixels": (7014, 4960),
-        "x": [109, 868, 1627], "y": [180, 1234, 2288],
+        "x": PORTRAIT_CARD["x"], "y": PORTRAIT_CARD["y"],
     },
 }
 APPROVED_PAPER[CROWNED_LANDSCAPE] = {**APPROVED_PAPER["a4"], "name": "Crowned A4 Landscape"}
+APPROVED_PAPER[CROWNED_PORTRAIT_SIX] = {**APPROVED_PAPER[CROWNED_PORTRAIT], "name": "Crowned A4 Portrait 3×2", "version": 1}
+SKIPPED_SLOTS = {
+    "letter": (4,), "a4": (4,),
+    CROWNED_PORTRAIT_SIX: tuple(range(len(PORTRAIT_CARD["x"]) * CROWNED_PORTRAIT_GEOMETRY["sixCardRows"],
+                                     len(PORTRAIT_CARD["x"]) * len(PORTRAIT_CARD["y"]))),
+}
 Image.MAX_IMAGE_PIXELS = max(width * height for width, height in (paper["raster_pixels"] for paper in APPROVED_PAPER.values()))
 MAX_SOURCE_PIXELS = 16_000_000
 warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -48,7 +60,7 @@ def paper_key(request):
     preset = request.get("printPreset")
     if preset is None and size in ("letter", "a4"):
         return size
-    if preset in ("crowned-a4", CROWNED_LANDSCAPE) and size == "a4":
+    if preset in (CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX, CROWNED_LANDSCAPE) and size == "a4":
         return preset
     raise ValueError("Unsupported paper size and print preset")
 
@@ -57,8 +69,11 @@ def approved_geometry(source, recipe):
     if recipe == CROWNED_LANDSCAPE:
         # Crowned Landscape uses the upstream A4 v5 grid and registration marks.
         recipe = "a4"
+    elif recipe == CROWNED_PORTRAIT_SIX:
+        # The six-card recipe preserves the approved three-row grid, marks and feed orientation.
+        recipe = CROWNED_PORTRAIT
     paper = APPROVED_PAPER[recipe]
-    portrait = recipe == "crowned-a4"
+    portrait = recipe in PORTRAIT_PRESETS
     paper_size = "a4" if portrait else recipe
     variant = "borderless" if portrait else "default"
     inset = paper.get("registration_inset", "10mm")
@@ -111,7 +126,7 @@ def image_copy(source, destination):
 def validate_pdf(filename, count, recipe, *, upstream=False):
     paper = APPROVED_PAPER[recipe]
     width, height = paper["raster_pixels"]
-    portrait = recipe == "crowned-a4" and not upstream
+    portrait = recipe in PORTRAIT_PRESETS and not upstream
     page_width, page_height = (height, width) if portrait else (width, height)
     orientation = "portrait" if portrait else "landscape"
     media_box = [0, 0, page_width * 72 / 600, page_height * 72 / 600]
@@ -175,7 +190,7 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             fonts[NameObject("/CLCPageIdentity")] = font
             resources[NameObject("/Font")] = fonts
             page[NameObject("/Resources")] = resources
-            portrait = recipe == "crowned-a4"
+            portrait = recipe in PORTRAIT_PRESETS
             if portrait:
                 # Upstream rotates portrait raster artwork counterclockwise into
                 # landscape. Restore portrait on the PDF page without resampling.
@@ -199,14 +214,18 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
     temporary.replace(filename)
 
 
+def usable_slots(recipe):
+    paper = APPROVED_PAPER[recipe]
+    return [slot for slot in range(len(paper["x"]) * len(paper["y"])) if slot not in SKIPPED_SLOTS.get(recipe, ())]
+
+
 def chunk(request):
     source, directory = Path(request["source"]), Path(request["directory"])
     paper_size = request.get("paperSize", "letter")
     recipe = paper_key(request)
     approved_geometry(source, recipe)
     cards = request["cards"]
-    capacity = {"crowned-a4": 9, CROWNED_LANDSCAPE: 8}.get(recipe, 7)
-    if not 1 <= len(cards) <= capacity:
+    if not 1 <= len(cards) <= len(usable_slots(recipe)):
         raise ValueError("Each generator invocation must contain one sheet at most")
     sides = [bool(card.get("backPath")) for card in cards]
     double_faced = request["doubleFaced"]
@@ -228,10 +247,10 @@ def chunk(request):
             "--output_path", str(output), "--card_size", "standard", "--paper_size", paper_size, "--registration", "3",
             "--ppi", "600", "--quality", "100", "--crop", "1mm", "--fit", "stretch",
             "--label", request["label"]]
-    if recipe == "crowned-a4":
+    if recipe in PORTRAIT_PRESETS:
         args.append("--borderless")
-    elif recipe != CROWNED_LANDSCAPE:
-        args.extend(["--skip", "4"])
+    for slot in SKIPPED_SLOTS.get(recipe, ()):
+        args.extend(["--skip", str(slot)])
     if not double_faced:
         args.append("--only_fronts")
     subprocess.run([*command, *args], cwd=directory, stdin=subprocess.DEVNULL, check=True, timeout=90)
@@ -278,15 +297,14 @@ def smoke(source, directory):
             paths.append(str(filename))
         cards.append({"id": str(index), "frontPath": paths[0], "backPath": paths[1]})
     for recipe in APPROVED_PAPER:
-        capacity = {"crowned-a4": 9, CROWNED_LANDSCAPE: 8}.get(recipe, 7)
-        smoke_paper(source, directory, cards[:capacity], recipe)
+        smoke_paper(source, directory, cards[:len(usable_slots(recipe))], recipe)
 
 
 def smoke_paper(source, directory, cards, recipe):
     paper = APPROVED_PAPER[recipe]
-    portrait = recipe == "crowned-a4"
+    portrait = recipe in PORTRAIT_PRESETS
     centered = recipe == CROWNED_LANDSCAPE
-    usable_slots = list(range(len(cards))) if portrait or centered else [0, 1, 2, 3, 5, 6, 7]
+    slots = usable_slots(recipe)
     columns = len(paper["x"])
     request_paper = {"paperSize": "a4", "printPreset": recipe} if portrait or centered else {"paperSize": recipe}
 
@@ -311,6 +329,13 @@ def smoke_paper(source, directory, cards, recipe):
             point = (round(x_mm * 600 / 25.4), round(y_mm * 600 / 25.4))
             if max(image.getpixel(point)) > 48:
                 raise ValueError("Crowned registration marks moved out of their approved positions")
+        if recipe == CROWNED_PORTRAIT_SIX:
+            # The previous row's bleed may extend into the gutter. Inspect the
+            # empty card row itself, above the bottom marks and upstream label.
+            start = paper["y"][-1] * 2
+            end = (paper["y"][-1] + PORTRAIT_CARD["height"]) * 2
+            if any(low < 252 for low, _ in image.crop((0, start, image.width, end)).getextrema()):
+                raise ValueError("The bottom Crowned A4 Portrait 3×2 card row must stay blank on both faces")
         return image
 
     mixed_backs = 1 if portrait else 2
@@ -332,7 +357,7 @@ def smoke_paper(source, directory, cards, recipe):
         raster = read_raster(reader.pages[0])
         if not portrait and not centered:
             pixel(raster, 4, 519, (255, 255, 255))
-        for index, slot in enumerate(usable_slots):
+        for index, slot in enumerate(slots):
             pixel(raster, slot, 519, (30 + index * 20, 90, 180))
             pixel(raster, slot, 230, (255, 255, 255))
         if double_faced:
@@ -341,7 +366,7 @@ def smoke_paper(source, directory, cards, recipe):
             raster = read_raster(reader.pages[1])
             if not portrait and not centered:
                 pixel(raster, 0, 519, (255, 255, 255))
-            for index, slot in enumerate(usable_slots):
+            for index, slot in enumerate(slots):
                 row, column = divmod(slot, columns)
                 back_slot = row * columns + (columns - 1 - column) if portrait else (1 - row) * columns + column
                 color = (180, 30 + index * 20, 60) if index >= first_back else (255, 255, 255)
