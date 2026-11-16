@@ -1,5 +1,14 @@
 # Current work checkpoint
 
+## Save artwork from print review
+
+The art picker can save a selected Scryfall printing in a new version of the
+current tracked deck. The owner may clear the save checkbox to keep a batch-only
+selection. The write uses the snapshot ID and text hash as its conflict check,
+and the print review follows the newly saved version after a fresh review.
+Chrome checks with fixture APIs covered the deck save, batch-only and historical
+choices, concurrent saves, and recovery when snapshot retention removes a baseline.
+
 ## A4 grain direction
 
 New batches offer Crowned A4 Portrait 3×3 and 3×2. In both layouts the

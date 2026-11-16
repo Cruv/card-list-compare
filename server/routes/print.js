@@ -9,6 +9,7 @@ import {
 import { getPrintGeneratorStatus } from '../lib/printGenerator.js';
 import { listPrintBatches } from '../lib/printBatchHistory.js';
 import { assertQueuePaper, supportsDeferredBacks } from '../lib/printStationManagement.js';
+import { savePrintArtToDeck } from '../lib/printDeckArt.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -33,6 +34,10 @@ printBatchesRouter.get('/', route((req, res) => res.json(listPrintBatches(req.us
 router.post('/:deckId/print-plan', route(async (req, res) => {
   const plan = await buildPrintPlan(req.user.userId, deckId(req), req.body || {});
   res.json({ plan: publicPrintPlan(plan), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
+}));
+router.post('/:deckId/print-art', route(async (req, res) => {
+  const result = await savePrintArtToDeck(req.user.userId, deckId(req), req.body || {});
+  res.status(result.changed ? 201 : 200).json(result);
 }));
 router.get('/:deckId/print-jobs', route((req, res) => {
   res.json({ jobs: listPrintJobs(req.user.userId, deckId(req)), capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });

@@ -41,12 +41,22 @@ describe('Scryfall lookup completeness', () => {
     const { value } = await settle(fetchCardImageUrls([card({ requestedScryfallId, selectionKey: 'original-key', baseQuantity: 1 })]));
     expect(JSON.parse(fetch.mock.calls[0][1].body).identifiers).toEqual([{ id: requestedScryfallId }]);
     expect(value[0]).toMatchObject({ selectionKey: 'original-key', baseQuantity: 1, requestedScryfallId, scryfallId: requestedScryfallId, setCode: 'lea', collectorNumber: '161' });
+    expect(value[0]).not.toHaveProperty('printingDetails');
     metadata([dataCard({ id: 'b2222222-2222-4222-8222-222222222222' })]);
     const wrongId = await settle(fetchCardImageUrls([card({ requestedScryfallId })]));
     expect(wrongId.error.failures[0].reason).toContain('Selected printing');
     metadata([dataCard({ id: requestedScryfallId, name: 'Giant Growth' })]);
     const wrongCard = await settle(fetchCardImageUrls([card({ requestedScryfallId })]));
     expect(wrongCard.error.failures[0].reason).toContain('does not match');
+  });
+  it('exposes trusted paper-printing details only when needed for a deck save', async () => {
+    const scryfallId = 'a1111111-1111-4111-8111-111111111111';
+    metadata([dataCard({ id: scryfallId, set: 'plst', collector_number: 'M10-146', lang: 'en', games: ['paper'] })]);
+    const { value } = await settle(fetchCardImageUrls([card({ requestedScryfallId: scryfallId })], { includePrintingDetails: true }));
+    expect(value[0].printingDetails).toEqual({ setCode: 'plst', collectorNumber: 'M10-146', paper: true, language: 'en' });
+    metadata([dataCard({ id: scryfallId, digital: true, games: ['arena'] })]);
+    const { value: digital } = await settle(fetchCardImageUrls([card({ requestedScryfallId: scryfallId })], { includePrintingDetails: true }));
+    expect(digital[0].printingDetails.paper).toBe(false);
   });
   it('resolves both faces of a selected ID requested through its back-face alias', async () => {
     const requestedScryfallId = 'a1111111-1111-4111-8111-111111111111';

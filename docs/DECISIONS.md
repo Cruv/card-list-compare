@@ -208,6 +208,13 @@ switch away from saved MPC art. Chosen IDs, resolved faces and both comparison t
 the immutable plan/hash; changing them requires a new review. Explicit-ID image downloads
 must not use a set/collector-only cache that could return another language or art variant.
 
+**Save print artwork to the deck (2026-11-16).** Picking a Scryfall printing from
+the latest tracked deck version can also save its set and collector number in a
+new snapshot. The owner-scoped write verifies the selected card and matches the
+reviewed snapshot ID and text hash again inside the write transaction. Earlier
+snapshots, saved print jobs and the paper snapshot marker retain their identities.
+Batch-only choices continue to use the print plan's overrides.
+
 **One-sheet DFC packets (2026-09-10; sequencing revised 2026-09-12).** Keep each batch isolated and print its ordinary fronts
 first. Each subsequent DFC artifact contains at most seven copies on exactly two pages:
 front, then back. Partial sheets are intentional; easier paper handling takes priority over

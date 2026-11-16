@@ -499,6 +499,8 @@ export async function downloadJobFile(deckId, jobId, deckName) {
 // Household PDFs and the native Mac print queue.
 export const previewPrintPlan = (deckId, options) =>
   apiFetch(`/decks/${deckId}/print-plan`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
+export const savePrintArtToDeck = (deckId, options) =>
+  apiFetch(`/decks/${deckId}/print-art`, { method: 'POST', body: JSON.stringify(options), timeout: 30_000 });
 export const createPrintJob = (deckId, options) =>
   apiFetch(`/decks/${deckId}/print-jobs`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
 export const getPrintJobs = (deckId) => apiFetch(`/decks/${deckId}/print-jobs`);

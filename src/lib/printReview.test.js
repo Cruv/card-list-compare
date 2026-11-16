@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
 import { availablePrintPaperChoices, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge, selectAvailablePrintPaper } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
@@ -10,6 +10,17 @@ const plan = () => ({ totalCopies: 8, ordinaryCopies: 1, doubleFacedCopies: 7,
     { isDFC: true, faces: [face('front', 'saved-mpc'), face('back', 'saved-mpc')], errors: [] }] });
 
 describe('physical artwork review', () => {
+  it('uses saved deck art by default and keeps the chosen art on matching extras and an MPC review', () => {
+    const prior = { selectionKey: 'unchanged', scryfallId: 'other-art' };
+    const overrides = [prior, { selectionKey: 'original', scryfallId: 'old-choice' }];
+    const card = { selectionKey: 'original', additionalQuantity: 2 };
+    const extra = { selectionKey: 'original', scryfallId: 'chosen-art' };
+    const saved = { selectionKey: 'saved', scryfallId: 'chosen-art' };
+    expect(printArtOverridesAfterSave(overrides, card, 'saved', 'chosen-art', 'scryfall')).toEqual([prior, extra]);
+    expect(printArtOverridesAfterSave(overrides, card, 'saved', 'chosen-art', 'saved-mpc')).toEqual([prior, extra, saved]);
+    expect(printArtOverridesAfterSave(overrides, card, 'original', 'chosen-art', 'saved-mpc')).toEqual([prior, extra]);
+    expect(printArtOverridesAfterSave(overrides, { ...card, additionalQuantity: 0 }, 'saved', 'chosen-art', 'scryfall')).toEqual([prior]);
+  });
   it('keeps legacy cancellation limited to untouched work when no server permission is supplied', () => {
     for (const state of ['preparing', 'ready', 'queued', 'claimed']) expect(canCancelReviewedPrintJob({ state, steps: [] })).toBe(true);
     const pending = { state: 'claimed', steps: [{ phase: 'fronts', state: 'pending' }, { phase: 'backs', state: 'pending' }] };

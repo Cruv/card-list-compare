@@ -96,6 +96,101 @@ function station(path, method = 'GET', body) { return request(`/api/print-statio
 function report(job, state, extras = {}) { return queue.reportPrintJob(job.id, { claimToken: job.claimToken, eventId: crypto.randomUUID(), state, ...extras }); }
 function ordinary(job) { return { artifactId: 'fronts', phase: 'fronts', ...job }; }
 
+describe('saving print artwork to the current deck', () => {
+  const path = '/api/decks/1/print-art';
+  const selectedId = 'd4bf245e-c849-4bcd-a243-1ce92f82fce5';
+  const oldKey = printCardKey({ displayName: 'Lightning Bolt', setCode: 'm10', collectorNumber: '146' });
+  const newKey = printCardKey({ displayName: 'Lightning Bolt', setCode: 'plst', collectorNumber: 'M10-146' });
+  const lookup = (cards, printingDetails = {}) => cards.map(card => ({
+    ...card, oracleId: 'lightning-bolt-oracle', scryfallId: card.requestedScryfallId || 'fixture-original',
+    layout: 'normal', lookupFailures: [], printingDetails: { setCode: 'plst', collectorNumber: 'M10-146', paper: true, language: 'en', ...printingDetails },
+  }));
+  function reviewed() {
+    const row = db.get('SELECT id, deck_text FROM deck_snapshots WHERE tracked_deck_id = 1 ORDER BY created_at DESC, id DESC LIMIT 1');
+    return { targetSnapshotId: row.id, targetTextHash: hash(row.deck_text), selectionKey: oldKey, scryfallId: selectedId, includeSideboard: false };
+  }
+  const submit = (body, token) => request(path, { method: 'POST', body, token });
+
+  it('saves the exact printing as a new version while preserving the physical marker, source base, and existing job', async () => {
+    const original = '2 Lightning Bolt (M10) [146] *F*\n1 Lightning Bolt (A25) [141]\n\n# Sideboard\n1 Lightning Bolt (M10) [146]';
+    db.run('UPDATE deck_snapshots SET deck_text = ? WHERE id = 1', [original]);
+    db.run('UPDATE tracked_decks SET paper_snapshot_id = 1 WHERE id = 1');
+    db.run('INSERT INTO deck_source_sync (deck_id, revision, base_text, base_raw_text) VALUES (1, 2, ?, ?)', [original, original]);
+    const { job } = await create();
+    const frozenBatch = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => lookup(cards));
+    const response = await submit(reviewed());
+    expect(response.status).toBe(201);
+    const saved = await response.json();
+    expect(saved).toMatchObject({ snapshot: { nickname: 'Print artwork' }, selectionKey: newKey, changed: true });
+    expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [saved.snapshot.id]).deck_text).toBe(
+      '2 Lightning Bolt (plst) [M10-146] *F*\n1 Lightning Bolt (A25) [141]\n\n# Sideboard\n1 Lightning Bolt (M10) [146]',
+    );
+    expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = 1').deck_text).toBe(original);
+    expect(db.get('SELECT paper_snapshot_id FROM tracked_decks WHERE id = 1').paper_snapshot_id).toBe(1);
+    expect(db.get('SELECT base_text, revision FROM deck_source_sync WHERE deck_id = 1')).toEqual({ base_text: original, revision: 2 });
+    expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(frozenBatch);
+    expect((await preview()).cards).toEqual(expect.arrayContaining([expect.objectContaining({ setCode: 'plst', collectorNumber: 'M10-146', quantity: 2 })]));
+  });
+
+  it('checks ownership and exact current version before starting the lookup', async () => {
+    const body = reviewed();
+    expect((await submit(body, 'user-2')).status).toBe(404);
+    expect((await submit(body, null)).status).toBe(401);
+    expect((await submit({ ...body, targetTextHash: '0'.repeat(64) })).status).toBe(409);
+    expect((await submit({ ...body, selectionKey: printCardKey({ name: 'Sol Ring' }) })).status).toBe(409);
+    db.run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (1, ?)', ['1 Sol Ring']);
+    expect((await submit(body)).status).toBe(409);
+    expect(services.fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the current version after the lookup to avoid overwriting a racing edit', async () => {
+    const body = reviewed();
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => {
+      db.run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (1, ?)', ['1 Sol Ring']);
+      return lookup(cards);
+    });
+    const response = await submit(body);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatch(/review the latest/i);
+    expect(db.all('SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = 1 ORDER BY id').map(row => row.deck_text))
+      .toEqual(['1 Lightning Bolt (M10) [146]', '1 Sol Ring']);
+  });
+
+  it.each([
+    { oracleId: 'different-oracle' },
+    { scryfallId: 'fixture-other' },
+    { printingDetails: { paper: false, language: 'en', setCode: 'plst', collectorNumber: 'M10-146' } },
+    { printingDetails: { paper: true, language: 'ja', setCode: 'plst', collectorNumber: 'M10-146' } },
+    { printingDetails: { paper: true, language: 'en', setCode: 'plst', collectorNumber: '146★' } },
+  ])('rejects a selected printing that fails validation (%j)', async invalid => {
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => {
+      const [oldPrinting, newPrinting] = lookup(cards);
+      return [oldPrinting, { ...newPrinting, ...invalid }];
+    });
+    expect((await submit(reviewed())).status).toBe(422);
+    expect(db.all('SELECT id FROM deck_snapshots WHERE tracked_deck_id = 1')).toEqual([{ id: 1 }]);
+  });
+
+  it('keeps the existing version when the selected printing is already present', async () => {
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => lookup(cards, { setCode: 'm10', collectorNumber: '146' }));
+    const response = await submit(reviewed());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ snapshot: { id: 1 }, selectionKey: oldKey, changed: false });
+    expect(db.all('SELECT id FROM deck_snapshots WHERE tracked_deck_id = 1')).toEqual([{ id: 1 }]);
+  });
+
+  it('pins the selected printing even if a foil-only row already resolves to it by name', async () => {
+    db.run('UPDATE deck_snapshots SET deck_text = ? WHERE id = 1', ['1 Lightning Bolt *F*']);
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => lookup(cards).map(card => ({ ...card, scryfallId: selectedId })));
+    const response = await submit({ ...reviewed(), selectionKey: printCardKey({ name: 'Lightning Bolt' }) });
+    expect(response.status).toBe(201);
+    const { snapshot, selectionKey } = await response.json();
+    expect(selectionKey).toBe(newKey);
+    expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [snapshot.id]).deck_text).toBe('1 Lightning Bolt (plst) [M10-146] *F*');
+  });
+});
+
 async function seedSavedA4Batch(printPreset) {
   const { planHash: _letterHash, ...letterPlan } = await preview({ mode: 'full' });
   const paper = { paperSize: 'a4', ...(printPreset ? { printPreset } : {}) };

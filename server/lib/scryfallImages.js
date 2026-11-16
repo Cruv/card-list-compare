@@ -88,7 +88,7 @@ function matches(identifier, card, requestedName) {
  * Throws ImageCompletenessError for missing cards, metadata failures, or faces.
  * Name and set-only requests resolve to actual set/collector keys for caching.
  */
-export async function fetchCardImageUrls(cards, { allowIncomplete = false, signal } = {}) {
+export async function fetchCardImageUrls(cards, { allowIncomplete = false, includePrintingDetails = false, signal } = {}) {
   if (!cards?.length) return [];
   validateCopies(cards);
   const entriesByKey = new Map();
@@ -149,6 +149,14 @@ export async function fetchCardImageUrls(cards, { allowIncomplete = false, signa
           entry.oracleId = card.oracle_id || null;
           entry.layout = card.layout || null;
           entry.typeLine = card.type_line || null;
+          if (includePrintingDetails) {
+            entry.printingDetails = {
+              setCode: card.set,
+              collectorNumber: card.collector_number,
+              paper: card.digital !== true && Array.isArray(card.games) && card.games.includes('paper'),
+              language: card.lang,
+            };
+          }
           entry.faceNames = card.card_faces?.map(face => face.name) || [card.name];
           entry.isDFC = !card.image_uris && (card.card_faces?.length || 0) >= 2;
           entry.imageUrls = entry.isDFC

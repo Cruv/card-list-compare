@@ -129,11 +129,18 @@ submits a purchase or changes physical print quantities.
 ## Physical copies and artwork
 
 Use **Pick art** on a reviewed card to browse its Scryfall printings, including both faces
-when applicable. Select an edition and collector number, then refresh the review before
-generation; **Use original art** removes that row's override. The choice changes only the
-print order, not the source list, snapshots or saved MPC selection. Each override preserves
-the original row's quantity and removal identity. In a saved-MPC plan, only explicitly
-overridden cards switch to Scryfall; all other cards retain their saved custom artwork.
+when applicable. For a card in the current saved deck version, **Also save to this deck**
+is selected by default. Choosing an edition then creates a new CLC deck version with that
+set and collector number, retaining quantities, card sections and finishes. The linked
+provider is left to its own source sync and review workflow. If another edit saved a newer
+version while you were picking, review the current list before trying again. If snapshot
+retention removed the version used for comparison, choose another earlier version.
+
+Clear **Also save to this deck** for a batch-only choice. Standalone lists, older deck
+versions and cards added only to the print order use batch-only choices. **Use original
+art** clears a batch override. In a saved-MPC plan, explicitly overridden cards use
+the chosen Scryfall printing. The saved MPC selections remain on the deck. Refresh the
+print review before generating PDFs.
 
 The server accepts a Scryfall ID, verifies that it belongs to the requested logical card,
 and resolves its required faces itself. Client image URLs are never authoritative. The

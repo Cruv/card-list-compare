@@ -59,6 +59,17 @@ export function printReviewReady(plan) {
   });
 }
 
+export function printArtOverridesAfterSave(overrides, card, selectionKey, scryfallId, artSource) {
+  const next = overrides.filter(item => item.selectionKey !== card.selectionKey && item.selectionKey !== selectionKey);
+  // A saved printing becomes the deck's source art. Extras with the old key and
+  // reviews using saved MPC artwork still need their own Scryfall override.
+  if (card.additionalQuantity > 0 && card.selectionKey !== selectionKey) {
+    next.push({ selectionKey: card.selectionKey, scryfallId });
+  }
+  if (artSource === 'saved-mpc') next.push({ selectionKey, scryfallId });
+  return next;
+}
+
 /** Return original plan indexes: display filtering never changes printable copies. */
 export function printReviewIndexes(plan, options = {}, ownershipRows = []) {
   const query = (options.query || '').trim().toLocaleLowerCase();

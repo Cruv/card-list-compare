@@ -863,7 +863,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
 
       {/* Tab content */}
       <div className="deck-page-content">
-        {activeTab === 'printing' && <PrintPanel key={deckId} deck={deck} snapshots={snapshots} initialJobId={initialPrintJobId} />}
+        {activeTab === 'printing' && <PrintPanel key={deckId} deck={deck} snapshots={snapshots} initialJobId={initialPrintJobId} onDeckChanged={afterDeckChanged} />}
 
         {/* ── Snapshots Tab ── */}
         {activeTab === 'changes' && (
