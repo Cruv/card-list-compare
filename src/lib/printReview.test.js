@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
-import { loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge } from './printPaper';
+import { availablePrintPaperChoices, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge, selectAvailablePrintPaper } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -181,6 +181,21 @@ it('keeps Crowned A4 distinct from standard A4 and plans nine cards per sheet', 
   expect(printPaperUnavailable({ paperSize: 'a4' }, { ...station, loadedPrintPreset: 'crowned-a4' })).toMatch(/set up for Crowned A4/);
 });
 
+it('only offers grain-aligned A4 layouts and keeps A4 as the preference on an older server', () => {
+  const oldCapabilities = { paperSizes: ['letter', 'a4'], printPresets: ['crowned-a4', 'crowned-a4-landscape'] };
+  const oldChoices = availablePrintPaperChoices(oldCapabilities);
+  expect(oldChoices).toEqual(['letter', 'crowned-a4']);
+  expect(selectAvailablePrintPaper('crowned-a4-portrait-six', oldChoices)).toBe('crowned-a4');
+  expect(selectAvailablePrintPaper('letter', oldChoices)).toBe('letter');
+  expect(selectAvailablePrintPaper('crowned-a4-portrait-six', availablePrintPaperChoices({}))).toBe('letter');
+  expect(availablePrintPaperChoices({ ...oldCapabilities,
+    printPresets: [...oldCapabilities.printPresets, 'crowned-a4-portrait-six'] })).toEqual(['letter', 'crowned-a4', 'crowned-a4-portrait-six']);
+});
+
+it.each(['a4', 'crowned-a4-landscape'])('moves the saved %s default to Crowned portrait 3×2', retiredChoice => {
+  expect(loadDefaultPrintPaper({ getItem: () => retiredChoice }, 'key')).toBe('crowned-a4-portrait-six');
+});
+
 it('matches Crowned landscape jobs by exact loaded preset and supported recipe', () => {
   const portrait = printPaperRequest('crowned-a4');
   const landscape = printPaperRequest('crowned-a4-landscape');
@@ -188,7 +203,6 @@ it('matches Crowned landscape jobs by exact loaded preset and supported recipe',
   const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: landscape.printPreset,
     supportedRecipeIds: ['household-a4-v5', 'household-crowned-a4-v2', recipeId] };
   expect(landscape).toEqual({ paperSize: 'a4', printPreset: 'crowned-a4-landscape' });
-  expect(loadDefaultPrintPaper({ getItem: () => landscape.printPreset }, 'key')).toBe(landscape.printPreset);
   expect(printPaperChoice({ recipeId })).toBe(landscape.printPreset);
   expect(printPaperLabel(landscape)).toBe('Crowned A4 · Landscape 2×4');
   expect(printPaperUnavailable(landscape, station)).toBe('');
@@ -240,6 +254,14 @@ describe('standalone print drafts', () => {
     const value = { ...draft, ...printPaperRequest(preset) };
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key')).toEqual(value);
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...value, paperSize: 'letter' }) }, 'key')).toBeNull();
+  });
+  it.each(['a4', 'crowned-a4-landscape'])('moves an unsubmitted %s draft to Crowned portrait 3×2', retiredChoice => {
+    const value = { ...draft, ...printPaperRequest(retiredChoice) };
+    const restored = loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key');
+    expect(printPaperChoice(restored)).toBe(retiredChoice);
+    expect({ ...restored, ...printPaperRequest(newPrintPaperChoice(printPaperChoice(restored))) }).toMatchObject({
+      ...draft, paperSize: 'a4', printPreset: 'crowned-a4-portrait-six',
+    });
   });
   it('allows an empty draft while rejecting corrupt, oversized, or mistyped data', () => {
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...draft, cardText: '' }) }, 'key').cardText).toBe('');

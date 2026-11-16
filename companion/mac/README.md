@@ -144,15 +144,15 @@ and tests read-only job reconciliation without waiting for network printer disco
 It reports the chosen
 recipe fingerprint and proof flags. A successful report is not a color or alignment proof.
 
-Deploy the v2.58.0 server before switching an existing companion to A4. Set
-`a4_enabled` to `true` in private configuration. When the station is idle, load matching
-stock in the rear feeder, set `loaded_paper_size` to `"a4"` or `"letter"`, and restart
-the companion so it reports the selection to CLC. Keep `approved_recipe_ids` and the
-captured Epson driver options as saved. The companion sets CUPS media and the Epson
-page size for A4 from the batch and uses the saved driver profile for Letter.
-The print review default is a separate browser preference. Use the matching Cameo
-template for each batch. Record `a4_recipe_verified` and `a4_duplex_verified` separately
-after verifying the A4 front layout and front-to-back alignment.
+When the station is idle, load matching stock in the rear feeder, set
+`loaded_paper_size` to `"a4"` or `"letter"`, and restart the companion so it reports the
+selection to CLC. Keep `approved_recipe_ids` and the captured Epson driver options as
+saved. The companion sets CUPS media and the Epson page size for A4 from the batch and
+uses the saved driver profile for Letter. The print review default is a separate browser
+preference. Use the matching Cameo template for each batch.
+
+New A4 batches use **Crowned A4 · Portrait 3×3** or **Crowned A4 · Portrait 3×2**.
+Both align the cards’ short edges with the paper’s 210 mm edge.
 
 For **Crowned A4 · Portrait 3×3**, set `crowned_a4_enabled` to `true`,
 `loaded_paper_size` to `"a4"`, and `loaded_print_preset` to `"crowned-a4"`
@@ -160,8 +160,8 @@ after loading the stock and checking the station is idle. The recipe uses the Ep
 feeder and Thick Paper and Envelopes with borderless expansion and automatic duplex off.
 Use the original driver profile as the starting point for color. Record
 `crowned_a4_recipe_verified` and `crowned_a4_duplex_verified` only after their
-physical checks. Dry the front fully before manually reloading it. For standard A4 or
-Letter stock, remove `loaded_print_preset` and select the matching size.
+physical checks. Dry the front fully before manually reloading it. For Letter stock,
+set `loaded_paper_size` to `"letter"` and remove `loaded_print_preset`.
 
 For **Crowned A4 · Portrait 3×2**, deploy CLC 2.60.0 before upgrading the Mac companion.
 Enable `crowned_a4_portrait_six_enabled` and select `loaded_paper_size: "a4"` and
@@ -172,12 +172,17 @@ Envelopes on, and Bidirectional Printing off. Record the separate
 flags after checking the front layout and doing a one-sheet manual refeed test.
 Use the matching Portrait 3×2 cutter file for these batches.
 
-For **Crowned A4 · Landscape 2×4**, enable `crowned_a4_landscape_enabled` and select
+For **saved standard A4** batches, set `a4_enabled` to `true`, select
+`loaded_paper_size: "a4"`, and remove `loaded_print_preset`. Record `a4_recipe_verified`
+and `a4_duplex_verified` separately after verifying the front layout and front-to-back
+alignment. CLC 2.58.0 or newer supports this station setting for saved jobs.
+
+For **saved Crowned A4 · Landscape 2×4** batches, enable `crowned_a4_landscape_enabled` and select
 `loaded_paper_size: "a4"` and `loaded_print_preset: "crowned-a4-landscape"` when the
 station is ready to switch. Both passes use the standard rear paper feeder, actual
 size, Thick Paper and Envelopes, and Bidirectional Printing off. Starting with
-companion 2.59.1, newly generated centered Landscape batches use the A4 landscape
-print ticket. Record `crowned_a4_landscape_centered_recipe_verified` and
+companion 2.59.1, centered Landscape batches use the A4 landscape print ticket.
+Record `crowned_a4_landscape_centered_recipe_verified` and
 `crowned_a4_landscape_centered_duplex_verified` after a front proof and a one-sheet
 manual refeed test. Follow the verified flip direction for the batch's exact layout.
 See the [matched Cameo template and workflow](../../docs/PRINT_WORKFLOW.md#crowned-a4-landscape-24).
@@ -289,9 +294,9 @@ paper-snapshot marker.
 ### Saved backs and DFC packet sequence (2.55.0+)
 
 Each sheet with a double-sided card is a two-page PDF, named `double-faced-001.pdf`,
-`double-faced-002.pdf`, and so on. Page 1 has a capacity of seven fronts on Letter or
-standard A4 and nine on Crowned A4. In new mixed batches, any open slots are filled with
-single-sided fronts. Page 2 prints the backs of the double-sided cards in the matching
+`double-faced-002.pdf`, and so on. New batches fit seven fronts on Letter, nine on Crowned
+A4 Portrait 3×3 or six on Portrait 3×2. In new mixed batches, single-sided fronts fill any
+open slots. Page 2 prints the backs of the double-sided cards in the matching
 positions and leaves the reverse positions for single-sided cards blank. Front-only
 sheets are in `fronts.pdf`. Previously prepared jobs keep their original layout and order.
 Every newly generated page, including ordinary sheets and both DFC sides, has a top-margin

@@ -30,10 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.60.0';
+const APP_VERSION = '2.60.1';
 const WHATS_NEW = [
-  'Crowned A4 Portrait 3×2 prints six cards in the top two rows and leaves the bottom row empty',
-  'The Mac checks its installed Epson driver without relying on printer discovery',
+  'New A4 batches use portrait layouts that keep the short edges of the cards parallel to the short edge of the paper',
+  'Saved A4 landscape print preferences switch to Crowned A4 Portrait 3×2',
 ];
 
 function getResetToken() {

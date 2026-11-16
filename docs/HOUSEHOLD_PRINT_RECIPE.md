@@ -22,7 +22,7 @@ test and corrected companion sheet**. Separate cutter/manual duplex acceptance i
 recorded here; use the conditional checks below when needed. See
 [PRINT_WORKFLOW.md](PRINT_WORKFLOW.md). Preserve this reference across upgrades.
 
-**Layout decision:** the current integration uses the owner's approved **v6** layout.
+**Layout decision:** Letter printing uses the owner's approved **v6** layout.
 Keep its matching v6 Studio cutting template; check alignment for an unproven cutting setup
 or a relevant geometry change. Reproducing v4 is not a requirement. The container generates
 PDFs, and a native Mac companion is the
@@ -31,9 +31,12 @@ implemented Epson submission path. The Windows settings below remain the color r
 ## Equipment and workflow
 
 - Epson ET-8550, **Rear Paper Feeder** (the driver's exact source name).
-- Uinkit double-sided glossy inkjet paper, Letter 8.5 × 11 inches, 200 gsm / 54 lb;
-  A4 batches use A4 (297 × 210 mm) stock and the matching `a4-standard-v5.studio3` template.
-  the product listing supplied by the owner states 9.5 mil thickness.
+- Uinkit double-sided glossy inkjet paper, Letter 8.5 × 11 inches, 200 gsm / 54 lb.
+  The product listing supplied by the owner states 9.5 mil thickness.
+- New A4 batches use Crowned 313 gsm stock and a portrait 3×3 or 3×2 layout.
+  The short edges of the cards run parallel to the sheet’s 210 mm edge. The
+  [print workflow](PRINT_WORKFLOW.md#household-recipe) lists the matching cutting templates
+  and the cutter and refeed instructions for saved A4 landscape batches.
 - Silhouette Cameo 5 Alpha. Existing command uses the generator's default three marks;
   retain that recipe until its Studio template/machine selection is verified.
 - Print ordinary cards as fronts only. Generate double-faced cards separately with both

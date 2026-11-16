@@ -10,6 +10,8 @@ export const PRINT_PRESETS = Object.freeze({
   [CROWNED_PORTRAIT_SIX_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-portrait-six-v1', cardsPerSheet: 6, label: 'Crowned A4 · Portrait 3×2' }),
   [CROWNED_LANDSCAPE_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-landscape-v2', cardsPerSheet: 8, label: 'Crowned A4 · Landscape 2×4' }),
 });
+export const NEW_PRINT_PAPER_SIZES = Object.freeze(['letter']);
+export const NEW_PRINT_PRESETS = Object.freeze([CROWNED_PRESET, CROWNED_PORTRAIT_SIX_PRESET]);
 export const LEGACY_STATION_PAPER = Object.freeze({
   loadedPaperSize: 'letter',
   supportedRecipeIds: Object.freeze([PRINT_PAPER_RECIPES.letter]),
@@ -29,6 +31,14 @@ export function printPaperSelection(paperSize = 'letter', printPreset) {
     throw printError('Select a supported Crowned preset with A4 paper');
   }
   return { paperSize, printPreset, recipeId: PRINT_PRESETS[printPreset].recipeId };
+}
+
+export function newPrintPaperSelection(paperSize, printPreset) {
+  const selection = printPaperSelection(paperSize, printPreset);
+  const allowed = selection.printPreset ? NEW_PRINT_PRESETS.includes(selection.printPreset)
+    : NEW_PRINT_PAPER_SIZES.includes(selection.paperSize);
+  if (!allowed) throw printError('This A4 layout has been retired. Choose an A4 portrait layout and review the print list again.');
+  return selection;
 }
 
 export function printJobPaper(plan, manifest) {
