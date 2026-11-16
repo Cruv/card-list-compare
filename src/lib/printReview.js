@@ -1,5 +1,6 @@
 import { parse } from './parser';
 import { isCrownedPrintPreset, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
+import { printCardKey } from './printSelection';
 
 /** Count physical source copies using the same parser as deck comparison. */
 export function printSourceCopies(text, includeSideboard = false) {
@@ -59,15 +60,26 @@ export function printReviewReady(plan) {
   });
 }
 
-export function printArtOverridesAfterSave(overrides, card, selectionKey, scryfallId, artSource) {
-  const next = overrides.filter(item => item.selectionKey !== card.selectionKey && item.selectionKey !== selectionKey);
-  // A saved printing becomes the deck's source art. Extras with the old key and
-  // reviews using saved MPC artwork still need their own Scryfall override.
-  if (card.additionalQuantity > 0 && card.selectionKey !== selectionKey) {
-    next.push({ selectionKey: card.selectionKey, scryfallId });
+export function printArtOverridesAfterSave(overrides, choices, artSource, additionalText, includeSideboard) {
+  const parsed = parse(additionalText);
+  const extras = new Set([...parsed.mainboard.values(), ...(includeSideboard ? parsed.sideboard.values() : [])].map(printCardKey));
+  const savedKeys = new Set(choices.map(({ selectionKey }) => selectionKey));
+  const next = new Map(overrides.map(({ selectionKey, scryfallId }) => [selectionKey, scryfallId]));
+  // Saved deck rows use their new exact printing. MPC still needs a
+  // Scryfall override, and extra copies can still use the choice at the old key.
+  // Keep explicit batch choices when a saved printing merges into their key.
+  if (artSource === 'saved-mpc') {
+    for (const { selectionKey, scryfallId } of choices) {
+      if (!next.has(selectionKey)) next.set(selectionKey, scryfallId);
+    }
   }
-  if (artSource === 'saved-mpc') next.push({ selectionKey, scryfallId });
-  return next;
+  for (const { previousSelectionKey, selectionKey, scryfallId } of choices) {
+    if (previousSelectionKey !== selectionKey && !savedKeys.has(previousSelectionKey)
+      && extras.has(previousSelectionKey) && !next.has(previousSelectionKey)) {
+      next.set(previousSelectionKey, scryfallId);
+    }
+  }
+  return Array.from(next, ([selectionKey, scryfallId]) => ({ selectionKey, scryfallId }));
 }
 
 /** Return original plan indexes: display filtering never changes printable copies. */

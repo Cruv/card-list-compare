@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parse, rewriteDeckPrinting } from './parser.js';
+import { parse, rewriteDeckPrinting, rewriteDeckPrintings } from './parser.js';
 import { printCardKey } from './printSelection.js';
 
 // Helper: convert a Map to a plain object keyed by lowercase card name
@@ -59,6 +59,53 @@ describe('rewriteDeckPrinting()', () => {
     const updated = rewriteDeckPrinting(text, bolt, printing);
     expect(updated).toBe(text.replace('M10,146', 'dmr,12a'));
     expect(parse(updated).mainboard.get('lightning bolt|dmr|12a|foil')?.quantity).toBe(2);
+  });
+});
+
+describe('rewriteDeckPrintings()', () => {
+  const bolt = (setCode, collectorNumber) => printCardKey({ displayName: 'Lightning Bolt', setCode, collectorNumber });
+  const swaps = [
+    { selectionKey: bolt('m10', '146'), setCode: 'm11', collectorNumber: '149' },
+    { selectionKey: bolt('m11', '149'), setCode: 'm10', collectorNumber: '146' },
+  ];
+
+  it('swaps two printings in one pass and respects commander, finish, and sideboard qualifications', () => {
+    const text = [
+      'Commander', '1 Lightning Bolt (M10) [146] *F* [Commander{top}]', '',
+      '2 Lightning Bolt (M11) 149', '# Sideboard', '3 Lightning Bolt (M10) [146]', '',
+    ].join('\r\n');
+    const expected = [
+      'Commander', '1 Lightning Bolt (m11) [149] *F* [Commander{top}]', '',
+      '2 Lightning Bolt (m10) 146', '# Sideboard', '3 Lightning Bolt (M10) [146]', '',
+    ].join('\r\n');
+    expect(rewriteDeckPrintings(text, swaps)).toBe(expected);
+    expect(rewriteDeckPrintings(text, swaps.toReversed())).toBe(expected);
+    expect(rewriteDeckPrintings(text, swaps, { includeSideboard: true }))
+      .toBe(expected.replace('3 Lightning Bolt (M10) [146]', '3 Lightning Bolt (m11) [149]'));
+  });
+
+  it('applies a three-printing cycle to CSV without changing other cells', () => {
+    const choices = [
+      swaps[0],
+      { selectionKey: bolt('m11', '149'), setCode: 'dmr', collectorNumber: '12a' },
+      { selectionKey: bolt('dmr', '12a'), setCode: 'm10', collectorNumber: '146' },
+    ];
+    const text = [
+      'Count,Card,Edition Code,CN,Modifier,Notes',
+      '2,Lightning Bolt,M10,146,Etched,"a,b"',
+      '1,Lightning Bolt,M11,149,Normal,"c,d"',
+      '3,Lightning Bolt,DMR,12a,Normal,"e,f"',
+      '1,Lightning Bolt,M10,147,Normal,"g,h"',
+      '',
+    ].join('\n');
+    expect(rewriteDeckPrintings(text, choices)).toBe([
+      'Count,Card,Edition Code,CN,Modifier,Notes',
+      '2,Lightning Bolt,m11,149,Etched,"a,b"',
+      '1,Lightning Bolt,dmr,12a,Normal,"c,d"',
+      '3,Lightning Bolt,m10,146,Normal,"e,f"',
+      '1,Lightning Bolt,M10,147,Normal,"g,h"',
+      '',
+    ].join('\n'));
   });
 });
 

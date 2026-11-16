@@ -129,12 +129,12 @@ submits a purchase or changes physical print quantities.
 ## Physical copies and artwork
 
 Use **Pick art** on a reviewed card to browse its Scryfall printings, including both faces
-when applicable. For a card in the current saved deck version, **Also save to this deck**
-is selected by default. Choosing an edition then creates a new CLC deck version with that
-set and collector number, retaining quantities, card sections and finishes. The linked
-provider is left to its own source sync and review workflow. If another edit saved a newer
-version while you were picking, review the current list before trying again. If snapshot
-retention removed the version used for comparison, choose another earlier version.
+when applicable. Pick the printings you want across multiple cards, then choose **Review
+updated list** once. For a card in the current saved deck version, **Also save to this deck**
+is selected by default. The review saves those choices together in one deck version,
+retaining quantities, card sections and finishes. If another edit saved a newer version
+while you were picking, review the current list before trying again. If snapshot retention
+removed the version used for comparison, choose another earlier version.
 
 Clear **Also save to this deck** for a batch-only choice. Standalone lists, older deck
 versions and cards added only to the print order use batch-only choices. **Use original

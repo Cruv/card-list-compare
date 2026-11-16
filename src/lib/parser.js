@@ -230,23 +230,30 @@ function* sectionedLines(lines) {
   }
 }
 
-// Use the same section and metadata parsing as review. Keep the original line
-// breaks and leave every unrelated line or CSV cell alone.
-export function rewriteDeckPrinting(text, selectionKey, printing, { includeSideboard = false } = {}) {
-  if (!text?.trim()) return text;
+export function rewriteDeckPrinting(text, selectionKey, printing, options) {
+  return rewriteDeckPrintings(text, [{ ...printing, selectionKey }], options);
+}
+
+// Read each original row once so replacements cannot cascade when choices
+// include two printings of the same card. Preserve unrelated lines and CSV cells.
+export function rewriteDeckPrintings(text, choices, { includeSideboard = false } = {}) {
+  if (!text?.trim() || !choices.length) return text;
+  const printingsBySelectionKey = new Map(choices.map(choice => [choice.selectionKey, choice]));
   const parts = text.split(/(\r?\n)/);
   if (isCSV(text)) {
-    const result = rewriteCsvPrinting(parts, selectionKey, printing, includeSideboard);
+    const result = rewriteCsvPrintings(parts, printingsBySelectionKey, includeSideboard);
     if (result !== null) return result ? parts.join('') : text;
   }
 
   const lines = parts.filter((_, index) => index % 2 === 0);
   for (const { index, section, line } of sectionedLines(lines)) {
     const parsed = parseLine(line);
-    if (!parsed || printCardKey(parsed) !== selectionKey) continue;
+    if (!parsed) continue;
     // The deck parser excludes SB-prefixed entries inside the commander block.
     if (parsed.isSB && section === 'commander') continue;
     if (!includeSideboard && (parsed.isSB || section === 'sideboard')) continue;
+    const printing = printingsBySelectionKey.get(printCardKey(parsed));
+    if (!printing) continue;
     const part = index * 2;
     parts[part] = rewritePrintingLine(parts[part], parsed, printing);
   }
@@ -270,7 +277,7 @@ function rewritePrintingLine(line, parsed, { setCode, collectorNumber }) {
   return `${prefix}${nameAndQuantity} (${setCode}) ${collector}${format?.[6] ?? ''}${commander?.[0] ?? ''}${line.slice(trimmed.length)}`;
 }
 
-function rewriteCsvPrinting(parts, selectionKey, { setCode, collectorNumber }, includeSideboard) {
+function rewriteCsvPrintings(parts, printingsBySelectionKey, includeSideboard) {
   const headerIndex = parts.findIndex(line => line.trim());
   const columns = csvColumns(parts[headerIndex]);
   if (columns.nameIdx === -1) return null;
@@ -290,14 +297,15 @@ function rewriteCsvPrinting(parts, selectionKey, { setCode, collectorNumber }, i
   for (let index = headerIndex + 2; index < parts.length; index += 2) {
     const rawFields = [];
     const card = csvCard(splitCsvLine(parts[index], rawFields), columns);
-    const matches = card && (!card.sideboard || includeSideboard) && printCardKey(card.entry) === selectionKey;
-    const replace = matches && (card.entry.setCode !== setCode || card.entry.collectorNumber !== collectorNumber);
+    const printing = card && (!card.sideboard || includeSideboard)
+      ? printingsBySelectionKey.get(printCardKey(card.entry)) : undefined;
+    const replace = printing && (card.entry.setCode !== printing.setCode || card.entry.collectorNumber !== printing.collectorNumber);
     const shiftExtraFields = appendedFields.length && rawFields.length > columns.width;
     if (!replace && !shiftExtraFields) continue;
     if (shiftExtraFields) rawFields.splice(columns.width, 0, ...appendedFields);
     if (replace) {
-      rawFields[setIdx] = setCode;
-      rawFields[collectorIdx] = collectorNumber;
+      rawFields[setIdx] = printing.setCode;
+      rawFields[collectorIdx] = printing.collectorNumber;
       changed = true;
     }
     parts[index] = rawFields.join(',');
