@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { previewPrintPlan, createPrintJob, getPrintJobs, getPrintJob, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
+import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, getPrintJob, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
   getStandalonePrintJobs, getStandalonePrintJob, previewStandalonePrintJob, createStandalonePrintJob, queueStandalonePrintJob, cancelStandalonePrintJob, expireStandalonePrintArtifacts } from '../lib/api';
 import DeckInput from './DeckInput';
 import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
+import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
 import { CROWNED_A4_PORTRAIT_SIX_PRESET, PRINT_PAPER, availablePrintPaperChoices, isCrownedPrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
@@ -64,7 +64,7 @@ function requestId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export default function PrintPanel({ deck, snapshots = [], standalone = false, initialComparison, onComparisonConsumed, initialJobId }) {
+export default function PrintPanel({ deck, snapshots = [], standalone = false, initialComparison, onComparisonConsumed, initialJobId, onDeckChanged }) {
   const { user } = useAuth();
   const deckId = deck?.id;
   const requestStorageKey = `clc-print-job-request:${user.id}:${standalone ? 'adhoc' : deckId}`;
@@ -95,6 +95,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [removedCards, setRemovedCards] = useState(storedDraft?.removedCards ?? []);
   const [printingOverrides, setPrintingOverrides] = useState(storedRequest?.printingOverrides ?? storedDraft?.printingOverrides ?? []);
   const [selectedArtCard, setSelectedArtCard] = useState(null);
+  const [artSaveError, setArtSaveError] = useState('');
+  const [deckArtConflict, setDeckArtConflict] = useState(false);
   const [plan, setPlan] = useState(null);
   const [reviewDirty, setReviewDirty] = useState(false);
   const [editingSource, setEditingSource] = useState(true);
@@ -115,6 +117,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const stagedJobsRef = useRef(new Set());
   const requestRef = useRef(storedRequest);
   const revisionRef = useRef(0);
+  const reviewUpdatedList = useRef(null);
   const creationPending = !!pendingRequest;
   const pendingAction = pendingRequest?.queueOnReady ?? null;
   const availablePaper = availablePrintPaperChoices(capabilities);
@@ -124,6 +127,9 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const showPendingPaper = creationPending && !availablePaper.includes(selectedPaper);
   const paperPreset = PRINT_PAPER[selectedPaper];
   const needsReview = reviewDirty || (!!plan && selectedPaper !== printPaperChoice(plan));
+  const newDeckVersionNeedsReview = deckArtConflict || (!!plan?.target && target !== 'latest' && Number(target) !== plan.target.id);
+  const canSaveArtToDeck = !standalone && !!plan?.target?.textHash && plan.target.id === snapshots[0]?.id
+    && !newDeckVersionNeedsReview && selectedArtCard?.baseQuantity > 0;
   const reviewedPaper = PRINT_PAPER[printPaperChoice(plan)];
   const paperUnavailable = capabilities.canQueue ? printPaperUnavailable(printPaperRequest(selectedPaper), station) : '';
   const summary = printReviewSummary(plan);
@@ -256,10 +262,62 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     setNotice('Pasted cards use the whole list. The previous comparison is no longer applied.');
   }
 
-  function pickArt(scryfallId) {
-    if (!selectedArtCard || requestRef.current || busy) return;
-    change(setPrintingOverrides, [...printingOverrides.filter(item => item.selectionKey !== selectedArtCard.selectionKey), { selectionKey: selectedArtCard.selectionKey, scryfallId }], true);
+  function openArtPicker(card) {
+    setArtSaveError('');
+    setSelectedArtCard(card);
+  }
+
+  function focusUpdatedReview() {
+    window.requestAnimationFrame(() => reviewUpdatedList.current?.focus());
+  }
+
+  function closeArtPicker() {
     setSelectedArtCard(null);
+    if (newDeckVersionNeedsReview) focusUpdatedReview();
+  }
+
+  async function pickArt(scryfallId, saveToDeck) {
+    if (!selectedArtCard || requestRef.current || busy) return;
+    const card = selectedArtCard;
+    if (!saveToDeck) {
+      change(setPrintingOverrides, [...printingOverrides.filter(item => item.selectionKey !== card.selectionKey), { selectionKey: card.selectionKey, scryfallId }], true);
+      setSelectedArtCard(null);
+      return;
+    }
+    if (!canSaveArtToDeck) return;
+
+    setBusy(true);
+    setArtSaveError('');
+    let result;
+    try {
+      result = await savePrintArtToDeck(deckId, {
+        targetSnapshotId: plan.target.id, targetTextHash: plan.target.textHash,
+        selectionKey: card.selectionKey, scryfallId, includeSideboard: plan.includeSideboard,
+      });
+    } catch (err) {
+      if (err.status === 409) {
+        setArtSaveError(`${err.message} Close this picker and choose Review updated list.`);
+        setDeckArtConflict(true);
+        setTarget('latest');
+        setReviewDirty(true);
+        void onDeckChanged?.();
+      } else {
+        setArtSaveError(err.message);
+      }
+      return;
+    } finally { setBusy(false); }
+
+    const { snapshot, selectionKey, changed } = result;
+    change(setPrintingOverrides, printArtOverridesAfterSave(printingOverrides, card, selectionKey, scryfallId, artSource), true);
+    setTarget(String(snapshot.id));
+    setSelectedArtCard(null);
+    const savedMessage = changed ? 'Saved art to a new deck version.' : 'This art is already saved in the deck.';
+    const nextStep = excludedCards.includes(selectionKey)
+      ? 'This printing is excluded from the batch. Include it again in Edit selection to print it.'
+      : 'Review the updated list before printing.';
+    setNotice(`${savedMessage} ${nextStep}`);
+    if (changed) void onDeckChanged?.();
+    focusUpdatedReview();
   }
 
   function resetArt(card) {
@@ -307,6 +365,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       });
       if (revision !== revisionRef.current) return;
       setPlan(data.plan);
+      setDeckArtConflict(false);
       setRemovedCards((data.plan.removedCards || []).map(card => ({ key: card.selectionKey, name: card.displayName, quantity: card.quantity })));
       setReviewDirty(false);
       setEditingSource(false);
@@ -525,7 +584,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         {removedCards.length > 0 && <details className="print-list-removed"><summary>Removed cards ({removedCards.length})</summary><ul>{removedCards.map(card => <li key={card.key}><span>{card.quantity}× {card.name}</span><button type="button" className="btn btn-secondary btn-sm" disabled={busy || creationPending} onClick={() => restoreCard(card.key)}>Include again</button></li>)}</ul></details>}
       </div></details>
       {!!plan.excludedBasicLands?.length && <details className="print-skipped-basics"><summary>{copyCounts.basicCopies} basic-land copies skipped</summary><ul>{plan.excludedBasicLands.map((card, index) => <li key={`${card.selectionKey}:${index}`}>{card.quantity}× {card.displayName}</li>)}</ul><p className="print-panel-meta">To include these copies, open Edit selection → Selection options and clear Exclude basic lands.</p></details>}
-      {plan.totalCopies > 0 && <PrintListReview key={plan.planHash} plan={plan} onRemove={removeCard} excludedCards={excludedCards} disabled={busy || creationPending} shoppingDisabled={needsReview} printingOverrides={printingOverrides} onPickArt={setSelectedArtCard} onResetArt={resetArt} />}
+      {plan.totalCopies > 0 && <PrintListReview key={plan.planHash} plan={plan} onRemove={removeCard} excludedCards={excludedCards} disabled={busy || creationPending || newDeckVersionNeedsReview} shoppingDisabled={needsReview} printingOverrides={printingOverrides} onPickArt={openArtPicker} onResetArt={resetArt} />}
       {plan.missingArtwork?.length > 0 && <div className="print-panel-error" role="alert">Choose artwork for:{'\n'}{plan.missingArtwork.map(card => `${card.quantity}× ${card.displayName} (${card.face})`).join('\n')}</div>}
       {plan.totalCopies === 0 && <p>No copies remain. Restore removed cards, add extras or change the selection options.</p>}
       {summary?.doubleFaced > 0 && (doubleFacedFirst
@@ -550,7 +609,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
           ? ` · ${summary.packets} ${summary.packets === 1 ? 'sheet' : 'sheets'} to flip`
           : ` · ${summary.packets} double-sided ${summary.packets === 1 ? 'sheet' : 'sheets'}`)}
       </strong><span>{reviewedPaper.label} · {reviewedPaper.templateVersion || reviewedPaper.template} cut template</span></div><div className="print-panel-actions">
-        {needsReview ? <button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : 'Review updated list'}</button> : <><button className={`btn ${capabilities.canQueue && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{capabilities.canQueue && <button className="btn btn-primary" disabled={busy || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
+        {needsReview ? <button ref={reviewUpdatedList} type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : 'Review updated list'}</button> : <><button className={`btn ${capabilities.canQueue && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{capabilities.canQueue && <button className="btn btn-primary" disabled={busy || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
       </div></div>
     </section>}
 
@@ -572,6 +631,6 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       {capabilities.stationConfigured && !capabilities.canQueue && <p>Your administrator can enable household queue access. You can still download PDFs.</p>}
       <a href="#print-station">Open Printer</a>
     </details>
-    {selectedArtCard && <PrintArtPicker card={selectedArtCard} currentScryfallId={printingOverrides.find(item => item.selectionKey === selectedArtCard.selectionKey)?.scryfallId || selectedArtCard.scryfallId} onChoose={pickArt} onClose={() => setSelectedArtCard(null)} disabled={busy || creationPending} />}
+    {selectedArtCard && <PrintArtPicker card={selectedArtCard} currentScryfallId={printingOverrides.find(item => item.selectionKey === selectedArtCard.selectionKey)?.scryfallId || selectedArtCard.scryfallId} onChoose={pickArt} onClose={closeArtPicker} canSaveToDeck={canSaveArtToDeck} disabled={busy || creationPending || newDeckVersionNeedsReview} saving={busy} saveError={artSaveError} />}
   </div>;
 }

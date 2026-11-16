@@ -164,6 +164,11 @@ already explicit destination printings before distributing previous artwork
 across bare lines, consuming copy counts across mainboard and sideboard.
 Explicit foil markers survive both bare exports and metadata carry-forward.
 
+A Scryfall printing saved from print review updates the matching set and collector
+number in a new deck snapshot. The operation matches the reviewed printing before
+metadata resolution and retains each matching row's quantity, section and finish.
+Sideboard rows are included when the review includes the sideboard.
+
 ## Consumers of the format
 
 Main consumers (non-exhaustive — grep for `src/lib/parser` before assuming):

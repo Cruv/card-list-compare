@@ -1,4 +1,5 @@
 import {
+  CARD_LINE_PATTERN,
   LINE_PATTERNS,
   SIDEBOARD_HEADER,
   MAINBOARD_HEADER,
@@ -7,6 +8,7 @@ import {
   COMMENT_LINE,
 } from './constants.js';
 import { cardIdentityKey } from './cardIdentity.js';
+import { printCardKey } from './printSelection.js';
 
 function normalizeName(name) {
   return name
@@ -17,6 +19,7 @@ function normalizeName(name) {
 
 // Deckcheck and Archidekt command-zone tags, including our own text export.
 const INLINE_COMMANDER_RE = /\s*(?:\(Commander\)|\[Commander(?:\{top\})?\])\s*$/i;
+const INDEXED_CARD_LINE = new RegExp(CARD_LINE_PATTERN, `${CARD_LINE_PATTERN.flags}d`);
 
 export function parseLine(line) {
   if (COMMENT_LINE.test(line)) return null;
@@ -78,11 +81,12 @@ function isCSV(text) {
 // Quote-aware CSV field splitter: a comma inside "..." is part of the field, and
 // "" is an escaped quote. Plain `split(',')` corrupted every quoted card name
 // with a comma (e.g. "Atraxa, Praetors' Voice") — audit H4.
-function splitCsvLine(line) {
+function splitCsvLine(line, rawFields) {
   const fields = [];
   let cur = '';
   let inQuotes = false;
   let fieldStart = true; // only a leading quote opens a quoted field
+  let fieldOffset = 0;
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (inQuotes) {
@@ -97,6 +101,8 @@ function splitCsvLine(line) {
       fieldStart = false;
     } else if (ch === ',') {
       fields.push(cur);
+      rawFields?.push(line.slice(fieldOffset, i));
+      fieldOffset = i + 1;
       cur = '';
       fieldStart = true;
     } else {
@@ -109,16 +115,20 @@ function splitCsvLine(line) {
     // Unterminated quote — the rest of the row would otherwise be swallowed into
     // one field. Degrade to a plain split like the pre-quote-aware parser did,
     // so a malformed row still yields usable columns.
-    return line.split(',').map((f) => f.trim().replace(/"/g, ''));
+    const values = line.split(',').map((f) => f.trim().replace(/"/g, ''));
+    if (rawFields) {
+      rawFields.length = 0;
+      for (const value of values) rawFields.push(value);
+    }
+    return values;
   }
   fields.push(cur);
+  rawFields?.push(line.slice(fieldOffset));
   return fields.map((f) => f.trim());
 }
 
-function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  const header = splitCsvLine(lines[0].toLowerCase());
-
+function csvColumns(line) {
+  const header = splitCsvLine(line.trim().toLowerCase());
   const nameIdx = header.findIndex(
     (h) => h === 'name' || h === 'card' || h === 'card name' || h === 'cardname'
   );
@@ -131,43 +141,46 @@ function parseCSV(text) {
   const setIdx = header.findIndex(h => ['set', 'set code', 'setcode', 'edition code'].includes(h));
   const collectorIdx = header.findIndex(h => ['collector number', 'collector_number', 'collectornumber', 'cn'].includes(h));
   const foilIdx = header.findIndex(h => ['foil', 'isfoil', 'is foil', 'modifier', 'finish'].includes(h));
+  return { nameIdx, qtyIdx, sectionIdx, setIdx, collectorIdx, foilIdx, width: header.length };
+}
 
-  if (nameIdx === -1) return null;
+function csvCard(cols, { nameIdx, qtyIdx, sectionIdx, setIdx, collectorIdx, foilIdx }) {
+  const name = normalizeName(cols[nameIdx] || '');
+  const quantity = qtyIdx !== -1 && cols[qtyIdx]?.trim() ? Number(cols[qtyIdx]) : 1;
+  const section = (cols[sectionIdx] || '').toLowerCase();
+  if (!name || !Number.isSafeInteger(quantity) || quantity <= 0 || section === 'maybeboard' || section === 'considering') return null;
+  return {
+    entry: {
+      displayName: name,
+      quantity,
+      setCode: cols[setIdx] || '',
+      collectorNumber: cols[collectorIdx] || '',
+      isFoil: ['foil', 'etched', 'true', 'yes', '1', '*f*'].includes((cols[foilIdx] || '').toLowerCase()),
+    },
+    sideboard: section.includes('side') || section === 'sb',
+    commander: ['commander', 'commanders', 'command zone'].includes(section),
+  };
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const columns = csvColumns(lines[0]);
+  if (columns.nameIdx === -1) return null;
 
   const mainboard = new Map();
   const sideboard = new Map();
   const commanders = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const cols = splitCsvLine(lines[i]);
-    const name = normalizeName(cols[nameIdx] || '');
-    const quantity = qtyIdx !== -1 && cols[qtyIdx]?.trim() ? Number(cols[qtyIdx]) : 1;
-
-    if (!name || !Number.isSafeInteger(quantity) || quantity <= 0) continue;
-
-    let target = mainboard;
-    if (sectionIdx !== -1) {
-      const section = (cols[sectionIdx] || '').toLowerCase();
-      if (section === 'maybeboard' || section === 'considering') continue;
-      if (section.includes('side') || section === 'sb') {
-        target = sideboard;
-      }
-      if (['commander', 'commanders', 'command zone'].includes(section) && !commanders.includes(name)) {
-        commanders.push(name);
-      }
-    }
-
-    const entry = {
-      displayName: name,
-      quantity,
-      setCode: setIdx === -1 ? '' : cols[setIdx] || '',
-      collectorNumber: collectorIdx === -1 ? '' : cols[collectorIdx] || '',
-      isFoil: foilIdx !== -1 && ['foil', 'etched', 'true', 'yes', '1', '*f*'].includes((cols[foilIdx] || '').toLowerCase()),
-    };
+    const card = csvCard(splitCsvLine(lines[i]), columns);
+    if (!card) continue;
+    const { entry } = card;
+    if (card.commander && !commanders.includes(entry.displayName)) commanders.push(entry.displayName);
+    const target = card.sideboard ? sideboard : mainboard;
     const key = cardIdentityKey(entry);
     if (target.has(key)) {
       const existing = target.get(key);
-      existing.quantity += quantity;
+      existing.quantity += entry.quantity;
     } else {
       target.set(key, entry);
     }
@@ -176,58 +189,121 @@ function parseCSV(text) {
   return { mainboard, sideboard, commanders };
 }
 
-function splitSections(rawText) {
-  const lines = rawText.split(/\r?\n/);
+function* sectionedLines(lines) {
   // Commander exports often separate card groups with blank lines. Check the
   // whole list because some exports put the command zone after the mainboard.
   const hasExplicitCommander = lines.some(line => COMMANDER_HEADER.test(line.trim()));
-  const mainLines = [];
-  const sideLines = [];
-  const commanderLines = [];
-  let currentTarget = mainLines;
+  let section = 'main';
+  let hasMainLines = false;
+  let hasCommanderLines = false;
   let foundExplicitSideboard = false;
-  let blankLineCount = 0;
-  let hasSeenContent = false;
 
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     const trimmed = line.trim();
 
     if (COMMANDER_HEADER.test(trimmed)) {
-      currentTarget = commanderLines;
+      section = 'commander';
       continue;
     }
 
     if (SIDEBOARD_HEADER.test(trimmed) || /^#\s*sideboard\s*$/i.test(trimmed)) {
-      currentTarget = sideLines;
+      section = 'sideboard';
       foundExplicitSideboard = true;
       continue;
     }
 
     if (MAINBOARD_HEADER.test(trimmed)) {
-      currentTarget = mainLines;
+      section = 'main';
       continue;
     }
 
     if (trimmed === '') {
-      if (hasSeenContent && !foundExplicitSideboard && !hasExplicitCommander) {
-        blankLineCount++;
-        if (blankLineCount >= 1 && currentTarget === mainLines && mainLines.length > 0) {
-          currentTarget = sideLines;
-        }
-      }
+      if (hasMainLines && section === 'main' && !foundExplicitSideboard && !hasExplicitCommander) section = 'sideboard';
       // If we were in commander section, switch to mainboard on blank line
-      if (currentTarget === commanderLines && commanderLines.length > 0) {
-        currentTarget = mainLines;
-      }
+      if (hasCommanderLines && section === 'commander') section = 'main';
       continue;
     }
 
-    blankLineCount = 0;
-    hasSeenContent = true;
-    currentTarget.push(trimmed);
+    if (section === 'main') hasMainLines = true;
+    if (section === 'commander') hasCommanderLines = true;
+    yield { index, section, line: trimmed };
+  }
+}
+
+// Use the same section and metadata parsing as review. Keep the original line
+// breaks and leave every unrelated line or CSV cell alone.
+export function rewriteDeckPrinting(text, selectionKey, printing, { includeSideboard = false } = {}) {
+  if (!text?.trim()) return text;
+  const parts = text.split(/(\r?\n)/);
+  if (isCSV(text)) {
+    const result = rewriteCsvPrinting(parts, selectionKey, printing, includeSideboard);
+    if (result !== null) return result ? parts.join('') : text;
   }
 
-  return { mainLines, sideLines, commanderLines };
+  const lines = parts.filter((_, index) => index % 2 === 0);
+  for (const { index, section, line } of sectionedLines(lines)) {
+    const parsed = parseLine(line);
+    if (!parsed || printCardKey(parsed) !== selectionKey) continue;
+    // The deck parser excludes SB-prefixed entries inside the commander block.
+    if (parsed.isSB && section === 'commander') continue;
+    if (!includeSideboard && (parsed.isSB || section === 'sideboard')) continue;
+    const part = index * 2;
+    parts[part] = rewritePrintingLine(parts[part], parsed, printing);
+  }
+  return parts.join('');
+}
+
+function rewritePrintingLine(line, parsed, { setCode, collectorNumber }) {
+  if (parsed.setCode === setCode && parsed.collectorNumber === collectorNumber) return line;
+  const trimmed = line.trimEnd();
+  const prefix = trimmed.match(SB_PREFIX)?.[0] ?? trimmed.slice(0, trimmed.length - trimmed.trimStart().length);
+  const card = trimmed.slice(prefix.length);
+  const commander = card.match(INLINE_COMMANDER_RE);
+  const body = commander ? card.slice(0, commander.index) : card;
+  const format = body.match(INDEXED_CARD_LINE);
+  // Bare names and the older no-header CSV syntax need a count and space to
+  // carry metadata under the shared card-line grammar.
+  const nameAndQuantity = format
+    ? body.slice(0, format.indices[2][1]).trimEnd()
+    : `${parsed.quantity} ${body.match(LINE_PATTERNS[1])?.[2] ?? body}`;
+  const collector = format?.[5] ? collectorNumber : `[${collectorNumber}]`;
+  return `${prefix}${nameAndQuantity} (${setCode}) ${collector}${format?.[6] ?? ''}${commander?.[0] ?? ''}${line.slice(trimmed.length)}`;
+}
+
+function rewriteCsvPrinting(parts, selectionKey, { setCode, collectorNumber }, includeSideboard) {
+  const headerIndex = parts.findIndex(line => line.trim());
+  const columns = csvColumns(parts[headerIndex]);
+  if (columns.nameIdx === -1) return null;
+
+  const appendedHeaders = [];
+  let { setIdx, collectorIdx } = columns;
+  if (setIdx === -1) {
+    setIdx = columns.width;
+    appendedHeaders.push('set code');
+  }
+  if (collectorIdx === -1) {
+    collectorIdx = columns.width + appendedHeaders.length;
+    appendedHeaders.push('collector number');
+  }
+  const appendedFields = appendedHeaders.map(() => '');
+  let changed = false;
+  for (let index = headerIndex + 2; index < parts.length; index += 2) {
+    const rawFields = [];
+    const card = csvCard(splitCsvLine(parts[index], rawFields), columns);
+    const matches = card && (!card.sideboard || includeSideboard) && printCardKey(card.entry) === selectionKey;
+    const replace = matches && (card.entry.setCode !== setCode || card.entry.collectorNumber !== collectorNumber);
+    const shiftExtraFields = appendedFields.length && rawFields.length > columns.width;
+    if (!replace && !shiftExtraFields) continue;
+    if (shiftExtraFields) rawFields.splice(columns.width, 0, ...appendedFields);
+    if (replace) {
+      rawFields[setIdx] = setCode;
+      rawFields[collectorIdx] = collectorNumber;
+      changed = true;
+    }
+    parts[index] = rawFields.join(',');
+  }
+  if (changed && appendedHeaders.length) parts[headerIndex] += `,${appendedHeaders.join(',')}`;
+  return changed;
 }
 
 function parseLines(lines) {
@@ -277,11 +353,11 @@ export function parse(rawText) {
     if (result) return result;
   }
 
-  const { mainLines, sideLines, commanderLines } = splitSections(rawText);
-
-  const mainResult = parseLines(mainLines);
-  const sideResult = parseLines(sideLines);
-  const cmdResult = parseLines(commanderLines);
+  const sections = { main: [], sideboard: [], commander: [] };
+  for (const { line, section } of sectionedLines(rawText.split(/\r?\n/))) sections[section].push(line);
+  const mainResult = parseLines(sections.main);
+  const sideResult = parseLines(sections.sideboard);
+  const cmdResult = parseLines(sections.commander);
 
   // Merge: any SB:-prefixed cards from mainLines go to sideboard
   const mainboard = mainResult.cards;

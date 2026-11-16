@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parse } from './parser.js';
+import { parse, rewriteDeckPrinting } from './parser.js';
+import { printCardKey } from './printSelection.js';
 
 // Helper: convert a Map to a plain object keyed by lowercase card name
 function mapToObj(map) {
@@ -9,6 +10,57 @@ function mapToObj(map) {
   }
   return obj;
 }
+
+describe('rewriteDeckPrinting()', () => {
+  const printing = { setCode: 'dmr', collectorNumber: '12a' };
+  const bolt = printCardKey({ displayName: 'Lightning Bolt', setCode: 'm10', collectorNumber: '146' });
+
+  it('changes the exact printing across foil and nonfoil lines while preserving command and sideboard syntax', () => {
+    const text = [
+      '// Note', 'Commander', '   2x Lightning   Bolt (M10) 146 *F* [Commander{top}]  ',
+      'SB: 1 Lightning Bolt (m10) [146]', '', '1 Lightning Bolt (M10) [146]',
+      'SB: 2 Lightning Bolt (m10) [146]', '# Sideboard', '1 Lightning Bolt (M11) [146]', '',
+    ].join('\r\n');
+    const expected = text.replace('(M10) 146', '(dmr) 12a').replace('(M10) [146]', '(dmr) [12a]');
+    const updated = rewriteDeckPrinting(text, bolt, printing);
+    expect(updated).toBe(expected);
+    expect(parse(updated).commanders).toEqual(['Lightning Bolt']);
+    expect(parse(updated).mainboard.get('lightning bolt|dmr|12a|foil')?.quantity).toBe(2);
+    expect(parse(updated).sideboard.get('lightning bolt|m10|146|nonfoil')?.quantity).toBe(2);
+    expect(rewriteDeckPrinting(text, bolt, printing, { includeSideboard: true }))
+      .toBe(expected.replace('SB: 2 Lightning Bolt (m10) [146]', 'SB: 2 Lightning Bolt (dmr) [12a]'));
+  });
+
+  it('supports bare and no-header CSV lines while respecting the implicit sideboard', () => {
+    const text = 'Lightning Bolt\n4,"Lightning Bolt"\n\nLightning Bolt\n';
+    const key = printCardKey({ displayName: 'Lightning Bolt' });
+    const expected = '1 Lightning Bolt (dmr) [12a]\n4 Lightning Bolt (dmr) [12a]\n\nLightning Bolt\n';
+    expect(rewriteDeckPrinting(text, key, printing)).toBe(expected);
+    expect(rewriteDeckPrinting(text, bolt, printing)).toBe(text);
+  });
+
+  it('adds missing CSV printing columns without changing quoted fields, zones or unnamed values', () => {
+    const name = "Atraxa, Praetors' Voice";
+    const lines = ['Name,Quantity,Board,Printing Note', `"${name}",2,Commander,"A, ""quoted"" note"`,
+      `"${name}",1,Sideboard,"Other"`, `"${name}",1,Considering,"Maybe"`, 'Sol Ring,2,Main,"Loose",extra', ''];
+    const updated = rewriteDeckPrinting(lines.join('\r\n'), printCardKey({ displayName: name }), printing, { includeSideboard: true });
+    expect(updated).toBe([
+      `${lines[0]},set code,collector number`, `${lines[1]},dmr,12a`, `${lines[2]},dmr,12a`,
+      lines[3], 'Sol Ring,2,Main,"Loose",,,extra', '',
+    ].join('\r\n'));
+    const result = parse(updated);
+    expect(result.commanders).toEqual([name]);
+    expect([...result.mainboard.values()].map(card => card.quantity)).toEqual([2, 2]);
+    expect([...result.sideboard.values()]).toEqual([{ displayName: name, quantity: 1, ...printing, isFoil: false }]);
+  });
+
+  it('rewrites recognized CSV printing columns and keeps existing finish and notes', () => {
+    const text = 'Count,Card,Edition Code,CN,Modifier,Notes\n2,Lightning Bolt,M10,146,Etched,"a,b"\n1,Lightning Bolt,M10,147,Normal,"c,d"';
+    const updated = rewriteDeckPrinting(text, bolt, printing);
+    expect(updated).toBe(text.replace('M10,146', 'dmr,12a'));
+    expect(parse(updated).mainboard.get('lightning bolt|dmr|12a|foil')?.quantity).toBe(2);
+  });
+});
 
 describe('parse()', () => {
   // ── Empty / blank input ──────────────────────────────────────────

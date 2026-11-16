@@ -30,10 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.60.1';
+const APP_VERSION = '2.61.0';
 const WHATS_NEW = [
-  'New A4 batches use portrait layouts that keep the short edges of the cards parallel to the short edge of the paper',
-  'Saved A4 landscape print preferences switch to Crowned A4 Portrait 3×2',
+  'Save the art you choose in print review to the deck for future prints',
 ];
 
 function getResetToken() {

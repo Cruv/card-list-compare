@@ -4,6 +4,7 @@
 .print-art-picker h2 { margin: 0 0 7px; font-size: var(--fs-lg); overflow-wrap: anywhere; }
 .print-art-picker p { margin: 6px 0; line-height: 1.5; color: var(--text-secondary); font-size: var(--fs-sm); }
 .print-art-picker header button { flex-shrink: 0; min-height: 44px; }
+.print-art-picker-deck-option { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0 24px; font-size: var(--fs-sm); }
 .print-art-picker-filter { display: grid; gap: 6px; margin: 8px 24px 0; font-size: var(--fs-sm); color: var(--text-secondary); }
 .print-art-picker-filter input { min-width: 0; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .print-art-picker .print-art-picker-status { margin: 8px 20px; }
@@ -23,7 +24,7 @@
   .print-art-picker-backdrop { display: flex; align-items: flex-end; padding: 0; }
   .print-art-picker { max-height: calc(100dvh - max(16px, env(safe-area-inset-top))); border-radius: 22px 22px 0 0; }
   .print-art-picker header { padding: 20px 16px 8px; }
-  .print-art-picker-filter, .print-art-picker .print-art-picker-status { margin-left: 16px; margin-right: 16px; }
+  .print-art-picker-deck-option, .print-art-picker-filter, .print-art-picker .print-art-picker-status { margin-left: 16px; margin-right: 16px; }
   .print-art-picker-results { padding: 6px 16px 16px; }
   .print-art-picker-results ul { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .print-art-picker-results li { padding: 9px; }
