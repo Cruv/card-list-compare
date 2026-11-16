@@ -189,6 +189,72 @@ describe('saving print artwork to the current deck', () => {
     expect(selectionKey).toBe(newKey);
     expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [snapshot.id]).deck_text).toBe('1 Lightning Bolt (plst) [M10-146] *F*');
   });
+
+  const alternateKey = printCardKey({ name: 'Lightning Bolt', setCode: 'a25', collectorNumber: '141' });
+  const alternateId = 'f0cf245e-c849-4bcd-a243-1ce92f82fce5';
+  const thirdId = 'a3bf245e-c849-4bcd-a243-1ce92f82fce5';
+  const originalBulkText = '2 Lightning Bolt (M10) [146] *F*\n1 Lightning Bolt (A25) [141]\n3 Lightning Bolt (PLST) [M10-146]';
+  function reviewedBulk() {
+    db.run('UPDATE deck_snapshots SET deck_text = ? WHERE id = 1', [originalBulkText]);
+    const { selectionKey, scryfallId, ...review } = reviewed();
+    return { ...review, choices: [
+      { selectionKey, scryfallId },
+      { selectionKey: alternateKey, scryfallId: alternateId },
+      { selectionKey: newKey, scryfallId: thirdId },
+    ] };
+  }
+  function lookupBulk(cards) {
+    const destinations = new Map([
+      [selectedId, { setCode: 'a25', collectorNumber: '141' }],
+      [alternateId, { setCode: 'plst', collectorNumber: 'M10-146' }],
+      [thirdId, { setCode: 'm10', collectorNumber: '146' }],
+    ]);
+    return cards.flatMap(card => lookup([card], destinations.get(card.requestedScryfallId)));
+  }
+
+  it('saves three cyclic artwork choices in one deck version using their original row keys', async () => {
+    const body = reviewedBulk();
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => lookupBulk(cards));
+    const response = await submit(body);
+    expect(response.status).toBe(201);
+    const saved = await response.json();
+    expect(saved).toMatchObject({ changed: true, choices: [
+      { previousSelectionKey: oldKey, selectionKey: alternateKey, scryfallId: selectedId },
+      { previousSelectionKey: alternateKey, selectionKey: newKey, scryfallId: alternateId },
+      { previousSelectionKey: newKey, selectionKey: oldKey, scryfallId: thirdId },
+    ] });
+    expect(services.fetchCardImageUrls).toHaveBeenCalledTimes(1);
+    expect(db.all('SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = 1 ORDER BY id').map(row => row.deck_text))
+      .toEqual([originalBulkText, '2 Lightning Bolt (a25) [141] *F*\n1 Lightning Bolt (plst) [M10-146]\n3 Lightning Bolt (m10) [146]']);
+    expect((await submit(body)).status).toBe(409);
+    expect(db.get('SELECT count(*) AS count FROM deck_snapshots WHERE tracked_deck_id = 1').count).toBe(2);
+  });
+
+  it('rejects duplicate or absent choices before contacting Scryfall', async () => {
+    const body = reviewedBulk();
+    expect((await submit({ ...body, choices: [] })).status).toBe(400);
+    expect((await submit({ ...body, choices: Array(251).fill(body.choices[0]) })).status).toBe(400);
+    expect((await submit({ ...body, choices: [...body.choices, body.choices[0]] })).status).toBe(400);
+    expect((await submit({ ...body, choices: [...body.choices, { selectionKey: printCardKey({ name: 'Sol Ring' }), scryfallId: selectedId }] })).status).toBe(409);
+    expect(services.fetchCardImageUrls).not.toHaveBeenCalled();
+    expect(db.get('SELECT count(*) AS count FROM deck_snapshots WHERE tracked_deck_id = 1').count).toBe(1);
+  });
+
+  it('writes no bulk artwork when one choice fails verification or another edit publishes a newer version', async () => {
+    const body = reviewedBulk();
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => lookupBulk(cards).map(card =>
+      card.requestedScryfallId === alternateId ? { ...card, oracleId: 'different-oracle' } : card));
+    expect((await submit(body)).status).toBe(422);
+    expect(db.all('SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = 1').map(row => row.deck_text)).toEqual([originalBulkText]);
+
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => {
+      db.run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (1, ?)', ['1 Sol Ring']);
+      return lookupBulk(cards);
+    });
+    expect((await submit(body)).status).toBe(409);
+    expect(db.all('SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = 1 ORDER BY id').map(row => row.deck_text))
+      .toEqual([originalBulkText, '1 Sol Ring']);
+  });
 });
 
 async function seedSavedA4Batch(printPreset) {

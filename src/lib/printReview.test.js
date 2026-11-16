@@ -12,14 +12,27 @@ const plan = () => ({ totalCopies: 8, ordinaryCopies: 1, doubleFacedCopies: 7,
 describe('physical artwork review', () => {
   it('uses saved deck art by default and keeps the chosen art on matching extras and an MPC review', () => {
     const prior = { selectionKey: 'unchanged', scryfallId: 'other-art' };
-    const overrides = [prior, { selectionKey: 'original', scryfallId: 'old-choice' }];
-    const card = { selectionKey: 'original', additionalQuantity: 2 };
-    const extra = { selectionKey: 'original', scryfallId: 'chosen-art' };
+    const original = '["lightning bolt","m10","146"]';
+    const additionalText = '2 Lightning Bolt (M10) [146]';
+    const extra = { selectionKey: original, scryfallId: 'chosen-art' };
     const saved = { selectionKey: 'saved', scryfallId: 'chosen-art' };
-    expect(printArtOverridesAfterSave(overrides, card, 'saved', 'chosen-art', 'scryfall')).toEqual([prior, extra]);
-    expect(printArtOverridesAfterSave(overrides, card, 'saved', 'chosen-art', 'saved-mpc')).toEqual([prior, extra, saved]);
-    expect(printArtOverridesAfterSave(overrides, card, 'original', 'chosen-art', 'saved-mpc')).toEqual([prior, extra]);
-    expect(printArtOverridesAfterSave(overrides, { ...card, additionalQuantity: 0 }, 'saved', 'chosen-art', 'scryfall')).toEqual([prior]);
+    const choices = [{ ...saved, previousSelectionKey: original }];
+    expect(printArtOverridesAfterSave([prior], choices, 'scryfall', additionalText)).toEqual([prior, extra]);
+    expect(printArtOverridesAfterSave([prior], choices, 'saved-mpc', additionalText)).toEqual([prior, saved, extra]);
+    expect(printArtOverridesAfterSave([prior], [{ ...extra, previousSelectionKey: original }], 'saved-mpc', additionalText)).toEqual([prior, extra]);
+    expect(printArtOverridesAfterSave([prior], choices, 'scryfall', '')).toEqual([prior]);
+  });
+  it('prioritizes the saved destinations and explicit batch-only choices when print rows share keys', () => {
+    const oldKey = '["lightning bolt","m10","146"]';
+    const newKey = '["lightning bolt","plst","m10-146"]';
+    const scryfallA = { selectionKey: oldKey, scryfallId: 'printing-a' };
+    const scryfallB = { selectionKey: newKey, scryfallId: 'printing-b' };
+    const swap = [{ ...scryfallB, previousSelectionKey: oldKey }, { ...scryfallA, previousSelectionKey: newKey }];
+    const batchOnly = { selectionKey: newKey, scryfallId: 'batch-printing' };
+    const extraCopies = '1 Lightning Bolt (M10) [146]';
+    expect(printArtOverridesAfterSave([], swap, 'scryfall', extraCopies)).toEqual([]);
+    expect(printArtOverridesAfterSave([], swap, 'saved-mpc', extraCopies)).toEqual([scryfallB, scryfallA]);
+    expect(printArtOverridesAfterSave([batchOnly], swap, 'saved-mpc', extraCopies)).toEqual([batchOnly, scryfallA]);
   });
   it('keeps legacy cancellation limited to untouched work when no server permission is supplied', () => {
     for (const state of ['preparing', 'ready', 'queued', 'claimed']) expect(canCancelReviewedPrintJob({ state, steps: [] })).toBe(true);

@@ -16,7 +16,7 @@ function ArtworkFace({ cardName, face }) {
   </figure>;
 }
 
-export default function PrintPlanArtwork({ plan, onRemove, excludedCards = [], disabled = false, visibleIndexes, ownershipRows, onPickArt, onResetArt, printingOverrides = [] }) {
+export default function PrintPlanArtwork({ plan, onRemove, excludedCards = [], disabled = false, visibleIndexes, ownershipRows, onPickArt, onResetArt, printingOverrides = [], pendingArt = [] }) {
   const rows = Array.isArray(plan.resolvedCards) && plan.resolvedCards.length === plan.cards.length
     ? plan.resolvedCards : plan.cards.map(card => ({ ...card, isDFC: null, errors: ['Review the print list again to resolve its artwork.'], faces: [] }));
   return <section className="print-review" aria-label="Artwork and double-sided print review">
@@ -24,17 +24,19 @@ export default function PrintPlanArtwork({ plan, onRemove, excludedCards = [], d
       const card = rows[index], ownership = ownershipRows?.[index]?.ownership;
       const excluded = card.baseQuantity > 0 && excludedCards.includes(card.selectionKey);
       const overridden = printingOverrides.some(item => item.selectionKey === card.selectionKey);
+      const staged = pendingArt.find(item => item.selectionKey === card.selectionKey);
       return <li className={`print-review-card${excluded ? ' print-review-card--removed' : ''}`} key={`${index}:${card.selectionKey || card.displayName}`}>
         <div className="print-review-faces">{(card.faces || []).map(face => <ArtworkFace key={`${face.face}:${face.identifier || face.status}`} cardName={card.displayName} face={face} />)}</div>
         <div className="print-review-identity"><h4>{card.displayName}</h4>
           <p className="print-panel-meta">{card.setCode ? `${card.setCode.toUpperCase()} ${card.collectorNumber || ''}` : 'Printing unresolved'} · {(card.artSource || plan.artSource) === 'saved-mpc' ? 'Saved MPC art' : 'Scryfall art'}{overridden ? ' · Custom selection' : ''}</p>
+          {staged && <p className="print-panel-meta">Staged {staged.printingLabel} · {staged.saveToDeck ? 'Deck and batch' : 'Batch only'}</p>}
           <div className="print-card-badges"><span className={`print-panel-status${card.isDFC ? ' print-review-dfc' : ''}`}>{card.isDFC === true ? 'Double-sided' : card.isDFC === false ? 'Single-sided' : 'Faces unresolved'}</span><span className="print-panel-status">{!ownership ? 'Ownership unknown' : !ownership.hasOriginal ? 'Not owned' : ownership.incomingOnly ? 'Incoming original' : 'Owned original'}</span></div>
           {card.additionalQuantity > 0 && <p className="print-panel-meta">{card.additionalQuantity} extra {card.additionalQuantity === 1 ? 'copy' : 'copies'} · edit in Add extra cards</p>}
           {!!card.errors?.length && <p className="print-panel-error" role="alert">{card.errors.join('\n')}</p>}
         </div>
         <div className="print-review-row-actions"><strong className="print-copy-count">{card.quantity}×</strong>
           {onPickArt && <button type="button" className="btn btn-secondary btn-sm" disabled={disabled || excluded} onClick={event => { event.currentTarget.focus(); onPickArt(card); }} aria-label={`Pick art for ${card.displayName}`}>Pick art</button>}
-          {onResetArt && overridden && <button type="button" className="print-text-button" disabled={disabled} onClick={() => onResetArt(card)} aria-label={`Use original art for ${card.displayName}`}>Use original art</button>}
+          {onResetArt && (overridden || staged) && <button type="button" className="print-text-button" disabled={disabled} onClick={() => onResetArt(card)} aria-label={`Use original art for ${card.displayName}`}>Use original art</button>}
           {onRemove && card.selectionKey && card.baseQuantity > 0 && <button type="button" className="print-text-button" disabled={disabled || excluded} onClick={() => onRemove(card)} aria-label={`Remove ${card.baseQuantity} suggested ${card.baseQuantity === 1 ? 'copy' : 'copies'} of ${card.displayName}`}>{excluded ? 'Removed' : 'Remove'}</button>}
         </div>
       </li>;

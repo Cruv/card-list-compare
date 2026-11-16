@@ -3,7 +3,7 @@ import PrintPlanArtwork from './PrintPlanArtwork';
 import PrintPlanOwnership from './PrintPlanOwnership';
 import { printReviewIndexes } from '../lib/printReview';
 
-export default function PrintListReview({ plan, onRemove, excludedCards, disabled, shoppingDisabled = false, onPickArt, onResetArt, printingOverrides }) {
+export default function PrintListReview({ plan, onRemove, excludedCards, disabled, shoppingDisabled = false, onPickArt, onResetArt, printingOverrides, pendingArt }) {
   const [filters, setFilters] = useState({ query: '', sides: 'all', ownership: 'all', sort: 'original' });
   const [ownershipRows, setOwnershipRows] = useState([]);
   const receiveOwnership = useCallback(rows => setOwnershipRows(rows), []);
@@ -22,7 +22,7 @@ export default function PrintListReview({ plan, onRemove, excludedCards, disable
     </div>
     <p className="print-panel-meta" role="status">Showing {indexes.length} of {plan.cards.length} card entries · {visibleCopies} of {plan.totalCopies} copies. Filters change the view, not the print batch.</p>
     {!indexes.length && <p>No cards match these filters.</p>}
-    <PrintPlanArtwork plan={plan} onRemove={onRemove} excludedCards={excludedCards} disabled={disabled} visibleIndexes={indexes} ownershipRows={ownershipRows} onPickArt={onPickArt} onResetArt={onResetArt} printingOverrides={printingOverrides} />
+    <PrintPlanArtwork plan={plan} onRemove={onRemove} excludedCards={excludedCards} disabled={disabled} visibleIndexes={indexes} ownershipRows={ownershipRows} onPickArt={onPickArt} onResetArt={onResetArt} printingOverrides={printingOverrides} pendingArt={pendingArt} />
     <PrintPlanOwnership plan={plan} onRowsChange={receiveOwnership} visibleKeys={visibleKeys} shoppingDisabled={shoppingDisabled} compact />
   </div>;
 }

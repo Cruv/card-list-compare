@@ -1,5 +1,15 @@
 # Current work checkpoint
 
+## Bulk artwork changes in print review
+
+Collect art choices across several cards and use **Review updated list** once.
+Choices marked **Also save to this deck** share one checked deck update. The
+same review refreshes the print plan using the saved version.
+
+Tests cover atomic saves, simultaneous printing swaps, and conflict recovery.
+Chrome verified three consecutive picks, a mixed deck and batch-only save,
+and a failed preview retried without saving the deck twice.
+
 ## Save artwork from print review
 
 The art picker can save a selected Scryfall printing in a new version of the

@@ -30,9 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.61.0';
+const APP_VERSION = '2.61.1';
 const WHATS_NEW = [
-  'Save the art you choose in print review to the deck for future prints',
+  'Pick art for multiple cards and review all your changes at once',
 ];
 
 function getResetToken() {
