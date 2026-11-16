@@ -1,5 +1,17 @@
 # Current work checkpoint
 
+## A4 grain direction
+
+New batches offer Crowned A4 Portrait 3×3 and 3×2. In both layouts the
+cards' short edges run parallel to the paper's 210 mm edge. New print
+requests no longer offer Standard A4 Landscape or Crowned A4 Landscape 2×4.
+Old browser preferences and editable drafts select Portrait 3×2. Exact
+requests already sent and saved batches keep their original paper and recipe.
+
+On 2026-11-16, the JavaScript and portable companion suites, production build,
+deployment contract, and dependency audits passed. Chrome checks with fake APIs
+covered the new picker, an old draft, a saved PDF and an exact request retry.
+
 ## Crowned A4 Portrait 3×2
 
 CLC 2.60.0 adds a six-card portrait preset. It uses the two upper rows of the
@@ -11,9 +23,9 @@ discovery can no longer stall verification of its options.
 The six-card layout needs its own physical Epson, Cameo registration and refeed
 checks. The registration marks still use the full paper size.
 
-## Crowned A4 Landscape 2×4
+## Saved Crowned A4 Landscape 2×4 batches
 
-CLC 2.59.1 generates the standard centered A4 v5 layout for Crowned Landscape.
+CLC 2.59.1 introduced the standard centered A4 v5 layout for Crowned Landscape.
 The matching upstream Studio file contains four upright cards across and two rows down.
 The alternative centered R13 DXF uses eight closed rounded rectangles. The Mac uses a
 landscape A4 ticket through its rear feeder with Thick Paper and bidirectional printing off.

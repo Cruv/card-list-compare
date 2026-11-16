@@ -3,6 +3,8 @@ export const CROWNED_A4_PORTRAIT_SIX_PRESET = 'crowned-a4-portrait-six';
 export const CROWNED_A4_LANDSCAPE_PRESET = 'crowned-a4-landscape';
 export const CROWNED_A4_LANDSCAPE_V1_RECIPE = 'household-crowned-a4-landscape-v1';
 
+const A4_PORTRAIT_PRESETS = [CROWNED_A4_PRESET, CROWNED_A4_PORTRAIT_SIX_PRESET];
+
 export const PRINT_PAPER = Object.freeze({
   letter: { label: 'US Letter', paperSize: 'letter', recipeId: 'household-letter-v6', template: 'Letter v6', cardsPerSheet: 7 },
   a4: { label: 'A4', optionLabel: 'A4 · Landscape', paperSize: 'a4', recipeId: 'household-a4-v5', template: 'A4 v5', cardsPerSheet: 7 },
@@ -17,6 +19,20 @@ export const PRINT_PAPER = Object.freeze({
 export const isPrintPaperSize = value => value === 'letter' || value === 'a4';
 export const isCrownedPrintPreset = value => value === CROWNED_A4_PRESET
   || value === CROWNED_A4_PORTRAIT_SIX_PRESET || value === CROWNED_A4_LANDSCAPE_PRESET;
+
+export function availablePrintPaperChoices(capabilities) {
+  return ['letter', ...A4_PORTRAIT_PRESETS.filter(preset => capabilities.printPresets?.includes(preset))];
+}
+
+export function newPrintPaperChoice(choice) {
+  if (choice === 'a4' || choice === CROWNED_A4_LANDSCAPE_PRESET) return CROWNED_A4_PORTRAIT_SIX_PRESET;
+  return A4_PORTRAIT_PRESETS.includes(choice) ? choice : 'letter';
+}
+
+export function selectAvailablePrintPaper(choice, available) {
+  if (available.includes(choice)) return choice;
+  return available.find(item => item !== 'letter') ?? 'letter';
+}
 
 export function printPaperChoice(batch) {
   const preset = batch?.printPreset;
@@ -46,8 +62,7 @@ export const stationPaperChoice = station => printPaperChoice({
 
 export function loadDefaultPrintPaper(storage, key) {
   try {
-    const choice = storage.getItem(key);
-    return isPrintPaperSize(choice) || isCrownedPrintPreset(choice) ? choice : 'letter';
+    return newPrintPaperChoice(storage.getItem(key));
   } catch { return 'letter'; }
 }
 

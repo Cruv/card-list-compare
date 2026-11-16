@@ -229,6 +229,13 @@ sheet more clearance at the trailing edge. The physical PDF page is portrait to 
 which short edge feeds first. The printed mark positions and Cameo cut paths derive
 from the same geometry. The Mac uses a separate recipe identity and proof flags with
 bidirectional printing off for both passes. A manual flip keeps the same edge leading.
+This generation choice is superseded by the portrait-only A4 decision below. The original
+recipe and cutting setup apply to its saved batches.
+
+**A4 portrait layouts (2026-11-16).** New A4 batches use Crowned Portrait 3×3 or 3×2
+so every card’s short edge is parallel to the paper’s 210 mm edge. The plain A4 v5
+and both Crowned Landscape recipes remain available through saved batches. Their PDFs,
+cutting templates and refeed settings stay tied to the original recipe.
 
 **Deferred backs (2026-09-12).** At the owner's request, new jobs accepted by a compatible
 companion print all ordinary and DFC fronts before parking unfinished backs. A durable

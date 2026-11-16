@@ -6,7 +6,7 @@ import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
 import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
-import { CROWNED_A4_LANDSCAPE_PRESET, CROWNED_A4_PORTRAIT_SIX_PRESET, PRINT_PAPER, isCrownedPrintPreset, isPrintPaperSize, loadDefaultPrintPaper, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, stationPaperChoice } from '../lib/printPaper';
+import { CROWNED_A4_PORTRAIT_SIX_PRESET, PRINT_PAPER, availablePrintPaperChoices, isCrownedPrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -85,7 +85,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [baseline, setBaseline] = useState(String(deck?.paper_snapshot_id || snapshots[1]?.id || ''));
   const [artSource, setArtSource] = useState('scryfall');
   const [defaultPaper, setDefaultPaper] = useState(() => loadDefaultPrintPaper(localStorage, paperDefaultKey));
-  const [paperOverride, setPaperOverride] = useState(storedDraft?.paperSize ? printPaperChoice(storedDraft) : null);
+  const savedPaper = storedRequest?.paperSize ? storedRequest : storedDraft;
+  const [paperOverride, setPaperOverride] = useState(savedPaper?.paperSize ? newPrintPaperChoice(printPaperChoice(savedPaper)) : null);
   const [includeSideboard, setIncludeSideboard] = useState(standalone ? storedRequest?.includeSideboard ?? storedDraft?.includeSideboard ?? false : false);
   const [replacePrintings, setReplacePrintings] = useState(storedRequest?.replacePrintings ?? storedDraft?.replacePrintings ?? false);
   const [excludeBasicLands, setExcludeBasicLands] = useState(storedRequest ? storedRequest.excludeBasicLands ?? false : storedDraft?.excludeBasicLands ?? true);
@@ -116,11 +117,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const revisionRef = useRef(0);
   const creationPending = !!pendingRequest;
   const pendingAction = pendingRequest?.queueOnReady ?? null;
-  const availablePaper = [...(capabilities.paperSizes?.filter(isPrintPaperSize) ?? ['letter']),
-    ...(capabilities.printPresets?.filter(isCrownedPrintPreset) ?? [])];
+  const availablePaper = availablePrintPaperChoices(capabilities);
   const preferredPaper = paperOverride ?? defaultPaper;
   const selectedPaper = pendingRequest ? printPaperChoice(pendingRequest)
-    : availablePaper.includes(preferredPaper) ? preferredPaper : 'letter';
+    : selectAvailablePrintPaper(preferredPaper, availablePaper);
+  const showPendingPaper = creationPending && !availablePaper.includes(selectedPaper);
   const paperPreset = PRINT_PAPER[selectedPaper];
   const needsReview = reviewDirty || (!!plan && selectedPaper !== printPaperChoice(plan));
   const reviewedPaper = PRINT_PAPER[printPaperChoice(plan)];
@@ -155,12 +156,13 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
   function switchDraft(draft, comparisonId) {
     if (requestRef.current || busy) return;
+    const nextPaper = draft.paperSize ? newPrintPaperChoice(printPaperChoice(draft)) : null;
     const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, ...(paperOverride ? printPaperRequest(paperOverride) : {}) };
     const next = { listName: draft.listName || '', cardText: draft.cardText || '', comparison: draft.comparison || null,
       replacePrintings: draft.replacePrintings ?? false, includeSideboard: draft.includeSideboard ?? false,
       excludeBasicLands: draft.excludeBasicLands ?? true, additionalCardText: draft.additionalCardText || '',
       excludedCards: draft.excludedCards || [], removedCards: draft.removedCards || [], printingOverrides: draft.printingOverrides || [],
-      ...(draft.paperSize ? printPaperRequest(printPaperChoice(draft)) : {}) };
+      ...(nextPaper ? printPaperRequest(nextPaper) : {}) };
     try { saveStandaloneDraftReplacement(localStorage, draftStorageKey, recoveryStorageKey, current, next); }
     catch { setError('The browser could not save both drafts. Your current draft and compared lists are unchanged. Free browser storage and try again.'); return; }
     setPreviousDraft(current);
@@ -169,7 +171,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     setReplacePrintings(draft.replacePrintings ?? false); setIncludeSideboard(draft.includeSideboard ?? false);
     setExcludeBasicLands(draft.excludeBasicLands ?? true); setAdditionalCardText(draft.additionalCardText || '');
     setExcludedCards(draft.excludedCards || []); setRemovedCards(draft.removedCards || []);
-    setPaperOverride(draft.paperSize ? printPaperChoice(draft) : null);
+    setPaperOverride(nextPaper);
     setPrintingOverrides(draft.printingOverrides || []); setSelectedArtCard(null);
     setPlan(null); setEditingSource(true); setActiveView('prepare'); setFocusedJobId(null); setError(''); setNotice('');
     if (comparisonId) { setHandledComparisonId(comparisonId); onComparisonConsumed?.(comparisonId); }
@@ -530,14 +532,14 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         ? <p className="print-dfc-note">Sheets with double-sided cards print first. {summary.ordinary > 0 && 'Single-sided cards fill any open slots on those sheets. '}Set sheets marked <strong>REFEED FOR BACK</strong> aside to dry, then choose their matching backs in <a href="#print-station">Printer</a>.</p>
         : <p className="print-dfc-note">{summary.doubleFaced} double-sided {summary.doubleFaced === 1 ? 'card' : 'cards'} will use {summary.packets} separate labeled {summary.packets === 1 ? 'sheet' : 'sheets'}. With companion 2.55.0 or newer, all fronts print first. Keep those sheets and choose their backs later in Printer. Other front jobs can continue. Older companions keep their original front/back sequence.</p>)}
       {station?.online && stationPaperChoice(station) === selectedPaper && station.duplexVerified === false && summary?.doubleFaced > 0 && <p className="print-panel-meta">Double-sided alignment for {paperPreset.label} is still unverified. Check <a href="#print-station">Printer</a> before continuing.</p>}
-      {availablePaper.length > 1 && <div className="print-paper-controls">
+      {(availablePaper.length > 1 || showPendingPaper) && <div className="print-paper-controls">
         <label className="print-list-name">Paper and layout<select value={selectedPaper} disabled={busy || creationPending} onChange={event => change(setPaperOverride, event.target.value, true)}>
+          {showPendingPaper && <option value={selectedPaper}>{paperPreset.optionLabel || paperPreset.label}</option>}
           {availablePaper.map(choice => <option key={choice} value={choice}>{PRINT_PAPER[choice].optionLabel || PRINT_PAPER[choice].label}</option>)}
         </select></label>
         <button type="button" className="btn btn-secondary" disabled={busy || creationPending || selectedPaper === defaultPaper} onClick={savePaperDefault}>Save as default</button>
         <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
       </div>}
-      {selectedPaper === CROWNED_A4_LANDSCAPE_PRESET && <p className="print-panel-meta">Centers two rows of four upright cards. Find the matching Silhouette Studio file in the <a href="#guide/printing">printing guide</a>.</p>}
       {selectedPaper === CROWNED_A4_PORTRAIT_SIX_PRESET && <p className="print-panel-meta">Prints six cards in the top two rows, leaving the bottom row free of cards. Get the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</p>}
       {isCrownedPrintPreset(selectedPaper) && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}

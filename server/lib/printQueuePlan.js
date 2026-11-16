@@ -5,7 +5,7 @@ import { printCardKey, isBasicLand } from '../../src/lib/printSelection.js';
 import { normalizeCardName, normalizedName } from '../../src/lib/cardIdentity.js';
 import { get } from '../db.js';
 import { fetchCardImageUrls } from './scryfallImages.js';
-import { printPaperSelection } from './printPaper.js';
+import { newPrintPaperSelection, printPaperSelection } from './printPaper.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
 export const MAX_PRINT_COPIES = 250;
@@ -255,7 +255,7 @@ export function savedPrintArt(savedArtwork, card, face) {
 
 /** Resolve exact printing/face identities before review; no image bytes are downloaded here. */
 export async function buildPrintPlan(userId, deckId, options = {}) {
-  const { paperSize, printPreset } = printPaperSelection(options.paperSize, options.printPreset);
+  const { paperSize, printPreset } = newPrintPaperSelection(options.paperSize, options.printPreset);
   const inputs = selectPrintInputs(readPrintInputs(userId, deckId, options), options);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('Artwork metadata review exceeded 60 seconds. Review the print list again.')), PRINT_METADATA_TIMEOUT_MS);

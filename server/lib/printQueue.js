@@ -10,7 +10,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from 
 import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { LEGACY_STATION_PAPER, PRINT_PAPER_RECIPES, PRINT_PRESETS, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
+import { LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -47,8 +47,8 @@ export function printCapabilities(userId) {
   const allowed = (process.env.PRINT_ALLOWED_USER_IDS || '').split(',').map(value => Number(value.trim())).filter(id => Number.isSafeInteger(id) && id > 0);
   return {
     stationConfigured, canQueue: !!(stationConfigured && user && !user.suspended && (user.is_admin || allowed.includes(userId))),
-    recipeId: PRINT_PAPER_RECIPES.letter, paperSizes: Object.keys(PRINT_PAPER_RECIPES),
-    printPresets: Object.keys(PRINT_PRESETS), retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
+    recipeId: PRINT_PAPER_RECIPES.letter, paperSizes: NEW_PRINT_PAPER_SIZES,
+    printPresets: NEW_PRINT_PRESETS, retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
   };
 }
 export function requireStationToken(token) {
@@ -173,6 +173,7 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
   };
   const existing = replay();
   if (existing) return existing;
+  // New plans enforce current layouts. Previously accepted requests replay above.
   const plan = await buildPrintPlan(userId, deckId, request);
   // Two concurrent requests can resolve metadata together. Recheck the durable
   // receipt after that await before inserting or consuming pending-job capacity.

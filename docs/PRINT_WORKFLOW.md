@@ -4,10 +4,11 @@ Status: CLC includes comparison-to-print handoff, editable artwork review, PDF g
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet.
 
-US Letter batches use `letter-standard-v6` and A4 batches use `a4-standard-v5`. The
-[October 15 owner report](HOUSEHOLD_PRINT_RECIPE.md) accepts the working printing path;
-Letter recipe needs no v6 migration. Cutting and manual duplex checks apply to unproven
-setups or relevant changes. A4 has its own physical proof flags.
+US Letter batches use `letter-standard-v6`. New A4 batches use Crowned A4 Portrait 3×3
+or Portrait 3×2. Both align each card’s short edge with the sheet’s 210 mm edge and
+its long edge with the 297 mm edge. The [October 15 owner report](HOUSEHOLD_PRINT_RECIPE.md)
+accepts the working Letter printing path. Cutting and manual duplex checks apply to
+unproven setups or relevant changes. Each A4 recipe has its own physical proof flags.
 
 ## Print from comparison results
 
@@ -74,9 +75,11 @@ and unsupported meld layouts block generation before a job is created. Then choo
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
 
-In print review, choose **US Letter**, **A4**, or a **Crowned A4** layout and save
-a default for your account in this browser. The batch keeps that choice through generation, printing, saved
-backs and interrupted-pass recovery. Older batches without a saved paper size use US Letter.
+In print review, choose **US Letter**, **Crowned A4 · Portrait 3×3**, or
+**Crowned A4 · Portrait 3×2** and save a default for your account in this browser.
+The batch keeps that choice through generation, printing, saved backs and interrupted-pass
+recovery. Saved standard A4 and Crowned A4 Landscape batches remain available with their
+matching PDFs and station recipes. Older batches without a saved paper size use US Letter.
 Downloading a PDF works for every layout. For direct printing, the Mac station must support the batch's
 paper size and be configured for the exact stock and layout in the rear feeder. If the station's
 size or preset changes, queued batches wait for their matching paper and layout. See the
@@ -223,10 +226,6 @@ are preserved in [HOUSEHOLD_PRINT_RECIPE.md](HOUSEHOLD_PRINT_RECIPE.md).
   and a **REFEED FOR BACK** tag on the front. This tag sits outside the cards and
   registration marks. Card positions, registration marks and crop are unchanged.
 
-A4 uses landscape 297 × 210 mm and the upstream `a4-standard-v5.studio3` cutting
-template. It keeps seven standard cards per sheet, the 600 PPI, 1 mm crop and three
-registration marks. Match the Cameo template to the batch's PDF size.
-
 **Crowned A4 · Portrait 3×3** uses portrait 210 × 297 mm and nine standard cards per full
 sheet. Use the matching [A4 standard borderless v2 Cameo file](https://github.com/Alan-Cha/silhouette-card-maker/blob/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates/borderless/a4-standard-borderless-v2.studio3).
 The Epson prints at actual size with expansion off. Its Rear Paper Feeder and Thick
@@ -246,13 +245,20 @@ into Silhouette Studio using the [setup instructions](../public/print-templates/
 Check registration, cut alignment and the portrait long-edge flip on one test sheet.
 For the back pass, let the fronts dry fully and feed the same short edge first.
 
+### Saved standard A4 batches
+
+Saved standard A4 batches use landscape 297 × 210 mm and the upstream
+[A4 v5 Studio cutting template](https://raw.githubusercontent.com/Alan-Cha/silhouette-card-maker/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates/a4-standard-v5.studio3).
+This recipe fits seven standard cards per sheet at 600 PPI, with 1 mm crop and three
+registration marks. Use the saved layout for downloads, queued jobs, backs and interrupted-pass recovery.
+
 ### Crowned A4 Landscape 2×4
 
-Choose **Crowned A4 · Landscape 2×4** for eight upright cards centered on landscape
-A4 (297 × 210 mm). CLC 2.59.1+ uses Silhouette Card Maker’s standard `--paper_size a4`
-layout with all eight slots. The Mac companion 2.59.1+ sends both passes at actual size
-with the standard Rear Paper Feeder, Thick Paper and Envelopes on, Bidirectional
-Printing off, expansion off and automatic duplex off.
+Saved centered **Crowned A4 · Landscape 2×4** batches fit eight upright cards on landscape
+A4 (297 × 210 mm), using all eight slots from Silhouette Card Maker’s standard `--paper_size a4`
+layout. The Mac companion 2.59.1+ sends both passes at actual size with the standard Rear
+Paper Feeder, Thick Paper and Envelopes on, Bidirectional Printing off, expansion off and
+automatic duplex off. This layout is available for saved batches only.
 
 Open the [Silhouette Card Maker A4 v5 Studio file](https://raw.githubusercontent.com/Alan-Cha/silhouette-card-maker/0da09b729814aa5aafde024b5a6059624fa87951/cutting_templates/a4-standard-v5.studio3)
 for its saved page and marks. The [centered DXF](../public/print-templates/crowned-a4-landscape-v2.dxf)
@@ -262,8 +268,8 @@ and set the group to 255.778 × 177.207 mm at X 20.659 mm and Y 16.425 mm from t
 page’s top-left. Use three registration marks, square at top left, 10 mm insets,
 9.4 mm length and 1 mm thickness. Check all eight positions on plain A4 before cutting Crowned stock.
 
-Saved batches from the earlier shifted layout keep their original PDF and print ticket.
-Use the template that matches those sheets. The centered layout needs its own physical
+Saved batches from the earlier shifted layout use their original portrait PDF, print ticket
+and cutter setup. Match the template to the saved batch. Each layout has its own physical
 registration and manual refeed checks.
 
 ### Printed sheet identification
@@ -307,9 +313,10 @@ preserving the active, previous, in-use and retained job versions. The productio
 uses Debian for ARM64/AMD64 binary-wheel compatibility. The inspected upstream reference
 was `4d4aa73a95e93b09676c863a1861765863398c63`; it is not a permanent source pin.
 
-A single worker invokes upstream once per sheet, with seven slots for Letter and standard A4,
-nine for Crowned A4 Portrait 3×3, six for Portrait 3×2 or eight for Landscape 2×4. It merges front-only sheets into one PDF and retains each sheet
-that needs a flip as its own two-page packet. Each batch fills its own sheets.
+A single worker invokes upstream once per sheet. For new jobs, each sheet fits seven
+cards on Letter, nine on Crowned A4 Portrait 3×3 or six on Portrait 3×2. It merges front-only
+sheets into one PDF and retains each sheet that needs a flip as its own two-page packet.
+Each batch fills its own sheets.
 Limits are 250 physical copies, 20 MiB per source image, 1 GiB per PDF and 2 GiB per retained
 job, including staged sources. Saved MPC images are downloaded sequentially to disk with
 a 1.5 GiB source limit; Scryfall acquisition retains its 256 MiB unique-image limit.
@@ -358,10 +365,10 @@ remains disabled.
 
 For Crowned A4, let the front dry fully before reloading. Verify the portrait long-edge
 flip on one sheet before printing the rest of a batch. For Portrait 3×2, feed the same
-short edge first on both passes. For centered Landscape, use the standard A4 refeed direction after a one-sheet
-alignment check. Older shifted sheets marked **FEED THIS EDGE FIRST** use that
-marked short edge for both passes. Crowned recommends an overnight
-cure in a dry room after printing and before cutting or sleeving.
+short edge first on both passes. For saved centered Landscape batches, use the standard A4
+refeed direction after a one-sheet alignment check. Older shifted sheets marked
+**FEED THIS EDGE FIRST** use that marked short edge for both passes. Crowned recommends
+an overnight cure in a dry room after printing and before cutting or sleeving.
 
 When the backs finish, the station enters `awaiting_paper_reset`. Remove the finished
 sheet and any other printed/flipped paper from the rear feeder, load blank paper, check
@@ -665,9 +672,8 @@ Use the recovery controls above to finish an interrupted pass without abandoning
 `resume JOB_ID` remains the exact DFC reload control, not a generic retry of canceled pages.
 Setup and dry-run commands do not print; `run` and `run --once` may submit authorized jobs.
 The Mac must stay awake, with the user logged in when using the optional LaunchAgent.
-Every pass explicitly requests the batch's landscape paper size at actual size; a landscape PDF alone does
-not ensure the Mac command-line filter rotates it onto the loaded sheet. Fixed page settings
-are included in the durable recipe fingerprint so they cannot change during an active batch.
+Every pass explicitly requests the batch’s paper size and orientation at actual size.
+The durable recipe fingerprint records fixed page settings through the active batch.
 
 ### Station management in CLC
 
