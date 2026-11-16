@@ -347,9 +347,21 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     } catch { setError('This browser could not save your default print preset. You can still use it for this batch.'); }
   }
 
+  function chooseAnotherBaseline() {
+    setBaseline('');
+    setEditingSource(true);
+    setReviewDirty(true);
+    setError('The comparison version is no longer available. Choose another earlier version.');
+  }
+
   async function preview(event) {
     event.preventDefault();
     if (requestRef.current) return;
+    const comparingVersions = !standalone && mode === 'changes';
+    if (comparingVersions && !snapshots.some(snapshot => String(snapshot.id) === baseline)) {
+      chooseAnotherBaseline();
+      return;
+    }
     setBusy(true);
     setError('');
     setNotice('');
@@ -374,7 +386,13 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       requestRef.current = null;
       setPendingRequest(null);
     } catch (err) {
-      if (revision === revisionRef.current) setError(err.message);
+      if (revision !== revisionRef.current) return;
+      if (comparingVersions && err.status === 404 && err.message === 'Baseline snapshot not found') {
+        chooseAnotherBaseline();
+        void onDeckChanged?.();
+      } else {
+        setError(err.message);
+      }
     } finally { setBusy(false); }
   }
 
