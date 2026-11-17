@@ -30,9 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.61.1';
+const APP_VERSION = '2.61.2';
 const WHATS_NEW = [
-  'Pick art for multiple cards and review all your changes at once',
+  'Print sheet labels inside the Cameo registration marks',
 ];
 
 function getResetToken() {

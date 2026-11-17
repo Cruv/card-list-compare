@@ -281,11 +281,12 @@ registration and manual refeed checks.
 
 ### Printed sheet identification
 
-Every newly generated page also carries **Queued by**, the saved **Batch** label, its exact
-sheet/packet identity and **FRONT** or **BACK** in the top margin. These values are frozen
-when the job is created, so saved backs still match their requester and labeled front
-sheets later. Long labels are bounded to fit the margin and preserve the card artwork
-and registration geometry.
+Every newly generated page carries **Queued by**, the saved **Batch** label, its exact
+sheet/packet identity and **FRONT** or **BACK** between the top registration marks and the
+cards. Fronts with matching backs also say **REFEED FOR BACK** there. Longer lines use a
+smaller font to fit. CLC skips Silhouette Card Maker’s separate footer so all sheet text
+fits inside the marks. These values are frozen when the job is created, so saved backs
+still match their requester and labeled front sheets later.
 
 The historical Windows command was:
 
