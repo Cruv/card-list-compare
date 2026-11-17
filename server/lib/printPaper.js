@@ -5,13 +5,15 @@ export const CROWNED_PRESET = 'crowned-a4';
 export const CROWNED_PORTRAIT_SIX_PRESET = 'crowned-a4-portrait-six';
 export const CROWNED_LANDSCAPE_PRESET = 'crowned-a4-landscape';
 export const CROWNED_LANDSCAPE_V1_RECIPE = 'household-crowned-a4-landscape-v1';
+export const DAHLE_A4_PRESET = 'dahle-a4-punch';
 export const PRINT_PRESETS = Object.freeze({
   [CROWNED_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-v2', cardsPerSheet: 9, label: 'Crowned A4 · Portrait 3×3' }),
   [CROWNED_PORTRAIT_SIX_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-portrait-six-v1', cardsPerSheet: 6, label: 'Crowned A4 · Portrait 3×2' }),
   [CROWNED_LANDSCAPE_PRESET]: Object.freeze({ recipeId: 'household-crowned-a4-landscape-v2', cardsPerSheet: 8, label: 'Crowned A4 · Landscape 2×4' }),
+  [DAHLE_A4_PRESET]: Object.freeze({ recipeId: 'household-dahle-a4-punch-v1', cardsPerSheet: 9, label: 'A4 3×3 · Dahle 550 + 63×88 R3 Punch' }),
 });
 export const NEW_PRINT_PAPER_SIZES = Object.freeze(['letter']);
-export const NEW_PRINT_PRESETS = Object.freeze([CROWNED_PRESET, CROWNED_PORTRAIT_SIX_PRESET]);
+export const NEW_PRINT_PRESETS = Object.freeze([CROWNED_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET]);
 export const LEGACY_STATION_PAPER = Object.freeze({
   loadedPaperSize: 'letter',
   supportedRecipeIds: Object.freeze([PRINT_PAPER_RECIPES.letter]),
@@ -28,7 +30,7 @@ export function printPaperSelection(paperSize = 'letter', printPreset) {
   validatePaperSize(paperSize);
   if (printPreset === undefined) return { paperSize, recipeId: PRINT_PAPER_RECIPES[paperSize] };
   if (typeof printPreset !== 'string' || !Object.hasOwn(PRINT_PRESETS, printPreset) || paperSize !== 'a4') {
-    throw printError('Select a supported Crowned preset with A4 paper');
+    throw printError('Select a supported preset with A4 paper');
   }
   return { paperSize, printPreset, recipeId: PRINT_PRESETS[printPreset].recipeId };
 }
@@ -57,7 +59,8 @@ export function printJobPaper(plan, manifest) {
 export function stationPaperInput(body = {}) {
   const { loadedPaperSize = 'letter', loadedPrintPreset, supportedRecipeIds = LEGACY_STATION_PAPER.supportedRecipeIds } = body;
   const { recipeId } = printPaperSelection(loadedPaperSize, loadedPrintPreset);
-  const available = [...Object.values(PRINT_PAPER_RECIPES), ...Object.values(PRINT_PRESETS).map(preset => preset.recipeId), CROWNED_LANDSCAPE_V1_RECIPE];
+  const available = [...Object.values(PRINT_PAPER_RECIPES), ...Object.entries(PRINT_PRESETS)
+    .filter(([preset]) => preset !== DAHLE_A4_PRESET).map(([, preset]) => preset.recipeId), CROWNED_LANDSCAPE_V1_RECIPE];
   if (!Array.isArray(supportedRecipeIds) || !supportedRecipeIds.length
     || supportedRecipeIds.length > available.length || new Set(supportedRecipeIds).size !== supportedRecipeIds.length
     || supportedRecipeIds.some(recipe => !available.includes(recipe))

@@ -51,8 +51,8 @@ beforeEach(async () => {
   }
   services.preparePrintImages.mockImplementation(async plan => plan.cards.flatMap(card => Array.from({ length: card.quantity }, (_, index) => ({
     id: `${card.displayName}-${index}`, displayName: card.displayName,
-    front: { path: join(dir, 'front.png'), sha256: hash('front'), fileName: 'images/front.png' },
-    ...(card.displayName.includes('Malakir') ? { back: { path: join(dir, 'back.png'), sha256: hash('back'), fileName: 'images/back.png' } } : {}),
+    front: { path: join(dir, 'front.png'), sha256: hash('front'), fileName: 'images/front.png', source: 'scryfall' },
+    ...(card.displayName.includes('Malakir') ? { back: { path: join(dir, 'back.png'), sha256: hash('back'), fileName: 'images/back.png', source: 'scryfall' } } : {}),
   }))));
   services.generatePrintPdfs.mockImplementation(async input => {
     const { cards, outputDir, paperSize, sheetPacking } = input;
@@ -274,13 +274,13 @@ describe('batch paper size', () => {
   const heartbeat = { version: '2.58.0', paused: false, queue: 'EPSON', recipeVerified: true, duplexVerified: true,
     recipeFingerprint: 'f'.repeat(64), health: { ok: true, known: true, message: 'Fixture ready' }, deferredBacks: true };
 
-  it('advertises US Letter and the two A4 portrait layouts and keeps Letter reviews valid', async () => {
+  it('advertises US Letter and the three A4 portrait layouts and keeps Letter reviews valid', async () => {
     const options = { mode: 'full', paperSize: 'a4', printPreset: 'crowned-a4-portrait-six' };
     const response = await request('/api/decks/1/print-plan', { method: 'POST', body: options });
     const { plan, capabilities } = await response.json();
     expect(response.status).toBe(200);
     expect(capabilities.paperSizes).toEqual(['letter']);
-    expect(capabilities.printPresets).toEqual(['crowned-a4', 'crowned-a4-portrait-six']);
+    expect(capabilities.printPresets).toEqual(['crowned-a4', 'crowned-a4-portrait-six', 'dahle-a4-punch']);
     expect(plan).toMatchObject({ paperSize: 'a4', recipeId: 'household-crowned-a4-portrait-six-v1' });
     const letter = await preview({ mode: 'full' });
     expect((await preview({ mode: 'full', paperSize: 'letter' })).planHash).toBe(letter.planHash);
@@ -291,6 +291,44 @@ describe('batch paper size', () => {
     expect((await submit({ ...input, printPreset: undefined, paperSize: 'letter' })).status).toBe(409);
     expect((await submit({ ...input, queueOnReady: true })).status).toBe(409);
     expect((await submit(input)).status).toBe(202);
+  });
+
+  it('generates downloadable Dahle PDF packets and blocks both station queue routes', async () => {
+    const paper = { paperSize: 'a4', printPreset: 'dahle-a4-punch' };
+    const recipe = { ...paper, id: 'household-dahle-a4-punch-v1' };
+    const options = { ...paper, mode: 'adhoc', cardText: '1 Malakir Rebirth', listName: 'Dahle sample' };
+    const planPath = '/api/print-lists/plan';
+    const jobsPath = '/api/print-lists/jobs';
+    const plan = (await (await request(planPath, { method: 'POST', body: options })).json()).plan;
+    expect(plan).toMatchObject({ ...paper, recipeId: recipe.id });
+    services.generatePrintPdfs.mockImplementationOnce(async input => ({ ...await packetPdfs(input, 9), recipe }));
+    const input = { ...options, idempotencyKey: crypto.randomUUID(), expectedPlanHash: plan.planHash };
+    const submit = body => request(jobsPath, { method: 'POST', body: { ...input, ...body } });
+    const queueOnReady = await submit({ queueOnReady: true });
+    expect(queueOnReady.status).toBe(409);
+    expect((await queueOnReady.json()).error).toContain('Download the Dahle punch PDF');
+    const created = await submit({ registrationMarks: true });
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    expect(job).toMatchObject({ ...paper, registrationMarks: false });
+    expect((await submit({ registrationMarks: false })).status).toBe(200);
+
+    await queue.processNextPrintJob();
+    expect(services.generatePrintPdfs).toHaveBeenLastCalledWith(expect.objectContaining({
+      ...paper, registrationMarks: false,
+      cards: [expect.objectContaining({ frontSource: 'scryfall', backSource: 'scryfall' })],
+    }));
+    const readyJob = queue.getOwnedPrintJob(1, null, job.id);
+    const [artifact] = readyJob.artifacts;
+    expect(readyJob.state).toBe('ready');
+    expect(artifact).toMatchObject({ cardCount: 1, pageCount: 2, kind: 'dfc' });
+    expect((await request(artifact.downloadUrl)).status).toBe(200);
+    const laterQueue = await request(`${jobsPath}/${job.id}/queue`, { method: 'POST' });
+    expect(laterQueue.status).toBe(409);
+    expect((await laterQueue.json()).error).toContain('Download the Dahle punch PDF');
+    expect((await station('/heartbeat', 'POST', {
+      ...heartbeat, loadedPaperSize: 'a4', loadedPrintPreset: paper.printPreset, supportedRecipeIds: [recipe.id],
+    })).status).toBe(400);
   });
 
   it.each([undefined, 'crowned-a4-landscape'])('rejects new deck and standalone requests with retired A4 preset %s', async printPreset => {

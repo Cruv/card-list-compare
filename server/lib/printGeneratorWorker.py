@@ -1,24 +1,27 @@
-"""Upstream creates every sheet; CLC adds margin identification without touching artwork."""
+"""Generate approved Silhouette sheets and CLC's metric manual-punch sheets."""
 import hashlib
 import io
 import gc
 import json
+import math
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import warnings
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageOps
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject
+from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, EncodedStreamObject, NameObject, NumberObject
 
 CROWNED_LANDSCAPE = "crowned-a4-landscape"
 CROWNED_PORTRAIT = "crowned-a4"
 CROWNED_PORTRAIT_SIX = "crowned-a4-portrait-six"
+DAHLE_A4_PUNCH = "dahle-a4-punch"
 PORTRAIT_PRESETS = {CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX}
 CROWNED_LANDSCAPE_GEOMETRY = json.loads(Path(__file__).with_name("crownedLandscapeGeometry.json").read_text())
 CROWNED_PORTRAIT_GEOMETRY = json.loads(Path(__file__).with_name("crownedPortraitGeometry.json").read_text())
+DAHLE_GEOMETRY = json.loads(Path(__file__).with_name("dahleA4PunchGeometry.json").read_text())
 PORTRAIT_CARD = CROWNED_PORTRAIT_GEOMETRY["cardPixels"]
 PORTRAIT_MARKS = CROWNED_PORTRAIT_GEOMETRY["registrationMillimeters"]
 
@@ -53,6 +56,8 @@ Image.MAX_IMAGE_PIXELS = max(width * height for width, height in (paper["raster_
 MAX_SOURCE_PIXELS = 16_000_000
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
+POINTS_PER_MM = 72 / 25.4
+MPC_SOURCE_BLEED_MM = 25.4 / 8
 
 
 def paper_key(request):
@@ -60,7 +65,7 @@ def paper_key(request):
     preset = request.get("printPreset")
     if preset is None and size in ("letter", "a4"):
         return size
-    if preset in (CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX, CROWNED_LANDSCAPE) and size == "a4":
+    if preset in (CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX, CROWNED_LANDSCAPE, DAHLE_A4_PUNCH) and size == "a4":
         return preset
     raise ValueError("Unsupported paper size and print preset")
 
@@ -103,7 +108,7 @@ def approved_geometry(source, recipe):
         raise ValueError(f"Upstream geometry is incompatible with the approved {paper['name']} cutting template")
 
 
-def image_copy(source, destination):
+def verified_image(source):
     source = Path(source)
     if not source.is_file() or source.stat().st_size > MAX_IMAGE_BYTES:
         raise ValueError("Missing image or image larger than 20 MiB")
@@ -114,22 +119,36 @@ def image_copy(source, destination):
         if image.format not in ("JPEG", "PNG") or image.width * image.height > MAX_SOURCE_PIXELS:
             raise ValueError("Print faces must be bounded JPEG or PNG images")
         image.verify()
+    return data
+
+
+def image_metadata(image, data):
+    return {"sha256": hashlib.sha256(data).hexdigest(), "width": image.width, "height": image.height,
+            "mode": image.mode, "hasIccProfile": bool(image.info.get("icc_profile"))}
+
+
+def image_copy(source, destination):
+    data = verified_image(source)
     with Image.open(io.BytesIO(data)) as image:
         image.load()  # Detect incomplete JPEG pixel data before calling upstream.
-        metadata = {"sha256": hashlib.sha256(data).hexdigest(), "width": image.width, "height": image.height,
-                    "mode": image.mode, "hasIccProfile": bool(image.info.get("icc_profile"))}
+        metadata = image_metadata(image, data)
         extension = ".jpg" if image.format == "JPEG" else ".png"
     destination.with_suffix(extension).write_bytes(data)
     return metadata
 
 
 def validate_pdf(filename, count, recipe, *, upstream=False):
-    paper = APPROVED_PAPER[recipe]
-    width, height = paper["raster_pixels"]
-    portrait = recipe in PORTRAIT_PRESETS and not upstream
-    page_width, page_height = (height, width) if portrait else (width, height)
-    orientation = "portrait" if portrait else "landscape"
-    media_box = [0, 0, page_width * 72 / 600, page_height * 72 / 600]
+    dahle = recipe == DAHLE_A4_PUNCH
+    if dahle:
+        media_box = [0, 0, *(value * POINTS_PER_MM for value in DAHLE_GEOMETRY["page"])]
+        description = "portrait A4 punch"
+    else:
+        paper = APPROVED_PAPER[recipe]
+        width, height = paper["raster_pixels"]
+        portrait = recipe in PORTRAIT_PRESETS and not upstream
+        page_width, page_height = (height, width) if portrait else (width, height)
+        description = f"{'portrait' if portrait else 'landscape'} {paper['name']}"
+        media_box = [0, 0, page_width * 72 / 600, page_height * 72 / 600]
     # Passing a filename makes pypdf read the entire file into BytesIO. A file stream
     # plus per-page cache eviction keeps validation proportional to one sheet.
     with open(filename, "rb") as stream:
@@ -138,14 +157,17 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
             raise ValueError(f"Expected {count} pages, got {len(reader.pages)}")
         for page in reader.pages:
             actual_box = list(map(float, page.mediabox))
-            if actual_box != media_box or page.rotation:
-                raise ValueError(f"Generated PDF does not have unrotated {orientation} {paper['name']} pages")
+            if page.rotation or any(abs(actual - expected) > 1e-5 for actual, expected in zip(actual_box, media_box)):
+                raise ValueError(f"Generated PDF does not have unrotated {description} pages")
             objects = page["/Resources"]["/XObject"].get_object()
             images = [item.get_object() for item in objects.values() if item.get_object().get("/Subtype") == "/Image"]
-            if len(images) != 1 or images[0]["/Width"] != width or images[0]["/Height"] != height:
+            if dahle:
+                if not 1 <= len(images) <= len(usable_slots(recipe)):
+                    raise ValueError("Generated punch sheet does not contain the expected card images")
+            elif len(images) != 1 or images[0]["/Width"] != width or images[0]["/Height"] != height:
                 raise ValueError("Generated PDF does not contain the expected 600 PPI page image")
-            if images[0]["/ColorSpace"] != "/DeviceRGB":
-                raise ValueError("Upstream changed its output color space")
+            if any(image["/ColorSpace"] != "/DeviceRGB" for image in images):
+                raise ValueError("Generated PDF must contain DeviceRGB images")
             reader.resolved_objects.clear()
         reader.close()
 
@@ -177,7 +199,8 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             packet = f"{label} | {'FRONT' if item['phase'] == 'fronts' else 'BACK'}"
             if refeed_front and item["phase"] == "fronts":
                 packet += " | REFEED FOR BACK"
-            requester = f"Queued by: {values[0]}"
+            requester_label = "Prepared by" if recipe == DAHLE_A4_PUNCH else "Queued by"
+            requester = f"{requester_label}: {values[0]}"
             batch = f"Batch: {values[1]}"
             resources = DictionaryObject(page["/Resources"])
             fonts = DictionaryObject(resources.get("/Font", DictionaryObject()).get_object())
@@ -195,15 +218,19 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             top = float(page.mediabox.top)
             # Portrait has more room above the first row. The landscape marks
             # start farther down, leaving space for two lines below their top edge.
-            rows = ((18, requester), (27, batch), (36, packet)) if portrait else (
-                (34, f"{requester}  |  {batch}"), (41, packet))
+            if recipe == DAHLE_A4_PUNCH:
+                rows = ((15, requester), (24, batch), (33, packet))
+            elif portrait:
+                rows = ((18, requester), (27, batch), (36, packet))
+            else:
+                rows = ((34, f"{requester}  |  {batch}"), (41, packet))
             inset = 66
             # Courier's advance is 0.6 em. Allow room for the final glyph and for
             # rounding without shortening the packet or the manual refeed message.
             room = float(page.mediabox.width) - 2 * inset - 1
             commands = ["q", "0 g", "BT"]
             for offset, text in rows:
-                size = min(8 if portrait else 7, room / (0.6 * len(text)))
+                size = min(8 if portrait or recipe == DAHLE_A4_PUNCH else 7, room / (0.6 * len(text)))
                 commands.extend((f"/CLCPageIdentity {size:.3f} Tf", f"1 0 0 1 {inset} {top - offset:g} Tm",
                                  f"<{text.encode('ascii').hex()}> Tj"))
             commands.extend(("ET", "Q"))
@@ -219,8 +246,147 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
 
 
 def usable_slots(recipe):
+    if recipe == DAHLE_A4_PUNCH:
+        return list(range(DAHLE_GEOMETRY["columns"] * DAHLE_GEOMETRY["rows"]))
     paper = APPROVED_PAPER[recipe]
     return [slot for slot in range(len(paper["x"]) * len(paper["y"])) if slot not in SKIPPED_SLOTS.get(recipe, ())]
+
+
+def dahle_source_bleed(size, source):
+    width, height = size
+    trim_width, trim_height = DAHLE_GEOMETRY["trim"]
+
+    def matches(bleed):
+        expected = (trim_width + 2 * bleed) / (trim_height + 2 * bleed)
+        return abs(width / height / expected - 1) <= 0.005
+
+    # MPC contributor files do not expose a trim box. Accept only the recognizable
+    # 63 × 88 mm template with 1/8 in bleed or full-card artwork with a trim aspect.
+    if source == "saved-mpc" and matches(MPC_SOURCE_BLEED_MM):
+        return MPC_SOURCE_BLEED_MM
+    if source in (None, "scryfall", "saved-mpc") and matches(0):
+        return 0
+    raise ValueError("Dahle punch artwork has no recognized 63 × 88 mm trim geometry. "
+                     "Choose Scryfall or MPC artwork made for the 63 × 88 mm template.")
+
+
+def opaque_artwork(image):
+    if "A" not in image.getbands() and "transparency" not in image.info:
+        return image.convert("RGB")
+    rgba = image.convert("RGBA")
+    rgb = Image.new("RGB", image.size, "white")
+    alpha = rgba.getchannel("A")
+    rgb.paste(rgba, mask=alpha)
+    # Scryfall's PNG corners are transparent. Fill the corner pixels from the
+    # artwork edge before extending it so rounded scans do not bleed white.
+    opaque = alpha.point(lambda value: 255 if value >= 240 else 0)
+    bounds = opaque.getbbox()
+    if bounds is None:
+        raise ValueError("Dahle punch artwork has no opaque card area")
+    for y in range(image.height):
+        sample_y = min(max(y, bounds[1]), bounds[3] - 1)
+        row = opaque.crop((0, sample_y, image.width, sample_y + 1)).getbbox()
+        if row is None:
+            continue
+        if sample_y != y:
+            rgb.paste(rgb.crop((0, sample_y, image.width, sample_y + 1)), (0, y))
+        left, _, right, _ = row
+        if left:
+            rgb.paste(rgb.getpixel((left, y)), (0, y, left, y + 1))
+        if right < image.width:
+            rgb.paste(rgb.getpixel((right - 1, y)), (right, y, image.width, y + 1))
+    return rgb
+
+
+def mirror_artwork_edges(image, pad):
+    width, height = image.size
+    horizontal = Image.new("RGB", (width + 2 * pad, height))
+    horizontal.paste(ImageOps.mirror(image.crop((0, 0, pad, height))), (0, 0))
+    horizontal.paste(image, (pad, 0))
+    horizontal.paste(ImageOps.mirror(image.crop((width - pad, 0, width, height))), (width + pad, 0))
+    padded = Image.new("RGB", (horizontal.width, height + 2 * pad))
+    padded.paste(ImageOps.flip(horizontal.crop((0, 0, horizontal.width, pad))), (0, 0))
+    padded.paste(horizontal, (0, pad))
+    padded.paste(ImageOps.flip(horizontal.crop((0, height - pad, horizontal.width, height))), (0, height + pad))
+    return padded
+
+
+def dahle_face(path, source, output_bleed):
+    data = verified_image(path)
+    with Image.open(io.BytesIO(data)) as image:
+        metadata = image_metadata(image, data)
+        source_bleed = dahle_source_bleed(image.size, source)
+        artwork = opaque_artwork(image)
+    metadata["sourceBleedMm"] = source_bleed
+    trim_width, trim_height = DAHLE_GEOMETRY["trim"]
+    # A single scale anchors the center and protects proportions when source
+    # dimensions are rounded to whole pixels. Output bleed only sets the clip.
+    mm_per_pixel = max((trim_width + 2 * source_bleed) / artwork.width,
+                       (trim_height + 2 * source_bleed) / artwork.height)
+    if output_bleed > source_bleed:
+        artwork = mirror_artwork_edges(artwork, math.ceil((output_bleed - source_bleed) / mm_per_pixel))
+    width_mm, height_mm = artwork.width * mm_per_pixel, artwork.height * mm_per_pixel
+    artwork.thumbnail((math.ceil(width_mm * 600 / 25.4), math.ceil(height_mm * 600 / 25.4)), Image.Resampling.LANCZOS)
+    encoded = io.BytesIO()
+    artwork.save(encoded, "JPEG", quality=100)
+    xobject = EncodedStreamObject()
+    xobject._data = encoded.getvalue()
+    xobject.update({NameObject("/Type"): NameObject("/XObject"), NameObject("/Subtype"): NameObject("/Image"),
+                    NameObject("/Width"): NumberObject(artwork.width), NameObject("/Height"): NumberObject(artwork.height),
+                    NameObject("/ColorSpace"): NameObject("/DeviceRGB"), NameObject("/BitsPerComponent"): NumberObject(8),
+                    NameObject("/Filter"): NameObject("/DCTDecode")})
+    return xobject, metadata, (width_mm, height_mm)
+
+
+def pdf_coordinates(*values):
+    return " ".join(f"{value * POINTS_PER_MM:.6f}" for value in values)
+
+
+def generate_dahle_sheet(cards, output, double_faced):
+    page_width, page_height = DAHLE_GEOMETRY["page"]
+    trim_width, trim_height = DAHLE_GEOMETRY["trim"]
+    columns, rows, bleed = (DAHLE_GEOMETRY[key] for key in ("columns", "rows", "bleed"))
+    cell_width, cell_height = trim_width + 2 * bleed, trim_height + 2 * bleed
+    side, top = (page_width - columns * cell_width) / 2, (page_height - rows * cell_height) / 2
+    tick_start, tick_end = DAHLE_GEOMETRY["tick"]
+    metadata = [{"id": card["id"]} for card in cards]
+    writer = PdfWriter()
+    for face in ("front", "back") if double_faced else ("front",):
+        page = writer.add_blank_page(width=page_width * POINTS_PER_MM, height=page_height * POINTS_PER_MM)
+        objects = DictionaryObject()
+        commands = []
+        for slot, card in enumerate(cards):
+            path = card.get(f"{face}Path")
+            if path is None:
+                continue
+            try:
+                artwork, metadata[slot][face], (image_width, image_height) = dahle_face(path, card.get(f"{face}Source"), bleed)
+            except ValueError as error:
+                raise ValueError(f"Dahle artwork for {card.get('displayName') or card['id']} ({face}): {error}") from None
+            row, column = divmod(slot, columns)
+            if face == "back":
+                column = columns - 1 - column  # A4 portrait, long-edge flip.
+            x = side + column * cell_width
+            y = page_height - top - (row + 1) * cell_height
+            image_x, image_y = x + (cell_width - image_width) / 2, y + (cell_height - image_height) / 2
+            name = f"/Card{slot + 1}"
+            objects[NameObject(name)] = writer._add_object(artwork)
+            commands.extend(("q", f"{pdf_coordinates(x, y, cell_width, cell_height)} re W n",
+                             f"{pdf_coordinates(image_width)} 0 0 {pdf_coordinates(image_height, image_x, image_y)} cm",
+                             f"{name} Do", "Q"))
+        commands.extend(("q", "0 G", "0.5 w"))
+        for boundary in range(rows + 1):
+            y = page_height - top - boundary * cell_height
+            for start, end in ((tick_start, tick_end), (page_width - tick_end, page_width - tick_start)):
+                commands.append(f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l S")
+        commands.append("Q")
+        content = DecodedStreamObject()
+        content.set_data(("\n".join(commands) + "\n").encode("ascii"))
+        page[NameObject("/Resources")] = DictionaryObject({NameObject("/XObject"): objects})
+        page[NameObject("/Contents")] = writer._add_object(content)
+    with open(output, "wb") as stream:
+        writer.write(stream)
+    return metadata
 
 
 def generate_without_footer(source, args, *, registration_marks=True):
@@ -255,22 +421,11 @@ def generate_without_footer(source, args, *, registration_marks=True):
     cli.main(args=args, prog_name="create_pdf.py")
 
 
-def chunk(request):
-    source, directory = Path(request["source"]), Path(request["directory"])
-    paper_size = request.get("paperSize", "letter")
-    recipe = paper_key(request)
-    registration_marks = request.get("registrationMarks", True)
-    if not isinstance(registration_marks, bool):
-        raise ValueError("Registration marks must be enabled or disabled")
+def generate_upstream_sheet(request, recipe, output, registration_marks):
+    source, directory = Path(request["source"]), output.parent
     approved_geometry(source, recipe)
     cards = request["cards"]
-    if not 1 <= len(cards) <= len(usable_slots(recipe)):
-        raise ValueError("Each generator invocation must contain one sheet at most")
-    sides = [bool(card.get("backPath")) for card in cards]
     double_faced = request["doubleFaced"]
-    mixed = request.get("sheetPacking") == "double-faced-first"
-    if double_faced != any(sides) or (mixed and sides != sorted(sides)) or (not mixed and double_faced != all(sides)):
-        raise ValueError("Sheet faces must match the requested pass and upstream slot order")
     for folder in ("front", "back", "double_sided"):
         (directory / folder).mkdir()
     metadata = []
@@ -279,13 +434,12 @@ def chunk(request):
         if card.get("backPath"):
             item["back"] = image_copy(card["backPath"], directory / "double_sided" / f"{index:04d}")
         metadata.append(item)
-    output = directory / "sheet.pdf"
     command = [sys.executable, "-B", str(Path(__file__).resolve()), "upstream", str(source)]
     if not registration_marks:
         command.append("--omit-registration-marks")
     args = ["--front_dir_path", str(directory / "front"),
             "--back_dir_path", str(directory / "back"), "--double_sided_dir_path", str(directory / "double_sided"),
-            "--output_path", str(output), "--card_size", "standard", "--paper_size", paper_size, "--registration", "3",
+            "--output_path", str(output), "--card_size", "standard", "--paper_size", request.get("paperSize", "letter"), "--registration", "3",
             "--ppi", "600", "--quality", "100", "--crop", "1mm", "--fit", "stretch"]
     if recipe in PORTRAIT_PRESETS:
         args.append("--borderless")
@@ -294,27 +448,53 @@ def chunk(request):
     if not double_faced:
         args.append("--only_fronts")
     subprocess.run([*command, *args], cwd=directory, stdin=subprocess.DEVNULL, check=True, timeout=90)
-    page_count = 2 if double_faced else 1
-    validate_pdf(output, page_count, recipe, upstream=True)
-    identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe, refeed_front=double_faced)
-    validate_pdf(output, page_count, recipe)
-    (directory / "result.json").write_text(json.dumps({"images": metadata, "registrationMarks": registration_marks}))
+    validate_pdf(output, 2 if double_faced else 1, recipe, upstream=True)
     # The validated PDF and metadata are self-contained. Source artwork remains
     # in the job staging area, so do not retain another copy for every sheet.
     for folder in ("front", "back", "double_sided"):
         shutil.rmtree(directory / folder)
+    return metadata
+
+
+def chunk(request):
+    directory = Path(request["directory"])
+    recipe = paper_key(request)
+    requested_marks = request.get("registrationMarks", True)
+    if not isinstance(requested_marks, bool):
+        raise ValueError("Registration marks must be enabled or disabled")
+    registration_marks = recipe != DAHLE_A4_PUNCH and requested_marks
+    cards = request["cards"]
+    if not 1 <= len(cards) <= len(usable_slots(recipe)):
+        raise ValueError("Each generator invocation must contain one sheet at most")
+    sides = [bool(card.get("backPath")) for card in cards]
+    double_faced = request["doubleFaced"]
+    mixed = request.get("sheetPacking") == "double-faced-first"
+    if double_faced != any(sides) or (mixed and sides != sorted(sides)) or (not mixed and double_faced != all(sides)):
+        raise ValueError("Sheet faces must match the requested pass and slot order")
+    output = directory / "sheet.pdf"
+    if recipe == DAHLE_A4_PUNCH:
+        metadata = generate_dahle_sheet(cards, output, double_faced)
+    else:
+        metadata = generate_upstream_sheet(request, recipe, output, registration_marks)
+    identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe,
+                   refeed_front=double_faced and recipe != DAHLE_A4_PUNCH)
+    validate_pdf(output, 2 if double_faced else 1, recipe)
+    (directory / "result.json").write_text(json.dumps({"images": metadata, "registrationMarks": registration_marks}))
 
 
 def merge(request):
     recipe = paper_key(request)
-    paper = APPROVED_PAPER[recipe]
     writer = PdfWriter()
     for filename in request["inputs"]:
         with open(filename, "rb") as stream:
             reader = PdfReader(stream, strict=True)
             writer.append(reader, import_outline=False)
             reader.close()
-    writer.add_metadata({"/Title": f"CLC household-{recipe}-v{paper['version']}", "/Creator": "CLC / Silhouette Card Maker"})
+    if recipe == DAHLE_A4_PUNCH:
+        writer.add_metadata({"/Title": "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch", "/Creator": "CLC"})
+    else:
+        writer.add_metadata({"/Title": f"CLC household-{recipe}-v{APPROVED_PAPER[recipe]['version']}",
+                             "/Creator": "CLC / Silhouette Card Maker"})
     with open(request["output"], "wb") as stream:
         writer.write(stream)
     # PdfWriter.close() is a no-op. Release its compressed image objects before
@@ -338,6 +518,23 @@ def smoke(source, directory):
         cards.append({"id": str(index), "frontPath": paths[0], "backPath": paths[1]})
     for recipe in APPROVED_PAPER:
         smoke_paper(source, directory, cards[:len(usable_slots(recipe))], recipe)
+    smoke_dahle(directory, cards)
+
+
+def smoke_dahle(directory, cards):
+    working = directory / DAHLE_A4_PUNCH
+    working.mkdir()
+    paper = {"paperSize": "a4", "printPreset": DAHLE_A4_PUNCH}
+    chunk({"directory": str(working), **paper, "cards": cards, "doubleFaced": True,
+           "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Dahle punch layout"},
+           "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"},
+                          {"page": 2, "phase": "backs", "label": "CLC runtime check"}]})
+    reader = PdfReader(working / "sheet.pdf", strict=True)
+    for page, face in zip(reader.pages, ("FRONT", "BACK")):
+        if len(page.images) != len(cards) or f"| {face}" not in page.extract_text():
+            raise ValueError(f"Dahle punch layout did not generate all {face} card images")
+    reader.close()
+    merge({"inputs": [str(working / "sheet.pdf")], "output": str(working / "merged.pdf"), **paper, "pageCount": 2})
 
 
 def smoke_paper(source, directory, cards, recipe):

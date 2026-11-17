@@ -4,11 +4,12 @@ Status: CLC includes comparison-to-print handoff, editable artwork review, PDF g
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet.
 
-US Letter batches use `letter-standard-v6`. New A4 batches use Crowned A4 Portrait 3×3
-or Portrait 3×2. Both align each card’s short edge with the sheet’s 210 mm edge and
+US Letter batches use `letter-standard-v6`. New A4 batches use Crowned A4 Portrait 3×3,
+Portrait 3×2 or the [Dahle 550 manual strip layout](DAHLE_A4_PUNCH.md).
+All three align each card’s short edge with the sheet’s 210 mm edge and
 its long edge with the 297 mm edge. The [October 15 owner report](HOUSEHOLD_PRINT_RECIPE.md)
 accepts the working Letter printing path. Cutting and manual duplex checks apply to
-unproven setups or relevant changes. Each A4 recipe has its own physical proof flags.
+unproven setups or relevant changes. Each station A4 recipe has its own physical proof flags.
 
 ## Print from comparison results
 
@@ -75,12 +76,14 @@ and unsupported meld layouts block generation before a job is created. Then choo
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
 
-In print review, choose **US Letter**, **Crowned A4 · Portrait 3×3**, or
-**Crowned A4 · Portrait 3×2** and save a default for your account in this browser.
+In print review, choose **US Letter**, **Crowned A4 · Portrait 3×3**,
+**Crowned A4 · Portrait 3×2** or **A4 3×3 · Dahle 550 + 63×88 R3 Punch** and save
+a default for your account in this browser.
 The batch keeps that choice through generation, printing, saved backs and interrupted-pass
 recovery. Saved standard A4 and Crowned A4 Landscape batches remain available with their
 matching PDFs and station recipes. Older batches without a saved paper size use US Letter.
-Downloading a PDF works for every layout. For direct printing, the Mac station must support the batch's
+Downloading a PDF works for every layout. Print the Dahle PDF directly from a PDF viewer.
+For sending a batch to the Mac station, the station must support the batch's
 paper size and be configured for the exact stock and layout in the rear feeder. If the station's
 size or preset changes, queued batches wait for their matching paper and layout. See the
 [Mac paper setup](../companion/mac/README.md#configure-without-printing) for the local settings.

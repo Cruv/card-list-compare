@@ -8,6 +8,7 @@ export const SCM_REPOSITORY = 'https://github.com/Alan-Cha/silhouette-card-maker
 export const PRINT_WORKER = fileURLToPath(new URL('./printGeneratorWorker.py', import.meta.url));
 const CROWNED_LANDSCAPE_GEOMETRY = fileURLToPath(new URL('./crownedLandscapeGeometry.json', import.meta.url));
 const CROWNED_PORTRAIT_GEOMETRY = fileURLToPath(new URL('./crownedPortraitGeometry.json', import.meta.url));
+const DAHLE_GEOMETRY = fileURLToPath(new URL('./dahleA4PunchGeometry.json', import.meta.url));
 const MERGE_REQUIREMENTS = fileURLToPath(new URL('./printGeneratorRequirements.txt', import.meta.url));
 const REQUIRED_PACKAGES = ['click', 'filetype', 'matplotlib', 'natsort', 'numpy', 'pillow', 'pydantic'];
 const COMPATIBILITY_PROBE = 'import json,platform,sys,sysconfig; print(json.dumps([sys.version,sys.implementation.cache_tag,sysconfig.get_config_var("SOABI"),platform.machine(),platform.system(),platform.libc_ver()]))';
@@ -111,7 +112,7 @@ export class PrintGeneratorRuntime {
       await fs.mkdir(path.join(this.root, 'versions'), { recursive: true });
       const compatibility = digest(await this.run(this.pythonPath, ['-c', COMPATIBILITY_PROBE], { timeout: 15_000 }));
       const adapterHash = digest(Buffer.concat(await Promise.all(
-        [PRINT_WORKER, CROWNED_LANDSCAPE_GEOMETRY, CROWNED_PORTRAIT_GEOMETRY].map(filename => fs.readFile(filename)),
+        [PRINT_WORKER, CROWNED_LANDSCAPE_GEOMETRY, CROWNED_PORTRAIT_GEOMETRY, DAHLE_GEOMETRY].map(filename => fs.readFile(filename)),
       )));
       let saved;
       try {
@@ -199,6 +200,7 @@ export class PrintGeneratorRuntime {
         fs.copyFile(PRINT_WORKER, path.join(directory, 'adapter.py')),
         fs.copyFile(CROWNED_LANDSCAPE_GEOMETRY, path.join(directory, 'crownedLandscapeGeometry.json')),
         fs.copyFile(CROWNED_PORTRAIT_GEOMETRY, path.join(directory, 'crownedPortraitGeometry.json')),
+        fs.copyFile(DAHLE_GEOMETRY, path.join(directory, 'dahleA4PunchGeometry.json')),
       ]);
       if (this.prepareCandidate) await this.prepareCandidate({ directory, offline });
       else await this.installAndValidate(directory, compatibility, offline);

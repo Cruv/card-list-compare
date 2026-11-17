@@ -30,9 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.62.0';
+const APP_VERSION = '2.63.0';
 const WHATS_NEW = [
-  'Choose whether to include Cameo registration marks on print sheets',
+  'Print nine 63×88 mm cards on A4 with strip-cut guides for the Dahle 550 and a manual R3 punch',
 ];
 
 function getResetToken() {

@@ -1,13 +1,147 @@
 """Margin-label regressions; run with the same pypdf/Pillow runtime as the worker."""
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
 
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject, RectangleObject
+from PIL import Image, ImageDraw
 
-from printGeneratorWorker import CROWNED_LANDSCAPE, identify_pages, validate_pdf
+from printGeneratorWorker import CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, POINTS_PER_MM, chunk, dahle_face, identify_pages, merge, validate_pdf
+
+
+class DahlePunchTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        self.paper = {"paperSize": "a4", "printPreset": DAHLE_A4_PUNCH}
+        self.front_colors = [(20 + index * 21, 45, 90) for index in range(9)]
+        self.back_colors = [(40, 60, 20 + index * 21) for index in range(9)]
+        self.cards = []
+        for index, (front_color, back_color) in enumerate(zip(self.front_colors, self.back_colors)):
+            card = {"id": str(index)}
+            for face, color in (("front", front_color), ("back", back_color)):
+                path = self.directory / f"{face}-{index}.png"
+                image = Image.new("RGB", (315, 440), color)
+                ImageDraw.Draw(image).rectangle((15, 28, 300, 48), fill="white")
+                image.save(path)
+                card[f"{face}Path"] = str(path)
+                card[f"{face}Source"] = "scryfall"
+            self.cards.append(card)
+
+    def render(self, name, cards, *, double_faced=False, mixed=False):
+        directory = self.directory / name
+        directory.mkdir()
+        packing = {"sheetPacking": "double-faced-first"} if mixed else {}
+        chunk({"directory": str(directory), **self.paper, **packing, "cards": cards, "doubleFaced": double_faced,
+               "registrationMarks": True,
+               "printedIdentification": {"version": 1, "requesterName": "Fixture", "batchName": "Dahle test"},
+               "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC full or partial"}] +
+               ([{"page": 2, "phase": "backs", "label": "CLC full or partial"}] if double_faced else [])})
+        result = json.loads((directory / "result.json").read_text())
+        self.assertFalse(result["registrationMarks"])
+        return directory / "sheet.pdf"
+
+    @staticmethod
+    def mm_operators(page, operator):
+        return [tuple(round(float(value) / POINTS_PER_MM, 4) for value in operands)
+                for operands, name in page.get_contents().operations if name == operator]
+
+    def check_media_and_ticks(self, page):
+        self.assertEqual(page.rotation, 0)
+        self.assertAlmostEqual(float(page.mediabox.width) / POINTS_PER_MM, 210, places=5)
+        self.assertAlmostEqual(float(page.mediabox.height) / POINTS_PER_MM, 297, places=5)
+        y_positions = [283.5, 193.5, 103.5, 13.5]
+        self.assertEqual(self.mm_operators(page, b"m"), [(x, y) for y in y_positions for x in (4.5, 203)])
+        self.assertEqual(self.mm_operators(page, b"l"), [(x, y) for y in y_positions for x in (7, 205.5)])
+        self.assertEqual(sum(operator == b"S" for _, operator in page.get_contents().operations), 8)
+        label_positions = []
+        page.extract_text(visitor_text=lambda text, cm, tm, font, size:
+                          label_positions.append((tm, size)) if text.strip() else None)
+        self.assertEqual(len(label_positions), 3)
+        for position, size in label_positions:
+            self.assertGreater((position[5] - size * 0.3) / POINTS_PER_MM, y_positions[0])
+
+    def check_image(self, page, slot, color):
+        image = page.images[f"/Card{slot + 1}"].image
+        for point, expected in (((160, 220), color), ((160, 40), (255, 255, 255))):
+            self.assertTrue(all(abs(channel - goal) <= 3 for channel, goal in zip(image.getpixel(point), expected)))
+
+    def test_exact_a4_and_fixed_full_and_partial_page_geometry(self):
+        fronts = [{key: value for key, value in card.items() if not key.startswith("back")} for card in self.cards]
+        full = self.render("full", fronts)
+        partial = self.render("partial", fronts[:4])
+        output = self.directory / "fronts.pdf"
+        merge({"inputs": [str(full), str(partial)], "output": str(output), "pageCount": 2, **self.paper})
+        with PdfReader(output) as reader:
+            for index, page in enumerate(reader.pages):
+                self.check_media_and_ticks(page)
+                positions = [(x, y, 65, 90) for y in (193.5, 103.5, 13.5) for x in (7.5, 72.5, 137.5)]
+                occupied = 9 if index == 0 else 4
+                self.assertEqual(self.mm_operators(page, b"re"), positions[:occupied])
+                self.assertEqual(sum(operator == b"W" for _, operator in page.get_contents().operations), occupied)
+                transforms = self.mm_operators(page, b"cm")
+                self.assertEqual(transforms, [(65, 0, 0, 90, x, y) for x, y, _, _ in positions[:occupied]])
+                for slot in range(occupied):
+                    self.check_image(page, slot, self.front_colors[slot])
+
+    def test_mirrors_columns_for_upright_long_edge_backs_and_keeps_single_placement(self):
+        cards = [dict(card) for card in self.cards[:5]]
+        cards[0].pop("backPath")
+        filename = self.render("mixed", cards, double_faced=True, mixed=True)
+        with PdfReader(filename) as reader:
+            first, back = reader.pages
+            for page in reader.pages:
+                self.check_media_and_ticks(page)
+            self.assertIn("Prepared by: Fixture", first.extract_text())
+            self.assertNotIn("REFEED FOR BACK", first.extract_text())
+            self.assertNotIn("REFEED FOR BACK", back.extract_text())
+            self.assertEqual(self.mm_operators(back, b"re"), [(72.5, 193.5, 65, 90), (7.5, 193.5, 65, 90),
+                                                             (137.5, 103.5, 65, 90), (72.5, 103.5, 65, 90)])
+            self.assertEqual(len(back.images), 4)
+            for slot in range(1, 5):
+                self.check_image(back, slot, self.back_colors[slot])
+
+    def test_uses_mpc_source_bleed_independently_of_the_output_clip(self):
+        path = self.directory / "mpc.png"
+        artwork = Image.new("RGB", (1387, 1887), "magenta")
+        ImageDraw.Draw(artwork).rectangle((64, 64, 1323, 1823), fill="navy")
+        artwork.save(path)
+        for output_bleed in (0, 1, 2):
+            _, metadata, (width, height) = dahle_face(path, "saved-mpc", output_bleed)
+            self.assertEqual(metadata["sourceBleedMm"], 3.175)
+            self.assertAlmostEqual(width, 69.35)
+            self.assertAlmostEqual(height, 94.35)
+        cards = [{"id": "mpc", "frontPath": str(path), "frontSource": "saved-mpc"}]
+        with PdfReader(self.render("mpc", cards)) as reader:
+            page = reader.pages[0]
+            self.assertEqual(self.mm_operators(page, b"re"), [(7.5, 193.5, 65, 90)])
+            self.assertEqual(self.mm_operators(page, b"cm"), [(69.35, 0, 0, 94.35, 5.325, 191.325)])
+            width, _, _, height, x, y = self.mm_operators(page, b"cm")[0]
+            self.assertAlmostEqual(width - 2 * 3.175, 63)
+            self.assertAlmostEqual(height - 2 * 3.175, 88)
+            self.assertAlmostEqual(x + 3.175, 8.5)
+            self.assertAlmostEqual(y + 3.175, 194.5)
+        Image.new("RGB", (300, 400), "red").save(path)
+        with self.assertRaisesRegex(ValueError, "no recognized 63 × 88 mm trim geometry"):
+            dahle_face(path, "saved-mpc", 1)
+
+    def test_extends_trim_only_art_including_transparent_rounded_corners(self):
+        path = self.directory / "scryfall.png"
+        artwork = Image.new("RGBA", (315, 440), (0, 0, 0, 0))
+        ImageDraw.Draw(artwork).rounded_rectangle((0, 0, 314, 439), radius=25, fill="navy")
+        artwork.save(path)
+        for output_bleed, expected in ((0, (63, 88)), (1, (65, 90)), (2, (67, 92))):
+            _, metadata, dimensions = dahle_face(path, "scryfall", output_bleed)
+            self.assertEqual(metadata["sourceBleedMm"], 0)
+            self.assertEqual(dimensions, expected)
+        cards = [{"id": "rounded", "frontPath": str(path), "frontSource": "scryfall"}]
+        with PdfReader(self.render("rounded", cards)) as reader:
+            image = reader.pages[0].images[0].image
+            self.assertTrue(all(abs(channel - goal) <= 3 for channel, goal in zip(image.getpixel((0, 0)), (0, 0, 128))))
 
 
 class PageIdentificationTests(unittest.TestCase):
