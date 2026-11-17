@@ -373,6 +373,36 @@ describe('PDF adapter publication', () => {
     expect(result.artifacts[0].printedIdentification).toEqual(result.printedIdentification);
   });
 
+  it('requires the adapter to confirm mark removal before publishing paired pages', async () => {
+    const directory = await temp(), requests = [];
+    const runtime = { capture: () => ({ directory: '/runtime', revision: 'fixed' }) };
+    let registrationMarks;
+    const run = async (_command, args) => {
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      if (args[1] === 'chunk') {
+        requests.push(request);
+        await fs.writeFile(path.join(request.directory, 'sheet.pdf'), request.label);
+        await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({ images: [], registrationMarks }));
+      } else await fs.copyFile(request.inputs[0], request.output);
+    };
+    const generator = createPrintGenerator({ runtime, run });
+    const input = { outputDir: directory, registrationMarks: false, cards: [
+      { id: 'one', frontPath: '/front.png', backPath: '/back.png' },
+    ] };
+    await expect(generator.generate(input)).rejects.toThrow('did not confirm');
+    expect(await fs.readdir(directory)).toEqual([]);
+
+    registrationMarks = false;
+    const result = await generator.generate(input);
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.registrationMarks).toBe(false);
+      expect(request.pageLabels.map(({ phase }) => phase)).toEqual(['fronts', 'backs']);
+    }
+    expect(result.artifacts[0]).toMatchObject({ pageCount: 2, kind: 'dfc' });
+    expect(await fs.readdir(directory)).toEqual(['double-faced-001.pdf']);
+  });
+
   it.each(['', 'CLC\nnext', 'CLC/'.repeat(7), 'x'.repeat(25), null])('rejects invalid batch label %s before capturing a runtime', async batchLabel => {
     const runtime = { capture: vi.fn() };
     await expect(createPrintGenerator({ runtime }).generate({ outputDir: await temp(), batchLabel,

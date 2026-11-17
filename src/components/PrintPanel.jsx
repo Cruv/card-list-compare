@@ -87,6 +87,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [defaultPaper, setDefaultPaper] = useState(() => loadDefaultPrintPaper(localStorage, paperDefaultKey));
   const savedPaper = storedRequest?.paperSize ? storedRequest : storedDraft;
   const [paperOverride, setPaperOverride] = useState(savedPaper?.paperSize ? newPrintPaperChoice(printPaperChoice(savedPaper)) : null);
+  const [registrationMarks, setRegistrationMarks] = useState(() => (storedRequest ?? storedDraft)?.registrationMarks ?? true);
   const [includeSideboard, setIncludeSideboard] = useState(standalone ? storedRequest?.includeSideboard ?? storedDraft?.includeSideboard ?? false : false);
   const [replacePrintings, setReplacePrintings] = useState(storedRequest?.replacePrintings ?? storedDraft?.replacePrintings ?? false);
   const [excludeBasicLands, setExcludeBasicLands] = useState(storedRequest ? storedRequest.excludeBasicLands ?? false : storedDraft?.excludeBasicLands ?? true);
@@ -119,6 +120,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const revisionRef = useRef(0);
   const creationPending = !!pendingRequest;
   const pendingAction = pendingRequest?.queueOnReady ?? null;
+  const selectedRegistrationMarks = pendingRequest ? pendingRequest.registrationMarks ?? true : registrationMarks;
   const availablePaper = availablePrintPaperChoices(capabilities);
   const preferredPaper = paperOverride ?? defaultPaper;
   const selectedPaper = pendingRequest ? printPaperChoice(pendingRequest)
@@ -153,23 +155,24 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   useEffect(() => {
     if (!standalone) return;
     try {
-      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, ...(paperOverride ? printPaperRequest(paperOverride) : {}) }));
+      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(paperOverride ? printPaperRequest(paperOverride) : {}) }));
       setDraftError('');
       if (autoComparison && !autoConsumedRef.current) {
         autoConsumedRef.current = true;
         onComparisonConsumed?.(autoComparison.id);
       }
     } catch { setDraftError('This browser could not save your draft. Keep a copy of your card list before leaving this page.'); }
-  }, [standalone, draftStorageKey, listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, paperOverride, autoComparison, onComparisonConsumed]);
+  }, [standalone, draftStorageKey, listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, paperOverride, autoComparison, onComparisonConsumed]);
 
   function switchDraft(draft, comparisonId) {
     if (requestRef.current || busy) return;
     const nextPaper = draft.paperSize ? newPrintPaperChoice(printPaperChoice(draft)) : null;
-    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, ...(paperOverride ? printPaperRequest(paperOverride) : {}) };
+    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(paperOverride ? printPaperRequest(paperOverride) : {}) };
     const next = { listName: draft.listName || '', cardText: draft.cardText || '', comparison: draft.comparison || null,
       replacePrintings: draft.replacePrintings ?? false, includeSideboard: draft.includeSideboard ?? false,
       excludeBasicLands: draft.excludeBasicLands ?? true, additionalCardText: draft.additionalCardText || '',
       excludedCards: draft.excludedCards || [], removedCards: draft.removedCards || [], printingOverrides: draft.printingOverrides || [],
+      registrationMarks: draft.registrationMarks ?? registrationMarks,
       ...(nextPaper ? printPaperRequest(nextPaper) : {}) };
     try { saveStandaloneDraftReplacement(localStorage, draftStorageKey, recoveryStorageKey, current, next); }
     catch { setError('The browser could not save both drafts. Your current draft and compared lists are unchanged. Free browser storage and try again.'); return; }
@@ -179,7 +182,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     setReplacePrintings(draft.replacePrintings ?? false); setIncludeSideboard(draft.includeSideboard ?? false);
     setExcludeBasicLands(draft.excludeBasicLands ?? true); setAdditionalCardText(draft.additionalCardText || '');
     setExcludedCards(draft.excludedCards || []); setRemovedCards(draft.removedCards || []);
-    setPaperOverride(nextPaper);
+    setPaperOverride(nextPaper); setRegistrationMarks(next.registrationMarks);
     setPrintingOverrides(draft.printingOverrides || []); setPendingArt([]); setSelectedArtCard(null);
     setPlan(null); setEditingSource(true); setActiveView('prepare'); setFocusedJobId(null); setError(''); setNotice('');
     if (comparisonId) { setHandledComparisonId(comparisonId); onComparisonConsumed?.(comparisonId); }
@@ -424,11 +427,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         const request = standalone ? {
           mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
           excludeBasicLands, additionalCardText, excludedCards, printingOverrides,
-          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan)), queueOnReady, idempotencyKey: requestId(),
+          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan)), registrationMarks, queueOnReady, idempotencyKey: requestId(),
         } : {
           mode, targetSnapshotId: plan.target.id, baselineSnapshotId: plan.source?.id,
           artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, printingOverrides, expectedPlanHash: plan.planHash,
-          ...printPaperRequest(printPaperChoice(plan)), queueOnReady, idempotencyKey: requestId(),
+          ...printPaperRequest(printPaperChoice(plan)), registrationMarks, queueOnReady, idempotencyKey: requestId(),
         };
         // Save before POST: a reload or lost response must recover this exact
         // request instead of creating a second potentially queued batch.
@@ -505,7 +508,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     const queueUnavailable = job.state === 'ready' && capabilities.canQueue ? printPaperUnavailable(job, station) : '';
     const companionWait = mixedPrintCompanionWait(job, station);
     return <article className="print-panel-card print-batch" key={job.id}>
-      <div className="print-panel-heading"><div><h4>{job.deckName || 'Print batch'}</h4><p className="print-panel-meta">{job.totalCopies} cards · {printPaperLabel(job)} · Batch {job.id.slice(0, 8)}</p></div><span className={`print-panel-status print-batch-status print-batch-status--${job.state}`}>{STATES[job.state] || job.state}</span></div>
+      <div className="print-panel-heading"><div><h4>{job.deckName || 'Print batch'}</h4><p className="print-panel-meta">{job.totalCopies} cards · {printPaperLabel(job)}{job.registrationMarks === false && ' · No registration marks'} · Batch {job.id.slice(0, 8)}</p></div><span className={`print-panel-status print-batch-status print-batch-status--${job.state}`}>{STATES[job.state] || job.state}</span></div>
       {job.state === 'preparing' && <p>Creating your PDFs{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets ready` : '…'}</p>}
       {job.state === 'ready' && <p>Your PDFs are ready. Download them or send this batch to the Mac.</p>}
       {['queued', 'claimed', 'submitting', 'submitted'].includes(job.state) && <p>{companionWait ? `${companionWait}. Open ` : 'Follow this batch in '}<a href="#print-station">Printer</a>.</p>}
@@ -567,7 +570,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
     {creationPending && <section className="print-panel-confirmation" aria-label="Recover print batch request">
       <h3>{busy ? 'Creating your batch…' : 'Checking your batch request'}</h3>
-      <p>{pendingRequest?.mode === 'adhoc' ? pendingRequest.listName.trim() || 'Print list' : `Snapshot #${pendingRequest?.targetSnapshotId}`} · {printPaperLabel(pendingRequest)} · {pendingAction ? 'Generate and print' : 'Generate PDFs only'}.</p>
+      <p>{pendingRequest?.mode === 'adhoc' ? pendingRequest.listName.trim() || 'Print list' : `Snapshot #${pendingRequest?.targetSnapshotId}`} · {printPaperLabel(pendingRequest)}{pendingRequest?.registrationMarks === false && ' · No registration marks'} · {pendingAction ? 'Generate and print' : 'Generate PDFs only'}.</p>
       <p>The result is not confirmed. Retry the saved request to recover the same batch without printing twice. Your card list stays locked until it is resolved.</p>
       <button className="btn btn-primary" type="button" disabled={busy} onClick={() => generate(pendingAction)}>Retry same batch request</button>
     </section>}
@@ -626,15 +629,18 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         ? <p className="print-dfc-note">Sheets with double-sided cards print first. {summary.ordinary > 0 && 'Single-sided cards fill any open slots on those sheets. '}Set sheets marked <strong>REFEED FOR BACK</strong> aside to dry, then choose their matching backs in <a href="#print-station">Printer</a>.</p>
         : <p className="print-dfc-note">{summary.doubleFaced} double-sided {summary.doubleFaced === 1 ? 'card' : 'cards'} will use {summary.packets} separate labeled {summary.packets === 1 ? 'sheet' : 'sheets'}. With companion 2.55.0 or newer, all fronts print first. Keep those sheets and choose their backs later in Printer. Other front jobs can continue. Older companions keep their original front/back sequence.</p>)}
       {station?.online && stationPaperChoice(station) === selectedPaper && station.duplexVerified === false && summary?.doubleFaced > 0 && <p className="print-panel-meta">Double-sided alignment for {paperPreset.label} is still unverified. Check <a href="#print-station">Printer</a> before continuing.</p>}
-      {(availablePaper.length > 1 || showPendingPaper) && <div className="print-paper-controls">
-        <label className="print-list-name">Paper and layout<select value={selectedPaper} disabled={busy || creationPending} onChange={event => change(setPaperOverride, event.target.value, true)}>
-          {showPendingPaper && <option value={selectedPaper}>{paperPreset.optionLabel || paperPreset.label}</option>}
-          {availablePaper.map(choice => <option key={choice} value={choice}>{PRINT_PAPER[choice].optionLabel || PRINT_PAPER[choice].label}</option>)}
-        </select></label>
-        <button type="button" className="btn btn-secondary" disabled={busy || creationPending || selectedPaper === defaultPaper} onClick={savePaperDefault}>Save as default</button>
-        <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
-      </div>}
-      {selectedPaper === CROWNED_A4_PORTRAIT_SIX_PRESET && <p className="print-panel-meta">Prints six cards in the top two rows, leaving the bottom row free of cards. Get the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</p>}
+      <div className="print-paper-controls">
+        {(availablePaper.length > 1 || showPendingPaper) && <>
+          <label className="print-list-name">Paper and layout<select value={selectedPaper} disabled={busy || creationPending} onChange={event => change(setPaperOverride, event.target.value, true)}>
+            {showPendingPaper && <option value={selectedPaper}>{paperPreset.optionLabel || paperPreset.label}</option>}
+            {availablePaper.map(choice => <option key={choice} value={choice}>{PRINT_PAPER[choice].optionLabel || PRINT_PAPER[choice].label}</option>)}
+          </select></label>
+          <button type="button" className="btn btn-secondary" disabled={busy || creationPending || selectedPaper === defaultPaper} onClick={savePaperDefault}>Save as default</button>
+          <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
+        </>}
+        <label className="print-panel-check"><input type="checkbox" checked={selectedRegistrationMarks} disabled={busy || creationPending} onChange={event => setRegistrationMarks(event.target.checked)} />Include Cameo registration marks</label>
+      </div>
+      {selectedPaper === CROWNED_A4_PORTRAIT_SIX_PRESET && <p className="print-panel-meta">Prints six cards in the top two rows, leaving the bottom row free of cards.{selectedRegistrationMarks && <> Get the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</>}</p>}
       {isCrownedPrintPreset(selectedPaper) && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
       <div className="print-review-footer"><div><strong>
@@ -643,7 +649,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         {summary?.packets > 0 && (doubleFacedFirst
           ? ` · ${summary.packets} ${summary.packets === 1 ? 'sheet' : 'sheets'} to flip`
           : ` · ${summary.packets} double-sided ${summary.packets === 1 ? 'sheet' : 'sheets'}`)}
-      </strong><span>{reviewedPaper.label} · {reviewedPaper.templateVersion || reviewedPaper.template} cut template</span></div><div className="print-panel-actions">
+      </strong><span>{reviewedPaper.label} · {selectedRegistrationMarks ? `${reviewedPaper.templateVersion || reviewedPaper.template} cut template` : 'No registration marks'}</span></div><div className="print-panel-actions">
         {needsReview ? <button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : deckArtConflict ? 'Review latest deck' : 'Review updated list'}</button> : <><button className={`btn ${capabilities.canQueue && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{capabilities.canQueue && <button className="btn btn-primary" disabled={busy || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
       </div></div>
     </section>}

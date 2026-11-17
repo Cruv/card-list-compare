@@ -129,6 +129,7 @@ export function loadPrintCreationIntent(storage, key) {
 function validSelectionOptions(value) {
   return (value.paperSize === undefined || isPrintPaperSize(value.paperSize))
     && (value.printPreset === undefined || (value.paperSize === 'a4' && isCrownedPrintPreset(value.printPreset)))
+    && (value.registrationMarks === undefined || typeof value.registrationMarks === 'boolean')
     && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000
@@ -156,6 +157,7 @@ export function loadStandalonePrintDraft(storage, key) {
     return { listName: value.listName, cardText: value.cardText, includeSideboard: value.includeSideboard,
       excludeBasicLands: value.excludeBasicLands ?? true, additionalCardText: value.additionalCardText ?? '',
       excludedCards: value.excludedCards ?? [], removedCards,
+      ...(value.registrationMarks === undefined ? {} : { registrationMarks: value.registrationMarks }),
       ...(value.paperSize ? { paperSize: value.paperSize } : {}),
       ...(value.printPreset ? { printPreset: value.printPreset } : {}),
       ...(value.printingOverrides ? { printingOverrides: value.printingOverrides } : {}),

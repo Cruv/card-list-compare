@@ -184,6 +184,12 @@ describe('durable print creation recovery', () => {
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify(request) }, 'key')).not.toHaveProperty('paperSize');
     expect(loadPrintCreationIntent({ getItem: () => JSON.stringify({ ...request, paperSize: 'a3' }) }, 'key')).toBeNull();
   });
+  it('replays PDFs without registration marks after a lost creation response', () => {
+    const read = value => loadPrintCreationIntent({ getItem: () => JSON.stringify(value) }, 'key');
+    expect(read({ ...request, registrationMarks: false })).toMatchObject({ registrationMarks: false, idempotencyKey: request.idempotencyKey });
+    expect(read(request)).not.toHaveProperty('registrationMarks');
+    expect(read({ ...request, registrationMarks: 'false' })).toBeNull();
+  });
   it('retains intent when transport or authorization can prevent an accepted receipt from being read', () => {
     for (const error of [new Error('offline'), { status: 401 }, { status: 403 }, { status: 408 }, { status: 429 }, { status: 500 }, { status: 503 }]) {
       expect(rejectedPrintCreation(error)).toBe(false);
@@ -302,7 +308,7 @@ describe('standalone print drafts', () => {
   });
   it('preserves comparison mode and art selections in a draft or recovery copy', () => {
     const value = { ...draft, comparison: { mode: 'full', beforeText: '1 Sol Ring' }, replacePrintings: true,
-      printingOverrides: [{ selectionKey: 'sol ring', scryfallId: '12345678-1234-1234-1234-123456789abc' }] };
+      printingOverrides: [{ selectionKey: 'sol ring', scryfallId: '12345678-1234-1234-1234-123456789abc' }], registrationMarks: false };
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key')).toEqual(value);
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...value, comparison: { mode: 'full', beforeText: null } }) }, 'key')).toBeNull();
   });
