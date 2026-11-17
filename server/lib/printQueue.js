@@ -138,6 +138,7 @@ export function formatPrintJob(row, station = false) {
   const value = {
     id: row.id, state: row.state, mode: plan.mode, deckId: row.tracked_deck_id, deckName: plan.deckName,
     requesterId: row.user_id, totalCopies: plan.totalCopies, artSource: plan.artSource,
+    registrationMarks: plan.registrationMarks !== false,
     printingOverrideCount: (plan.resolvedCards || []).filter(card => card.requestedScryfallId).length,
     source: publicPlan.source, target: publicPlan.target,
     ...(plan.list ? { list: publicPlan.list } : {}),
@@ -161,10 +162,13 @@ export function listPrintJobs(userId, deckId) {
 export async function createPrintJob(userId, deckId, request, assertQueuePaper = () => {}) {
   const requestKey = safeId(request.idempotencyKey, 'idempotencyKey');
   const { paperSize, printPreset } = printPaperSelection(request.paperSize, request.printPreset);
+  const { registrationMarks = true } = request;
+  if (typeof registrationMarks !== 'boolean') throw printError('registrationMarks must be true or false');
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
   const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady,
-    ...(paperSize === 'letter' ? {} : { paperSize }), ...(printPreset ? { printPreset } : {}) }));
+    ...(paperSize === 'letter' ? {} : { paperSize }), ...(printPreset ? { printPreset } : {}),
+    ...(registrationMarks ? {} : { registrationMarks }) }));
   const replay = () => {
     const existing = get('SELECT * FROM print_jobs WHERE user_id = ? AND request_key = ?', [userId, requestKey]);
     if (!existing) return null;
@@ -194,6 +198,8 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
   const id = crypto.randomUUID(), timestamp = now();
   const requester = get('SELECT username FROM users WHERE id = ?', [userId]);
   plan.requesterName = (requester?.username || 'Unknown requester').slice(0, 120);
+  // Sheet decoration is chosen at generation time. Keep the reviewed card plan hash stable.
+  if (!registrationMarks) plan.registrationMarks = false;
   run(`INSERT INTO print_jobs (id, user_id, tracked_deck_id, request_key, request_hash, plan_json, queue_requested, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, userId, deckId, requestKey, requestHash, json(plan), request.queueOnReady ? 1 : 0, timestamp, timestamp]);
   triggerWorker();
@@ -251,6 +257,7 @@ export async function processNextPrintJob() {
       paperSize: plan.paperSize ?? 'letter',
       ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
       ...(plan.sheetPacking ? { sheetPacking: plan.sheetPacking } : {}),
+      ...(plan.registrationMarks === false ? { registrationMarks: false } : {}),
       cards: copies.map(copy => ({ id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}) })),
       outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
       requesterName: plan.requesterName || 'Unknown requester', batchName: plan.deckName,

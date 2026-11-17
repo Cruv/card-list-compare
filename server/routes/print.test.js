@@ -416,6 +416,46 @@ describe('batch paper size', () => {
   });
 });
 
+describe('Cameo registration marks', () => {
+  it.each([
+    ['/api/decks/1/print-plan', '/api/decks/1/print-jobs', { mode: 'full' }],
+    ['/api/print-lists/plan', '/api/print-lists/jobs', { mode: 'adhoc', listName: 'Manual cut', cardText: '1 Lightning Bolt' }],
+  ])('freezes the choice on %s jobs after review', async (planPath, jobsPath, options) => {
+    const review = await request(planPath, { method: 'POST', body: options });
+    expect(review.status).toBe(200);
+    const { plan } = await review.json();
+    const body = { ...options, expectedPlanHash: plan.planHash, idempotencyKey: crypto.randomUUID() };
+    const submit = registrationMarks => request(jobsPath, { method: 'POST', body: { ...body, registrationMarks } });
+
+    expect((await submit('false')).status).toBe(400);
+    const created = await submit(false);
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    expect(job.registrationMarks).toBe(false);
+    expect((await submit(true)).status).toBe(409);
+    const replay = await submit(false);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ isExisting: true, job: { id: job.id, registrationMarks: false } });
+
+    await queue.processNextPrintJob();
+    expect(services.generatePrintPdfs).toHaveBeenLastCalledWith(expect.objectContaining({ registrationMarks: false }));
+    const manifest = await request(`${jobsPath}/${job.id}/manifest`);
+    expect(manifest.status).toBe(200);
+    expect(await manifest.json()).toMatchObject({ plan: { planHash: plan.planHash, registrationMarks: false } });
+  });
+
+  it('keeps omitted and explicit true interoperable for idempotent retries', async () => {
+    const { planHash } = await preview({ mode: 'full' });
+    const body = { mode: 'full', expectedPlanHash: planHash, idempotencyKey: crypto.randomUUID() };
+    const { job } = await queue.createPrintJob(1, 1, body);
+    expect(job.registrationMarks).toBe(true);
+    expect(await queue.createPrintJob(1, 1, { ...body, registrationMarks: true }))
+      .toMatchObject({ isExisting: true, job: { id: job.id, registrationMarks: true } });
+    await queue.processNextPrintJob();
+    expect(services.generatePrintPdfs.mock.lastCall[0]).not.toHaveProperty('registrationMarks');
+  });
+});
+
 async function packetPdfs({ cards, outputDir, batchLabel, sheetPacking }, capacity = 7) {
   mkdirSync(outputDir, { recursive: true });
   const fronts = cards.filter(card => !card.backPath), dfcs = cards.filter(card => card.backPath);

@@ -30,9 +30,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.61.2';
+const APP_VERSION = '2.62.0';
 const WHATS_NEW = [
-  'Print sheet labels inside the Cameo registration marks',
+  'Choose whether to include Cameo registration marks on print sheets',
 ];
 
 function getResetToken() {

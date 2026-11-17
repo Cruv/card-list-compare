@@ -85,6 +85,10 @@ paper size and be configured for the exact stock and layout in the rear feeder. 
 size or preset changes, queued batches wait for their matching paper and layout. See the
 [Mac paper setup](../companion/mac/README.md#configure-without-printing) for the local settings.
 
+Clear **Include Cameo registration marks** for hand cutting or a die cutter. The generated
+fronts and backs keep the same card positions, paper size, and thin sheet labels. Leave
+the option on for Cameo Print & Cut.
+
 With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
 connected Discord channel, with the requester, saved batch label, card count, queue time
 and batch ID. All mentions are disabled. It confirms CLC accepted the job, even while
@@ -242,8 +246,8 @@ on the resin-coated stock before committing a batch.
 ### Crowned A4 Portrait 3×2
 
 Choose **Crowned A4 · Portrait 3×2** for six upright cards in the top two rows of
-portrait A4 (210 × 297 mm). The bottom row has no cards, and all three registration
-marks remain. The Mac prints both passes at actual size using the Rear Paper Feeder,
+portrait A4 (210 × 297 mm). The bottom row has no cards. With Cameo registration marks
+enabled, all three marks are printed. The Mac prints both passes at actual size using the Rear Paper Feeder,
 Thick Paper and Envelopes on, Bidirectional Printing off, expansion off and automatic
 duplex off. Set the Mac to the matching 3×2 preset for fronts and saved backs.
 
@@ -282,11 +286,11 @@ registration and manual refeed checks.
 ### Printed sheet identification
 
 Every newly generated page carries **Queued by**, the saved **Batch** label, its exact
-sheet/packet identity and **FRONT** or **BACK** between the top registration marks and the
-cards. Fronts with matching backs also say **REFEED FOR BACK** there. Longer lines use a
-smaller font to fit. CLC skips Silhouette Card Maker’s separate footer so all sheet text
-fits inside the marks. These values are frozen when the job is created, so saved backs
-still match their requester and labeled front sheets later.
+sheet/packet identity and **FRONT** or **BACK** in the top margin above the cards,
+including when registration marks are turned off. Fronts with matching backs also say
+**REFEED FOR BACK** there. Longer lines use a smaller font to fit. Every label stays
+within the area defined by the registration marks. These values are frozen when the job
+is created, so saved backs still match their requester and labeled front sheets later.
 
 The historical Windows command was:
 

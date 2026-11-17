@@ -223,7 +223,7 @@ def usable_slots(recipe):
     return [slot for slot in range(len(paper["x"]) * len(paper["y"])) if slot not in SKIPPED_SLOTS.get(recipe, ())]
 
 
-def generate_without_footer(source, args):
+def generate_without_footer(source, args, *, registration_marks=True):
     # Silhouette Card Maker always draws its footer, even when --label is omitted.
     # In this isolated process, replace only the final page assembly step. Keep
     # its lossless portrait rotation and front/back order before PDF encoding.
@@ -231,6 +231,7 @@ def generate_without_footer(source, args):
     from create_pdf import cli
     from enums import Orientation
     import utilities
+    import page_manager
 
     def append_pages(front_page, back_page, pages, _width, _height, _ppi_ratio,
                      _template, only_fronts, _label, orientation, _margin, _borderless):
@@ -242,6 +243,15 @@ def generate_without_footer(source, args):
             pages.append(back_page)
 
     utilities.add_front_back_pages = append_pages
+    if not registration_marks:
+        generate_reg_mark = page_manager.generate_reg_mark
+
+        def blank_registration(*args, **kwargs):
+            # Preserve the size of the upstream canvas and its existing layout.
+            with generate_reg_mark(*args, **kwargs) as marks:
+                return Image.new(marks.mode, marks.size, "white")
+
+        page_manager.generate_reg_mark = blank_registration
     cli.main(args=args, prog_name="create_pdf.py")
 
 
@@ -249,6 +259,9 @@ def chunk(request):
     source, directory = Path(request["source"]), Path(request["directory"])
     paper_size = request.get("paperSize", "letter")
     recipe = paper_key(request)
+    registration_marks = request.get("registrationMarks", True)
+    if not isinstance(registration_marks, bool):
+        raise ValueError("Registration marks must be enabled or disabled")
     approved_geometry(source, recipe)
     cards = request["cards"]
     if not 1 <= len(cards) <= len(usable_slots(recipe)):
@@ -268,6 +281,8 @@ def chunk(request):
         metadata.append(item)
     output = directory / "sheet.pdf"
     command = [sys.executable, "-B", str(Path(__file__).resolve()), "upstream", str(source)]
+    if not registration_marks:
+        command.append("--omit-registration-marks")
     args = ["--front_dir_path", str(directory / "front"),
             "--back_dir_path", str(directory / "back"), "--double_sided_dir_path", str(directory / "double_sided"),
             "--output_path", str(output), "--card_size", "standard", "--paper_size", paper_size, "--registration", "3",
@@ -283,7 +298,7 @@ def chunk(request):
     validate_pdf(output, page_count, recipe, upstream=True)
     identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe, refeed_front=double_faced)
     validate_pdf(output, page_count, recipe)
-    (directory / "result.json").write_text(json.dumps({"images": metadata}))
+    (directory / "result.json").write_text(json.dumps({"images": metadata, "registrationMarks": registration_marks}))
     # The validated PDF and metadata are self-contained. Source artwork remains
     # in the job staging area, so do not retain another copy for every sheet.
     for folder in ("front", "back", "double_sided"):
@@ -338,7 +353,7 @@ def smoke_paper(source, directory, cards, recipe):
         if any(abs(a - b) > 3 for a, b in zip(raster.getpixel(point), expected)):
             raise ValueError(f"Upstream changed card ordering, face pairing, orientation or skipped slots for {paper['name']}")
 
-    def read_raster(page):
+    def read_raster(page, registration_marks):
         image = page.images[0].image
         if portrait:
             image = image.transpose(Image.Transpose.ROTATE_270)
@@ -347,19 +362,15 @@ def smoke_paper(source, directory, cards, recipe):
             footer = (image.width - 250, image.height // 4, image.width, image.height * 3 // 4)
         if any(low < 245 for low, _ in image.crop(footer).getextrema()):
             raise ValueError(f"Unexpected artwork in the former footer area for {paper['name']}")
-        if centered:
-            # Check the A4 v5 registration square and both L marks with every slot filled.
-            for x_mm, y_mm in ((12.5, 12.5), (287, 16), (10, 194)):
-                point = (round(x_mm * 600 / 25.4), round(y_mm * 600 / 25.4))
-                if max(image.getpixel(point)) > 48:
-                    raise ValueError("Centered A4 registration marks moved out of their approved positions")
-        if not portrait:
-            return image
-        # All three marks must survive the Epson's normal ~3 mm margin.
-        for x_mm, y_mm in ((5.5, 5.5), (206.5, 9), (9, 293.5)):
-            point = (round(x_mm * 600 / 25.4), round(y_mm * 600 / 25.4))
-            if max(image.getpixel(point)) > 48:
-                raise ValueError("Crowned registration marks moved out of their approved positions")
+        pixels_per_mm = 600 / 25.4
+        inset = round((PORTRAIT_MARKS["inset"] if portrait else 10) * pixels_per_mm)
+        square_center = inset + round(2.5 * pixels_per_mm)
+        arm = inset + round(4 * pixels_per_mm)
+        mark_points = ((square_center, square_center), (image.width - inset, arm), (arm, image.height - inset))
+        for point in mark_points:
+            color = image.getpixel(point)
+            if (registration_marks and max(color) > 48) or (not registration_marks and min(color) < 245):
+                raise ValueError(f"Unexpected registration mark output for {paper['name']}")
         if recipe == CROWNED_PORTRAIT_SIX:
             # The previous row's bleed may extend into the gutter. Inspect the
             # empty card row itself, above the bottom marks.
@@ -372,6 +383,7 @@ def smoke_paper(source, directory, cards, recipe):
     mixed_backs = 1 if portrait else 2
     for side_mode, first_back in (("ordinary", len(cards)), ("dfc", 0), ("mixed", len(cards) - mixed_backs)):
         double_faced = first_back < len(cards)
+        registration_marks = side_mode != "mixed"
         working = directory / f"{recipe}-{side_mode}"
         working.mkdir()
         sheet_cards = [card if index >= first_back else {"id": card["id"], "frontPath": card["frontPath"]}
@@ -381,11 +393,12 @@ def smoke_paper(source, directory, cards, recipe):
                "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Approved geometry test"},
                "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"}] + (
                    [{"page": 2, "phase": "backs", "label": "CLC runtime check"}] if double_faced else []),
-               **request_paper, **packing, "doubleFaced": double_faced, "cards": sheet_cards})
+               **request_paper, **packing, "doubleFaced": double_faced, "cards": sheet_cards,
+               "registrationMarks": registration_marks})
         reader = PdfReader(working / "sheet.pdf", strict=True)
         if ("REFEED FOR BACK" in reader.pages[0].extract_text()) != double_faced:
             raise ValueError("Generated front page does not identify which sheets need refeeding")
-        raster = read_raster(reader.pages[0])
+        raster = read_raster(reader.pages[0], registration_marks)
         if not portrait and not centered:
             pixel(raster, 4, 519, (255, 255, 255))
         for index, slot in enumerate(slots):
@@ -394,7 +407,7 @@ def smoke_paper(source, directory, cards, recipe):
         if double_faced:
             if "REFEED FOR BACK" in reader.pages[1].extract_text():
                 raise ValueError("Generated back page has a front-only refeed instruction")
-            raster = read_raster(reader.pages[1])
+            raster = read_raster(reader.pages[1], registration_marks)
             if not portrait and not centered:
                 pixel(raster, 0, 519, (255, 255, 255))
             for index, slot in enumerate(slots):
@@ -416,6 +429,8 @@ if __name__ == "__main__":
     elif sys.argv[1] == "merge":
         merge(json.loads(Path(sys.argv[2]).read_text()))
     elif sys.argv[1] == "upstream":
-        generate_without_footer(Path(sys.argv[2]), sys.argv[3:])
+        args = sys.argv[3:]
+        omit_marks = args[0] == "--omit-registration-marks"
+        generate_without_footer(Path(sys.argv[2]), args[1:] if omit_marks else args, registration_marks=not omit_marks)
     else:
         raise ValueError("Unknown CLC print helper operation")
