@@ -151,12 +151,7 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
 
 
 def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False):
-    """Add vector identification in the approved top margin.
-
-    Card pixels start at least 46.56pt below the top edge; the marks are at the
-    outer corners. Our three lines stay within the top 42pt and clear of both.
-    Existing 600ppi DeviceRGB image streams are copied without recompression.
-    """
+    """Add vector identification between the registration marks and above the artwork."""
     values = [identification.get("requesterName"), identification.get("batchName")]
     if identification.get("version") != 1 or any(not isinstance(value, str) or not value
             or any(ord(char) < 32 or ord(char) > 126 for char in value) for value in values):
@@ -179,10 +174,11 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
                     or not isinstance(label, str) or not 1 <= len(label) <= 96 \
                     or any(ord(char) < 32 or ord(char) > 126 for char in label):
                 raise ValueError("Page label must identify its exact sheet and side")
-            lines = [f"Queued by: {values[0]}", f"Batch: {values[1]}",
-                     f"{label} | {'FRONT' if item['phase'] == 'fronts' else 'BACK'}"]
+            packet = f"{label} | {'FRONT' if item['phase'] == 'fronts' else 'BACK'}"
             if refeed_front and item["phase"] == "fronts":
-                lines[-1] += " | REFEED FOR BACK"
+                packet += " | REFEED FOR BACK"
+            requester = f"Queued by: {values[0]}"
+            batch = f"Batch: {values[1]}"
             resources = DictionaryObject(page["/Resources"])
             fonts = DictionaryObject(resources.get("/Font", DictionaryObject()).get_object())
             if "/CLCPageIdentity" in fonts:
@@ -197,11 +193,19 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
                 page.rotate(90)
                 page.transfer_rotation_to_content()
             top = float(page.mediabox.top)
-            commands = ["q", "0 g", "BT", "/CLCPageIdentity 8 Tf"]
-            # Keep the label outside the registration corners and card bleed.
-            offsets = (16, 25, 34) if portrait else (20, 30, 40)
-            for offset, text in zip(offsets, lines):
-                commands.extend((f"1 0 0 1 66 {top - offset:g} Tm", f"<{text.encode('ascii').hex()}> Tj"))
+            # Portrait has more room above the first row. The landscape marks
+            # start farther down, leaving space for two lines below their top edge.
+            rows = ((18, requester), (27, batch), (36, packet)) if portrait else (
+                (34, f"{requester}  |  {batch}"), (41, packet))
+            inset = 66
+            # Courier's advance is 0.6 em. Allow room for the final glyph and for
+            # rounding without shortening the packet or the manual refeed message.
+            room = float(page.mediabox.width) - 2 * inset - 1
+            commands = ["q", "0 g", "BT"]
+            for offset, text in rows:
+                size = min(8 if portrait else 7, room / (0.6 * len(text)))
+                commands.extend((f"/CLCPageIdentity {size:.3f} Tf", f"1 0 0 1 {inset} {top - offset:g} Tm",
+                                 f"<{text.encode('ascii').hex()}> Tj"))
             commands.extend(("ET", "Q"))
             overlay = DecodedStreamObject()
             overlay.set_data(("\n" + "\n".join(commands) + "\n").encode("ascii"))
@@ -217,6 +221,28 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
 def usable_slots(recipe):
     paper = APPROVED_PAPER[recipe]
     return [slot for slot in range(len(paper["x"]) * len(paper["y"])) if slot not in SKIPPED_SLOTS.get(recipe, ())]
+
+
+def generate_without_footer(source, args):
+    # Silhouette Card Maker always draws its footer, even when --label is omitted.
+    # In this isolated process, replace only the final page assembly step. Keep
+    # its lossless portrait rotation and front/back order before PDF encoding.
+    sys.path.insert(0, str(source))
+    from create_pdf import cli
+    from enums import Orientation
+    import utilities
+
+    def append_pages(front_page, back_page, pages, _width, _height, _ppi_ratio,
+                     _template, only_fronts, _label, orientation, _margin, _borderless):
+        if orientation == Orientation.PORTRAIT:
+            front_page = front_page.rotate(90, expand=True)
+            back_page = back_page.rotate(90, expand=True)
+        pages.append(front_page)
+        if not only_fronts:
+            pages.append(back_page)
+
+    utilities.add_front_back_pages = append_pages
+    cli.main(args=args, prog_name="create_pdf.py")
 
 
 def chunk(request):
@@ -241,12 +267,11 @@ def chunk(request):
             item["back"] = image_copy(card["backPath"], directory / "double_sided" / f"{index:04d}")
         metadata.append(item)
     output = directory / "sheet.pdf"
-    command = [sys.executable, str(source / "create_pdf.py")]
+    command = [sys.executable, "-B", str(Path(__file__).resolve()), "upstream", str(source)]
     args = ["--front_dir_path", str(directory / "front"),
             "--back_dir_path", str(directory / "back"), "--double_sided_dir_path", str(directory / "double_sided"),
             "--output_path", str(output), "--card_size", "standard", "--paper_size", paper_size, "--registration", "3",
-            "--ppi", "600", "--quality", "100", "--crop", "1mm", "--fit", "stretch",
-            "--label", request["label"]]
+            "--ppi", "600", "--quality", "100", "--crop", "1mm", "--fit", "stretch"]
     if recipe in PORTRAIT_PRESETS:
         args.append("--borderless")
     for slot in SKIPPED_SLOTS.get(recipe, ()):
@@ -315,6 +340,13 @@ def smoke_paper(source, directory, cards, recipe):
 
     def read_raster(page):
         image = page.images[0].image
+        if portrait:
+            image = image.transpose(Image.Transpose.ROTATE_270)
+            footer = (image.width // 4, image.height - 120, image.width * 3 // 4, image.height)
+        else:
+            footer = (image.width - 250, image.height // 4, image.width, image.height * 3 // 4)
+        if any(low < 245 for low, _ in image.crop(footer).getextrema()):
+            raise ValueError(f"Unexpected artwork in the former footer area for {paper['name']}")
         if centered:
             # Check the A4 v5 registration square and both L marks with every slot filled.
             for x_mm, y_mm in ((12.5, 12.5), (287, 16), (10, 194)):
@@ -323,7 +355,6 @@ def smoke_paper(source, directory, cards, recipe):
                     raise ValueError("Centered A4 registration marks moved out of their approved positions")
         if not portrait:
             return image
-        image = image.transpose(Image.Transpose.ROTATE_270)
         # All three marks must survive the Epson's normal ~3 mm margin.
         for x_mm, y_mm in ((5.5, 5.5), (206.5, 9), (9, 293.5)):
             point = (round(x_mm * 600 / 25.4), round(y_mm * 600 / 25.4))
@@ -331,7 +362,7 @@ def smoke_paper(source, directory, cards, recipe):
                 raise ValueError("Crowned registration marks moved out of their approved positions")
         if recipe == CROWNED_PORTRAIT_SIX:
             # The previous row's bleed may extend into the gutter. Inspect the
-            # empty card row itself, above the bottom marks and upstream label.
+            # empty card row itself, above the bottom marks.
             start = paper["y"][-1] * 2
             end = (paper["y"][-1] + PORTRAIT_CARD["height"]) * 2
             if any(low < 252 for low, _ in image.crop((0, start, image.width, end)).getextrema()):
@@ -346,7 +377,7 @@ def smoke_paper(source, directory, cards, recipe):
         sheet_cards = [card if index >= first_back else {"id": card["id"], "frontPath": card["frontPath"]}
                        for index, card in enumerate(cards)]
         packing = {"sheetPacking": "double-faced-first"} if side_mode == "mixed" else {}
-        chunk({"source": str(source), "directory": str(working), "label": "CLC runtime check",
+        chunk({"source": str(source), "directory": str(working),
                "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Approved geometry test"},
                "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"}] + (
                    [{"page": 2, "phase": "backs", "label": "CLC runtime check"}] if double_faced else []),
@@ -384,5 +415,7 @@ if __name__ == "__main__":
         chunk(json.loads(Path(sys.argv[2]).read_text()))
     elif sys.argv[1] == "merge":
         merge(json.loads(Path(sys.argv[2]).read_text()))
+    elif sys.argv[1] == "upstream":
+        generate_without_footer(Path(sys.argv[2]), sys.argv[3:])
     else:
         raise ValueError("Unknown CLC print helper operation")

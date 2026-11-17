@@ -60,9 +60,9 @@ class PageIdentificationTests(unittest.TestCase):
             for text, tm, size in runs:
                 if not text.strip():
                     continue
-                self.assertEqual(size, 8)
+                self.assertLessEqual(size, 7)
                 self.assertEqual(tm[4], 66)
-                self.assertIn(tm[5], (572, 582, 592))
+                self.assertIn(tm[5], (571, 578))
                 self.assertLessEqual(tm[4] + len(text.rstrip("\n")) * size * 0.6, 726)
 
     def test_a4_labels_fit_each_side_and_paper_sizes_cannot_be_mixed(self):
@@ -82,7 +82,7 @@ class PageIdentificationTests(unittest.TestCase):
         for index, page in enumerate(reader.pages):
             runs = []
             page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm)) if text.strip() else None)
-            self.assertEqual([round(tm[5], 2) for _, tm in runs], [575.2, 565.2, 555.2])
+            self.assertEqual([round(tm[5], 2) for _, tm in runs], [561.2, 554.2])
             self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
 
     def test_crowned_portrait_restores_geometry_without_reencoding_and_keeps_margin_labels(self):
@@ -95,7 +95,9 @@ class PageIdentificationTests(unittest.TestCase):
         with self.pdf.open("wb") as stream:
             writer.write(stream)
         validate_pdf(self.pdf, 2, "crowned-a4", upstream=True)
-        identify_pages(self.pdf, self.identity, self.labels, "crowned-a4")
+        self.identity["batchName"] = "W" * 96
+        self.labels[0]["label"] = "X" * 96
+        identify_pages(self.pdf, self.identity, self.labels, "crowned-a4", refeed_front=True)
         validate_pdf(self.pdf, 2, "crowned-a4")
         with self.assertRaisesRegex(ValueError, "landscape A4"):
             validate_pdf(self.pdf, 2, "a4")
@@ -105,9 +107,12 @@ class PageIdentificationTests(unittest.TestCase):
             transforms = [operands for operands, operator in page.get_contents().operations if operator == b"cm"]
             self.assertEqual([round(float(value), 2) for value in transforms[0]], [0, -1, 1, 0, 0, 841.68])
             runs = []
-            page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm)) if text.strip() else None)
-            self.assertEqual([round(tm[5], 2) for _, tm in runs], [825.68, 816.68, 807.68])
+            page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm, size)) if text.strip() else None)
+            self.assertEqual([round(tm[5], 2) for _, tm, _ in runs], [823.68, 814.68, 805.68])
             self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
+            for text, tm, size in runs:
+                self.assertLess(tm[4] + len(text.rstrip("\n")) * size * 0.6, 595.2 - 66)
+            self.assertEqual("REFEED FOR BACK" in runs[-1][0], index == 0)
 
     def test_crowned_landscape_retains_the_standard_a4_box_and_upright_art(self):
         writer = PdfWriter(clone_from=self.pdf)
