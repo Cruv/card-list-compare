@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
-import { availablePrintPaperChoices, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge, selectAvailablePrintPaper } from './printPaper';
+import { DAHLE_A4_PRESET, availablePrintPaperChoices, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge, selectAvailablePrintPaper } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -226,6 +226,18 @@ it.each(['a4', 'crowned-a4-landscape'])('moves the saved %s default to Crowned p
   expect(loadDefaultPrintPaper({ getItem: () => retiredChoice }, 'key')).toBe('crowned-a4-portrait-six');
 });
 
+it('saves the advertised Dahle preset, counts nine fixed slots, and leaves printing to the PDF viewer', () => {
+  const recipeId = 'household-dahle-a4-punch-v1';
+  const selection = printPaperRequest(DAHLE_A4_PRESET);
+  expect(availablePrintPaperChoices({ printPresets: ['crowned-a4', DAHLE_A4_PRESET] })).toEqual(['letter', 'crowned-a4', DAHLE_A4_PRESET]);
+  expect(loadDefaultPrintPaper({ getItem: () => DAHLE_A4_PRESET }, 'key')).toBe(DAHLE_A4_PRESET);
+  expect(selection).toEqual({ paperSize: 'a4', printPreset: DAHLE_A4_PRESET });
+  expect(printPaperChoice({ recipeId })).toBe(DAHLE_A4_PRESET);
+  expect(printReviewSummary({ ...selection, totalCopies: 10, ordinaryCopies: 10, doubleFacedCopies: 0 })).toMatchObject({ sheets: 2, pages: 2 });
+  const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: DAHLE_A4_PRESET, supportedRecipeIds: [recipeId] };
+  expect(printPaperUnavailable(selection, station)).toMatch(/downloaded PDF/);
+});
+
 it('matches Crowned landscape jobs by exact loaded preset and supported recipe', () => {
   const portrait = printPaperRequest('crowned-a4');
   const landscape = printPaperRequest('crowned-a4-landscape');
@@ -280,7 +292,7 @@ describe('standalone print drafts', () => {
     expect(loadStandalonePrintDraft(storage, 'user:1')).toEqual(draft);
     expect(loadStandalonePrintDraft(storage, 'user:2')).toBeNull();
   });
-  it.each(['crowned-a4-landscape', 'crowned-a4-portrait-six'])('retains preset %s in the draft when A4 paper is specified', preset => {
+  it.each(['crowned-a4-landscape', 'crowned-a4-portrait-six', DAHLE_A4_PRESET])('retains preset %s in the draft when A4 paper is specified', preset => {
     const value = { ...draft, ...printPaperRequest(preset) };
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key')).toEqual(value);
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...value, paperSize: 'letter' }) }, 'key')).toBeNull();

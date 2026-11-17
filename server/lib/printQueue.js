@@ -10,7 +10,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from 
 import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
+import { DAHLE_A4_PRESET, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -162,8 +162,10 @@ export function listPrintJobs(userId, deckId) {
 export async function createPrintJob(userId, deckId, request, assertQueuePaper = () => {}) {
   const requestKey = safeId(request.idempotencyKey, 'idempotencyKey');
   const { paperSize, printPreset } = printPaperSelection(request.paperSize, request.printPreset);
-  const { registrationMarks = true } = request;
-  if (typeof registrationMarks !== 'boolean') throw printError('registrationMarks must be true or false');
+  if (request.registrationMarks !== undefined && typeof request.registrationMarks !== 'boolean') {
+    throw printError('registrationMarks must be true or false');
+  }
+  const registrationMarks = printPreset !== DAHLE_A4_PRESET && request.registrationMarks !== false;
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
   const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady,
@@ -187,6 +189,7 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
   if (!plan.totalCopies) throw printError('This comparison has no copies to print');
   if (!plan.readyToGenerate) throw printError(`Review the missing or unsupported artwork before generating: ${plan.resolvedCards.filter(card => card.errors.length).map(card => `${card.displayName}: ${card.errors.join('; ')}`).join(', ')}`);
   if (request.queueOnReady) {
+    assertStationLayout(plan);
     assertCanQueue(userId);
     assertQueuePaper(printJobPaper(plan));
   }
@@ -258,7 +261,11 @@ export async function processNextPrintJob() {
       ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
       ...(plan.sheetPacking ? { sheetPacking: plan.sheetPacking } : {}),
       ...(plan.registrationMarks === false ? { registrationMarks: false } : {}),
-      cards: copies.map(copy => ({ id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}) })),
+      cards: copies.map(copy => ({
+        id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}),
+        ...(plan.printPreset === DAHLE_A4_PRESET ? { displayName: copy.displayName, frontSource: copy.front.source,
+          ...(copy.back ? { backSource: copy.back.source } : {}) } : {}),
+      })),
       outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
       requesterName: plan.requesterName || 'Unknown requester', batchName: plan.deckName,
       maxOutputBytes, signal: controller.signal, onProgress: progress,
@@ -354,13 +361,21 @@ export async function processNextPrintJob() {
   }
 }
 
+function assertStationLayout({ printPreset }) {
+  if (printPreset === DAHLE_A4_PRESET) {
+    throw printError('Download the Dahle punch PDF to print it at Actual Size.', 409);
+  }
+}
+
 export function queuePrintJob(userId, deckId, id, assertQueuePaper = () => {}) {
   assertCanQueue(userId);
   const row = ownerJob(userId, deckId, id);
   if (row.state === 'queued') return formatPrintJob(row);
   if (row.state !== 'ready') throw printError('Only a ready PDF can be queued. Reprints require a new job.', 409);
   if (row.expires_at <= now()) throw printError('These PDFs have expired. Prepare a new job.', 410);
-  assertQueuePaper(savedPrintJobPaper(row));
+  const paper = savedPrintJobPaper(row);
+  assertStationLayout(paper);
+  assertQueuePaper(paper);
   for (const artifact of parse(row.manifest_json).artifacts) verifiedPrintArtifact(row, artifact.id);
   const queuedAt = now();
   runTransaction([

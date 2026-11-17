@@ -6,6 +6,7 @@ const SECTIONS = [
   { key: 'compare', label: 'Compare lists', component: CompareLists },
   { key: 'decks', label: 'Decks and changes', component: Decks },
   { key: 'printing', label: 'Print cards', component: Printing },
+  { key: 'dahle-punch', label: 'Cut with the Dahle', component: DahlePunch },
   { key: 'connections', label: 'Connect ManaSync', component: Connections },
   { key: 'account', label: 'Account and administration', component: Account },
   { key: 'reference', label: 'Formats and tools', component: Reference },
@@ -89,11 +90,11 @@ function Printing() {
     <ol className="guide-steps">
       <li><strong>Choose cards.</strong> Paste, upload or import a list. For a comparison, choose new copies or the full After list. For a tracked deck, choose the whole version or Before/After versions. Basic lands start excluded; sideboard inclusion and replacing copies for printing changes start off.</li>
       <li><strong>Review &amp; print.</strong> Choose Review print list. Check every quantity, printing and front/back preview. Open <strong>Edit selection</strong> to add extra cards, change options or restore removed suggestions. Use <strong>Pick art</strong> on any cards you want to change, then choose <strong>Review updated list</strong> once to apply them together. <strong>Also save to this deck</strong> saves eligible choices to the tracked deck. Clear the checkbox for a batch-only choice.</li>
-      <li><strong>Paper and printing.</strong> Choose US Letter or a Crowned A4 portrait layout in the print review. <strong>Save as default</strong> remembers the choice in this browser. Each batch keeps its preset for fronts and backs. Use <strong>Generate PDFs</strong> to download or <strong>Generate &amp; print</strong> when the Mac is set up for that paper and layout. Follow the batch under Batches or on Printer.</li>
+      <li><strong>Paper and printing.</strong> Choose US Letter, a Crowned A4 portrait layout or <a href="#guide/dahle-punch">the Dahle strip layout</a> in the print review. <strong>Save as default</strong> remembers the choice in this browser. Each batch keeps its preset for fronts and backs. Use <strong>Generate PDFs</strong> to download or <strong>Generate &amp; print</strong> when the Mac is set up for that paper and layout. Follow the batch under Batches or on Printer.</li>
     </ol>
     <p>Artwork can use exact Scryfall printings or saved MPC artwork. Choose <strong>Save art for home PDFs</strong> in MPCFill artwork before selecting it as the source. Missing or unusable required faces must be resolved before generation. A double-faced card needs both selected faces.</p>
     <p><strong>Card entries</strong> and <strong>physical copies</strong> are different: one entry for 10 Plains represents 10 copies. Review shows the source counts, copies already covered by a comparison baseline, excluded basic lands and manual removals so you can explain the final total.</p>
-    <p>For Crowned 313 gsm stock, Portrait 3×3 fits nine cards per sheet. Both A4 portrait layouts keep each card’s short edge parallel to the sheet’s 210 mm edge. Let fronts dry fully and use the refeed direction verified for that layout.</p>
+    <p>For Crowned 313 gsm stock, Portrait 3×3 fits nine cards per sheet. Both Crowned A4 portrait layouts keep each card’s short edge parallel to the sheet’s 210 mm edge. Let fronts dry fully and use the refeed direction verified for that layout.</p>
     <p>Crowned A4 · Portrait 3×2 prints six cards in the top two rows and keeps the bottom row free of cards. Import the <a href="/print-templates/crowned-a4-portrait-six-v1.dxf" download>Portrait 3×2 cut paths</a> into Silhouette Studio and follow the <a href="/print-templates/crowned-a4-portrait-six-v1-setup.txt" download>Portrait 3×2 setup instructions</a>. For backs, let fronts dry fully, verify the portrait long-edge flip on a test sheet and feed the same short edge first.</p>
     <h3>Edit a selection without losing track</h3>
     <p>Pasting or importing a replacement source list detaches an earlier comparison baseline and uses the whole replacement list. A deliberate Print cards handoff keeps the captured Before and After pair. Remove suggested copies, add extra card text and review again. Editing the source, quantities, options or artwork makes the previous review stale and disables generation and its buy list until refreshed. Search and <strong>Filters &amp; sort</strong> only change the view: hidden cards still belong to the PDF batch.</p>
@@ -130,6 +131,24 @@ function Printing() {
     <p>Opening the confirmation panel or choosing <strong>Refresh records</strong> checks ManaSync for decisions made there. Open panels update local progress automatically; hidden or collapsed panels stop polling. Remote reads are shared briefly across panels and tabs.</p>
     <p>If sending a plan fails repeatedly, or ManaSync rejects its artwork or permissions, CLC holds it for review. Resolve the displayed problem, then choose <strong>Retry sending saved plan</strong>. For a full artwork allowance, free space or change the allowance in ManaSync first. Retrying preserves the same plan and artwork; it does not send another job to the printer.</p>
     <p><strong>Record a manual print</strong> prepares inventory records for printing done through another tool. It does not generate PDFs or send paper to the printer. Its <strong>Confirm printed quantity</strong> action records the usable physical result. See <a href="#guide/connections">Connect ManaSync</a> for collection access and reconciliation.</p>
+  </div>;
+}
+
+function DahlePunch() {
+  return <div className="guide-section">
+    <h2>Cut with the Dahle 550 and R3 punch</h2>
+    <p>In the print review, choose <strong>A4 3×3 · Dahle 550 + 63×88 R3 Punch</strong> under <strong>Paper and layout</strong>. Choose <strong>Save as default</strong> to reuse it in this browser. The preset makes a portrait A4 PDF with nine 63 × 88 mm slots, 1 mm bleed on every edge and side ticks for three 210 × 90 mm row strips.</p>
+    <h3>Print at 100%</h3>
+    <p>Download the PDFs and print on A4 using <strong>Actual Size (100%)</strong> in bordered mode. Turn off Fit to Page and borderless enlargement. For double-faced cards, use a portrait long-edge flip and finish both sides before trimming.</p>
+    <h3>Trim four times</h3>
+    <ol className="guide-steps">
+      <li>Place the sheet face up, with the top of the printed cards toward the blade and a factory long edge against the Dahle’s perpendicular scale bar. Leave the stop clear. Align the first pair of ticks, 13.5 mm below the top, with the blade. Keep the sheet on the bed and discard the narrow offcut.</li>
+      <li>Rotate the sheet 180° in its plane. Set the factory stop to <strong>90 mm from the blade</strong>. Put the fresh short edge against the stop, with a factory long edge square against the scale bar. Cut and keep the row between the stop and the blade.</li>
+      <li>Move the remaining sheet back onto the bed without rotating it. Put its new cut edge against the same 90 mm stop. Repeat twice, keeping the next two rows. Discard the final 13.5 mm offcut.</li>
+      <li>Turn each row strip 90° so a 90 mm end enters the punch first and the cards advance single file. Keep both end margins for handling. Center each card in the die window before pulling the lever.</li>
+    </ol>
+    <h3>Proof one sheet with your equipment</h3>
+    <p>Before the first batch, check that both ticks of every pair printed and that adjacent pairs are 90 mm apart. Trim one strip and dry-feed its full length through the punch, then try all three positions using your intended stock. Check the centering, corners and handling of the last card. Check both faces if you print duplex. The 90 mm feed clearance and your stock still need this physical check.</p>
   </div>;
 }
 

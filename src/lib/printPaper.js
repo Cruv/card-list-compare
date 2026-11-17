@@ -2,8 +2,9 @@ export const CROWNED_A4_PRESET = 'crowned-a4';
 export const CROWNED_A4_PORTRAIT_SIX_PRESET = 'crowned-a4-portrait-six';
 export const CROWNED_A4_LANDSCAPE_PRESET = 'crowned-a4-landscape';
 export const CROWNED_A4_LANDSCAPE_V1_RECIPE = 'household-crowned-a4-landscape-v1';
+export const DAHLE_A4_PRESET = 'dahle-a4-punch';
 
-const A4_PORTRAIT_PRESETS = [CROWNED_A4_PRESET, CROWNED_A4_PORTRAIT_SIX_PRESET];
+const A4_PORTRAIT_PRESETS = [CROWNED_A4_PRESET, CROWNED_A4_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET];
 
 export const PRINT_PAPER = Object.freeze({
   letter: { label: 'US Letter', paperSize: 'letter', recipeId: 'household-letter-v6', template: 'Letter v6', cardsPerSheet: 7 },
@@ -14,11 +15,14 @@ export const PRINT_PAPER = Object.freeze({
     template: 'A4 portrait 3×2 v1', templateVersion: 'v1', cardsPerSheet: 6 },
   [CROWNED_A4_LANDSCAPE_PRESET]: { label: 'Crowned A4 · Landscape 2×4', paperSize: 'a4', recipeId: 'household-crowned-a4-landscape-v2',
     template: 'Centered A4 v5', templateVersion: 'v5', cardsPerSheet: 8 },
+  [DAHLE_A4_PRESET]: { label: 'A4 3×3 · Dahle 550 + 63×88 R3 Punch', paperSize: 'a4', recipeId: 'household-dahle-a4-punch-v1',
+    template: 'Dahle 550 strip cuts', cardsPerSheet: 9 },
 });
 
 export const isPrintPaperSize = value => value === 'letter' || value === 'a4';
 export const isCrownedPrintPreset = value => value === CROWNED_A4_PRESET
   || value === CROWNED_A4_PORTRAIT_SIX_PRESET || value === CROWNED_A4_LANDSCAPE_PRESET;
+export const isA4PrintPreset = value => isCrownedPrintPreset(value) || value === DAHLE_A4_PRESET;
 
 export function availablePrintPaperChoices(capabilities) {
   return ['letter', ...A4_PORTRAIT_PRESETS.filter(preset => capabilities.printPresets?.includes(preset))];
@@ -37,17 +41,18 @@ export function selectAvailablePrintPaper(choice, available) {
 export function printPaperChoice(batch) {
   const preset = batch?.printPreset;
   if (batch?.paperSize === undefined || batch.paperSize === 'a4') {
-    if (isCrownedPrintPreset(preset)) return preset;
+    if (isA4PrintPreset(preset)) return preset;
     if ([CROWNED_A4_LANDSCAPE_V1_RECIPE, PRINT_PAPER[CROWNED_A4_LANDSCAPE_PRESET].recipeId].includes(batch?.recipeId)) return CROWNED_A4_LANDSCAPE_PRESET;
     if (batch?.recipeId === PRINT_PAPER[CROWNED_A4_PRESET].recipeId) return CROWNED_A4_PRESET;
     if (batch?.recipeId === PRINT_PAPER[CROWNED_A4_PORTRAIT_SIX_PRESET].recipeId) return CROWNED_A4_PORTRAIT_SIX_PRESET;
+    if (batch?.recipeId === PRINT_PAPER[DAHLE_A4_PRESET].recipeId) return DAHLE_A4_PRESET;
   }
   return batch?.paperSize === 'a4' || batch?.recipeId === PRINT_PAPER.a4.recipeId ? 'a4' : 'letter';
 }
 
 export function printPaperRequest(choice) {
   return { paperSize: PRINT_PAPER[choice].paperSize,
-    ...(isCrownedPrintPreset(choice) ? { printPreset: choice } : {}) };
+    ...(isA4PrintPreset(choice) ? { printPreset: choice } : {}) };
 }
 
 export const printPaperLabel = batch => batch?.recipeId === CROWNED_A4_LANDSCAPE_V1_RECIPE
@@ -69,6 +74,7 @@ export function loadDefaultPrintPaper(storage, key) {
 /** Keep Letter-only station compatibility, including queueing while the Mac is offline. */
 export function printPaperUnavailable(batch, station) {
   const choice = printPaperChoice(batch);
+  if (choice === DAHLE_A4_PRESET) return 'Print this layout from the downloaded PDF.';
   const label = printPaperLabel(batch);
   const recipeId = batch?.recipeId === CROWNED_A4_LANDSCAPE_V1_RECIPE ? batch.recipeId : PRINT_PAPER[choice].recipeId;
   const loaded = stationPaperChoice(station);

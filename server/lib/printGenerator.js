@@ -5,8 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
-import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET } from './printPaper.js';
+import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET } from './printPaper.js';
 import crownedPortraitGeometry from './crownedPortraitGeometry.json' with { type: 'json' };
+import dahleA4PunchGeometry from './dahleA4PunchGeometry.json' with { type: 'json' };
 
 export const MAX_PRINT_COPIES = 250;
 export const PRINT_RECIPE = Object.freeze({
@@ -41,10 +42,20 @@ export const CROWNED_A4_PORTRAIT_SIX_RECIPE = Object.freeze({
   cardsPerSheet: portraitSixCapacity,
   skip: Object.freeze(Array.from({ length: portraitSlots - portraitSixCapacity }, (_, index) => portraitSixCapacity + index)),
 });
+export const DAHLE_A4_RECIPE = Object.freeze({
+  id: PAPER_PRESETS[DAHLE_A4_PRESET].recipeId, template: DAHLE_A4_PRESET, cardSize: 'standard', paperSize: 'a4',
+  printPreset: DAHLE_A4_PRESET, orientation: 'portrait', skip: Object.freeze([]),
+  cardsPerSheet: dahleA4PunchGeometry.columns * dahleA4PunchGeometry.rows,
+  cardWidthMm: dahleA4PunchGeometry.trim[0], cardHeightMm: dahleA4PunchGeometry.trim[1],
+  bleedMm: dahleA4PunchGeometry.bleed, registration: 0,
+  pageWidthPoints: dahleA4PunchGeometry.page[0] * 72 / 25.4, pageHeightPoints: dahleA4PunchGeometry.page[1] * 72 / 25.4,
+  colorSpace: 'DeviceRGB', embeddedIcc: false, colorNormalized: false,
+});
 const PRINT_PRESETS = Object.freeze({
   [CROWNED_A4_RECIPE.printPreset]: CROWNED_A4_RECIPE,
   [CROWNED_A4_LANDSCAPE_RECIPE.printPreset]: CROWNED_A4_LANDSCAPE_RECIPE,
   [CROWNED_A4_PORTRAIT_SIX_RECIPE.printPreset]: CROWNED_A4_PORTRAIT_SIX_RECIPE,
+  [DAHLE_A4_PRESET]: DAHLE_A4_RECIPE,
 });
 const MAX_PDF_BYTES = 1024 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;
@@ -126,9 +137,10 @@ export function createPrintGenerator(options = {}) {
         throw new Error('Paper size must be Letter or A4');
       }
       if (printPreset !== undefined && (typeof printPreset !== 'string' || !Object.hasOwn(PRINT_PRESETS, printPreset) || paperSize !== 'a4')) {
-        throw new Error('The Crowned preset requires A4');
+        throw new Error('A supported print preset requires A4 paper');
       }
       const recipe = printPreset ? PRINT_PRESETS[printPreset] : PRINT_RECIPES[paperSize];
+      const includeMarks = printPreset !== DAHLE_A4_PRESET && registrationMarks;
       const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
       const plan = planPrintSheets(cards, recipe, sheetPacking);
       const printedIdentification = printPageIdentification({ requesterName, batchName });
@@ -177,11 +189,11 @@ export function createPrintGenerator(options = {}) {
             pageLabels.push(...chunkLabels.map(item => ({ ...item, page: pageLabels.length + item.page })));
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
               label: sheetLabel, printedIdentification, pageLabels: chunkLabels, ...paper, sheetPacking,
-              ...(registrationMarks ? {} : { registrationMarks }),
+              ...(includeMarks ? {} : { registrationMarks: false }),
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
-            if ((result.registrationMarks ?? true) !== registrationMarks) {
+            if ((result.registrationMarks ?? true) !== includeMarks) {
               throw new Error('The active PDF generator did not confirm the requested Cameo registration mark setting');
             }
             images.push(...result.images);
