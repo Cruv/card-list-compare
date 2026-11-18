@@ -47,7 +47,10 @@ content retains the legacy implicit-sideboard behavior.
 A paste preview preserves the exact draft text outside the selected range,
 including comments, ignored blocks, and line endings. The preview shows the
 replaced draft text and skipped clipboard rows. Card sections and commanders
-reflect the result applied to the draft.
+reflect the result applied to the draft. A fully rejected paste preserves the
+original draft, including any selected text. If filtering a mixed paste would
+split an existing printing across rows, the preview keeps the draft and explains
+why the remaining clipboard rows were skipped.
 
 ### Examples
 

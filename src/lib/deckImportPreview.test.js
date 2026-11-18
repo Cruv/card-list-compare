@@ -81,10 +81,11 @@ describe('deck import preview', () => {
     expect(parse(inline.text).commanders).toEqual(['Thalia']);
   });
 
-  it('reads the final board when removing an invalid pasted row changes the implicit sideboard boundary', () => {
+  it('preserves the draft when rejected rows leave only pasted separators', () => {
     const preview = inspectDeckPaste('1 Island', '0 Invalid\n\n', 0, 0);
-    expect(preview.text).toBe('\n1 Island');
+    expect(preview.text).toBe('1 Island');
     expect(preview.accepted).toMatchObject([{ displayName: 'Island', section: 'main' }]);
+    expect(preview.skipped).toMatchObject([{ raw: '0 Invalid' }]);
     expect(parse(preview.text).sideboard.size).toBe(0);
   });
 
@@ -95,6 +96,62 @@ describe('deck import preview', () => {
     expect(preview.text).toBe(draft);
     expect(preview.skipped).toEqual([{ line: 1, raw: ' *E*', reason: 'Unsupported finish (*E*)' }]);
     expect(preview.replacedText).toBe('');
+  });
+
+  it.each(['\n', '\r\n'])('drops a pasted separator left solely by a rejected partial row (%j)', separator => {
+    const draft = '// Existing note  \r\n1 Sol Ring (C21) [263] *F*\r\n1 Island';
+    const caret = draft.replace(/\r\n/g, '\n').indexOf('*F*');
+    const beforeSeparator = inspectDeckPaste(draft, `*E*${separator}`, caret, caret);
+    const afterSeparator = inspectDeckPaste(draft, `${separator}0 `, caret, caret);
+    expect(beforeSeparator.skipped).toEqual([{ line: 2, raw: '*E*', reason: 'Unsupported finish (*E*)' }]);
+    expect(afterSeparator.skipped).toEqual([{ line: 3, raw: '0 ', reason: 'Invalid card row or quantity' }]);
+    for (const preview of [beforeSeparator, afterSeparator]) {
+      expect(preview.text).toBe(draft);
+      expect(preview.replacedText).toBe('');
+      expect(preview.accepted.map(row => [row.displayName, row.section, row.setCode, row.collectorNumber, row.isFoil]))
+        .toEqual([['Sol Ring', 'main', 'C21', '263', true], ['Island', 'main', '', '', false]]);
+      expect([...parse(preview.text).mainboard.keys()]).toEqual(['sol ring|c21|263|foil', 'island']);
+    }
+  });
+
+  it.each(['\n', '\r\n'])('keeps separators needed by accepted rows next to rejected boundary text (%j)', separator => {
+    const original = '1 Sol Ring (C21) [263] *F*';
+    const accepted = '2 Opt (ELD) [59] *F*';
+    const leading = inspectDeckPaste(`${original}\r\n1 Island`, ` *E*${separator}${accepted}`, original.length, original.length);
+    expect(leading.text).toBe(`${original}${separator}${accepted}\r\n1 Island`);
+    expect(leading.skipped).toMatchObject([{ raw: ' *E*' }]);
+    const trailing = inspectDeckPaste(`${original}\r\n1 Island`, `${accepted}${separator}0 `, 0, 0);
+    expect(trailing.text).toBe(`${accepted}${separator}${original}\r\n1 Island`);
+    expect(trailing.skipped).toMatchObject([{ raw: '0 ' }]);
+    for (const preview of [leading, trailing]) {
+      expect([...parse(preview.text).mainboard.keys()].sort()).toEqual(['island', 'opt|eld|59|foil', 'sol ring|c21|263|foil']);
+    }
+  });
+
+  it('restores the selected text when the entire replacement is rejected', () => {
+    const draft = '1 Sol Ring (C21) [263] *F*\r\n1 Island';
+    const marker = draft.indexOf('*F*');
+    const partial = inspectDeckPaste(draft, '*E*\r\n', marker, marker + '*F*'.length);
+    const whole = inspectDeckPaste(draft, '0 Opt\r\n\r\n', 0, draft.indexOf('\r'));
+    for (const preview of [partial, whole]) {
+      expect(preview.text).toBe(draft);
+      expect(preview.replacedText).toBe('');
+      expect(preview.accepted[0]).toMatchObject({ displayName: 'Sol Ring', isFoil: true });
+    }
+    expect(partial.skipped).toMatchObject([{ raw: '*E*' }]);
+    expect(whole.skipped).toMatchObject([{ raw: '0 Opt' }]);
+  });
+
+  it('reports retained clipboard rows that would split a saved printing after filtering', () => {
+    const draft = '// Keep this note  \r\n1 Sol Ring (C21) [263] *F*\r\nMaybeboard\n1 Island';
+    const marker = draft.replace(/\r\n/g, '\n').indexOf('*F*');
+    const preview = inspectDeckPaste(draft, '*E*\r\n1 Opt (ELD) [59]\r\n', marker, marker);
+    expect(preview.text).toBe(draft);
+    expect(preview.accepted).toMatchObject([{ displayName: 'Sol Ring', isFoil: true }]);
+    expect(preview.skipped).toMatchObject([
+      { raw: '*E*', reason: 'Unsupported finish (*E*)' },
+      { raw: '1 Opt (ELD) [59]', reason: expect.stringContaining('Would split an existing card printing') },
+    ]);
   });
 
   it('keeps existing CSV notes and maybeboard rows byte for byte', () => {

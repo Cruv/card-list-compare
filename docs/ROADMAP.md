@@ -127,6 +127,18 @@ The [Chrome auth and share fixture](../tests/browser/auth-share.mjs) and [printe
 
 The v2.65.1 release checks passed 1,505 JavaScript tests, 290 portable companion tests, 14 PDF worker tests, the production build and the Compose contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities.
 
+## v2.65.1 audit follow-up
+
+All three findings reproduced at [`569367b`](https://github.com/Cruv/card-list-compare/tree/569367b) and were fixed in v2.65.2.
+
+| Reproduced finding | Fix and evidence |
+| --- | --- |
+| A rejected `*E*` paste left a line break that split Sol Ring from its `*F*` marker. | A wholly rejected paste keeps the original bytes and selected text. A mixed paste that would split an existing printing leaves the draft intact and explains how to paste at a row boundary. Chrome verified LF and CRLF, exact metadata, preview, Apply and Undo. |
+| Creating a PDF with 50 history rows and an older deep link sent 52 IDs. Activity returned 400 while history returned 503. | Job creation uses the bounded list merge. Chrome verified the older link opens, the newly created PDF becomes selected, and compact polling advances it to ready while history fails. [Printer fixture](../tests/browser/print-panel.mjs) |
+| Password rotation left the other tab displaying the old session. A stale account view could send a write using a replacement bearer before the storage notification ran. | The tab verifies the replacement bearer before exposing private controls or using it for account actions. Two-tab Chrome fixtures covered same-account sharing, a different account, late validation, logout and sign-in recovery after an account-check failure. [Two-tab fixture](../tests/browser/auth-tabs.mjs) |
+
+Local release verification passed 1,514 JavaScript tests, 290 portable companion tests, the production build and the Compose contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities. The original v2.65.1 Chrome regressions passed again, including native download startup after ticket issuance and the public offline shell.
+
 ## Open — reviewed 2026-09-12
 
 These items were recorded by the 2026-09-12 review; reassess the relevant source before

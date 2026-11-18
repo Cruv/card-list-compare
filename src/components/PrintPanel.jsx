@@ -518,7 +518,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       }
       const submitted = requestRef.current;
       const data = standalone ? await createStandalonePrintJob(submitted) : await createPrintJob(deckId, submitted);
-      setJobs(old => [data.job, ...old.filter(job => job.id !== data.job.id)]);
+      setJobs(old => mergePrintJobs(old, [data.job], data.job.id));
       setPlan(null);
       setPaperOverride(null);
       setEditingSource(false);

@@ -35,6 +35,8 @@ Report issues privately to the repository owner.
   current credential. Incorrect login or current passwords return `INVALID_CREDENTIALS`.
   A password-change response replaces the bearer only while its original browser session
   is still active. Re-login creates a new browser session even for the same account.
+  A bearer changed by another tab is validated against the account endpoint before this
+  tab sends it on account requests. While validation is pending, private controls stay gated.
   Offline, forbidden and temporary server failures preserve the credential for a later
   validated reload. Private routes remain gated until account
   validation succeeds. A completed password reset removes the reset URL and synchronizes

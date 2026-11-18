@@ -13,7 +13,7 @@ import PasswordRequirements from './PasswordRequirements';
 import './UserSettings.css';
 
 export default function UserSettings() {
-  const { user, logoutUser, changeUserPassword } = useAuth();
+  const { user, logoutUser, changeUserPassword, getSession, isCurrentSession } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
 
   // User capabilities
@@ -101,21 +101,22 @@ export default function UserSettings() {
 
   async function handleDeleteAccount(e) {
     e.preventDefault();
+    const started = getSession(user.id);
+    if (!started) return;
     const confirmed = await confirm({
       title: 'Delete your account?',
       message: 'This will permanently delete your account and all tracked decks, snapshots, and data. This cannot be undone.',
       confirmLabel: 'Delete Account',
       danger: true,
     });
-    if (!confirmed) return;
+    if (!confirmed || !isCurrentSession(started)) return;
 
     setDeleting(true);
     try {
-      await deleteAccount(deleteUsername);
-      toast.success('Account deleted');
-      logoutUser();
+      await deleteAccount(deleteUsername, started.token);
+      if (logoutUser(started)) toast.success('Account deleted');
     } catch (err) {
-      toast.error(err.message);
+      if (isCurrentSession(started)) toast.error(err.message);
     } finally {
       setDeleting(false);
     }

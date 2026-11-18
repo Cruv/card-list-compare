@@ -1,63 +1,86 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { changePassword, getMe } from '../lib/api';
-import { createAuthSession } from '../lib/authSession';
+import { AUTH_TOKEN_KEY, createAuthSession, getStoredAuthToken, installBrowserAuthSession } from '../lib/authSession';
 import { toast } from '../components/Toast';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
+  const [identity, setIdentity] = useState(null);
   const [session] = useState(() => createAuthSession(localStorage));
-  // Only "loading" when there is actually a token to validate — deriving it up
-  // front avoids a needless render pass (and a setState inside the effect) for
-  // the common signed-out case.
-  const [loading, setLoading] = useState(() => !!session.current());
+  const [loading, setLoading] = useState(() => !!getStoredAuthToken());
+
+  useLayoutEffect(() => installBrowserAuthSession(session), [session]);
+
+  // Accept the bearer when the view commits its verified account identity.
+  useLayoutEffect(() => {
+    if (identity?.candidate) session.activate(identity.candidate, identity.user.id);
+  }, [identity, session]);
 
   useEffect(() => {
-    const initial = session.current();
-    if (!initial) return;
-    let canceled = false;
+    const listeners = new AbortController();
+    let validation;
+    let lastCandidate;
 
-    getMe()
-      .then(data => {
-        if (!canceled && session.isCurrent(initial)) setUser(data.user);
-      })
-      .catch((err) => {
-        if (!canceled && session.isCurrent(initial) && err.message?.toLowerCase().includes('suspended')) {
-          toast.error('Your account has been suspended. Please contact an admin.');
-        }
-      })
-      .finally(() => {
-        if (!canceled) setLoading(false);
-      });
-    return () => { canceled = true; };
-  }, [session]);
+    function reconcile() {
+      if (listeners.signal.aborted) return;
+      const candidate = session.observe();
+      if (candidate && candidate === lastCandidate) return;
+      lastCandidate = candidate;
+      validation?.abort();
+      if (session.current()) return;
+      setIdentity(null);
+      setLoading(!!candidate);
+      if (!candidate) return;
 
-  useEffect(() => {
-    const handler = () => { session.forget(); setUser(null); };
-    window.addEventListener('auth-expired', handler);
-    return () => window.removeEventListener('auth-expired', handler);
+      validation = new AbortController();
+      const { signal } = validation;
+      const current = () => !signal.aborted && session.matches(candidate);
+      getMe(candidate.token, signal)
+        .then(data => {
+          if (current() && data.user?.id != null) setIdentity({ user: data.user, candidate });
+        })
+        .catch(error => {
+          if (current() && error.message?.toLowerCase().includes('suspended')) {
+            toast.error('Your account has been suspended. Please contact an admin.');
+          }
+        })
+        .finally(() => { if (current()) setLoading(false); });
+    }
+
+    const onStorage = event => {
+      if (event.storageArea === localStorage && (event.key === AUTH_TOKEN_KEY || event.key === null)) reconcile();
+    };
+    window.addEventListener('storage', onStorage, { signal: listeners.signal });
+    window.addEventListener('auth-expired', reconcile, { signal: listeners.signal });
+    queueMicrotask(reconcile);
+    return () => { listeners.abort(); validation?.abort(); };
   }, [session]);
 
   const loginUser = useCallback((token, userData) => {
-    session.signIn(token);
-    setUser(userData);
+    session.signIn(token, userData.id);
+    setIdentity({ user: userData });
+    setLoading(false);
   }, [session]);
 
-  const logoutUser = useCallback(() => {
+  const user = identity?.user ?? null;
+  const logoutUser = useCallback((started = session.current(user?.id)) => {
+    if (!session.isCurrent(started)) return false;
     session.signOut();
-    setUser(null);
-  }, [session]);
+    setIdentity(null);
+    setLoading(false);
+    return true;
+  }, [session, user?.id]);
 
   const changeUserPassword = useCallback(async (currentPassword, newPassword) => {
-    const started = session.current();
+    const started = session.current(user?.id);
     if (!started) throw new Error('Your sign-in changed. Sign in again to change your password.');
     const result = await changePassword(currentPassword, newPassword, started.token).catch(error => {
       if (session.isCurrent(started)) throw error;
       return null;
     });
     return result ? session.rotate(started, result.token) : false;
-  }, [session]);
+  }, [session, user?.id]);
 
   return (
     <AuthContext.Provider value={{ user, loading, loginUser, logoutUser, changeUserPassword,

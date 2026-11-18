@@ -5,6 +5,7 @@ import { extname, join } from 'node:path';
 const { chromium } = await import(process.env.CLC_PLAYWRIGHT_MODULE || 'playwright');
 
 const baseline = process.argv.includes('--baseline');
+const watchCapBaseline = process.argv.includes('--watch-cap-baseline');
 const dist = process.argv[2];
 const server = createServer(async (request, response) => {
   try {
@@ -26,20 +27,23 @@ try {
   await context.addInitScript(version => {
     localStorage.setItem('clc-auth-token', 'fixture');
     localStorage.setItem('clc-version-seen', version);
-  }, baseline ? '2.65.0' : '2.65.1');
+  }, baseline ? '2.65.0' : watchCapBaseline ? '2.65.1' : '2.65.2');
   let stationPaper = 'letter';
   let stationReads = 0;
   let activityReads = 0;
   let historyReads = 0;
   let manaSyncReads = 0;
+  let historyUnavailable = false;
+  let creationFixture = null;
+  const watchCounts = [];
   const changedReads = new Map();
   const capabilities = { canQueue: true, stationConfigured: true, printPresets: ['crowned-a4'], paperSizes: ['letter', 'a4'] };
   const generator = { available: true, updating: false, revision: 'fixture', adapterHash: 'adapter-fixture' };
   const card = { selectionKey: '["lightning bolt","",""]', displayName: 'Lightning Bolt', quantity: 3, baseQuantity: 3 };
   const jobs = new Map();
   const makeJob = (seq, name, state) => {
-    const id = 'eda9b6dd-6884-4444-8222-f5c6f73c4c0' + seq;
-    const createdAt = '2026-11-18T13:10:00.00' + seq + 'Z';
+    const id = 'eda9b6dd-6884-4444-8222-' + seq.toString(16).padStart(12, '0');
+    const createdAt = new Date(Date.UTC(2026, 10, 18, 13, 10, seq)).toISOString();
     return { id, state, deckName: name, createdAt, updatedAt: createdAt, totalCopies: 3, mode: 'adhoc', artSource:'scryfall', artifacts: [] };
   };
   const updateJob = (job, state) => jobs.set(job.id, { ...job, state, updatedAt: '2026-11-18T13:12:00.000Z' });
@@ -59,8 +63,11 @@ try {
     if (url.pathname === '/api/print-lists/jobs/activity') {
       activityReads++;
       const active = Array.from(jobs.values()).reverse().filter(job => !['completed', 'canceled', 'failed', 'expired'].includes(job.state));
-      const watchedJobs = (url.searchParams.get('watch') || '').split(',').filter(id => jobs.has(id)).map(id => summary(jobs.get(id)));
-      return send({ activeCount: active.length, jobs: active.map(summary), watching: active.some(job => job.state !== 'ready'),
+      const watch = url.searchParams.get('watch')?.split(',') ?? [];
+      watchCounts.push(watch.length);
+      if (watch.length > 51) return route.fulfill({ status: 400, json: { error: 'Invalid batch watch list' } });
+      const watchedJobs = watch.filter(id => jobs.has(id)).map(id => summary(jobs.get(id)));
+      return send({ activeCount: active.length, jobs: active.slice(0, 50).map(summary), watching: active.some(job => job.state !== 'ready'),
         capabilities, generator, station: ready(), watchedJobs });
     }
     if (url.pathname === '/api/print-station-management/status') {
@@ -68,9 +75,16 @@ try {
       return send({ station: ready() });
     }
     if (url.pathname === '/api/print-lists/jobs') {
+      if (request.method() === 'POST') {
+        assert.ok(creationFixture, 'Only the watch-limit fixture should request generation');
+        assert.equal(request.postDataJSON().queueOnReady, false);
+        jobs.set(creationFixture.id, creationFixture);
+        return route.fulfill({ status: 201, json: { job: creationFixture } });
+      }
       historyReads++;
-      assert.equal(request.method(), 'GET', 'A read-only test must never create work');
-      return send({ jobs: Array.from(jobs.values()).reverse(), capabilities, generator });
+      assert.equal(request.method(), 'GET');
+      if (historyUnavailable) return route.fulfill({ status: 503, json: { error: 'History unavailable in this fixture' } });
+      return send({ jobs: Array.from(jobs.values()).reverse().slice(0, 50), capabilities, generator });
     }
     if (url.pathname.startsWith('/api/print-lists/jobs/')) {
       const id = url.pathname.split('/').at(-1);
@@ -167,6 +181,53 @@ try {
     assert.equal(manaSyncReads, 1);
     assert.equal(changedReads.get(older.id), 2);
     console.log('Updated: both older rows refreshed, including completed → expired across visibility, while ManaSync failed independently.');
+  }
+
+  if (!baseline) {
+    await page.close();
+    jobs.clear();
+    watchCounts.length = 0;
+    historyReads = 0;
+    const linked = makeJob(0, 'Linked older batch', 'completed');
+    jobs.set(linked.id, linked);
+    for (let i = 1; i <= 50; i++) {
+      const job = makeJob(i, `History fixture ${i}`, 'completed');
+      jobs.set(job.id, job);
+    }
+    const limitPage = await context.newPage();
+    await limitPage.clock.install();
+    await limitPage.goto(origin + '/#print-list?batch=' + linked.id);
+    const currentBatch = limitPage.getByRole('region', { name: 'Current print batch' });
+    await currentBatch.getByRole('heading', { name: linked.deckName }).waitFor();
+    await limitPage.getByRole('button', { name: 'Batches (51)', exact: true }).waitFor();
+    const watchedFullList = limitPage.waitForRequest(request =>
+      new URL(request.url()).searchParams.get('watch')?.split(',').length === 51);
+    await limitPage.clock.runFor(16000);
+    await watchedFullList;
+    assert.equal(historyReads, 1);
+
+    await limitPage.getByRole('button', { name: 'Prepare another batch', exact: true }).click();
+    await limitPage.getByRole('textbox', { name: 'Cards to print' }).fill('3 Lightning Bolt');
+    await limitPage.getByRole('button', { name: 'Review print list', exact: true }).click();
+    historyUnavailable = true;
+    creationFixture = makeJob(51, 'New fixture batch', 'preparing');
+    await limitPage.getByRole('button', { name: 'Generate PDFs', exact: true }).click();
+    await currentBatch.getByRole('heading', { name: creationFixture.deckName }).waitFor();
+    await limitPage.getByText('Batch history could not refresh: History unavailable in this fixture').waitFor();
+    if (watchCapBaseline) {
+      await limitPage.getByRole('button', { name: 'Batches (52)', exact: true }).waitFor();
+      await limitPage.getByText('Print status could not refresh: Invalid batch watch list').waitFor();
+      assert.equal(Math.max(...watchCounts), 52);
+      console.log('v2.65.1 baseline: creating a batch with a full history and an older linked batch caused 52 watched IDs and a 400.');
+    } else {
+      await limitPage.getByRole('button', { name: 'Batches (50)', exact: true }).waitFor();
+      updateJob(creationFixture, 'ready');
+      await limitPage.clock.runFor(6500);
+      await currentBatch.getByText('PDFs ready', { exact: true }).waitFor();
+      assert.equal(historyReads, 2);
+      assert.equal(Math.max(...watchCounts), 51);
+      console.log('Updated: a full batch list stayed within 51 watched IDs and the new selection advanced while history returned 503.');
+    }
   }
 } finally {
   await browser.close();

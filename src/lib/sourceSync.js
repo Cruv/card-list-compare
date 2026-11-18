@@ -1,4 +1,5 @@
 import { integrationApi } from './integrationApi';
+import { getBrowserAuthToken } from './authSession';
 import { parse, parseLine } from './parser';
 import { computeDiff } from './differ';
 import { deckBridgeLines } from './deckBridgeLines';
@@ -122,7 +123,7 @@ export function settleSourceWork(storage, key, operationId, work) {
 export async function sourceSyncRequest(userId, deckId, body, isActive = () => true) {
   // Capture a single credential for the identity check and request. Another tab
   // replacing localStorage must not redirect a prepared decision to its account.
-  const token = localStorage.getItem('clc-auth-token');
+  const token = getBrowserAuthToken(true);
   if (!token) throw new Error('Sign in to review this deck.');
   const headers = { Authorization: `Bearer ${token}` };
   const identity = await integrationApi('/auth/me', { headers });
