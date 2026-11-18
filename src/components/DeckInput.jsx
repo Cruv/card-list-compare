@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useLayoutEffect, useCallback, useId } from 'react';
 import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
 import { getTrackedDecks, getDeckSnapshots, getSnapshot, createSnapshot } from '../lib/api';
-import { inspectDeckImport, parse } from '../lib/parser';
+import { inspectDeckImport, inspectDeckPaste, parse } from '../lib/parser';
 import { toast } from './Toast';
 import Icon from './Icon';
 import DeckImportReview from './DeckImportReview';
@@ -90,8 +90,8 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
     setReview(null);
   }, [cancelContentLoad]);
 
-  function previewImport(text, site, skipped = []) {
-    const result = inspectDeckImport(text);
+  function previewImport(text, site, skipped = [], selection) {
+    const result = selection ? inspectDeckPaste(value, text, ...selection) : inspectDeckImport(text);
     setReview({ ...result, skipped: [...result.skipped, ...skipped], baseline: value, site, revision: contentRevision.current });
     setError(null);
   }
@@ -103,7 +103,7 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
     if (!restore) return;
     if (!onApplyImport) onChange(text);
     setUndoImport({ applied: text, restore, importedList });
-    setImportedList(review.site ? { text, site: review.site } : null);
+    setImportedList(review.site && (review.replacedText === undefined || review.replacedText === value) ? { text, site: review.site } : null);
     setReview(null);
     textRef.current?.focus();
   }
@@ -146,14 +146,14 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
     });
   }
 
-  async function importFromUrl(url) {
+  async function importFromUrl(url, selection) {
     const load = beginContentLoad();
     setError(null);
     setReview(null);
     try {
       const { text, site, skipped } = await fetchDeckFromUrl(url, { review: true });
       if (!load.isCurrent()) return;
-      previewImport(text, site, skipped);
+      previewImport(text, site, skipped, selection);
       setShowUrl(false);
       setUrlInput('');
     } catch (err) {
@@ -173,10 +173,11 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
     if (!pasted?.trim()) return;
     e.preventDefault();
     const trimmed = pasted.trim();
-    if (!trimmed.includes('\n') && detectSite(trimmed)) { importFromUrl(trimmed); return; }
     const { selectionStart, selectionEnd } = e.currentTarget;
+    const selection = [selectionStart, selectionEnd];
+    if (!trimmed.includes('\n') && detectSite(trimmed)) { importFromUrl(trimmed, selection); return; }
     cancelContentLoad();
-    previewImport(value.slice(0, selectionStart) + pasted + value.slice(selectionEnd));
+    previewImport(pasted, undefined, [], selection);
   }
 
   async function handleOpenSavePanel() {

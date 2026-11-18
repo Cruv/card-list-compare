@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -62,5 +62,49 @@ it.each(['native', 'bearer'])('rechecks account state after artifact verificatio
   const response = await transfer;
   expect(response.status).toBe(403);
   expect(response.headers.get('content-disposition')).toBeNull();
+  expect(response.headers.get('cache-control')).toBe('private, no-store');
   expect(await response.json()).toMatchObject({ error: 'Account suspended' });
+});
+
+it('keeps native attachment status private to the original authenticated session', async () => {
+  fixture.getJob.mockReturnValue({ manifestSha256: 'manifest-hash', state: 'ready', artifacts: [{ id: 'fronts', sha256: 'test-hash' }] });
+  const ticket = await fetch(`${url}/api/print-lists/jobs/fixture/artifacts/fronts/download`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reportStatus: true }),
+  });
+  const { url: grantedUrl } = await ticket.json();
+  const replacement = auth.createToken(db.get('SELECT * FROM users WHERE id = 1'));
+  const statusUrl = `${url}${grantedUrl}/status`;
+  const denied = await fetch(statusUrl, { headers: { Authorization: `Bearer ${replacement}` } });
+  expect(denied.status).toBe(404);
+  expect(denied.headers.get('cache-control')).toBe('private, no-store');
+  const pending = await fetch(statusUrl, { headers: { Authorization: `Bearer ${token}` } });
+  expect(await pending.json()).toEqual({ state: 'pending' });
+});
+
+it.each(['removed', 'replaced'])('rechecks the opened file after the verified PDF was %s', async state => {
+  const { printFileFingerprint } = await import('../lib/printPdfHash.js');
+  const path = join(dir, 'fronts.pdf');
+  const bytes = '%PDF-1.4\nPrivate PDF\n%%EOF\n';
+  writeFileSync(path, bytes);
+  const artifact = { id: 'fronts', sha256: 'test-hash', size: bytes.length, path, fingerprint: printFileFingerprint(path) };
+  fixture.getJob.mockReturnValue({ manifestSha256: 'manifest-hash', state: 'ready', artifacts: [artifact] });
+  fixture.verify.mockImplementation(async () => {
+    if (state === 'removed') unlinkSync(path);
+    else {
+      writeFileSync(`${path}.tmp`, bytes);
+      renameSync(`${path}.tmp`, path);
+    }
+    return artifact;
+  });
+  const ticket = await fetch(`${url}/api/print-lists/jobs/fixture/artifacts/fronts/download`, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reportStatus: true }),
+  });
+  const { url: grantedUrl } = await ticket.json();
+  const attachment = await fetch(url + grantedUrl, { headers: { Cookie: ticket.headers.get('set-cookie').split(';')[0] } });
+  expect(attachment.status).toBe(state === 'removed' ? 410 : 409);
+  expect(attachment.headers.get('content-disposition')).toBeNull();
+  const receipt = await fetch(`${url}${grantedUrl}/status`, { headers: { Authorization: `Bearer ${token}` } });
+  expect(await receipt.json()).toMatchObject({ state: 'failed', error: expect.stringContaining('Refresh batches') });
 });

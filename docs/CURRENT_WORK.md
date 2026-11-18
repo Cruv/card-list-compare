@@ -1,5 +1,10 @@
 # Current work checkpoint
 
+## Final v2.65.0 audit follow-up
+
+- v2.65.1 fixes the five findings from `c0f95ae`. The [audit follow-up](ROADMAP.md#final-v2650-audit-follow-up) records the failures and evidence. The earlier roadmap items remain separate.
+- Browser and HTTP fixtures use isolated state and fake external effects. Household activation and physical acceptance remain separate.
+
 ## November 18 audit implementation
 
 - Started from `23e15f4`. [PR #21](https://github.com/Cruv/card-list-compare/pull/21)

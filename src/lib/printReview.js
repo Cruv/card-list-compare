@@ -2,6 +2,22 @@ import { parse } from './parser';
 import { isA4PrintPreset, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
 import { printCardKey } from './printSelection';
 
+export function batchDetailRefresh(jobs, activity, focusedId) {
+  const summaries = new Map([...activity.jobs, ...activity.watchedJobs].map(row => [row.id, row]));
+  const loaded = new Set(jobs.map(job => job.id));
+  const changed = [];
+  const removed = [];
+  for (const job of jobs) {
+    const summary = summaries.get(job.id);
+    if (!summary) removed.push(job.id);
+    else if (summary.state !== job.state || summary.updatedAt !== job.updatedAt) changed.push(job.id);
+  }
+  for (const id of new Set([focusedId, activity.jobs[0]?.id])) {
+    if (id && !loaded.has(id)) changed.push(id);
+  }
+  return { changed, removed };
+}
+
 /** Count physical source copies using the same parser as deck comparison. */
 export function printSourceCopies(text, includeSideboard = false) {
   const parsed = parse(text);

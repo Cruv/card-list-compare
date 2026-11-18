@@ -5,7 +5,7 @@ import { useModalLayer } from '../lib/useModalLayer';
 import { getOwners, getOwnerDecks, addOwner, trackDeck, createLibraryDeck } from '../lib/api';
 import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
 import { createOperationId } from '../lib/operationId';
-import { inspectDeckImport, parse } from '../lib/parser';
+import { inspectDeckImport, inspectDeckPaste, parse } from '../lib/parser';
 import { emptyLibraryDraft, loadLibraryImport, saveLibraryDraft, saveLibraryImportRequest, settleLibraryImport } from '../lib/libraryImport';
 import Icon from './Icon';
 import DeckImportReview from './DeckImportReview';
@@ -126,9 +126,9 @@ function ScopedAddDecksDialog({ userId, onClose, onAdded }) {
     if (!pasted?.trim()) return;
     event.preventDefault();
     const { selectionStart, selectionEnd } = event.currentTarget;
-    const text = draft.text.slice(0, selectionStart) + pasted + draft.text.slice(selectionEnd);
-    if (text.length > 500000) { setError('The card list exceeds 500,000 characters.'); return; }
-    setImportReview(inspectDeckImport(text));
+    const review = inspectDeckPaste(draft.text, pasted, selectionStart, selectionEnd);
+    if (review.text.length > 500000) { setError('The card list exceeds 500,000 characters.'); return; }
+    setImportReview(review);
   }
   function applyImport() {
     if (!importReview?.accepted.length) return;

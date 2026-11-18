@@ -88,6 +88,10 @@ paper size and be configured for the exact stock and layout in the rear feeder. 
 size or preset changes, queued batches wait for their matching paper and layout. See the
 [Mac paper setup](../companion/mac/README.md#configure-without-printing) for the local settings.
 
+Prepare checks the Mac's online and stock status while the page is visible, even when the
+queue is idle. Open **Batches** or choose **Refresh batches** to load history. While that view
+is visible, a compact status check refreshes rows with changed progress or outcomes.
+
 Clear **Include Cameo registration marks** for hand cutting or a die cutter. The generated
 fronts and backs keep the same card positions, paper size, and thin sheet labels. Leave
 the option on for Cameo Print & Cut.
@@ -635,8 +639,9 @@ fixtures and mocked transports; they do not send real Discord messages or print 
 
 ## Queue, access and retention
 
-PDF preparation and downloads require a user session and ownership. The browser shows
-PDF transfer progress in its downloads list. Open **One-sheet paper proof** in Prepare
+PDF preparation and downloads require a user session and ownership. If the attachment
+fails to start, the batch shows the error and how to retry or replace the file. The browser
+shows PDF transfer progress in its downloads list. Open **One-sheet paper proof** in Prepare
 to download a synthetic test sheet for a paper layout, including the Dahle punch layout.
 Print at Actual Size, measure the 50 mm line and check the cut frame and bleed. Record
 that check in the browser after inspecting the sheet. The record follows the exact

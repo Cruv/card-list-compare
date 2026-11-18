@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inspectDeckImport, parse } from './parser.js';
+import { inspectDeckImport, inspectDeckPaste, parse } from './parser.js';
 import { _archidektToText, _moxfieldToText } from './fetcher.js';
 
 describe('deck import preview', () => {
@@ -45,5 +45,66 @@ describe('deck import preview', () => {
     ] });
     expect(_archidektToText({ cards: [{ card: { name: 'Sol Ring', edition: { editioncode: 'C21' }, collectorNumber: '263' }, quantity: 1, modifier: 'Etched' }] }, { review: true }))
       .toMatchObject({ text: '', skipped: [{ raw: '1 Sol Ring (C21) [263]', reason: 'Unsupported finish (Etched)' }] });
+  });
+
+  it('replaces only the selected range in a CRLF draft and shows the selected and skipped text', () => {
+    const previous = '1 Opt (ELD) [59]';
+    const draft = `// keep these spaces   \r\nDeck\r\n${previous}\r\nMaybeboard\n1 Island\n`;
+    const selectionStart = draft.replace(/\r\n/g, '\n').indexOf(previous);
+    const selected = '2 Counterspell (SLD) [DDO-20] *F*';
+    const preview = inspectDeckPaste(draft, `${selected}\n1 Sol Ring (C21) [263] *E*\n0 Ash Barrens`,
+      selectionStart, selectionStart + previous.length);
+    expect(preview.text).toBe(draft.replace(previous, selected));
+    expect(preview.replacedText).toBe(previous);
+    expect(preview.skipped).toMatchObject([
+      { raw: '1 Sol Ring (C21) [263] *E*', reason: 'Unsupported finish (*E*)' },
+      { raw: '0 Ash Barrens', reason: 'Invalid card row or quantity' },
+    ]);
+    expect(preview.accepted).toMatchObject([
+      { displayName: 'Counterspell', quantity: 2, section: 'main', setCode: 'SLD', collectorNumber: 'DDO-20', isFoil: true },
+    ]);
+  });
+
+  it('shows the same board and commander assignments as the applied list', () => {
+    const draft = 'Commander\n1 Atraxa (2XM) [190]\n\nDeck\n1 Sol Ring';
+    const selected = '1 Sol Ring';
+    const pasted = '1 Thalia (SLD) [DDO-20] *F* (Commander)\nSB: 1 Negate';
+    const preview = inspectDeckPaste(draft, pasted, draft.indexOf(selected), draft.length);
+    expect(preview.accepted.map(row => [row.displayName, row.section])).toEqual([
+      ['Atraxa', 'commander'], ['Thalia', 'main'], ['Negate', 'sideboard'],
+    ]);
+    expect(parse(preview.text).commanders).toEqual(['Atraxa']);
+    const inline = inspectDeckPaste('Deck\n', pasted, 5, 5);
+    expect(inline.accepted.map(row => [row.displayName, row.section])).toEqual([
+      ['Thalia', 'commander'], ['Negate', 'sideboard'],
+    ]);
+    expect(parse(inline.text).commanders).toEqual(['Thalia']);
+  });
+
+  it('reads the final board when removing an invalid pasted row changes the implicit sideboard boundary', () => {
+    const preview = inspectDeckPaste('1 Island', '0 Invalid\n\n', 0, 0);
+    expect(preview.text).toBe('\n1 Island');
+    expect(preview.accepted).toMatchObject([{ displayName: 'Island', section: 'main' }]);
+    expect(parse(preview.text).sideboard.size).toBe(0);
+  });
+
+  it('omits only the clipboard portion of a rejected row shared with untouched text', () => {
+    const draft = '1 Forest (M10) [249]\r\n1 Negate';
+    const delimiter = draft.indexOf('\r');
+    const preview = inspectDeckPaste(draft, ' *E*', delimiter, delimiter);
+    expect(preview.text).toBe(draft);
+    expect(preview.skipped).toEqual([{ line: 1, raw: ' *E*', reason: 'Unsupported finish (*E*)' }]);
+    expect(preview.replacedText).toBe('');
+  });
+
+  it('keeps existing CSV notes and maybeboard rows byte for byte', () => {
+    const header = 'Name,Count,Section,Set,Collector Number,Finish,Notes';
+    const retained = 'Island,1,Maybeboard,ABC,123,Normal,"keep, exact"';
+    const draft = `${header}\r\n${retained}\r\n`;
+    const valid = `"Atraxa, Praetors' Voice",1,Commander,2XM,190,Foil,"keep, comma"\n`;
+    const preview = inspectDeckPaste(draft, `Sol Ring,1,Main,C21,263,Etched,skip\n${valid}`, header.length + 1, header.length + 1);
+    expect(preview.text).toBe(`${header}\r\n${valid}${retained}\r\n`);
+    expect(preview.accepted).toMatchObject([{ displayName: "Atraxa, Praetors' Voice", section: 'commander', isFoil: true }]);
+    expect(preview.skipped).toMatchObject([{ raw: 'Sol Ring,1,Main,C21,263,Etched,skip' }]);
   });
 });

@@ -33,6 +33,8 @@ Report issues privately to the repository owner.
   Sent as `Authorization: Bearer …`; the client keeps the token in `localStorage`.
   A `SESSION_INVALID` response clears the bearer used by that request if it remains the
   current credential. Incorrect login or current passwords return `INVALID_CREDENTIALS`.
+  A password-change response replaces the bearer only while its original browser session
+  is still active. Re-login creates a new browser session even for the same account.
   Offline, forbidden and temporary server failures preserve the credential for a later
   validated reload. Private routes remain gated until account
   validation succeeds. A completed password reset removes the reset URL and synchronizes
@@ -153,7 +155,9 @@ PDF plans, jobs, manifests and downloads require the owning user. A PDF download
 with an authenticated request for the exact artifact, then the browser streams the
 attachment with a one-use, 60-second HttpOnly SameSite cookie scoped to the download URL.
 That URL contains an opaque ID. Redemption checks the session, job owner and artifact
-checksum before streaming. Private download responses forbid caching. Queue submission also
+checksum before streaming. A short-lived status receipt reports whether the attachment
+started or failed and requires the same owning session that requested the ticket. Private
+download responses forbid caching. Queue submission also
 requires administrator status or an explicit `PRINT_ALLOWED_USER_IDS` grant. A separate
 `PRINT_STATION_TOKEN` authenticates the station protocol; it cannot create jobs, change
 decks or act as a JWT. Use a separate random value of at least 32 characters, protect the

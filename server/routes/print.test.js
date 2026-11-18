@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, truncateSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, existsSync, truncateSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import crypto from 'node:crypto';
@@ -156,11 +156,15 @@ describe('private browser PDF downloads', () => {
   it('rejects expired grants and artifacts corrupted or removed after issuance', async () => {
     const job = await ready();
     const [{ downloadUrl }] = job.artifacts;
-    const ticket = await issue(downloadUrl, 'user-1');
-    const { url: grantedUrl } = await ticket.json();
+    const ticket = await request(`${downloadUrl}/download`, { method: 'POST', body: { reportStatus: true } });
+    const { url: grantedUrl, reportStatus } = await ticket.json();
+    expect(reportStatus).toBe(true);
     const expired = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
     expect((await request(grantedUrl, { token: '', headers: { cookie: ticket.headers.get('set-cookie').split(';')[0] } })).status).toBe(404);
     expired.mockRestore();
+    expect(await (await request(`${grantedUrl}/status`)).json()).toEqual({
+      state: 'failed', error: 'PDF download expired. Start it again from the batch.',
+    });
 
     const nextTicket = await issue(downloadUrl, 'user-1');
     const next = await nextTicket.json();
@@ -175,6 +179,42 @@ describe('private browser PDF downloads', () => {
     queue.expireOwnedPrintArtifacts(1, 1, job.id);
     expect((await request(last.url, { token: '', headers: { cookie: lastTicket.headers.get('set-cookie').split(';')[0] } })).status).toBe(410);
     expect((await issue(downloadUrl, 'user-1')).status).toBe(410);
+  });
+
+  it.each(['available', 'missing', 'changed', 'expired'])('reports the actual attachment result for an %s PDF', async state => {
+    const job = await ready();
+    const [{ downloadUrl, sha256 }] = job.artifacts;
+    const artifact = await queue.ownedPrintArtifact(1, 1, job.id, 'fronts');
+    const ticket = await request(`${downloadUrl}/download`, { method: 'POST', body: { reportStatus: true } });
+    expect(ticket.status).toBe(200);
+    const { url: grantedUrl } = await ticket.json();
+    const receiptUrl = `${grantedUrl}/status`;
+    const navigation = { token: '', headers: { cookie: ticket.headers.get('set-cookie').split(';')[0] } };
+    expect((await request(receiptUrl, navigation)).status).toBe(401);
+    expect((await request(receiptUrl, { token: 'user-2' })).status).toBe(404);
+    expect(await (await request(receiptUrl)).json()).toEqual({ state: 'pending' });
+
+    if (state === 'missing') unlinkSync(artifact.path);
+    if (state === 'changed') {
+      const bytes = readFileSync(artifact.path);
+      bytes[9] ^= 1;
+      writeFileSync(artifact.path, bytes);
+    }
+    if (state === 'expired') queue.expireOwnedPrintArtifacts(1, 1, job.id);
+    const attachment = await request(grantedUrl, navigation);
+    expect(attachment.status).toBe({ available: 200, missing: 410, changed: 409, expired: 410 }[state]);
+    expect(attachment.headers.get('cache-control')).toContain('no-store');
+    const bytes = Buffer.from(await attachment.arrayBuffer());
+    expect((await request(grantedUrl, navigation)).status).toBe(404);
+    const receipt = await request(receiptUrl);
+    expect(receipt.headers.get('cache-control')).toBe('private, no-store');
+    const result = await receipt.json();
+    if (state === 'available') {
+      expect(result).toEqual({ state: 'started' });
+      expect(hash(bytes)).toBe(sha256);
+    } else {
+      expect(result).toEqual({ state: 'failed', error: expect.stringMatching(state === 'changed' ? /changed.*Refresh batches/ : /missing or expired.*Refresh batches/) });
+    }
   });
 });
 
@@ -731,6 +771,42 @@ describe('global print batch history', () => {
     expect(list).toMatchObject({ activeCount: 1, watching: false });
     expect(list.jobs).toEqual([{ id: listJob, state: 'ready', updatedAt: date }]);
     expect((await request('/api/print-lists/jobs/activity', { token: null })).status).toBe(401);
+  });
+
+  it('watches older and terminal rows without exposing other owners or deck scopes', async () => {
+    const older = '2026-08-01T00:00:00Z';
+    const latest = '2026-09-01T00:00:00Z';
+    const deepLink = seed(1, 'submitted', older, { deckId: 1 });
+    const goneFromActive = seed(1, 'completed', older, { deckId: 1 });
+    const otherUser = seed(2, 'submitted', older, { deckId: 1 });
+    const standalone = seed(1, 'submitted', older);
+    db.transaction(() => {
+      for (let i = 0; i < 50; i++) seed(1, 'ready', latest, { deckId: 1 });
+    });
+    const response = await request('/api/decks/1/print-jobs/activity?watch=' + [deepLink, goneFromActive, otherUser, standalone].join(','));
+    const result = await response.json();
+    expect(result.activeCount).toBe(51);
+    expect(result.jobs).toHaveLength(50);
+    expect(result.jobs).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: deepLink })]));
+    expect(result.watchedJobs).toHaveLength(2);
+    expect(result.watchedJobs).toEqual(expect.arrayContaining([
+      { id: deepLink, state: 'submitted', updatedAt: older }, { id: goneFromActive, state: 'completed', updatedAt: older },
+    ]));
+    const tooMany = Array.from({ length: 52 }, () => crypto.randomUUID()).join(',');
+    expect((await request(`/api/decks/1/print-jobs/activity?watch=${tooMany}`)).status).toBe(400);
+    expect((await request('/api/decks/1/print-jobs/activity?watch=invalid')).status).toBe(400);
+  });
+
+  it('returns lightweight current stock and online readiness only to authorized queue users', async () => {
+    const activity = async token => (await request('/api/print-lists/jobs/activity', { token })).json();
+    expect((await activity('user-1')).station).toMatchObject({ online: false, loadedPaperSize: 'letter' });
+    const heartbeat = { version: '2.65.0', paused: false, queue: 'EPSON', recipeVerified: true, duplexVerified: true,
+      recipeFingerprint: 'f'.repeat(64), health: { ok: true, known: true, message: 'Fixture ready' }, activeJob: null, events: [], receipts: [],
+      loadedPaperSize: 'a4', loadedPrintPreset: 'crowned-a4', supportedRecipeIds: ['household-crowned-a4-v2'] };
+    expect((await station('/heartbeat', 'POST', heartbeat)).status).toBe(200);
+    expect((await activity('user-1')).station).toEqual({ online: true, loadedPaperSize: 'a4', loadedPrintPreset: 'crowned-a4',
+      supportedRecipeIds: ['household-crowned-a4-v2'], duplexVerified: true, mixedPrintSheets: false });
+    expect((await activity('user-2')).station).toBeNull();
   });
 
   it('enables active legacy cancellation only from a live native capability and preserves owner authorization', async () => {

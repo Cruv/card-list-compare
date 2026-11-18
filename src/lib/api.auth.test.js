@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { changePassword, getMe, login } from './api';
+import { changePassword, createShare, getMe, login } from './api';
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: vi.fn(() => 'existing-credential'), removeItem: vi.fn() });
@@ -50,5 +50,18 @@ describe('account validation credential handling', () => {
     await expect(request).rejects.toMatchObject({ status: 401 });
     expect(localStorage.removeItem).not.toHaveBeenCalled();
     expect(window.dispatchEvent).not.toHaveBeenCalled();
+  });
+
+  it('sends each comparison with its captured owner token or explicitly as a guest', async () => {
+    fetch.mockImplementation(async () => Response.json({ id: 'test-share' }, { status: 201 }));
+    const beforeText = '1 Sol Ring (C21) [263]\r\n';
+    const afterText = '1 Sol Ring (C21) [263] *F*\n';
+    await createShare(beforeText, afterText, null, null, 'captured-owner');
+    await createShare(beforeText, afterText, null, null, null);
+    const [owner, guest] = fetch.mock.calls.map(([, options]) => options);
+    expect(owner.headers.Authorization).toBe('Bearer captured-owner');
+    expect(guest.headers).not.toHaveProperty('Authorization');
+    expect(JSON.parse(owner.body)).toMatchObject({ beforeText, afterText });
+    expect(guest.body).toBe(owner.body);
   });
 });

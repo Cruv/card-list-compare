@@ -111,6 +111,22 @@ The v2.65.0 source passed 1,479 JavaScript tests, 290 portable companion tests, 
 - A canceled submission with no acknowledged CUPS ID stays reserved if the station cannot recover the exact job from CUPS. Preserve the receipts for manual investigation. [Print recovery](PRINT_WORKFLOW.md)
 - Legacy session invalidation uses second-resolution JWT issue times. A separate hardening change can bind new sessions more precisely to password changes made in the same second.
 
+## Final v2.65.0 audit follow-up
+
+Reproduced these five findings against [`c0f95ae`](https://github.com/Cruv/card-list-compare/tree/c0f95ae) and fixed them in v2.65.1. The November audit’s open items above are tracked separately.
+
+| Reproduced finding | Fix and evidence |
+| --- | --- |
+| A pending password change from account A wrote its token after logout, a fresh login as A, or a switch to B. | The auth provider rotates the bearer only for the session that started the request. Chrome verified all three stale responses and a normal password change. |
+| An idle Prepare view stayed blocked after a stock change. Batches left older rows stale when their states changed or they left active work. | The owner-scoped activity response includes lightweight paper readiness and state summaries for watched rows. Chrome verified paper changes, reconnection, updates to older rows, and independent ManaSync failure with one on-demand history read. |
+| A range paste rebuilt the draft, dropped comments and Maybeboard text, and labeled a suppressed inline commander as a commander. | The preview preserves text outside the selection, shows replaced and skipped text, and derives sections and commanders from the applied list. Chrome checked exact foil metadata, comments, Maybeboard, and byte-for-byte undo including mixed line endings. |
+| Ctrl+Enter left Export offering the previous link. A delayed response could copy that link after a newer comparison, and closing Export lost the guest link when clipboard access was denied. | Export retains a selectable link for the exact comparison and owner while the menu is closed. Chrome verified guest and owner links, clipboard denial, keyboard comparison, and a delayed response. |
+| The ticket succeeded but the attachment returned HTTP 410. The app reported the download as started. | A private, session-bound receipt carries the attachment startup result. Chrome verified exact bytes in a successful native download and an actionable error after the PDF disappeared. Route tests cover changed files, owner and session binding, and post-hash authorization. |
+
+The [Chrome auth and share fixture](../tests/browser/auth-share.mjs) and [printer fixture](../tests/browser/print-panel.mjs) accept a production build directory. Run them with Playwright available in the test environment, or set `CLC_PLAYWRIGHT_MODULE` to the absolute path of its entry module. The checks used intercepted APIs, disposable databases, synthetic artifacts and fake printers. Physical acceptance and household activation are tracked separately.
+
+The v2.65.1 release checks passed 1,505 JavaScript tests, 290 portable companion tests, 14 PDF worker tests, the production build and the Compose contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities.
+
 ## Open — reviewed 2026-09-12
 
 These items were recorded by the 2026-09-12 review; reassess the relevant source before

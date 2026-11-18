@@ -59,11 +59,45 @@ describe('standalone print requests', () => {
     const anchor = { click: vi.fn(), remove: vi.fn() };
     const appendChild = vi.fn();
     vi.stubGlobal('document', { createElement: vi.fn(() => anchor), body: { appendChild } });
-    fetch.mockResolvedValue(new Response(JSON.stringify({ url: attachment })));
+    fetch.mockResolvedValueOnce(Response.json({ url: attachment, reportStatus: true }));
+    fetch.mockResolvedValueOnce(Response.json({ state: 'started' }));
     await downloadPrintArtifact(url, 'Deck fronts.pdf');
-    expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/download`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ filename: 'Deck fronts.pdf' }), redirect: 'error' }));
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([`${url}/download`, `${attachment}/status`]);
+    expect(fetch).toHaveBeenNthCalledWith(1, `${url}/download`, expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ filename: 'Deck fronts.pdf', reportStatus: true }), redirect: 'error',
+    }));
+    expect(fetch).toHaveBeenNthCalledWith(2, `${attachment}/status`, expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: 'Bearer fixture-user-token' }), redirect: 'error',
+    }));
     expect(anchor).toMatchObject({ href: attachment, download: 'Deck fronts.pdf', rel: 'noreferrer' });
     expect(appendChild).toHaveBeenCalledWith(anchor);
+    expect(anchor.click).toHaveBeenCalledOnce();
+  });
+
+  it('reports the attachment failure even when the ticket request succeeded', async () => {
+    vi.useFakeTimers();
+    const url = '/api/print-lists/jobs/job-a/artifacts/fronts';
+    const attachment = '/api/print-downloads/b60dea4c-c78b-4557-87cb-03a41d577337';
+    const anchor = { click: vi.fn(), remove: vi.fn() };
+    vi.stubGlobal('document', { createElement: () => anchor, body: { appendChild: vi.fn() } });
+    fetch.mockResolvedValueOnce(Response.json({ url: attachment, reportStatus: true }));
+    fetch.mockResolvedValueOnce(Response.json({ state: 'pending' }));
+    fetch.mockResolvedValueOnce(Response.json({ state: 'failed', error: 'This PDF is missing or expired. Refresh batches.' }));
+    const rejected = expect(downloadPrintArtifact(url)).rejects.toThrow('This PDF is missing or expired. Refresh batches.');
+    await vi.advanceTimersByTimeAsync(1000);
+    await rejected;
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([`${url}/download`, `${attachment}/status`, `${attachment}/status`]);
+    expect(anchor.click).toHaveBeenCalledOnce();
+  });
+
+  it('keeps native streaming for an older server that issues tickets without status receipts', async () => {
+    const attachment = '/api/print-downloads/b60dea4c-c78b-4557-87cb-03a41d577337';
+    const anchor = { click: vi.fn(), remove: vi.fn() };
+    vi.stubGlobal('document', { createElement: () => anchor, body: { appendChild: vi.fn() } });
+    fetch.mockResolvedValueOnce(Response.json({ url: attachment }));
+    await downloadPrintArtifact('/api/print-lists/jobs/job-a/artifacts/fronts');
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(anchor).toMatchObject({ href: attachment });
     expect(anchor.click).toHaveBeenCalledOnce();
   });
 

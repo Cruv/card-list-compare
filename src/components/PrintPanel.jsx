@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, getPrintJob, getPrintJobActivity, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, getPrintJob, getPrintJobActivity, getPrintQueue, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
   getStandalonePrintJobs, getStandalonePrintJob, getStandalonePrintJobActivity, previewStandalonePrintJob, createStandalonePrintJob, queueStandalonePrintJob, cancelStandalonePrintJob, expireStandalonePrintArtifacts } from '../lib/api';
 import DeckInput from './DeckInput';
 import PrintPaperProof from './PrintPaperProof';
 import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
+import { batchDetailRefresh, loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
 import { CROWNED_A4_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, PRINT_PAPER, availablePrintPaperChoices, isCrownedPrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
@@ -65,13 +65,14 @@ function requestId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function mergePrintJobs(current, incoming) {
+function mergePrintJobs(current, incoming, focusedId) {
   const byId = new Map(current.map(job => [job.id, job]));
   for (const job of incoming) {
     const existing = byId.get(job.id);
     if (!existing || job.updatedAt >= existing.updatedAt) byId.set(job.id, job);
   }
-  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  const ordered = [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+  return [...ordered.slice(0, 50), ...ordered.slice(50).filter(job => job.id === focusedId)];
 }
 
 export default function PrintPanel({ deck, snapshots = [], standalone = false, initialComparison, onComparisonConsumed, initialJobId, onDeckChanged }) {
@@ -164,6 +165,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const prominentJob = jobs.find(job => job.id === (focusedJobId || activeJob?.id)) || jobs[0];
   const historyJobs = jobs.filter(job => job.id !== prominentJob?.id);
   const autoConsumedRef = useRef(false);
+  const readJobs = useEffectEvent(() => jobs);
+  const readFocus = useEffectEvent(() => focusedJobId);
 
   useEffect(() => {
     if (!initialJobId) return;
@@ -214,12 +217,13 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   }, []);
 
   useEffect(() => {
-    if (!visible || activeView !== 'batches') return;
+    if (activeView !== 'batches') return;
     const controller = new AbortController();
     const history = standalone ? getStandalonePrintJobs(controller.signal) : getPrintJobs(deckId, controller.signal);
     history.then(data => {
       if (controller.signal.aborted) return;
-      setJobs(old => mergePrintJobs(old, data.jobs));
+      const focusedId = readFocus();
+      setJobs(old => mergePrintJobs(old, data.jobs, focusedId));
       setHistoryError('');
       setHistoryLoaded(true);
     }).catch(err => { if (!controller.signal.aborted) setHistoryError(err.message); });
@@ -229,51 +233,64 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       setConfirmationError('');
     }).catch(err => { if (!controller.signal.aborted) setConfirmationError(err.message); });
     return () => controller.abort();
-  }, [activeView, deckId, standalone, visible, refreshRevision]);
+  }, [activeView, deckId, standalone, refreshRevision]);
 
   useEffect(() => {
     if (!visible) return;
     const controller = new AbortController();
     const { signal } = controller;
     let timer;
-    let pollCount = 0;
-    let last = new Map();
-    const loaded = new Set();
+    let missingFocus = '';
     async function poll() {
-      let schedule = true;
+      let delay = 4000;
       try {
-        const data = standalone ? await getStandalonePrintJobActivity(signal) : await getPrintJobActivity(deckId, signal);
+        const batches = activeView === 'batches';
+        const shown = batches ? readJobs() : [];
+        const watch = shown.map(job => job.id);
+        const data = standalone ? await getStandalonePrintJobActivity(signal, watch) : await getPrintJobActivity(deckId, signal, watch);
         if (signal.aborted) return;
-        const current = new Map(data.jobs.map(job => [job.id, `${job.state}:${job.updatedAt}`]));
-        const choices = new Set([focusedJobId, data.jobs[0]?.id].filter(Boolean));
-        if (activeView === 'batches' && last.size) choices.add(last.keys().next().value);
         setActivity(data);
         setCapabilities(data.capabilities);
         setGenerator(data.generator);
-        setConnectionError('');
-        if (!data.capabilities.canQueue) setStation(null);
-        else if (pollCount++ % 4 === 0) {
-          getPrintStationStatus(signal).then(result => { if (!signal.aborted) setStation(result.station); })
-            .catch(() => { if (!signal.aborted) setStation(null); });
+        setStation(data.station);
+        if (!data.watching && !data.generator?.updating) delay = batches || data.capabilities.canQueue ? 15000 : 0;
+        if (!batches) {
+          setConnectionError('');
+          return;
         }
-        schedule = data.watching || !!data.generator?.updating;
-        if (activeView === 'batches') await Promise.all([...choices].map(async id => {
-          if (loaded.has(id) && current.get(id) === last.get(id)) return;
+        const { changed, removed } = batchDetailRefresh(shown, data, missingFocus ? null : focusedJobId);
+        const changes = await Promise.all(changed.map(async id => {
           try {
             const { job } = standalone ? await getStandalonePrintJob(id, signal) : await getPrintJob(deckId, id, signal);
-            if (signal.aborted) return;
-            loaded.add(id);
-            setJobs(old => mergePrintJobs(old, [job]));
+            return { job };
           } catch (err) {
-            if (!signal.aborted && id === focusedJobId) setConnectionError(`The linked batch could not be opened: ${err.message}`);
-            loaded.delete(id);
+            return { id, err };
           }
         }));
-        last = current;
+        if (signal.aborted) return;
+        const unavailable = new Set(removed);
+        const refreshed = [];
+        let detailError = '';
+        for (const { job, id, err } of changes) {
+          if (job) refreshed.push(job);
+          else if (err.status === 404) unavailable.add(id);
+          else detailError = `Batch details could not refresh: ${err.message}`;
+          if (err && id === focusedJobId) {
+            detailError = `The linked batch could not be opened: ${err.message}`;
+            if (err.status === 404) missingFocus = detailError;
+          }
+        }
+        if (unavailable.size || refreshed.length) {
+          setJobs(old => mergePrintJobs(old.filter(row => !unavailable.has(row.id)), refreshed, focusedJobId));
+        }
+        setConnectionError(missingFocus || detailError);
       } catch (err) {
-        if (!signal.aborted) setConnectionError(err.message);
+        if (!signal.aborted) {
+          setStation(null);
+          setConnectionError(err.message);
+        }
       } finally {
-        if (!signal.aborted && schedule) timer = setTimeout(poll, 4000);
+        if (!signal.aborted && delay) timer = setTimeout(poll, delay);
       }
     }
     poll();
@@ -529,7 +546,6 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     try {
       const result = standalone ? await action(job.id) : await action(deckId, job.id);
       setJobs(old => old.map(item => item.id === job.id ? result.job : item));
-      setRefreshRevision(value => value + 1);
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
@@ -537,6 +553,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   async function download(artifact, job) {
     setStartingDownload(artifact.downloadUrl);
     setError('');
+    setNotice('');
     try {
       const name = artifact.packetIndex && artifact.packetCount ? `double-faced-packet-${artifact.packetIndex}-of-${artifact.packetCount}` : artifact.id;
       await downloadPrintArtifact(artifact.downloadUrl, `${job.deckName || deck?.deck_name || 'Print-list'}-${job.id.slice(0, 8)}-${name}.pdf`);

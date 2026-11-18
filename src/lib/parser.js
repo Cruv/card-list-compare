@@ -322,14 +322,13 @@ const KNOWN_IMPORT_FINISHES = new Set(['', 'normal', 'nonfoil', 'regular', 'foil
 export const unsupportedImportFinish = value => typeof value === 'string'
   && !KNOWN_IMPORT_FINISHES.has(value.trim().toLowerCase().replace(/[-\s]/g, ''));
 
-/** Report what a new import would use without rewriting existing decks or the parser grammar. */
-export function inspectDeckImport(rawText) {
+function inspectImportRows(rawText, strictFinish = true) {
   const lines = rawText.split(/\r?\n/);
   const accepted = [], skipped = [];
   const skip = (index, reason) => skipped.push({ line: index + 1, raw: lines[index], reason });
-  const add = (index, card, section, sourceSection = section) => accepted.push({ line: index + 1,
+  const add = (index, card, section, sourceSection = section, inlineCommander = false) => accepted.push({ line: index + 1,
     displayName: card.displayName ?? card.name, quantity: card.quantity, setCode: card.setCode,
-    collectorNumber: card.collectorNumber, isFoil: card.isFoil, section, sourceSection });
+    collectorNumber: card.collectorNumber, isFoil: card.isFoil, section, sourceSection, inlineCommander });
   const header = lines.findIndex(line => line.trim());
   const columns = isCSV(rawText) ? csvColumns(lines[header]) : null;
   if (columns && columns.nameIdx !== -1) {
@@ -339,25 +338,46 @@ export function inspectDeckImport(rawText) {
       const section = cells[columns.sectionIdx]?.toLowerCase();
       const finish = cells[columns.foilIdx];
       if (['maybeboard', 'considering'].includes(section)) { skip(index, 'Maybeboard'); continue; }
-      if (unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
+      if (strictFinish && unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
       const row = csvCard(cells, columns);
       if (row) add(index, row.entry, row.sideboard ? 'sideboard' : row.commander ? 'commander' : 'main');
       else skip(index, 'Missing card name or invalid quantity');
     }
-    const included = skipped.length ? [lines[header], ...accepted.map(row => lines[row.line - 1])] : null;
-    return { accepted, skipped, text: included ? included.join(rawText.includes('\r\n') ? '\r\n' : '\n') : rawText };
+    return { accepted, skipped, lines, csvHeader: header };
   }
 
   for (const { index, section, line } of sectionedLines(lines, ({ index, reason }) => skip(index, reason))) {
     const card = parseLine(line);
-    const finish = stripDecorations(line).text.match(/\s(\*[a-z]+\*)\s*$/i)?.[1];
-    if (unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
+    if (strictFinish) {
+      const finish = stripDecorations(line).text.match(/\s(\*[a-z]+\*)\s*$/i)?.[1];
+      if (unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
+    }
     if (!card) { skip(index, 'Invalid card row or quantity'); continue; }
     if (card.isSB && section === 'commander') { skip(index, 'Sideboard card in the commander section'); continue; }
-    add(index, card, card.isSB ? 'sideboard' : section === 'main' && card.isCommander ? 'commander' : section, section);
+    add(index, card, card.isSB ? 'sideboard' : section, section, card.isCommander);
   }
-  if (!skipped.length) return { accepted, skipped, text: rawText };
   skipped.sort((a, b) => a.line - b.line);
+  return { accepted, skipped, lines };
+}
+
+function previewAppliedRows(rows) {
+  // The parser uses inline commander tags only when the explicit block has no
+  // accepted commanders. Sideboard rows retain their placement.
+  const explicit = rows.some(row => row.sourceSection === 'commander');
+  return rows.map(({ sourceSection, inlineCommander, ...row }) => ({
+    ...row, section: !explicit && sourceSection === 'main' && row.section === 'main' && inlineCommander ? 'commander' : row.section,
+  }));
+}
+
+/** Report what a standalone import would use without changing the parser grammar. */
+export function inspectDeckImport(rawText) {
+  const { accepted, skipped, lines, csvHeader } = inspectImportRows(rawText);
+  if (!skipped.length) return { accepted: previewAppliedRows(accepted), skipped, text: rawText };
+  const separator = rawText.includes('\r\n') ? '\r\n' : '\n';
+  if (csvHeader !== undefined) {
+    const text = [lines[csvHeader], ...accepted.map(row => lines[row.line - 1])].join(separator);
+    return { accepted: previewAppliedRows(accepted), skipped, text };
+  }
   const included = [];
   let section;
   for (const row of accepted) {
@@ -367,7 +387,68 @@ export function inspectDeckImport(rawText) {
     }
     included.push(lines[row.line - 1]);
   }
-  return { accepted, skipped, text: included.join(rawText.includes('\r\n') ? '\r\n' : '\n') };
+  return { accepted: previewAppliedRows(accepted), skipped, text: included.join(separator) };
+}
+
+function rawTextareaOffset(text, offset) {
+  // A textarea uses LF indices even when a controlled draft still has CRLF.
+  for (const match of text.matchAll(/\r\n/g)) {
+    if (match.index >= offset) break;
+    offset++;
+  }
+  return offset;
+}
+
+/** Review a textarea paste without writing outside the selected range. */
+export function inspectDeckPaste(draft, pasted, selectionStart, selectionEnd) {
+  const start = rawTextareaOffset(draft, selectionStart);
+  const end = rawTextareaOffset(draft, selectionEnd);
+  const prefix = draft.slice(0, start);
+  const suffix = draft.slice(end);
+  const pasteEnd = start + pasted.length;
+  const candidate = prefix + pasted + suffix;
+  const rejected = new Map(inspectImportRows(candidate).skipped.map(row => [row.line, row]));
+  const skipped = [], removed = [];
+  let offset = 0, trimLastSeparator = false;
+  const parts = candidate.split(/(\r?\n)/);
+  for (let i = 0; i < parts.length; i += 2) {
+    const line = i / 2 + 1;
+    const rowEnd = offset + parts[i].length;
+    const next = rowEnd + (parts[i + 1]?.length ?? 0);
+    const row = rejected.get(line);
+    const from = Math.max(start, offset);
+    let to = Math.min(pasteEnd, rowEnd);
+    if (row && from < to) {
+      skipped.push({ ...row, raw: candidate.slice(from, to) });
+      if (offset >= start && rowEnd <= pasteEnd) {
+        // Remove the separator that arrived with a wholly pasted skipped row.
+        // The last clipboard row can borrow its closing separator from the
+        // original draft, in which case its preceding inserted separator goes.
+        to = Math.min(next, pasteEnd);
+        trimLastSeparator = to === pasteEnd && (next === rowEnd || next > pasteEnd);
+      }
+      const previous = removed.at(-1);
+      if (previous?.end === from) previous.end = to;
+      else removed.push({ start: from, end: to });
+    }
+    offset = next;
+  }
+  if (trimLastSeparator) {
+    const last = removed.at(-1);
+    if (candidate[last.start - 1] === '\n') {
+      last.start = Math.max(start, last.start - (candidate[last.start - 2] === '\r' ? 2 : 1));
+    }
+  }
+  const kept = [];
+  let keptFrom = start;
+  for (const range of removed) {
+    kept.push(candidate.slice(keptFrom, range.start));
+    keptFrom = range.end;
+  }
+  kept.push(candidate.slice(keptFrom, pasteEnd));
+  const text = prefix + kept.join('') + suffix;
+  return { accepted: previewAppliedRows(inspectImportRows(text, false).accepted), skipped,
+    text, replacedText: draft.slice(start, end) };
 }
 
 export function rewriteDeckPrinting(text, selectionKey, printing, options) {

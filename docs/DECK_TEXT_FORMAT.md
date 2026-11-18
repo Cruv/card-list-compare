@@ -44,6 +44,11 @@ groups visually; use a `Sideboard`/`SB` header or `SB:` prefixes to identify the
 sideboard. Without an explicit Commander header, a blank line after mainboard
 content retains the legacy implicit-sideboard behavior.
 
+A paste preview preserves the exact draft text outside the selected range,
+including comments, ignored blocks, and line endings. The preview shows the
+replaced draft text and skipped clipboard rows. Card sections and commanders
+reflect the result applied to the draft.
+
 ### Examples
 
 ```
