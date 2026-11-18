@@ -491,8 +491,11 @@ Owners and administrators can **Cancel batch** to stop every unfinished pass, or
 undoes already printed output. Pending-only cancellations settle immediately. If affected
 pages have entered submission, the Mac stops only their recorded Epson submission and
 requires `awaiting_clearance`: remove partial/flipped paper and confirm blank paper before
-releasing more front work. A missing or ambiguous submission still needs reconciliation;
-software does not infer paper clearance. Completed passes remain completed, canceled
+releasing more front work. If Mac print history loses an acknowledged CUPS job, the owner
+or an administrator can choose **Clear canceled batch with missing history** after the same
+paper checks. The Mac checks the exact saved CUPS title and ID again. The clearance keeps
+the original receipts and finishes only the pending cancellation. If a read fails or the
+job identity is ambiguous, inspect and reconcile the submission at the Mac. Completed passes remain completed, canceled
 passes remain canceled, and neither is automatically retried. A job whose fronts finish
 but backs are canceled is shown as **Finished · backs canceled**, not as every face printed.
 Preparing another batch remains available while earlier jobs wait or print.
@@ -643,6 +646,12 @@ States distinguish preparing, ready, queued, claimed, submitting, submitted, awa
 refeed, backs pending, paper reset, cancellation clearance, completed, uncertain, failed,
 canceled and expired. “Completed” means confirmed
 spooler completion, not proof that usable cards emerged or were cut and assembled.
+
+If an unclaimed batch has a missing or damaged PDF and has no submission evidence, the
+queue marks it failed and advances to the next eligible batch. Prepare a replacement batch
+after inspecting the failure. A claimed or uncertain job and any saved backs keep their
+receipts and state. Use the exact job's cancellation or paper-clearance controls before
+moving past a blocked reservation or requested back packet.
 
 Ready and terminal artifacts expire after seven days; queued, active, uncertain and
 refeed-waiting, paper-reset and saved-back batches are protected without a waiting-time limit. Default retained-job storage is 10 GiB, configurable

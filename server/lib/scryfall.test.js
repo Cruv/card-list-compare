@@ -74,8 +74,8 @@ describe('server Scryfall keying (audit H7)', () => {
       { name: 'Nazgul', set: 'ltr', collectorNumber: '332' },
       { name: 'Nazgul', set: 'ltc', collectorNumber: '408' },
     ]);
-    expect(map.get('ltr|332')).toEqual({ priceUsd: 3, priceUsdFoil: null });
-    expect(map.get('ltc|408')).toEqual({ priceUsd: 250, priceUsdFoil: null });
+    expect(map.get('ltr|332')).toEqual({ name: 'Nazgûl', priceUsd: 3, priceUsdFoil: null });
+    expect(map.get('ltc|408')).toEqual({ name: 'Nazgûl', priceUsd: 250, priceUsdFoil: null });
     expect(map.get('nazgul')).toBeUndefined(); // never name-keyed
   });
 });

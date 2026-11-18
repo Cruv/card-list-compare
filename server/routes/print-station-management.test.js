@@ -877,6 +877,45 @@ describe('saved back packets and physical clearance controls', () => {
     await beat(heartbeat({ receipts: [{ commandId: acceptedCommand.id, status: 'applied', message: 'fixture' }] }));
     expect(db.get('SELECT state FROM print_jobs WHERE id = ?', [jobId]).state).toBe('awaiting_paper_reset');
   });
+
+  it('recovers missing CUPS history only through its exact delivered owner-confirmed clearance', async () => {
+    const spoolerId = 'EPSON_ET_8550_Series-23', requestId = crypto.randomUUID(), clearanceId = `cancel:${requestId}`;
+    const original = { artifactId: 'fronts', phase: 'fronts', state: 'submitted', spoolerId,
+      submittingAt: '2026-09-10T11:00:00.000Z', submittedAt: '2026-09-10T11:00:01.000Z', submissionEventId: crypto.randomUUID() };
+    const savedBack = { artifactId: 'dfc-first', phase: 'backs', state: 'pending', requiresRefeed: true };
+    const jobId = seedJob('submitted', [original, savedBack]);
+    db.run("UPDATE print_jobs SET cancel_requested = 'all', cancel_request_id = ? WHERE id = ?", [requestId, jobId]);
+    const activeJob = { id: jobId, state: 'awaiting_clearance', clearanceId, missingCancellationSpoolerId: spoolerId };
+    const body = command('clear_missing_cups', { jobId, clearanceId, spoolerId, paperCleared: true });
+    await beat(heartbeat({ activeJob: { id: jobId, state: 'awaiting_clearance', clearanceId } }));
+    expect((await send(body)).status).toBe(409);
+    await beat(heartbeat({ activeJob }));
+    expect((await (await status()).json()).station.activeJob.missingCancellationSpoolerId).toBe(spoolerId);
+    expect((await send({ ...body, paperCleared: false })).status).toBe(400);
+    expect((await send(body, 2)).status).toBe(403);
+    expect((await send({ ...body, spoolerId: 'EPSON_ET_8550_Series-24' })).status).toBe(409);
+    const saved = await accepted(body);
+    const queue = await import('../lib/printQueue.js');
+    const row = () => db.get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+    const event = { eventId: crypto.randomUUID(), claimToken: queue.formatPrintJob(row(), true).claimToken,
+      state: 'canceled', artifactId: 'fronts', phase: 'fronts', clearanceId, paperCleared: true,
+      missingCupsHistory: true, spoolerId, commandId: saved.id };
+    const report = value => request(`/api/print-station/jobs/${jobId}/report`, { method: 'POST', token: credential, body: value });
+    expect((await report(event)).status).toBe(409);
+    const delivery = await (await beat(heartbeat({ activeJob }))).json();
+    expect(delivery.commands).toEqual([expect.objectContaining({ id: saved.id, type: body.type, jobId, clearanceId, spoolerId })]);
+    expect((await report({ ...event, phase: 'backs' })).status).toBe(409);
+    expect((await report(event)).status).toBe(200);
+    expect((await (await report(event)).json()).replayed).toBe(true);
+    expect(JSON.parse(row().steps_json)).toEqual([
+      { ...original, state: 'canceled', canceledFrom: 'submitted', canceledAt: expect.any(String), cancellationClearanceId: clearanceId },
+      { ...savedBack, state: 'canceled', canceledFrom: 'pending', canceledAt: expect.any(String), cancellationClearanceId: clearanceId },
+    ]);
+    const events = db.all('SELECT event_json FROM print_job_events WHERE job_id = ?', [jobId]);
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].event_json)).toMatchObject({ spoolerId, missingCupsHistory: true, commandId: saved.id });
+    expect((await (await claim()).json()).job).toBeNull();
+  });
 });
 
 describe('operator recovery of interrupted physical print passes', () => {

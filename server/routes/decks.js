@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { all, get, run, transaction } from '../db.js';
+import { all, get, run, runTransaction, transaction } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { existsSync, createReadStream } from 'fs';
 import { archidektLimiter } from '../middleware/rateLimit.js';
@@ -11,6 +11,7 @@ import { fetchCardMetadata } from '../lib/scryfall.js';
 import { computeDeckPrices } from '../lib/priceCalculator.js';
 import { submitJob, getJobStatus } from '../lib/downloadQueue.js';
 import { trackArchidektDeck } from '../lib/deckTracking.js';
+import { latestSnapshot } from '../lib/structuredSnapshots.js';
 import deckImports from './deckImports.js';
 
 const router = Router();
@@ -149,10 +150,27 @@ router.patch('/:id', (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold, priceAlertMode, autoRefreshHours } = req.body;
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    return res.status(400).json({ error: 'Deck updates must be a JSON object' });
+  }
+  const { commanders, notifyOnChange, notes, pinned, tags, discordWebhookUrl, priceAlertThreshold, priceAlertMode, autoRefreshHours, ...unknown } = req.body;
+  if (Object.keys(unknown).length > 0) {
+    return res.status(400).json({ error: 'Unsupported deck update field' });
+  }
+  if (notifyOnChange !== undefined && typeof notifyOnChange !== 'boolean') {
+    return res.status(400).json({ error: 'Notify on change must be a boolean' });
+  }
+  if (pinned !== undefined && typeof pinned !== 'boolean') {
+    return res.status(400).json({ error: 'Pinned must be a boolean' });
+  }
   if (deck.source_type === 'manual' && (autoRefreshHours != null || notifyOnChange === true)) {
     return res.status(409).json({ error: 'manual_deck_has_no_upstream', message: 'Manual decks do not refresh from Archidekt.' });
   }
+
+  const statements = [];
+  const update = (fields, ...values) => {
+    statements.push({ sql: `UPDATE tracked_decks SET ${fields} WHERE id = ?`, params: [...values, id] });
+  };
   if (commanders !== undefined) {
     if (!Array.isArray(commanders) || !commanders.every(c => typeof c === 'string')) {
       return res.status(400).json({ error: 'Commanders must be an array of strings' });
@@ -161,10 +179,10 @@ router.patch('/:id', (req, res) => {
       return res.status(400).json({ error: 'Too many commanders' });
     }
     const cleaned = commanders.map(c => c.trim()).filter(Boolean);
-    run('UPDATE tracked_decks SET commanders = ? WHERE id = ?', [JSON.stringify(cleaned), id]);
+    update('commanders = ?', JSON.stringify(cleaned));
   }
   if (notifyOnChange !== undefined) {
-    run('UPDATE tracked_decks SET notify_on_change = ? WHERE id = ?', [notifyOnChange ? 1 : 0, id]);
+    update('notify_on_change = ?', Number(notifyOnChange));
   }
   if (notes !== undefined) {
     if (notes !== null && typeof notes !== 'string') {
@@ -173,10 +191,10 @@ router.patch('/:id', (req, res) => {
     if (notes && notes.length > 2000) {
       return res.status(400).json({ error: 'Notes must be under 2000 characters' });
     }
-    run('UPDATE tracked_decks SET notes = ? WHERE id = ?', [notes?.trim() || null, id]);
+    update('notes = ?', notes?.trim() || null);
   }
   if (pinned !== undefined) {
-    run('UPDATE tracked_decks SET pinned = ? WHERE id = ?', [pinned ? 1 : 0, id]);
+    update('pinned = ?', Number(pinned));
   }
   if (tags !== undefined) {
     if (!Array.isArray(tags) || !tags.every(t => typeof t === 'string')) {
@@ -185,14 +203,13 @@ router.patch('/:id', (req, res) => {
     if (tags.length > 10) {
       return res.status(400).json({ error: 'Too many tags (max 10)' });
     }
-    // Replace all tags: delete existing, insert new
-    run('DELETE FROM deck_tags WHERE tracked_deck_id = ?', [id]);
     const cleaned = [...new Set(tags.map(t => t.trim().toLowerCase()).filter(Boolean))];
+    if (cleaned.some(tag => tag.length > 30)) {
+      return res.status(400).json({ error: 'Each tag must be under 30 characters' });
+    }
+    statements.push({ sql: 'DELETE FROM deck_tags WHERE tracked_deck_id = ?', params: [id] });
     for (const tag of cleaned) {
-      if (tag.length > 30) {
-        return res.status(400).json({ error: 'Each tag must be under 30 characters' });
-      }
-      run('INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (?, ?)', [id, tag]);
+      statements.push({ sql: 'INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (?, ?)', params: [id, tag] });
     }
   }
   if (discordWebhookUrl !== undefined) {
@@ -202,29 +219,30 @@ router.patch('/:id', (req, res) => {
     if (discordWebhookUrl && !/^https:\/\/discord(app)?\.com\/api\/webhooks\//.test(discordWebhookUrl)) {
       return res.status(400).json({ error: 'Invalid Discord webhook URL' });
     }
-    run('UPDATE tracked_decks SET discord_webhook_url = ? WHERE id = ?', [discordWebhookUrl?.trim() || null, id]);
+    update('discord_webhook_url = ?', discordWebhookUrl?.trim() || null);
   }
   if (priceAlertThreshold !== undefined) {
-    if (priceAlertThreshold !== null && (typeof priceAlertThreshold !== 'number' || priceAlertThreshold < 0)) {
+    if (priceAlertThreshold !== null && (!Number.isFinite(priceAlertThreshold) || priceAlertThreshold < 0)) {
       return res.status(400).json({ error: 'Price alert threshold must be a positive number or null' });
     }
     // Reset the alert baselines so the next scheduler run re-establishes them
     // from the current price under the new threshold (audit: price-alert baseline).
-    run('UPDATE tracked_decks SET price_alert_threshold = ?, price_alert_baseline = NULL, price_alert_baseline_budget = NULL WHERE id = ?', [priceAlertThreshold, id]);
+    update('price_alert_threshold = ?, price_alert_baseline = NULL, price_alert_baseline_budget = NULL', priceAlertThreshold);
   }
   if (priceAlertMode !== undefined) {
     if (priceAlertMode !== null && !['specific', 'cheapest'].includes(priceAlertMode)) {
       return res.status(400).json({ error: 'Price alert mode must be "specific" or "cheapest"' });
     }
-    run('UPDATE tracked_decks SET price_alert_mode = ?, price_alert_baseline = NULL, price_alert_baseline_budget = NULL WHERE id = ?', [priceAlertMode || 'specific', id]);
+    update('price_alert_mode = ?, price_alert_baseline = NULL, price_alert_baseline_budget = NULL', priceAlertMode || 'specific');
   }
   if (autoRefreshHours !== undefined) {
     if (autoRefreshHours !== null && (typeof autoRefreshHours !== 'number' || ![6, 12, 24, 48, 168].includes(autoRefreshHours))) {
       return res.status(400).json({ error: 'Auto-refresh must be 6, 12, 24, 48, or 168 hours (or null to disable)' });
     }
-    run('UPDATE tracked_decks SET auto_refresh_hours = ? WHERE id = ?', [autoRefreshHours, id]);
+    update('auto_refresh_hours = ?', autoRefreshHours);
   }
 
+  if (statements.length > 0) runTransaction(statements);
   const updated = get('SELECT * FROM tracked_decks WHERE id = ?', [id]);
   // Attach tags
   const updatedTags = all('SELECT tag FROM deck_tags WHERE tracked_deck_id = ? ORDER BY tag ASC', [id]);
@@ -339,21 +357,22 @@ router.get('/:id/prices', async (req, res) => {
     return res.status(404).json({ error: 'Tracked deck not found' });
   }
 
-  const snap = get(
-    'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-    [deck.id]
-  );
+  const snap = latestSnapshot(deck.id);
   if (!snap?.deck_text) {
     return res.json({ totalPrice: 0, cards: [], previousPrice: deck.last_known_price });
   }
 
   try {
-    const result = await computeDeckPrices(deck.id, snap.deck_text);
+    const result = await computeDeckPrices(deck.id, snap);
     if (!result) {
-      return res.json({ totalPrice: 0, cards: [], previousPrice: deck.last_known_price });
+      return res.status(503).json({ error: 'Complete prices are unavailable. Any saved totals have been preserved.' });
+    }
+    if (!result.isCurrent) {
+      return res.status(409).json({ error: 'The saved deck changed while prices were loading. Check prices again for the current version.' });
     }
 
     res.json({
+      snapshotId: result.snapshotId,
       totalPrice: result.totalPrice,
       budgetPrice: result.budgetPrice,
       previousPrice: deck.last_known_price,

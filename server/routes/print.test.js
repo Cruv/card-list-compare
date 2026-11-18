@@ -1071,6 +1071,36 @@ describe('standalone print lists', () => {
 });
 
 describe('station submission, manual refeed, and ambiguity', () => {
+  it.each(['missing', 'checksum mismatch'])('isolates an unclaimed %s PDF and claims the next eligible batch', async failure => {
+    const first = await ready({ queueOnReady: true });
+    const second = await ready({ queueOnReady: true });
+    const path = queue.ownedPrintArtifact(1, 1, first.id, 'fronts').path;
+    if (failure === 'missing') rmSync(path);
+    else {
+      const bytes = readFileSync(path);
+      bytes[bytes.length - 7] ^= 1;
+      writeFileSync(path, bytes);
+    }
+    const response = await station('/claim', 'POST');
+    expect(response.status).toBe(200);
+    expect((await response.json()).job.id).toBe(second.id);
+    expect(queue.getOwnedPrintJob(1, 1, first.id)).toMatchObject({ state: 'failed', error: expect.stringContaining(failure) });
+    expect(db.get('SELECT claim_nonce FROM print_jobs WHERE id = ?', [first.id]).claim_nonce).toBeNull();
+    expect(db.all('SELECT * FROM print_job_events WHERE job_id = ?', [first.id])).toEqual([]);
+  });
+
+  it('keeps a claimed batch reserved if its PDF disappears', async () => {
+    const first = await ready({ queueOnReady: true });
+    const claimed = queue.claimPrintJob();
+    const second = await ready({ queueOnReady: true });
+    rmSync(queue.ownedPrintArtifact(1, 1, first.id, 'fronts').path);
+    expect((await station(`/jobs/${first.id}/artifacts/fronts`)).status).toBe(410);
+    expect(queue.claimPrintJob().id).toBe(first.id);
+    expect(queue.getOwnedPrintJob(1, 1, first.id)).toMatchObject({ state: 'claimed', error: expect.stringContaining('PDF artifact is missing') });
+    expect(db.all('SELECT * FROM print_job_events WHERE job_id = ?', [first.id])).toEqual([]);
+    queue.cancelPrintJob(1, 1, claimed.id);
+    expect(queue.claimPrintJob().id).toBe(second.id);
+  });
   it('rejects owner cancellation between printed packets while preserving the same unsubmitted-cancel receipt', async () => {
     const waiting = await ready({ queueOnReady: true });
     const claimed = queue.claimPrintJob();
@@ -1487,6 +1517,21 @@ describe('deferred back-side scheduling', () => {
     const canceled = report(job, 'canceled', cleared(job)).job;
     expect(canceled).toMatchObject({ state: 'canceled', cancelRequested: null, backRequest: null, backsCanceled: 2, frontsCompleted: true });
     expect(canceled.steps.filter(step => step.phase === 'fronts').every(step => step.state === 'completed')).toBe(true);
+  });
+  it('keeps requested saved backs and completed front receipts when the packet PDF is missing', async () => {
+    const { job } = await packets(); finishFronts(job);
+    queue.preparePrintBacks(row(job), 'double-faced-001', 1);
+    const requested = row(job), next = await ready({ queueOnReady: true });
+    rmSync(queue.ownedPrintArtifact(1, 1, job.id, 'double-faced-001').path);
+    expect(() => queue.claimPrintJob({ deferredBacks: true })).toThrow('PDF artifact is missing');
+    expect(row(job)).toMatchObject({ state: 'backs_pending', back_request_json: requested.back_request_json,
+      steps_json: requested.steps_json, claim_nonce: requested.claim_nonce,
+      error: expect.stringContaining('Resolve or cancel this exact batch') });
+    expect(row(next).state).toBe('queued');
+    queue.requestPrintCancellation(row(job), 'backs');
+    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(next.id);
+    expect(JSON.parse(row(job).steps_json).filter(step => step.phase === 'fronts')).toEqual(
+      JSON.parse(requested.steps_json).filter(step => step.phase === 'fronts'));
   });
   it('retains active cancellation across a racing final front completion until native acknowledgement', async () => {
     const { job } = await packets();

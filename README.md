@@ -361,7 +361,7 @@ feature stays retired; existing legacy rows remain in backups with no automatic 
 
 ### Deck Analytics
 
-- **Price checking** &mdash; fetch current Scryfall prices with per-card breakdown, total, and top-10 most expensive cards
+- **Price checking** &mdash; fetch current Scryfall prices with a per-card breakdown and the ten most expensive cards. An incomplete lookup keeps the last complete totals and skips price alerts.
 - **Budget prices** &mdash; cheapest printing totals alongside selected printing totals, with savings calculation
 - **Price history** &mdash; smooth SVG chart showing deck value over time across snapshots
 - **Price alerts** &mdash; set a dollar-change threshold for specific or cheapest printings; notify when value moves that far from the alert baseline, through configured email/Discord channels

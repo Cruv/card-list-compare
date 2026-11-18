@@ -14,7 +14,7 @@ export function paperClearanceIdentity(job) {
     || typeof job.clearanceId !== 'string' || !job.clearanceId) return null;
   // A later back packet (or cancellation) can belong to the same job. A paper
   // check for one boundary must never authorize another boundary after polling.
-  return JSON.stringify([job.id, job.state, job.clearanceId]);
+  return JSON.stringify([job.id, job.state, job.clearanceId, ...(job.missingCancellationSpoolerId ? [job.missingCancellationSpoolerId] : [])]);
 }
 
 export function printRecoveryIdentity(job) {

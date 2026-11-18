@@ -7,7 +7,7 @@ import { get, all, run, runTransaction } from '../db.js';
 import { buildPrintPlan, publicPrintPlan, printError, sha256 } from './printQueuePlan.js';
 import { preparePrintImages } from './printQueueImages.js';
 import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from './printGenerator.js';
-import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId } from './printWorkflow.js';
+import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId, missingCancellationStep } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
 import { DAHLE_A4_PRESET, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
@@ -438,10 +438,14 @@ export function preparePrintBacks(row, artifactId, requesterId) {
   const steps = readSteps(row), back = steps.find(step => step.artifactId === artifactId && step.phase === 'backs');
   const front = steps.find(step => step.artifactId === artifactId && step.phase === 'fronts');
   if (!back || back.state !== 'pending' || front?.state !== 'completed') throw printError('Choose an unfinished back packet whose fronts are complete', 409);
-  verifiedPrintArtifact(row, artifactId);
+  verifyStationArtifact(row, artifactId);
   run('UPDATE print_jobs SET back_request_json = ?, updated_at = ? WHERE id = ?',
     [json({ id: crypto.randomUUID(), artifactId, requestedAt: now(), requesterId }), now(), row.id]);
   return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [row.id]));
+}
+
+function artifactFailure(message, status) {
+  return Object.assign(printError(message, status), { artifactUnavailable: true });
 }
 
 export function verifiedPrintArtifact(row, artifactId) {
@@ -451,14 +455,49 @@ export function verifiedPrintArtifact(row, artifactId) {
   const artifact = manifest.artifacts.find(item => item.id === artifactId);
   if (!artifact) throw printError('PDF artifact not found', 404);
   const path = resolve(jobDir(row.id), artifact.fileName);
-  if (!path.startsWith(resolve(jobDir(row.id)) + sep) || !existsSync(path)) throw printError('PDF artifact is missing', 410);
-  const actualPath = realpathSync(path);
-  if (!actualPath.startsWith(realpathSync(jobDir(row.id)) + sep)) throw printError('Invalid PDF artifact path', 409);
-  const size = statSync(actualPath).size;
-  if (size > MAX_OUTPUT_BYTES || size !== artifact.size || hashPdf(actualPath).hash !== artifact.sha256) throw printError('PDF artifact checksum mismatch', 409);
-  return { path: actualPath, ...artifact };
+  if (!path.startsWith(resolve(jobDir(row.id)) + sep)) throw artifactFailure('PDF artifact is missing', 410);
+  try {
+    const actualPath = realpathSync(path);
+    if (!actualPath.startsWith(realpathSync(jobDir(row.id)) + sep)) throw artifactFailure('Invalid PDF artifact path', 409);
+    const stat = statSync(actualPath);
+    if (!stat.isFile() || stat.size > MAX_OUTPUT_BYTES || stat.size !== artifact.size) throw artifactFailure('PDF artifact checksum mismatch', 409);
+    const { hash, isPdf } = hashPdf(actualPath);
+    if (!isPdf || hash !== artifact.sha256) throw artifactFailure('PDF artifact checksum mismatch', 409);
+    return { path: actualPath, ...artifact };
+  } catch (error) {
+    if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw artifactFailure('PDF artifact is missing', 410);
+    throw error;
+  }
 }
 export const ownedPrintArtifact = (userId, deckId, id, artifactId) => verifiedPrintArtifact(ownerJob(userId, deckId, id), artifactId);
+
+function neverClaimed(row) {
+  return row.state === 'queued' && !row.station_id && !row.claim_nonce && !row.back_request_json && !row.cancel_requested
+    && readSteps(row).every(step => ['pending', 'canceled'].includes(step.state) && !step.spoolerId && !step.submissionEventId
+      && !step.submittingAt && !step.submittedAt && !step.completedAt && !step.attemptId && !step.attempts?.length && !step.refeedConfirmed)
+    && !get('SELECT 1 FROM print_job_events WHERE job_id = ? LIMIT 1', [row.id]);
+}
+
+function verifyStationArtifact(row, artifactId, isolateUnclaimed = false) {
+  try { return verifiedPrintArtifact(row, artifactId); }
+  catch (error) {
+    if (!error.artifactUnavailable) throw error;
+    const failure = `${error.message} (${artifactId}).`;
+    if (isolateUnclaimed && neverClaimed(row)) {
+      const at = now();
+      run("UPDATE print_jobs SET state = 'failed', queue_requested = 0, error = ?, updated_at = ?, completed_at = ?, expires_at = ? WHERE id = ?",
+        [`${failure} No print pass was submitted. Prepare a new batch to print it.`, at, at, retentionExpiry(), row.id]);
+      return null;
+    }
+    if (['queued', 'backs_pending', ...ACTIVE_STATES].includes(row.state)) {
+      const detail = `${failure} Resolve or cancel this exact batch before proceeding.`;
+      if (row.error !== detail) run('UPDATE print_jobs SET error = ?, updated_at = ? WHERE id = ?', [detail, now(), row.id]);
+    }
+    throw error;
+  }
+}
+
+export const stationPrintArtifact = (row, artifactId) => verifyStationArtifact(row, artifactId);
 
 export function ownedPrintManifest(userId, deckId, id) {
   const row = ownerJob(userId, deckId, id);
@@ -562,8 +601,8 @@ export function claimPrintJob({ maxArtifacts = MAX_PRINT_ARTIFACTS, deferredBack
       continue;
     }
     const request = readBackRequest(saved);
-    verifiedPrintArtifact(saved, request.artifactId);
-    run("UPDATE print_jobs SET state = 'awaiting_refeed', lease_expires_at = ?, updated_at = ? WHERE id = ?", [leaseExpiry(), now(), saved.id]);
+    verifyStationArtifact(saved, request.artifactId);
+    run("UPDATE print_jobs SET state = 'awaiting_refeed', error = NULL, lease_expires_at = ?, updated_at = ? WHERE id = ?", [leaseExpiry(), now(), saved.id]);
     return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [saved.id]), true);
   }
   for (const queued of all("SELECT * FROM print_jobs WHERE state = 'queued' ORDER BY queued_at, created_at, id")) {
@@ -577,7 +616,7 @@ export function claimPrintJob({ maxArtifacts = MAX_PRINT_ARTIFACTS, deferredBack
     // companions can upgrade without trapping this FIFO job in claimed state.
     assertStationArtifactCapacity(row, maxArtifacts);
     assertStationWorkflow(row, deferredBacks, printRecovery, mixedPrintSheets);
-    for (const artifact of parse(row.manifest_json).artifacts) verifiedPrintArtifact(row, artifact.id);
+    if (parse(row.manifest_json).artifacts.some(artifact => !verifyStationArtifact(row, artifact.id, true))) continue;
     const steps = readSteps(row), upgrade = deferredBacks && steps.every(step => step.state === 'pending');
     const ordered = upgrade ? deferredStepOrder(steps) : steps;
     run("UPDATE print_jobs SET state = 'claimed', station_id = ?, claim_nonce = ?, lease_expires_at = ?, updated_at = ?, workflow = ?, steps_json = ? WHERE id = ? AND state = 'queued'",
@@ -626,7 +665,7 @@ export function reportPrintJob(id, event) {
       || (!requester.is_admin && !printCapabilities(command.requester_id).canQueue)) throw printError('Recovery requester is no longer authorized', 403);
     if (discordPrintCommandRejection(command)) throw printError('Discord recovery authorization is no longer valid', 403);
     if (!printCapabilities(row.user_id).canQueue) throw printError('Printing authorization was revoked', 403);
-    verifiedPrintArtifact(row, step.artifactId);
+    verifyStationArtifact(row, step.artifactId);
     const attempts = [...(step.attempts || []), { ...step, attempts: undefined, outcome: 'interrupted',
       recoveryCommandId: command.id, operatorConfirmedPrintedSheets: request.firstUnprintedSheet - 1, recoveredAt: now() }];
     for (const key of ['spoolerId', 'submittingAt', 'submittedAt', 'completedAt', 'submissionEventId', 'spoolerOutcome', 'detail']) delete step[key];
@@ -638,7 +677,7 @@ export function reportPrintJob(id, event) {
     if (!printCapabilities(row.user_id).canQueue) throw printError('Printing authorization was revoked', 403);
     if (!step || step !== next || step.state !== 'pending' || !['claimed', 'submitted'].includes(row.state)) throw printError('This pass is not eligible for a new submission', 409);
     if (step.requiresRefeed && !step.refeedConfirmed) throw printError('An operator must confirm the paper flip/refeed before printing backs', 409);
-    verifiedPrintArtifact(row, step.artifactId);
+    verifyStationArtifact(row, step.artifactId);
     Object.assign(step, { state: 'submitting', submittingAt: now(), submissionEventId: event.eventId });
     state = 'submitting'; error = null;
   } else if (event.state === 'submitted') {
@@ -665,9 +704,23 @@ export function reportPrintJob(id, event) {
     state = settledPrintState(row, steps); backRequest = null;
   } else if (event.state === 'canceled') {
     if (!row.cancel_requested || event.paperCleared !== true || !paperClearanceId(row) || event.clearanceId !== paperClearanceId(row)) throw printError('Cancellation requires its saved request and exact confirmed paper clearance', 409);
+    if (event.missingCupsHistory !== undefined) {
+      const command = typeof event.commandId === 'string' && get('SELECT * FROM print_station_commands WHERE id = ? AND station_id = ?', [event.commandId, STATION_ID]);
+      const request = command && parse(command.payload_json);
+      if (event.missingCupsHistory !== true || !command?.delivered_at || !['pending', 'applied', 'expired'].includes(command.status)
+        || request.type !== 'clear_missing_cups' || request.jobId !== id || request.clearanceId !== event.clearanceId
+        || request.spoolerId !== event.spoolerId || request.paperCleared !== true
+        || !step || step !== missingCancellationStep(row, event.spoolerId, steps)) {
+        throw printError('Missing CUPS history requires an exact delivered cancellation clearance', 409);
+      }
+      const requester = get('SELECT is_admin, suspended FROM users WHERE id = ?', [command.requester_id]);
+      if (!requester || requester.suspended || (!requester.is_admin && (command.requester_id !== row.user_id || !printCapabilities(command.requester_id).canQueue))) {
+        throw printError('Cancellation clearance requester is no longer authorized', 403);
+      }
+    }
     for (const item of steps) {
       if (!finishedStep(item) && (row.cancel_requested === 'all' || item.phase === 'backs')) {
-        Object.assign(item, { canceledFrom: item.state, state: 'canceled', canceledAt: now() });
+        Object.assign(item, { canceledFrom: item.state, state: 'canceled', canceledAt: now(), cancellationClearanceId: event.clearanceId });
       }
     }
     state = row.cancel_requested === 'all' ? 'canceled' : settledPrintState(row, steps);

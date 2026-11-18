@@ -1,134 +1,92 @@
-import { get, run } from '../db.js';
-import { parse } from '../../src/lib/parser.js';
+import { get, run, transaction } from '../db.js';
+import { deckTextIncompatibilities, parse } from '../../src/lib/parser.js';
+import { normalizeCardName } from '../../src/lib/cardIdentity.js';
 import { fetchCardPrices, fetchSpecificPrintingPrices, printingKey } from './scryfall.js';
+import { latestSnapshot } from './structuredSnapshots.js';
+
+const validPrice = price => Number.isFinite(price) && price >= 0;
 
 /**
- * Compute deck prices from deck text and stamp results to the database.
- * Used by both the prices API endpoint and the auto-refresh scheduler.
- *
- * @param {number} deckId — tracked_decks.id
- * @param {string} deckText — raw deck text to price
- * @returns {{ totalPrice: number, budgetPrice: number, cards: Array }} or null on failure
+ * Price the captured snapshot and save only complete observations. An older
+ * snapshot can receive its own historical price, but cannot change the deck's
+ * current total or send a price alert.
  */
-export async function computeDeckPrices(deckId, deckText) {
-  if (!deckText) return null;
+export async function computeDeckPrices(deckId, snapshot) {
+  const snapshotId = snapshot?.id;
+  const deckText = snapshot?.deck_text;
+  if (!snapshotId || !deckText) return null;
 
   const parsed = parse(deckText);
-  const cardNames = [];
-  const cardEntries = [];
-  for (const [, entry] of parsed.mainboard) {
-    cardNames.push(entry.displayName);
-    cardEntries.push({ name: entry.displayName, set: entry.setCode, collectorNumber: entry.collectorNumber, isFoil: entry.isFoil, quantity: entry.quantity });
-  }
-  for (const name of parsed.commanders) cardNames.push(name);
+  if (parsed.problems.length && deckTextIncompatibilities(deckText, { includeSideboard: false }).length) return null;
 
-  const [defaultPrices, specificPrices] = await Promise.all([
-    fetchCardPrices(cardNames),
-    fetchSpecificPrintingPrices(cardEntries),
-  ]);
-
-  // Scryfall returned nothing for a deck that has cards — it is down or rate
-  // limiting. Report "no data" rather than a $0 deck, which callers would
-  // otherwise store as a real price and alert on as a total collapse in value.
-  if (cardNames.length > 0 && defaultPrices.size === 0 && specificPrices.size === 0) {
-    console.warn(`[Prices] No price data returned for deck ${deckId} — skipping this run`);
+  // The parser already includes commander rows, with their printing and finish,
+  // in the mainboard. Price each printing separately before aggregating by name.
+  const entries = [...parsed.mainboard.values()];
+  let defaultPrices, specificPrices;
+  try {
+    [defaultPrices, specificPrices] = await Promise.all([
+      fetchCardPrices(entries.map(entry => entry.displayName)),
+      fetchSpecificPrintingPrices(entries.map(entry => ({
+        name: entry.displayName, set: entry.setCode, collectorNumber: entry.collectorNumber,
+      }))),
+    ]);
+  } catch (error) {
+    console.warn(`[Prices] Lookup failed for deck ${deckId}: ${error.message}`);
     return null;
   }
 
   let totalPrice = 0;
   let budgetPrice = 0;
-  const seen = new Set();
-  // Aggregate the display list by name (a card under multiple printings is one
-  // row), but every printing's quantity contributes to the totals — the old
-  // `seen`-skip dropped all but the first printing, underpricing the deck.
   const cardsByName = new Map();
-
-  for (const [, entry] of parsed.mainboard) {
+  for (const entry of entries) {
     const key = entry.displayName.toLowerCase();
-    // Mark priced so the commander loop below doesn't re-price a commander that
-    // also lives in the mainboard — but do NOT skip other printings of the name.
-    seen.add(key);
     const defaultData = defaultPrices.get(key);
-    // Look the printing up by set+collector — one card name can appear under
-    // several printings at very different prices, so a name lookup would charge
-    // them all the same.
-    const specificData = (entry.setCode && entry.collectorNumber)
-      ? specificPrices.get(printingKey(entry.setCode, entry.collectorNumber))
-      : null;
+    const budgetOptions = [defaultData?.priceUsd, defaultData?.priceUsdFoil].filter(validPrice);
+    if (budgetOptions.length === 0) return null;
+    const cheapestPrice = Math.min(...budgetOptions);
 
-    const cheapNonFoil = defaultData?.priceUsd ?? 0;
-    const cheapFoil = defaultData?.priceUsdFoil ?? 0;
-    const cheapestPrice = (cheapNonFoil && cheapFoil)
-      ? Math.min(cheapNonFoil, cheapFoil)
-      : (cheapNonFoil || cheapFoil);
-
-    const useSpecific = specificData && (entry.setCode && entry.collectorNumber);
-    const price = useSpecific
-      ? (entry.isFoil ? (specificData.priceUsdFoil ?? specificData.priceUsd ?? cheapestPrice) : (specificData.priceUsd ?? cheapestPrice))
-      : cheapestPrice;
-
-    const lineTotal = price * entry.quantity;
-    const cheapestTotal = cheapestPrice * entry.quantity;
-    totalPrice += lineTotal;
-    budgetPrice += cheapestTotal;
-    if (price > 0 || cheapestPrice > 0) {
-      const existing = cardsByName.get(key);
-      if (existing) {
-        existing.quantity += entry.quantity;
-        existing.total += lineTotal;
-        existing.cheapestTotal += cheapestTotal;
-        // Printings of one name can differ in price, so the row's unit price is
-        // the blended average — keep it consistent with total/quantity.
-        existing.price = existing.total / existing.quantity;
-        existing.cheapestPrice = existing.cheapestTotal / existing.quantity;
-      } else {
-        cardsByName.set(key, {
-          name: entry.displayName,
-          quantity: entry.quantity,
-          price,
-          cheapestPrice,
-          total: lineTotal,
-          cheapestTotal,
-        });
-      }
+    let price = cheapestPrice;
+    if (entry.setCode && entry.collectorNumber) {
+      const exact = specificPrices.get(printingKey(entry.setCode, entry.collectorNumber));
+      price = entry.isFoil ? exact?.priceUsdFoil : exact?.priceUsd;
+      if (!validPrice(price) || normalizeCardName(exact.name) !== normalizeCardName(entry.displayName)) return null;
     }
-  }
-  const cards = [...cardsByName.values()];
-  for (const name of parsed.commanders) {
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const defaultData = defaultPrices.get(key);
-    const cNonFoil = defaultData?.priceUsd ?? 0;
-    const cFoil = defaultData?.priceUsdFoil ?? 0;
-    const cheapestPrice = (cNonFoil && cFoil) ? Math.min(cNonFoil, cFoil) : (cNonFoil || cFoil);
-    const price = cheapestPrice;
-    const lineTotal = price;
-    totalPrice += lineTotal;
-    budgetPrice += cheapestPrice;
-    if (price > 0) {
-      cards.push({ name, quantity: 1, price, cheapestPrice, total: lineTotal, cheapestTotal: cheapestPrice });
+
+    const total = price * entry.quantity;
+    const cheapestTotal = cheapestPrice * entry.quantity;
+    totalPrice += total;
+    budgetPrice += cheapestTotal;
+    const existing = cardsByName.get(key);
+    if (existing) {
+      existing.quantity += entry.quantity;
+      existing.total += total;
+      existing.cheapestTotal += cheapestTotal;
+      existing.price = existing.total / existing.quantity;
+      existing.cheapestPrice = existing.cheapestTotal / existing.quantity;
+    } else {
+      cardsByName.set(key, { name: entry.displayName, quantity: entry.quantity, price, cheapestPrice, total, cheapestTotal });
     }
   }
 
   const roundedTotal = Math.round(totalPrice * 100) / 100;
   const roundedBudget = Math.round(budgetPrice * 100) / 100;
+  if (!validPrice(roundedTotal) || !validPrice(roundedBudget)) return null;
 
-  // Update last known prices on the deck
-  run('UPDATE tracked_decks SET last_known_price = ?, last_known_budget_price = ? WHERE id = ?',
-    [roundedTotal, roundedBudget, deckId]);
+  const isCurrent = transaction(() => {
+    const saved = get('SELECT deck_text, snapshot_price FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?', [snapshotId, deckId]);
+    if (saved?.deck_text !== deckText) return false;
+    if (saved.snapshot_price === null) {
+      run('UPDATE deck_snapshots SET snapshot_price = ?, snapshot_budget_price = ? WHERE id = ?',
+        [roundedTotal, roundedBudget, snapshotId]);
+    }
+    const current = latestSnapshot(deckId)?.id === snapshotId;
+    if (current) {
+      run('UPDATE tracked_decks SET last_known_price = ?, last_known_budget_price = ? WHERE id = ?',
+        [roundedTotal, roundedBudget, deckId]);
+    }
+    return current;
+  });
 
-  // Stamp latest snapshot with price data
-  const latestSnap = get(
-    'SELECT id, snapshot_price FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-    [deckId]
-  );
-  if (latestSnap && latestSnap.snapshot_price === null) {
-    run('UPDATE deck_snapshots SET snapshot_price = ?, snapshot_budget_price = ? WHERE id = ?',
-      [roundedTotal, roundedBudget, latestSnap.id]);
-  }
-
-  cards.sort((a, b) => b.total - a.total);
-
-  return { totalPrice: roundedTotal, budgetPrice: roundedBudget, cards };
+  const cards = [...cardsByName.values()].sort((a, b) => b.total - a.total);
+  return { snapshotId, isCurrent, totalPrice: roundedTotal, budgetPrice: roundedBudget, cards };
 }

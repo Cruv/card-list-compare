@@ -31,19 +31,24 @@ Report issues privately to the repository owner.
 - **Passwords:** bcrypt (`bcryptjs`), never stored or logged in plaintext.
 - **Sessions:** stateless HS256 JWT bearer tokens, 7-day expiry, signed with `JWT_SECRET`.
   Sent as `Authorization: Bearer …`; the client keeps the token in `localStorage`.
-  HTTP 401 clears the saved token. Offline, forbidden and temporary server failures
-  preserve it for a later validated reload; private routes remain gated until account
+  A `SESSION_INVALID` response clears the bearer used by that request if it remains the
+  current credential. Incorrect login or current passwords return `INVALID_CREDENTIALS`.
+  Offline, forbidden and temporary server failures preserve the credential for a later
+  validated reload. Private routes remain gated until account
   validation succeeds. A completed password reset removes the reset URL and synchronizes
   the client route without replaying the token.
 - **Invalidation:** `requireAuth` re-checks the user each request (short TTL cache) for
   suspension and compares the token's `iat` against `password_changed_at`, so a password
   change or suspend invalidates existing sessions. Admin status is always re-read from the
   DB, never trusted from the token alone. (`server/middleware/auth.js`)
-- **Brute force:** login locks an account for 15 min after repeated failures; `authLimiter`
-  caps auth endpoints per IP.
+- **Brute force:** login records each failure against the current account state and locks
+  the account for 15 minutes on the fifth failure. `authLimiter` caps auth endpoints per IP.
 - **Email/reset tokens:** stored as **SHA-256 hashes** — the raw token is emailed and lookups
   hash the incoming value, so a DB read (or the admin backup) can't replay a live token.
-  Reset tokens are single-use and expire in 1h; verification tokens in 24h.
+  Reset tokens expire in 1 hour and verification tokens in 24 hours. Issued expiries and
+  account locks use ISO UTC timestamps. Expiry checks accept older SQLite UTC timestamps.
+  A successful reset or verification consumes its token in the same transaction as the
+  account update. Updating or clearing the email invalidates links sent to the old address.
   (`server/lib/tokens.js`, `server/routes/auth.js`)
 
 The service worker precaches only the public application shell and build-declared assets,
@@ -177,6 +182,12 @@ remaining work; admins can cancel across household users. Active cancellation us
 exact saved CUPS title and job ID, retains completed receipts and requires confirmed paper
 clearance. Missing or ambiguous CUPS outcomes cannot authorize a silent release. Printed
 requester/batch labels are bounded text rendered only in the approved PDF margin.
+
+The missing-history clearance action requires an existing cancellation, the batch owner or
+an administrator, an exact acknowledged CUPS job ID and the same paper checks as ordinary
+clearance. The Mac reads the local queue and checks both its saved ID and title. A stale,
+failed or ambiguous read leaves the reservation in place. The clearance report records the
+delivered command with the exact cancellation and retains the original physical attempt.
 
 Companion 2.57.0 recovery binds the job, artifact, phase, saved CUPS title/ID, attempt and
 current recovery boundary at enqueue, delivery and native execution. Only the batch owner

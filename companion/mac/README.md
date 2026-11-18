@@ -338,6 +338,13 @@ inspection and explicit paper clearance. It targets only the exact saved CUPS jo
 every job in the Epson queue. Inspect partial output before requesting replacement printing;
 canceling a pass cannot retract sheets that already printed.
 
+If the exact acknowledged job disappears from CUPS during a saved cancellation, look for
+**Clear canceled batch with missing history** in CLC Printer. Check that the printer has
+stopped, remove printed or flipped sheets, and load blanks before confirming. The companion
+checks the local CUPS title and ID again and preserves the original attempt and the separate
+clearance receipt. Missing history with an ambiguous ID or an unavailable queue still needs
+manual reconciliation.
+
 Old PDFs and manifests stay immutable. A legacy `double-faced.pdf` can contain several
 alternating front/back pairs and no job-specific printed label. Preview it and inspect all
 pages; match the waiting job/packet ID and physical sheet count before reloading the

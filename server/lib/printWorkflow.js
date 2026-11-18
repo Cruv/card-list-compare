@@ -10,6 +10,12 @@ export function paperClearanceId(row) {
   if (row.state === 'awaiting_paper_reset' && readBackRequest(row)?.id) return `back:${readBackRequest(row).id}`;
   return null;
 }
+export function missingCancellationStep(row, spoolerId, steps = readSteps(row)) {
+  if (!row.cancel_requested || !row.cancel_request_id || !spoolerId) return null;
+  const matches = steps.filter(step => (row.cancel_requested === 'all' || step.phase === 'backs')
+    && ['submitted', 'uncertain'].includes(step.state) && step.spoolerId === spoolerId);
+  return matches.length === 1 ? matches[0] : null;
+}
 export const isDeferred = row => row.workflow === DEFERRED_BACKS_WORKFLOW;
 export const finishedStep = step => ['completed', 'canceled'].includes(step.state);
 

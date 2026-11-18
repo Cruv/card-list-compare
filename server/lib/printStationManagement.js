@@ -8,12 +8,13 @@ import { canCancelHouseholdBatch } from './printBatchHistory.js';
 import { queueNotificationInput, queueNotificationReceiptChanges, queueNotificationDelivery } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
 import { PRINT_PRESETS, LEGACY_STATION_PAPER, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
-import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
+import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId, missingCancellationStep } from './printWorkflow.js';
 
 const STATION = 'household';
 export const STATION_ONLINE_MS = 20_000;
 export const STATION_COMMAND_TTL_MS = 5 * 60_000;
-const COMMANDS = new Set(['pause', 'unpause', 'resume', 'recover_print', 'clear_paper', 'check_update', 'update', 'rollback']);
+const CLEARANCE_COMMANDS = new Set(['clear_paper', 'clear_missing_cups']);
+const COMMANDS = new Set(['pause', 'unpause', 'resume', 'recover_print', ...CLEARANCE_COMMANDS, 'check_update', 'update', 'rollback']);
 const UPDATE_COMMANDS = new Set(['check_update', 'update', 'rollback']);
 const DISCORD_COMMANDS = new Set(['configure_discord', 'test_discord']);
 const ADMIN_COMMANDS = new Set([...UPDATE_COMMANDS, ...DISCORD_COMMANDS]);
@@ -58,6 +59,10 @@ function id(value, field) {
 }
 function artifactId(value) {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value)) throw printError('Invalid artifact ID');
+  return value;
+}
+function cupsJobId(value) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_.-]{1,96}-[1-9]\d{0,9}$/.test(value)) throw printError('Invalid CUPS job ID');
   return value;
 }
 function version(value, nullable = false) {
@@ -172,6 +177,13 @@ function currentClearance(jobId, snapshot) {
   if (!value || snapshot.activeJob.clearanceId !== value) return null;
   return value;
 }
+function currentMissingCups(jobId, snapshot) {
+  const spoolerId = snapshot?.activeJob?.missingCancellationSpoolerId;
+  if (!spoolerId || spoolerId.slice(0, spoolerId.lastIndexOf('-')) !== snapshot.queue
+    || !currentClearance(jobId, snapshot)?.startsWith('cancel:')) return null;
+  const row = get('SELECT * FROM print_jobs WHERE id = ? AND station_id = ?', [jobId, STATION]);
+  return missingCancellationStep(row, spoolerId) ? spoolerId : null;
+}
 function recoveryInput(value) {
   if (value === null || value === undefined) return null;
   object(value, 'print recovery');
@@ -232,7 +244,8 @@ function publicCommand(row) {
     ...(payload.type === 'recover_print' ? { phase: payload.phase, spoolerId: payload.spoolerId,
       recoveryId: payload.recoveryId, paperReady: true, ...(payload.paperReloaded ? { paperReloaded: true } : {}),
       ...(payload.firstUnprintedSheet === undefined ? {} : { firstUnprintedSheet: payload.firstUnprintedSheet }) } : {}),
-    ...(payload.type === 'clear_paper' ? { paperCleared: true, clearanceId: payload.clearanceId } : {}),
+    ...(CLEARANCE_COMMANDS.has(payload.type) ? { paperCleared: true, clearanceId: payload.clearanceId } : {}),
+    ...(payload.type === 'clear_missing_cups' ? { spoolerId: payload.spoolerId } : {}),
     ...(DISCORD_COMMANDS.has(payload.type) ? { revision: payload.revision, ...(payload.type === 'configure_discord' ? { enabled: payload.enabled } : {}) } : {}),
     requesterId: row.requester_id, status: row.status, createdAt: row.created_at, expiresAt: row.expires_at,
     deliveredAt: row.delivered_at, acknowledgedAt: row.acknowledged_at, message: row.message };
@@ -290,6 +303,7 @@ export function printStationStatus(userId) {
     active.cancelRequested = row?.cancel_requested || null;
     active.workflow = row?.workflow || null;
     active.clearanceId = currentClearance(active.id, latest);
+    if (active.missingCancellationSpoolerId) active.missingCancellationSpoolerId = currentMissingCups(active.id, latest);
     active.recovery = currentRecovery(active.id, latest);
   }
   return { station: {
@@ -371,7 +385,7 @@ function commandInput(body) {
   object(body, 'command');
   if (typeof body.idempotencyKey !== 'string' || !UUID.test(body.idempotencyKey)) throw printError('idempotencyKey must be a UUID');
   if (!COMMANDS.has(body.type)) throw printError('Unsupported station command');
-  const allowed = new Set(['idempotencyKey', 'type', ...(body.type === 'resume' ? ['jobId', 'artifactId', 'paperReloaded'] : []), ...(body.type === 'recover_print' ? ['jobId', 'artifactId', 'phase', 'spoolerId', 'recoveryId', 'paperReady', 'firstUnprintedSheet', 'paperReloaded'] : []), ...(body.type === 'clear_paper' ? ['jobId', 'clearanceId', 'paperCleared'] : []), ...(['update', 'rollback'].includes(body.type) ? ['targetVersion'] : [])]);
+  const allowed = new Set(['idempotencyKey', 'type', ...(body.type === 'resume' ? ['jobId', 'artifactId', 'paperReloaded'] : []), ...(body.type === 'recover_print' ? ['jobId', 'artifactId', 'phase', 'spoolerId', 'recoveryId', 'paperReady', 'firstUnprintedSheet', 'paperReloaded'] : []), ...(CLEARANCE_COMMANDS.has(body.type) ? ['jobId', 'clearanceId', 'paperCleared'] : []), ...(body.type === 'clear_missing_cups' ? ['spoolerId'] : []), ...(['update', 'rollback'].includes(body.type) ? ['targetVersion'] : [])]);
   if (Object.keys(body).some(key => !allowed.has(key))) throw printError('Unexpected station command field');
   const payload = { type: body.type };
   if (body.type === 'resume') {
@@ -380,12 +394,13 @@ function commandInput(body) {
     if (body.paperReloaded !== true) throw printError('Confirm that this batch has been flipped and reloaded');
     payload.paperReloaded = true;
   }
-  if (body.type === 'clear_paper') {
+  if (CLEARANCE_COMMANDS.has(body.type)) {
     payload.jobId = id(body.jobId, 'job ID');
     if (typeof body.clearanceId !== 'string' || !/^(back|cancel):[a-f0-9-]{36}$/i.test(body.clearanceId)) throw printError('Supply the exact paper-clearance ID');
     payload.clearanceId = body.clearanceId;
     if (body.paperCleared !== true) throw printError('Confirm printed or partial sheets are removed and only blank paper is loaded');
     payload.paperCleared = true;
+    if (body.type === 'clear_missing_cups') payload.spoolerId = cupsJobId(body.spoolerId);
   }
   if (body.type === 'recover_print') {
     payload.jobId = id(body.jobId, 'job ID'); payload.artifactId = artifactId(body.artifactId);
@@ -423,9 +438,12 @@ export function createStationCommand(userId, body, notification = false) {
     if (payload.artifactId !== firstBack(payload.jobId, latest) || latest.paused) throw printError('This station is not waiting for that paper refeed, or is paused', 409);
     assertQueuePaper(savedPrintJobPaper(get('SELECT * FROM print_jobs WHERE id = ?', [payload.jobId])));
   }
-  if (payload.type === 'clear_paper') {
+  if (CLEARANCE_COMMANDS.has(payload.type)) {
     ownedHouseholdBatch(userId, payload.jobId);
     if (payload.clearanceId !== currentClearance(payload.jobId, latest)) throw printError('This station is not waiting for that exact paper clearance', 409);
+    if (payload.type === 'clear_missing_cups' && payload.spoolerId !== currentMissingCups(payload.jobId, latest)) {
+      throw printError('The missing CUPS job no longer matches this cancellation', 409);
+    }
   }
   if (payload.type === 'recover_print') {
     const batch = ownedHouseholdBatch(userId, payload.jobId);
@@ -499,6 +517,10 @@ function heartbeatInput(body) {
       if (typeof body.activeJob.clearanceId !== 'string' || !/^(back|cancel):[a-f0-9-]{36}$/i.test(body.activeJob.clearanceId)) throw printError('Invalid active paper-clearance ID');
       activeJob.clearanceId = body.activeJob.clearanceId;
     }
+    if (body.activeJob.missingCancellationSpoolerId !== undefined) {
+      if (activeJob.state !== 'awaiting_clearance' || !activeJob.clearanceId?.startsWith('cancel:')) throw printError('Missing CUPS history requires an active cancellation');
+      activeJob.missingCancellationSpoolerId = cupsJobId(body.activeJob.missingCancellationSpoolerId);
+    }
     if (body.activeJob.artifactId !== null && body.activeJob.artifactId !== undefined) activeJob.artifactId = artifactId(body.activeJob.artifactId);
     if (body.activeJob.phase !== null && body.activeJob.phase !== undefined) {
       if (!['fronts', 'backs'].includes(body.activeJob.phase)) throw printError('Invalid active job phase');
@@ -558,7 +580,12 @@ function invalidDelivery(row, snapshot) {
   const payload = JSON.parse(row.payload_json), access = permissions(row.requester_id);
   if (!access.canControl || (ADMIN_COMMANDS.has(payload.type) && !access.canUpdate)) return 'Requester is no longer authorized';
   if (payload.type === 'resume' && (snapshot.paused || firstBack(payload.jobId, snapshot) !== payload.artifactId)) return 'Paper refeed no longer matches the current batch';
-  if (payload.type === 'clear_paper' && payload.clearanceId !== currentClearance(payload.jobId, snapshot)) return 'Paper clearance no longer matches the exact current packet or cancellation';
+  if (CLEARANCE_COMMANDS.has(payload.type) && payload.clearanceId !== currentClearance(payload.jobId, snapshot)) return 'Paper clearance no longer matches the exact current packet or cancellation';
+  if (payload.type === 'clear_missing_cups') {
+    const batch = get('SELECT user_id FROM print_jobs WHERE id = ?', [payload.jobId]);
+    if (!access.canUpdate && batch?.user_id !== row.requester_id) return 'Requester is no longer authorized for this batch';
+    if (payload.spoolerId !== currentMissingCups(payload.jobId, snapshot)) return 'The missing CUPS job no longer matches this cancellation';
+  }
   if (payload.type === 'recover_print') {
     const recovery = currentRecovery(payload.jobId, snapshot);
     if (!recovery || ['artifactId', 'phase', 'spoolerId', 'recoveryId'].some(key => recovery[key] !== payload[key])) return 'Print recovery no longer matches the exact interrupted pass';

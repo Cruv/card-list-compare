@@ -131,6 +131,121 @@ describe('snapshot selection and physical-deck marker', () => {
   });
 });
 
+describe('deck metadata patches', () => {
+  it('validates every tag and field before changing existing notes, tags or alerts', async () => {
+    db.run("UPDATE tracked_decks SET notes = 'Original', price_alert_threshold = 15, price_alert_baseline = 100 WHERE id = 1");
+    db.run("INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (1, 'original')");
+    const response = await request('/api/decks/1', 'PATCH', {
+      notes: 'Edited',
+      tags: ['new', 'x'.repeat(31)],
+      priceAlertThreshold: 20,
+    });
+    expect(response.status).toBe(400);
+    expect(db.get('SELECT notes, price_alert_threshold, price_alert_baseline FROM tracked_decks WHERE id = 1'))
+      .toEqual({ notes: 'Original', price_alert_threshold: 15, price_alert_baseline: 100 });
+    expect(db.all('SELECT tag FROM deck_tags WHERE tracked_deck_id = 1')).toEqual([{ tag: 'original' }]);
+  });
+
+  it('rolls back a valid multi-field update if a later tag write fails', async () => {
+    db.run("UPDATE tracked_decks SET notes = 'Original' WHERE id = 1");
+    db.run("INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (1, 'original')");
+    db.run(`CREATE TRIGGER fixture_failed_tag BEFORE INSERT ON deck_tags
+      WHEN NEW.tag = 'unwritable' BEGIN SELECT RAISE(ABORT, 'Tag write failed'); END`);
+    const response = await request('/api/decks/1', 'PATCH', {
+      notes: 'Edited',
+      tags: ['new', 'unwritable'],
+    });
+    expect(response.status).toBe(500);
+    expect(db.get('SELECT notes FROM tracked_decks WHERE id = 1').notes).toBe('Original');
+    expect(db.all('SELECT tag FROM deck_tags WHERE tracked_deck_id = 1')).toEqual([{ tag: 'original' }]);
+  });
+
+  it('commits validated fields and cleaned tags together', async () => {
+    db.run('UPDATE tracked_decks SET price_alert_baseline = 100, price_alert_baseline_budget = 75 WHERE id = 1');
+    db.run("INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (1, 'original')");
+    const response = await request('/api/decks/1', 'PATCH', {
+      notes: ' New notes ',
+      pinned: true,
+      tags: [' New ', 'new', 'FOIL'],
+      priceAlertThreshold: 20,
+      priceAlertMode: 'cheapest',
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).deck).toMatchObject({
+      notes: 'New notes', pinned: 1, tags: ['foil', 'new'], price_alert_threshold: 20,
+      price_alert_mode: 'cheapest', price_alert_baseline: null, price_alert_baseline_budget: null,
+    });
+  });
+});
+
+describe('snapshot price refreshes', () => {
+  const requestFetch = globalThis.fetch;
+
+  function fakeScryfall(handler) {
+    vi.stubGlobal('fetch', (url, options) => url.startsWith(baseUrl)
+      ? requestFetch(url, options)
+      : handler(JSON.parse(options.body).identifiers));
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('records a delayed result on the priced snapshot without changing the current deck price', async () => {
+    const older = snapshot('1 Lightning Bolt');
+    db.run('UPDATE tracked_decks SET last_known_price = 30, last_known_budget_price = 20 WHERE id = 1');
+    let markLookupStarted, finishLookup;
+    const lookupStarted = new Promise(resolve => { markLookupStarted = resolve; });
+    const lookupReply = new Promise(resolve => { finishLookup = resolve; });
+    fakeScryfall(() => {
+      markLookupStarted();
+      return lookupReply;
+    });
+    const pricing = request('/api/decks/1/prices');
+    await lookupStarted;
+    const newer = snapshot('1 Counterspell');
+    finishLookup(Response.json({ data: [{ name: 'Lightning Bolt', prices: { usd: '10.00' } }] }));
+    const response = await pricing;
+
+    expect(db.get('SELECT snapshot_price FROM deck_snapshots WHERE id = ?', [older]).snapshot_price).toBe(10);
+    expect(db.get('SELECT snapshot_price FROM deck_snapshots WHERE id = ?', [newer]).snapshot_price).toBeNull();
+    expect(db.get('SELECT last_known_price, last_known_budget_price FROM tracked_decks WHERE id = 1'))
+      .toEqual({ last_known_price: 30, last_known_budget_price: 20 });
+    expect(response.status).toBe(409);
+  });
+
+  it.each(['failed', 'incomplete'])('preserves complete totals when the final batch is %s', async (failure) => {
+    const id = snapshot(Array.from({ length: 76 }, (_, i) => `1 Fixture Card ${i + 1}`).join('\n'));
+    db.run('UPDATE tracked_decks SET last_known_price = 760, last_known_budget_price = 760 WHERE id = 1');
+    const requestSizes = [];
+    fakeScryfall(identifiers => {
+      requestSizes.push(identifiers.length);
+      if (identifiers.length === 1) return failure === 'failed'
+        ? new Response(null, { status: 503 })
+        : Response.json({ data: [] });
+      return Response.json({ data: identifiers.map(({ name }) => ({ name, prices: { usd: '10.00' } })) });
+    });
+    const response = await request('/api/decks/1/prices');
+    expect(requestSizes).toEqual([75, 1]);
+    expect(db.get('SELECT last_known_price, last_known_budget_price FROM tracked_decks WHERE id = 1'))
+      .toEqual({ last_known_price: 760, last_known_budget_price: 760 });
+    expect(db.get('SELECT snapshot_price FROM deck_snapshots WHERE id = ?', [id]).snapshot_price).toBeNull();
+    expect(response.status).toBe(503);
+  });
+
+  it('saves a complete current total with the selected finish and the independent budget price', async () => {
+    const id = snapshot('2 Sol Ring (C21) 263 *F*');
+    fakeScryfall(([identifier]) => Response.json({ data: [identifier.set
+      ? { name: 'Sol Ring', set: 'c21', collector_number: '263', prices: { usd: '2.00', usd_foil: '3.00' } }
+      : { name: 'Sol Ring', prices: { usd: '1.00' } }] }));
+    const response = await request('/api/decks/1/prices');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ snapshotId: id, totalPrice: 6, budgetPrice: 2 });
+    expect(db.get('SELECT last_known_price, last_known_budget_price FROM tracked_decks WHERE id = 1'))
+      .toEqual({ last_known_price: 6, last_known_budget_price: 2 });
+    expect(db.get('SELECT snapshot_price, snapshot_budget_price FROM deck_snapshots WHERE id = ?', [id]))
+      .toEqual({ snapshot_price: 6, snapshot_budget_price: 2 });
+  });
+});
+
 describe('download lifetime and deck scope', () => {
   it.each(['iso', 'sqlite'])('rejects an expired %s timestamp at file download', async format => {
     const expired = new Date(Date.now() - 60_000).toISOString();

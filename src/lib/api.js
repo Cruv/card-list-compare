@@ -50,14 +50,13 @@ async function apiFetch(path, options = {}) {
     callerSignal?.removeEventListener('abort', cancel);
   }
 
-  if (res.status === 401) {
-    localStorage.removeItem('clc-auth-token');
-    window.dispatchEvent(new Event('auth-expired'));
-    throw new Error('Session expired. Please log in again.');
-  }
-
   if (!res.ok) {
-    const error = new Error(data.error || `Request failed: ${res.status}`);
+    const invalidSession = res.status === 401 && data.code === 'SESSION_INVALID';
+    if (invalidSession && token && getToken() === token) {
+      localStorage.removeItem('clc-auth-token');
+      window.dispatchEvent(new Event('auth-expired'));
+    }
+    const error = new Error(invalidSession ? 'Session expired. Please log in again.' : data.error || `Request failed: ${res.status}`);
     error.status = res.status;
     error.data = data;
     throw error;

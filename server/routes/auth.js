@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { get, run, all } from '../db.js';
+import { get, run, all, transaction } from '../db.js';
 import { createToken, requireAuth, invalidateAuthCache } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { validatePassword } from '../middleware/validate.js';
@@ -10,6 +10,39 @@ import { hashToken } from '../lib/tokens.js';
 import { purgeUserPrintJobs } from '../lib/printQueue.js';
 
 const router = Router();
+const lockoutAttempts = 5;
+const lockoutMs = 15 * 60 * 1000;
+const loginUserSql = `SELECT *, strftime('%Y-%m-%dT%H:%M:%fZ', locked_until) AS lock_expiry
+                      FROM users WHERE username = ?`;
+const resetTokenSql = `SELECT user_id FROM password_reset_tokens
+                        WHERE token = ? AND used = 0 AND julianday(expires_at) > julianday('now')`;
+const verificationTokenSql = `SELECT token.user_id FROM email_verification_tokens token
+                               JOIN users ON users.id = token.user_id
+                               WHERE token.token = ? AND users.email IS NOT NULL
+                               AND julianday(token.expires_at) > julianday('now')`;
+
+function invalidLogin(res) {
+  return res.status(401).json({ error: 'Invalid username or password', code: 'INVALID_CREDENTIALS' });
+}
+
+function loginUnavailable(user, res) {
+  if (user.suspended) {
+    return res.status(403).json({ error: 'Your account has been suspended. Contact an administrator.' });
+  }
+  const minutesLeft = Math.ceil((Date.parse(user.lock_expiry) - Date.now()) / 60_000);
+  if (minutesLeft > 0) {
+    return res.status(429).json({ error: `Account locked. Try again in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.` });
+  }
+  return null;
+}
+
+// Must be called in the transaction that changes the address or replaces the link.
+function issueVerification(userId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  run('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [userId, hashToken(token), expiresAt]);
+  return token;
+}
 
 router.post('/register', authLimiter, async (req, res) => {
   try {
@@ -87,44 +120,35 @@ router.post('/login', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body;
 
-    if (!username || !password) {
+    if (typeof username !== 'string' || !username.trim() || typeof password !== 'string' || !password) {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const user = get('SELECT * FROM users WHERE username = ?', [username.trim()]);
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid username or password' });
-    }
+    const checkedUser = get(loginUserSql, [username.trim()]);
+    if (!checkedUser) return invalidLogin(res);
+    const unavailable = loginUnavailable(checkedUser, res);
+    if (unavailable) return unavailable;
 
-    if (user.suspended) {
-      return res.status(403).json({ error: 'Your account has been suspended. Contact an administrator.' });
-    }
+    const valid = await bcrypt.compare(password, checkedUser.password_hash);
+    // Other requests can record a failure, suspend the user, or change the
+    // password during bcrypt. Read current state before the synchronous write.
+    const user = get(loginUserSql, [username.trim()]);
+    if (!user || user.id !== checkedUser.id || user.password_hash !== checkedUser.password_hash) return invalidLogin(res);
+    const nowUnavailable = loginUnavailable(user, res);
+    if (nowUnavailable) return nowUnavailable;
 
-    // Account lockout check
-    if (user.locked_until) {
-      const lockTime = new Date(user.locked_until + 'Z').getTime();
-      if (lockTime > Date.now()) {
-        const minutesLeft = Math.ceil((lockTime - Date.now()) / 60000);
-        return res.status(429).json({ error: `Account locked. Try again in ${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.` });
-      }
-      // Lock expired — reset counters
-      run('UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?', [user.id]);
-    }
-
-    const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
-      const attempts = (user.failed_login_attempts || 0) + 1;
-      if (attempts >= 5) {
-        const lockUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-        run('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [attempts, lockUntil, user.id]);
+      const attempts = user.locked_until ? 1 : user.failed_login_attempts + 1;
+      const lockUntil = attempts >= lockoutAttempts ? new Date(Date.now() + lockoutMs).toISOString() : null;
+      transaction(() => run('UPDATE users SET failed_login_attempts = ?, locked_until = ? WHERE id = ?', [attempts, lockUntil, user.id]));
+      if (lockUntil) {
         return res.status(429).json({ error: 'Too many failed attempts. Account locked for 15 minutes.' });
       }
-      run('UPDATE users SET failed_login_attempts = ? WHERE id = ?', [attempts, user.id]);
-      return res.status(401).json({ error: 'Invalid username or password' });
+      return invalidLogin(res);
     }
 
     // Successful login — reset lockout counters and track last login
-    run("UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?", [user.id]);
+    transaction(() => run("UPDATE users SET failed_login_attempts = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?", [user.id]));
 
     const token = createToken(user);
     // emailVerified must be present here too — the client uses it to warn that
@@ -165,11 +189,16 @@ router.post('/change-password', requireAuth, async (req, res) => {
 
     const valid = await bcrypt.compare(currentPassword, user.password_hash);
     if (!valid) {
-      return res.status(401).json({ error: 'Current password is incorrect' });
+      return res.status(401).json({ error: 'Current password is incorrect', code: 'INVALID_CREDENTIALS' });
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ?", [hash, user.id]);
+    const changed = transaction(() => {
+      const update = run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ? AND password_hash = ? AND suspended = 0", [hash, user.id, user.password_hash]);
+      if (update.changes) run('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [user.id]);
+      return update.changes;
+    });
+    if (!changed) return res.status(409).json({ error: 'The account changed while saving the password. Please try again.' });
     invalidateAuthCache(user.id);
 
     // Issue a new token so the current session stays valid
@@ -201,21 +230,17 @@ router.put('/email', requireAuth, async (req, res) => {
         return res.status(409).json({ error: 'Email already in use by another account' });
       }
 
-      run('UPDATE users SET email = ?, email_verified = 0 WHERE id = ?', [email.toLowerCase(), req.user.userId]);
-
-      // Send verification email if SMTP is configured
-      if (isEmailConfigured()) {
-        // Clean up old tokens for this user
-        run('DELETE FROM email_verification_tokens WHERE user_id = ?', [req.user.userId]);
-        const token = crypto.randomBytes(32).toString('hex');
-        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
-        run('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-          [req.user.userId, hashToken(token), expiresAt]);
-        await sendVerificationEmail(email.toLowerCase(), token);
-      }
-    } else {
-      run('UPDATE users SET email = NULL, email_verified = 0 WHERE id = ?', [req.user.userId]);
     }
+    const userId = req.user.userId;
+    const address = email ? email.toLowerCase() : null;
+    const sendVerification = address && isEmailConfigured();
+    const token = transaction(() => {
+      run('UPDATE users SET email = ?, email_verified = 0 WHERE id = ?', [address, userId]);
+      run('DELETE FROM email_verification_tokens WHERE user_id = ?', [userId]);
+      run('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [userId]);
+      return sendVerification ? issueVerification(userId) : null;
+    });
+    if (token) await sendVerificationEmail(address, token);
 
     const user = get('SELECT id, username, email, email_verified, created_at FROM users WHERE id = ?', [req.user.userId]);
     res.json({ user: { id: user.id, username: user.username, email: user.email || null, emailVerified: !!user.email_verified, createdAt: user.created_at } });
@@ -237,16 +262,17 @@ router.post('/verify-email', async (req, res) => {
       return res.status(400).json({ error: 'Invalid token' });
     }
 
-    const record = get(
-      'SELECT * FROM email_verification_tokens WHERE token = ? AND expires_at > datetime("now")',
-      [hashToken(token)]
-    );
-    if (!record) {
+    const tokenHash = hashToken(token);
+    const verified = get(verificationTokenSql, [tokenHash]) && transaction(() => {
+      const record = get(verificationTokenSql, [tokenHash]);
+      if (!record) return false;
+      run('UPDATE users SET email_verified = 1 WHERE id = ?', [record.user_id]);
+      run('DELETE FROM email_verification_tokens WHERE user_id = ?', [record.user_id]);
+      return true;
+    });
+    if (!verified) {
       return res.status(400).json({ error: 'Invalid or expired verification link.' });
     }
-
-    run('UPDATE users SET email_verified = 1 WHERE id = ?', [record.user_id]);
-    run('DELETE FROM email_verification_tokens WHERE user_id = ?', [record.user_id]);
 
     res.json({ success: true });
   } catch (err) {
@@ -272,12 +298,10 @@ router.post('/resend-verification', requireAuth, async (req, res) => {
       return res.status(503).json({ error: 'Email is not configured on this server.' });
     }
 
-    // Clean up old tokens and generate new one
-    run('DELETE FROM email_verification_tokens WHERE user_id = ?', [user.id]);
-    const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    run('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [user.id, hashToken(token), expiresAt]);
+    const token = transaction(() => {
+      run('DELETE FROM email_verification_tokens WHERE user_id = ?', [user.id]);
+      return issueVerification(user.id);
+    });
     await sendVerificationEmail(user.email, token);
 
     res.json({ success: true });
@@ -307,12 +331,12 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     const user = get('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
     if (user && user.email_verified) {
       // Only send reset email if email is verified
-      // Invalidate any existing unused tokens for this user
-      run('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [user.id]);
-
       const token = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
-      run('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, hashToken(token), expiresAt]);
+      transaction(() => {
+        run('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [user.id]);
+        run('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, hashToken(token), expiresAt]);
+      });
 
       await sendPasswordResetEmail(email.toLowerCase(), token);
     }
@@ -340,19 +364,23 @@ router.post('/reset-password', authLimiter, async (req, res) => {
       return res.status(400).json({ error: pwError });
     }
 
-    const resetToken = get(
-      'SELECT * FROM password_reset_tokens WHERE token = ? AND used = 0 AND expires_at > datetime("now")',
-      [hashToken(token)]
-    );
-
-    if (!resetToken) {
+    const tokenHash = hashToken(token);
+    if (!get(resetTokenSql, [tokenHash])) {
       return res.status(400).json({ error: 'Invalid or expired reset link. Please request a new one.' });
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ?", [hash, resetToken.user_id]);
-    invalidateAuthCache(resetToken.user_id);
-    run('UPDATE password_reset_tokens SET used = 1 WHERE id = ?', [resetToken.id]);
+    const userId = transaction(() => {
+      const resetToken = get(resetTokenSql, [tokenHash]);
+      if (!resetToken) return null;
+      run("UPDATE users SET password_hash = ?, password_changed_at = datetime('now') WHERE id = ?", [hash, resetToken.user_id]);
+      run('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [resetToken.user_id]);
+      return resetToken.user_id;
+    });
+    if (!userId) {
+      return res.status(400).json({ error: 'Invalid or expired reset link. Please request a new one.' });
+    }
+    invalidateAuthCache(userId);
 
     res.json({ success: true });
   } catch (err) {

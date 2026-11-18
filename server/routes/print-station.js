@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { MAX_PRINT_ARTIFACTS, requireStationToken, stationPrintJob, reportPrintJob, formatPrintJob, verifiedPrintArtifact } from '../lib/printQueue.js';
+import { MAX_PRINT_ARTIFACTS, requireStationToken, stationPrintJob, reportPrintJob, formatPrintJob, stationPrintArtifact } from '../lib/printQueue.js';
 import { claimForManagedStation, stationManagementHeartbeat } from '../lib/printStationManagement.js';
 import { stationPaperInput } from '../lib/printPaper.js';
 import { sendPdf } from './print.js';
@@ -36,6 +36,6 @@ router.get('/jobs/:jobId', route((req, res) => res.json({ job: formatPrintJob(st
 router.post('/jobs/:jobId/report', route((req, res) => res.json(reportPrintJob(req.params.jobId, req.body || {}))));
 router.get('/jobs/:jobId/artifacts/:artifactId', route((req, res) => {
   const row = stationPrintJob(req.params.jobId);
-  sendPdf(res, verifiedPrintArtifact(row, req.params.artifactId));
+  sendPdf(res, stationPrintArtifact(row, req.params.artifactId));
 }));
 export default router;

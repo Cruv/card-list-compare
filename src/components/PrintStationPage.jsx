@@ -14,6 +14,7 @@ import './PrintStationPage.css';
 const COMMAND_NAMES = {
   pause: 'Pause station', unpause: 'Unpause station', resume: 'Print reloaded backs',
   clear_paper: 'Confirm paper cleared',
+  clear_missing_cups: 'Clear canceled batch with missing CUPS history',
   recover_print: 'Continue interrupted print',
   configure_discord: 'Save Discord settings', test_discord: 'Send Discord test',
   check_update: 'Check for updates', update: 'Update companion', rollback: 'Roll back companion',
@@ -193,7 +194,8 @@ export default function PrintStationPage() {
   const matchingResume = activeJob?.id === resumeJobId && activeJob?.artifactId === resumeArtifactId;
   const needsPaperClearance = ['awaiting_clearance', 'awaiting_paper_reset'].includes(activeJob?.state);
   const clearanceBoundary = paperClearanceIdentity(activeJob);
-  const canClearPaper = canControl && !!clearanceBoundary && paperClearedBoundary === clearanceBoundary;
+  const missingCancellationSpoolerId = activeJob?.state === 'awaiting_clearance' ? activeJob.missingCancellationSpoolerId : null;
+  const canClearPaper = canControl && canRecoverBatch && !!clearanceBoundary && paperClearedBoundary === clearanceBoundary;
   const deferredJobs = Array.isArray(data?.jobs?.deferred) ? data.jobs.deferred : [];
   const backPreparationUnavailable = !fresh ? 'Refresh status before selecting saved backs.' : !online ? 'The Mac must be online before you select backs.'
     : !data?.permissions.canControl ? 'Household printer access is required to select saved backs.' : station.paused ? 'Unpause the station before selecting backs.'
@@ -306,7 +308,7 @@ export default function PrintStationPage() {
   function command(type, extra = {}) {
     if (!canControl || pendingRef.current) return;
     if (type === 'resume' && (!canResume || !paperReloaded || !matchingResume)) return;
-    if (type === 'clear_paper' && !canClearPaper) return;
+    if (['clear_paper', 'clear_missing_cups'].includes(type) && !canClearPaper) return;
     if (type === 'recover_print' && (!recoveryBoundary || !canRecoverBatch || station.paused || activeJob.cancelRequested || activePaperUnavailable)) return;
     if (type === 'check_update' && !canCheckUpdate) return;
     if (['update', 'rollback'].includes(type) && !canUpdate) return;
@@ -378,8 +380,9 @@ export default function PrintStationPage() {
           <h2>{activeJob.state === 'awaiting_clearance' ? 'Remove canceled-job paper' : 'Backs finished — restore blank paper'}</h2>
           <h3>{activeJob.deckName || 'Card batch'}</h3><p className="station-batch-id">Batch {activeJob.id}</p>
           <p>{activeJob.state === 'awaiting_clearance' ? 'Wait for the printer to stop. Remove any partially printed or flipped sheets from this job and clear the rear feeder.' : 'Remove the finished double-sided sheet and any remaining flipped paper from the rear feeder.'} Load only blank {loadedPaperLabel} paper before releasing the next front job.</p>
-          <label className="station-paper-check"><input type="checkbox" checked={!!clearanceBoundary && paperClearedBoundary === clearanceBoundary} disabled={!canControl || !clearanceBoundary} onChange={event => setPaperClearedBoundary(event.target.checked ? clearanceBoundary : null)} /><span>I removed the printed or flipped paper, checked the printer has stopped, and left only blank {loadedPaperLabel} paper in the rear feeder.</span></label>
-          <button className="btn btn-primary" type="button" disabled={!canClearPaper} onClick={() => command('clear_paper', { jobId: activeJob.id, clearanceId: activeJob.clearanceId, paperCleared: true })}>Confirm blank paper is ready</button>
+          {missingCancellationSpoolerId && <p>Mac print history no longer shows {missingCancellationSpoolerId}. The Mac will check that exact job again and keep its submission receipt. This action finishes the cancellation and releases the paper hold.</p>}
+          <label className="station-paper-check"><input type="checkbox" checked={!!clearanceBoundary && paperClearedBoundary === clearanceBoundary} disabled={!canControl || !canRecoverBatch || !clearanceBoundary} onChange={event => setPaperClearedBoundary(event.target.checked ? clearanceBoundary : null)} /><span>I removed the printed or flipped paper, checked the printer has stopped, and left only blank {loadedPaperLabel} paper in the rear feeder.</span></label>
+          <button className="btn btn-primary" type="button" disabled={!canClearPaper} onClick={() => command(missingCancellationSpoolerId ? 'clear_missing_cups' : 'clear_paper', { jobId: activeJob.id, clearanceId: activeJob.clearanceId, paperCleared: true, ...(missingCancellationSpoolerId ? { spoolerId: missingCancellationSpoolerId } : {}) })}>{missingCancellationSpoolerId ? 'Clear canceled batch with missing history' : 'Confirm blank paper is ready'}</button>
           {!clearanceBoundary && <p className="station-small">The Mac has not confirmed which paper-clearance step is waiting. Refresh status before confirming.</p>}
           <p className="station-small">The Mac checks the previous submission before releasing more pages. This does not restart a canceled pass.{station.paused && ' The station remains paused.'}</p>
         </section> : activeJob?.state === 'awaiting_refeed' ? <section className="station-card station-refeed" aria-label="Paper reload required">

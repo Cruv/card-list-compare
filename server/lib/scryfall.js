@@ -108,7 +108,7 @@ function requestersFor(card, normIndex) {
  * name(s) it satisfies (not the echoed canonical name). buildEntry(card) shapes
  * the cached value; onEntry(key, card, entry) is an optional extra cache write.
  */
-async function fetchNameData(cardNames, cache, ttl, buildEntry, onEntry) {
+async function fetchNameData(cardNames, cache, ttl, buildEntry, { onEntry, failOnBatchError = false } = {}) {
   const result = new Map();
   if (!cardNames || cardNames.length === 0) return result;
 
@@ -141,8 +141,12 @@ async function fetchNameData(cardNames, cache, ttl, buildEntry, onEntry) {
         body: JSON.stringify({ identifiers: batches[i] }),
         signal: AbortSignal.timeout(15000),
       });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        if (failOnBatchError) throw new Error(`Scryfall price lookup returned HTTP ${res.status}`);
+        continue;
+      }
       const data = await res.json();
+      if (failOnBatchError && !Array.isArray(data.data)) throw new Error('Scryfall price lookup returned an invalid collection');
       for (const card of (data.data || [])) {
         const entry = buildEntry(card);
         for (const key of requestersFor(card, normIndex)) {
@@ -153,6 +157,7 @@ async function fetchNameData(cardNames, cache, ttl, buildEntry, onEntry) {
         }
       }
     } catch (err) {
+      if (failOnBatchError) throw err;
       console.error('Scryfall fetch error:', err.message);
     }
   }
@@ -198,8 +203,10 @@ export async function fetchCardMetadata(cardNames) {
       };
     },
     // Prices come free with metadata — populate the price cache under the same key.
-    (key, _card, entry) => {
-      setCache(priceCache, key, { priceUsd: entry.priceUsd, priceUsdFoil: entry.priceUsdFoil });
+    {
+      onEntry: (key, _card, entry) => {
+        setCache(priceCache, key, { priceUsd: entry.priceUsd, priceUsdFoil: entry.priceUsdFoil });
+      },
     }
   );
 }
@@ -213,18 +220,18 @@ export async function fetchCardPrices(cardNames) {
   return fetchNameData(cardNames, priceCache, PRICE_TTL, (card) => ({
     priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
     priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
-  }));
+  }), { failOnBatchError: true });
 }
 
 /** Key for a specific printing: lowercased set + collector number. */
 export function printingKey(setCode, collectorNumber) {
-  return `${String(setCode || '').toLowerCase()}|${collectorNumber}`;
+  return `${String(setCode || '').toLowerCase()}|${String(collectorNumber || '').toLowerCase()}`;
 }
 
 /**
  * Fetch USD prices for specific card printings using set + collector number.
  * Accepts array of { name, set, collectorNumber } objects.
- * Returns Map<string, { priceUsd: number|null, priceUsdFoil: number|null }>
+ * Returns Map<string, { name: string, priceUsd: number|null, priceUsdFoil: number|null }>
  * **Keyed by PRINTING** (`printingKey(set, collectorNumber)`) — not by card name.
  * Name keys would collapse every printing of one card into a single entry, so a
  * deck listing the same card in two printings would price both at whichever
@@ -269,32 +276,29 @@ export async function fetchSpecificPrintingPrices(cards) {
       collector_number: c.collectorNumber,
     }));
 
-    try {
-      const res = await fetch(`${SCRYFALL_API}/cards/collection`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'CardListCompare/1.0',
-        },
-        body: JSON.stringify({ identifiers }),
-        signal: AbortSignal.timeout(15000),
-      });
+    const res = await fetch(`${SCRYFALL_API}/cards/collection`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'CardListCompare/1.0',
+      },
+      body: JSON.stringify({ identifiers }),
+      signal: AbortSignal.timeout(15000),
+    });
 
-      if (!res.ok) continue;
+    if (!res.ok) throw new Error(`Scryfall printing price lookup returned HTTP ${res.status}`);
+    const { data } = await res.json();
+    if (!Array.isArray(data)) throw new Error('Scryfall printing price lookup returned an invalid collection');
 
-      const data = await res.json();
-
-      for (const card of (data.data || [])) {
-        const scKey = printingKey(card.set, card.collector_number);
-        const entry = {
-          priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
-          priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
-        };
-        result.set(scKey, entry);
-        setCache(specificPriceCache, scKey, entry);
-      }
-    } catch (err) {
-      console.error('Scryfall specific price fetch error:', err.message);
+    for (const card of data) {
+      const scKey = printingKey(card.set, card.collector_number);
+      const entry = {
+        name: card.name,
+        priceUsd: card.prices?.usd ? parseFloat(card.prices.usd) : null,
+        priceUsdFoil: card.prices?.usd_foil ? parseFloat(card.prices.usd_foil) : null,
+      };
+      result.set(scKey, entry);
+      setCache(specificPriceCache, scKey, entry);
     }
   }
 

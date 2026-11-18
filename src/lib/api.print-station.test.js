@@ -106,7 +106,7 @@ describe('print station HTTP requests', () => {
   });
 
   it('uses the normal expired-session flow', async () => {
-    fetch.mockResolvedValue(response(401, {}));
+    fetch.mockResolvedValue(response(401, { code: 'SESSION_INVALID' }));
     await expect(getPrintStationStatus()).rejects.toThrow('Session expired');
     expect(localStorage.removeItem).toHaveBeenCalledWith('clc-auth-token');
     expect(window.dispatchEvent.mock.calls[0][0].type).toBe('auth-expired');

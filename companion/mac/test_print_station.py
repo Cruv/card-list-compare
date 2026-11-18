@@ -148,6 +148,11 @@ class FakeClient:
             elif state == "refeed":
                 self.job["state"] = "claimed"
                 entry["refeedConfirmed"] = True
+        if state == "canceled" and self.job.get("cancelRequested") and event.get("paperCleared") is True:
+            for item in self.job["steps"]:
+                if item["state"] not in station.PASS_TERMINAL:
+                    item.update(state="canceled", cancellationClearanceId=event["clearanceId"])
+            self.job.update(state="canceled", cancelRequested=None, cancelRequestId=None)
         reply = {"job": copy.deepcopy(self.job), "replayed": self.replay_submitting and state == "submitting"}
         self.replies[event["eventId"]] = copy.deepcopy(reply)
         if state == self.fail_state:
@@ -169,7 +174,7 @@ class FakeCups:
     def status(self, _spooler_id=None):
         return {"ok": True, "known": True, "reasons": [], "message": "Printer queue is ready"}
 
-    def jobs(self):
+    def jobs(self, require_complete=False):
         return copy.deepcopy(self.history)
 
     def submit(self, artifact, phase, title, path, recipe_id=station.LETTER_RECIPE):
@@ -780,6 +785,44 @@ class StationTests(unittest.TestCase):
         self.station.release("job1", True)
         self.assertIsNone(self.station.ledger.current())
         self.assertEqual(self.client.job["state"], "failed")
+
+    def test_missing_cancellation_history_requires_exact_explicit_clearance(self):
+        self.client.job = job("dfc")
+        self.client.job.update(workflow=station.DEFERRED_WORKFLOW, backRequest=None)
+        self.assertEqual(self.station.poll_once(), "submitted EPSON-1")
+        submission = copy.deepcopy(self.client.events[-1])
+        original = self.cups.history.pop()
+        request_id = "f3042e49-3395-47e4-9f39-04350b101e41"
+        self.client.job.update(cancelRequested="all", cancelRequestId=request_id)
+        boundary = "cancel:" + request_id
+        with self.assertRaisesRegex(station.StationError, "exact CUPS cancellation"):
+            self.station.poll_once()
+        self.assertEqual(self.station.ledger.current()["state"], "awaiting_clearance")
+        with self.assertRaisesRegex(station.StationError, "exact CUPS cancellation"):
+            self.station.clear_paper("job1", boundary)
+        with self.assertRaises(station.StationError):
+            self.station.release("job1", True)
+
+        self.assertEqual(self.station.missing_cancellation_spooler(self.client.job), "EPSON-1")
+        with mock.patch.object(self.cups, "jobs", side_effect=station.StationError("CUPS unavailable")):
+            with self.assertRaisesRegex(station.StationError, "CUPS unavailable"):
+                self.station.clear_paper("job1", boundary, missing_spooler_id="EPSON-1", command_id="command123")
+        for collision in (original, {**original, "id": "EPSON-2"}, {**original, "title": "Different title"}):
+            self.cups.history = [collision]
+            with self.assertRaises(station.StationError):
+                self.station.clear_paper("job1", boundary, missing_spooler_id="EPSON-1", command_id="command123")
+        self.cups.history = []
+        with self.assertRaises(station.StationError):
+            self.station.clear_paper("job1", boundary, missing_spooler_id="EPSON-2", command_id="command123")
+        self.station.clear_paper("job1", boundary, missing_spooler_id="EPSON-1", command_id="command123")
+        self.assertIsNone(self.station.ledger.current())
+        self.assertEqual(len(self.cups.submissions), 1)
+        front, back = self.station.ledger.passes("job1")
+        self.assertEqual((front["state"], front["spooler_id"], back["state"], back["cups_started"]),
+                         ("canceled", "EPSON-1", "canceled", 0))
+        self.assertIn(submission, self.client.events)
+        self.assertEqual(self.client.events[-1]["missingCupsHistory"], True)
+        self.assertEqual(self.client.events[-1]["clearanceId"], boundary)
 
     def test_canceled_ambiguous_submission_can_be_abandoned_only_after_clearance(self):
         self.cups.after_accept_error = True
