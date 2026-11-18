@@ -1,13 +1,13 @@
 """Generate approved Silhouette sheets and CLC's metric manual-punch sheets."""
 import hashlib
 import io
-import gc
 import json
 import math
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
 
 from PIL import Image, ImageDraw, ImageOps
@@ -484,24 +484,26 @@ def chunk(request):
 
 def merge(request):
     recipe = paper_key(request)
-    writer = PdfWriter()
-    for filename in request["inputs"]:
-        with open(filename, "rb") as stream:
-            reader = PdfReader(stream, strict=True)
-            writer.append(reader, import_outline=False)
-            reader.close()
     if recipe == DAHLE_A4_PUNCH:
-        writer.add_metadata({"/Title": "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch", "/Creator": "CLC"})
+        title, creator = "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch", "CLC"
     else:
-        writer.add_metadata({"/Title": f"CLC household-{recipe}-v{APPROVED_PAPER[recipe]['version']}",
-                             "/Creator": "CLC / Silhouette Card Maker"})
-    with open(request["output"], "wb") as stream:
-        writer.write(stream)
-    # PdfWriter.close() is a no-op. Release its compressed image objects before
-    # reopening the output, rather than retaining several copies of a whole deck.
-    del writer, reader
-    gc.collect()
-    validate_pdf(request["output"], request["pageCount"], recipe)
+        title = f"CLC household-{recipe}-v{APPROVED_PAPER[recipe]['version']}"
+        creator = "CLC / Silhouette Card Maker"
+    output = Path(request["output"])
+    with tempfile.TemporaryDirectory(prefix=".merge-", dir=output.parent) as temporary:
+        metadata = Path(temporary) / "metadata.pdf"
+        merged = Path(temporary) / "merged.pdf"
+        writer = PdfWriter()
+        writer.add_metadata({"/Title": title, "/Creator": creator})
+        writer.write(metadata)
+        # qpdf copies streams from the sheet files on disk as it writes the
+        # output. Preserve the artwork bytes, resource dictionaries, and page order.
+        inputs = [f"--file={filename}" for filename in request["inputs"]]
+        subprocess.run(["qpdf", "--suppress-recovery", "--stream-data=preserve", "--keep-files-open=n",
+                        "--remove-unreferenced-resources=no", "--deterministic-id", str(metadata),
+                        "--pages", *inputs, "--", str(merged)], stdin=subprocess.DEVNULL, check=True, timeout=105)
+        validate_pdf(merged, request["pageCount"], recipe)
+        merged.replace(output)
 
 
 def smoke(source, directory):

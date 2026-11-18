@@ -358,12 +358,12 @@ function ownedHouseholdBatch(userId, jobId, allowUnstarted = false) {
   if (!access.canUpdate && row.user_id !== userId) throw printError('Only the batch owner or an administrator can change this batch', 403);
   return row;
 }
-export function prepareHouseholdBacks(userId, jobId, body = {}) {
+export async function prepareHouseholdBacks(userId, jobId, body = {}) {
   const row = ownedHouseholdBatch(userId, jobId);
   if (!body || typeof body !== 'object' || Object.keys(body).some(key => key !== 'artifactId')) throw printError('Supply only the selected packet artifactId');
   const selected = artifactId(body.artifactId);
   if (readBackRequest(row)?.artifactId !== selected) assertQueuePaper(savedPrintJobPaper(row));
-  preparePrintBacks(row, selected, userId);
+  await preparePrintBacks(row, selected, userId, () => assertQueuePaper(savedPrintJobPaper(ownedHouseholdBatch(userId, jobId))));
   return printStationStatus(userId);
 }
 export function cancelHouseholdBacks(userId, jobId) {
@@ -662,11 +662,14 @@ export function stationManagementHeartbeat(body) {
 /** Pause blocks only fresh claims; existing durable claims remain recoverable. */
 export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER, mixedPrintSheets = false) {
   expireCommands();
-  const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
-  const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
-  const matchesHeartbeat = online() && latest.loadedPaperSize === paper.loadedPaperSize
-    && latest.loadedPrintPreset === paper.loadedPrintPreset;
-  if (paused || pendingPause || ((online() || paper.loadedPaperSize === 'a4') && !matchesHeartbeat)) {
+  const canClaim = () => {
+    const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
+    const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
+    const matchesHeartbeat = online() && latest.loadedPaperSize === paper.loadedPaperSize
+      && latest.loadedPrintPreset === paper.loadedPrintPreset;
+    return !paused && !pendingPause && (matchesHeartbeat || (!online() && paper.loadedPaperSize !== 'a4'));
+  };
+  if (!canClaim()) {
     const active = activeServerJob();
     if (active) {
       if (!paper.supportedRecipeIds.includes(savedPrintJobPaper(active).recipeId)) throw printError('Upgrade the Mac companion to continue this batch’s paper size', 409);
@@ -674,8 +677,7 @@ export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, 
     }
     return active ? formatPrintJob(active, true) : null;
   }
-  const eligibleRecipeIds = paper.supportedRecipeIds.filter(id =>
-    (!latest || latest.supportedRecipeIds.includes(id))
-    && (latest?.testPrintingEnabled === true || (latest?.recipeProofs?.[id]?.recipeVerified ?? latest?.recipeVerified) !== false));
-  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper, eligibleRecipeIds, mixedPrintSheets });
+  const mayClaim = ({ recipeId }) => canClaim() && (!latest || latest.supportedRecipeIds.includes(recipeId))
+    && (latest?.testPrintingEnabled === true || (latest?.recipeProofs?.[recipeId]?.recipeVerified ?? latest?.recipeVerified) !== false);
+  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper, mayClaim, mixedPrintSheets });
 }

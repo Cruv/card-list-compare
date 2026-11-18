@@ -190,8 +190,10 @@ server-memory caches, not public CDN caching. Unknown/missing records are never 
 confirmed or discarded; older revisions cannot overwrite newer local receipts.
 
 Visible, expanded confirmation panels poll CLC's local ledger every 15 seconds. Hidden or
-collapsed panels stop; opening/resuming requests one shared remote refresh. Routine ticks
-do not read ManaSync or reload destinations. Refreshing records does not restart held uploads.
+collapsed panels stop. Opening or resuming requests one shared remote refresh. The panel shows
+the time the server last fetched those quantities from ManaSync, including when the one-minute
+cache supplied the response. Routine ticks read the local ledger and keep that time. Refreshing
+records does not restart held uploads.
 After resolving an error, choose **Retry sending saved plan** for that item. The owner-scoped
 `POST /api/manasync/print-queue/:id/retry-publication` requires the reviewed
 `expectedConnection`, recovers the original pending ID before another upload/create, and
@@ -300,9 +302,10 @@ and `accountId`. Ask it before offering an action; it never lists decks.
 `GET /api/integrations/v1/decks` returns every deck with **every** snapshot: its exact text,
 hash and parsed cards. `GET /api/integrations/v1/decks?include=latest` returns the same decks
 and markers but only the current and paper snapshots, with their IDs, text and hashes and
-without the parsed cards — the response echoes `include: "latest"`. That is what a collection
-mirror keeps, and it is the listing ManaSync polls; an older CLC ignores the parameter and
-returns the full listing, which reads identically.
+without parsed cards. The response echoes `include: "latest"`. A collection mirror can use
+that option for routine reads. An older CLC ignores it and returns the full listing, which the
+same ManaSync decoder can read. The checked-out ManaSync client at `f6d4241` still requests the
+full listing. Switching its routine reads to `include=latest` is a follow-up in that repository.
 
 ## Validation
 

@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, useCallback, useId } from 'react';
+import { useRef, useState, useEffect, useLayoutEffect, useCallback, useId } from 'react';
 import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
 import { getTrackedDecks, getDeckSnapshots, getSnapshot, createSnapshot } from '../lib/api';
 import { parse } from '../lib/parser';
@@ -34,11 +34,13 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   const fileRef = useRef(null);
   const textRef = useRef(null);
   const snapshotRequest = useRef(0);
+  const contentRevision = useRef(0);
   const inputId = useId();
   const [urlInput, setUrlInput] = useState('');
   const [showUrl, setShowUrl] = useState(false);
   const [showTracked, setShowTracked] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [pendingLoad, setPendingLoad] = useState(null);
+  const loading = pendingLoad?.value === value;
   const [error, setError] = useState(null);
 
   // Tracked deck state
@@ -59,25 +61,46 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   const [savePanelSelected, setSavePanelSelected] = useState(null);
   const [savePanelNickname, setSavePanelNickname] = useState('');
 
+  // Parent edits such as swapping lists also invalidate pending loads.
+  useLayoutEffect(() => () => { contentRevision.current++; }, [value]);
+
+  const cancelContentLoad = useCallback(() => {
+    contentRevision.current++;
+    setPendingLoad(null);
+  }, []);
+
+  function beginContentLoad() {
+    const request = { value, revision: ++contentRevision.current };
+    setPendingLoad(request);
+    return {
+      isCurrent: () => request.revision === contentRevision.current,
+      finish: () => setPendingLoad(current => current === request ? null : current),
+    };
+  }
+
   const closeAllPanels = useCallback(() => {
+    cancelContentLoad();
     setShowUrl(false);
     setShowTracked(false);
     setShowSavePanel(false);
     setError(null);
-  }, []);
+  }, [cancelContentLoad]);
 
   function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
+    const load = beginContentLoad();
     const reader = new FileReader();
     reader.onload = (ev) => {
+      if (!load.isCurrent()) return;
       onChange(ev.target.result);
       setError(null);
       setImportedList(null);
     };
     reader.onerror = () => {
-      setError('Failed to read file. Please try again.');
+      if (load.isCurrent()) setError('Failed to read file. Please try again.');
     };
+    reader.onloadend = load.finish;
     reader.readAsText(file);
     e.target.value = '';
   }
@@ -97,11 +120,12 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   }
 
   async function importFromUrl(url) {
-    setLoading(true);
+    const load = beginContentLoad();
     setError(null);
     setImportedList(null);
     try {
       const { text, site, stats } = await fetchDeckFromUrl(url);
+      if (!load.isCurrent()) return;
       onChange(text);
       setShowUrl(false);
       setUrlInput('');
@@ -118,9 +142,9 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
 
       setImportedList({ text, site });
     } catch (err) {
-      setError(err.message);
+      if (load.isCurrent()) setError(err.message);
     } finally {
-      setLoading(false);
+      load.finish();
     }
   }
 
@@ -186,6 +210,7 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
       handleUrlImport();
     }
     if (e.key === 'Escape') {
+      cancelContentLoad();
       setShowUrl(false);
       setError(null);
     }
@@ -232,17 +257,18 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   }
 
   async function handleLoadTrackedSnapshot(deckId, snapshotId) {
-    setLoading(true);
+    const load = beginContentLoad();
     try {
       const data = await getSnapshot(deckId, snapshotId);
+      if (!load.isCurrent()) return;
       onChange(data.snapshot.deck_text);
       setShowTracked(false);
       setExpandedDeckId(null);
       setImportedList(null);
     } catch {
-      setError('Failed to load snapshot');
+      if (load.isCurrent()) setError('Failed to load snapshot');
     } finally {
-      setLoading(false);
+      load.finish();
     }
   }
 
@@ -477,7 +503,12 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
         ref={textRef}
         className="deck-input-textarea"
         value={value}
-        onChange={(e) => { onChange(e.target.value); setError(null); setImportedList(null); }}
+        onChange={(e) => {
+          cancelContentLoad();
+          onChange(e.target.value);
+          setError(null);
+          setImportedList(null);
+        }}
         onPaste={handlePaste}
         placeholder={PLACEHOLDER}
         spellCheck={false}

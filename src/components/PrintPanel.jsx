@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, getPrintJob, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
-  getStandalonePrintJobs, getStandalonePrintJob, previewStandalonePrintJob, createStandalonePrintJob, queueStandalonePrintJob, cancelStandalonePrintJob, expireStandalonePrintArtifacts } from '../lib/api';
+import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, getPrintJob, getPrintJobActivity, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
+  getStandalonePrintJobs, getStandalonePrintJob, getStandalonePrintJobActivity, previewStandalonePrintJob, createStandalonePrintJob, queueStandalonePrintJob, cancelStandalonePrintJob, expireStandalonePrintArtifacts } from '../lib/api';
 import DeckInput from './DeckInput';
 import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
@@ -64,6 +64,15 @@ function requestId() {
   return Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+function mergePrintJobs(current, incoming) {
+  const byId = new Map(current.map(job => [job.id, job]));
+  for (const job of incoming) {
+    const existing = byId.get(job.id);
+    if (!existing || job.updatedAt >= existing.updatedAt) byId.set(job.id, job);
+  }
+  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+}
+
 export default function PrintPanel({ deck, snapshots = [], standalone = false, initialComparison, onComparisonConsumed, initialJobId, onDeckChanged }) {
   const { user } = useAuth();
   const deckId = deck?.id;
@@ -104,7 +113,13 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [activeView, setActiveView] = useState(initialJobId ? 'batches' : 'prepare');
   const [focusedJobId, setFocusedJobId] = useState(initialJobId || null);
   const [jobs, setJobs] = useState([]);
+  const [activity, setActivity] = useState({ activeCount: 0, jobs: [] });
+  const [visible, setVisible] = useState(() => document.visibilityState === 'visible');
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const [confirmationItems, setConfirmationItems] = useState([]);
+  const [confirmationError, setConfirmationError] = useState('');
   const [capabilities, setCapabilities] = useState({});
   const [generator, setGenerator] = useState(null);
   const [station, setStation] = useState(null);
@@ -112,6 +127,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState('');
   const [notice, setNotice] = useState('');
+  const [startingDownload, setStartingDownload] = useState(null);
   const [pendingRequest, setPendingRequest] = useState(storedRequest);
   const [recordingJobId, setRecordingJobId] = useState(null);
   const [recordError, setRecordError] = useState(null);
@@ -143,8 +159,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const sourceCopies = useMemo(() => standalone && plan ? printSourceCopies(cardText, plan.includeSideboard) : undefined, [standalone, plan, cardText]);
   const copyCounts = printCopyBreakdown(plan, sourceCopies);
   const incomingComparison = initialComparison && initialComparison.id !== handledComparisonId ? initialComparison : null;
-  const activeJobs = jobs.filter(job => !['completed', 'canceled', 'failed', 'expired'].includes(job.state));
-  const prominentJob = jobs.find(job => job.id === focusedJobId) || activeJobs[0] || (!editingSource && !plan ? jobs[0] : null);
+  const activeJob = activity.jobs[0];
+  const prominentJob = jobs.find(job => job.id === (focusedJobId || activeJob?.id)) || jobs[0];
   const historyJobs = jobs.filter(job => job.id !== prominentJob?.id);
   const autoConsumedRef = useRef(false);
 
@@ -191,45 +207,77 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   }
 
   useEffect(() => {
-    let active = true;
+    const update = () => setVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+
+  useEffect(() => {
+    if (!visible || activeView !== 'batches') return;
+    const controller = new AbortController();
+    const history = standalone ? getStandalonePrintJobs(controller.signal) : getPrintJobs(deckId, controller.signal);
+    history.then(data => {
+      if (controller.signal.aborted) return;
+      setJobs(old => mergePrintJobs(old, data.jobs));
+      setHistoryError('');
+      setHistoryLoaded(true);
+    }).catch(err => { if (!controller.signal.aborted) setHistoryError(err.message); });
+    getPrintQueue(deckId, controller.signal).then(data => {
+      if (controller.signal.aborted) return;
+      setConfirmationItems(data.items);
+      setConfirmationError('');
+    }).catch(err => { if (!controller.signal.aborted) setConfirmationError(err.message); });
+    return () => controller.abort();
+  }, [activeView, deckId, standalone, visible, refreshRevision]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const controller = new AbortController();
+    const { signal } = controller;
     let timer;
     let pollCount = 0;
+    let last = new Map();
+    const loaded = new Set();
     async function poll() {
+      let schedule = true;
       try {
-        const [data, queue] = await Promise.all([standalone ? getStandalonePrintJobs() : getPrintJobs(deckId),pollCount++ % 4 === 0 ? getPrintQueue(deckId) : null]);
-        if (initialJobId && !data.jobs.some(job => job.id === initialJobId)) {
-          // A persisted queue link can outlive the latest 50 history entries.
-          // Use the same owner-scoped route; never guess or recreate that job.
-          try {
-            const selected = standalone ? await getStandalonePrintJob(initialJobId) : await getPrintJob(deckId, initialJobId);
-            data.jobs = [selected.job, ...data.jobs];
-          } catch (err) {
-            if (!active) return;
-            setError(`The linked batch could not be opened: ${err.message}`);
-          }
-        }
-        if (!active) return;
-        setJobs(data.jobs);
-        if (queue) setConfirmationItems(queue.items);
+        const data = standalone ? await getStandalonePrintJobActivity(signal) : await getPrintJobActivity(deckId, signal);
+        if (signal.aborted) return;
+        const current = new Map(data.jobs.map(job => [job.id, job.updatedAt]));
+        const choices = new Set([focusedJobId, data.jobs[0]?.id].filter(Boolean));
+        if (activeView === 'batches' && last.size) choices.add(last.keys().next().value);
+        setActivity(data);
         setCapabilities(data.capabilities);
         setGenerator(data.generator);
         setConnectionError('');
         if (!data.capabilities.canQueue) setStation(null);
-        else if (pollCount % 4 === 1) {
-          // Setup information is optional; a restricted/offline station must not
-          // prevent a user from reviewing or downloading their PDFs.
-          getPrintStationStatus().then(result => { if (active) setStation(result.station); })
-            .catch(() => { if (active) setStation(null); });
+        else if (pollCount++ % 4 === 0) {
+          getPrintStationStatus(signal).then(result => { if (!signal.aborted) setStation(result.station); })
+            .catch(() => { if (!signal.aborted) setStation(null); });
         }
+        schedule = data.watching || !!data.generator?.updating;
+        if (activeView === 'batches') await Promise.all([...choices].map(async id => {
+          if (loaded.has(id) && current.get(id) === last.get(id)) return;
+          try {
+            const { job } = standalone ? await getStandalonePrintJob(id, signal) : await getPrintJob(deckId, id, signal);
+            if (signal.aborted) return;
+            loaded.add(id);
+            setJobs(old => mergePrintJobs(old, [job]));
+          } catch (err) {
+            if (!signal.aborted && id === focusedJobId) setConnectionError(`The linked batch could not be opened: ${err.message}`);
+            loaded.delete(id);
+          }
+        }));
+        last = current;
       } catch (err) {
-        if (active) setConnectionError(err.message);
+        if (!signal.aborted) setConnectionError(err.message);
       } finally {
-        if (active) timer = setTimeout(poll, 4000);
+        if (!signal.aborted && schedule) timer = setTimeout(poll, 4000);
       }
     }
     poll();
-    return () => { active = false; clearTimeout(timer); };
-  }, [deckId, standalone, initialJobId]);
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [activeView, deckId, standalone, focusedJobId, visible, refreshRevision]);
 
   function change(setter, value, keepReview = false) {
     if (requestRef.current) return;
@@ -472,16 +520,20 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     try {
       const result = standalone ? await action(job.id) : await action(deckId, job.id);
       setJobs(old => old.map(item => item.id === job.id ? result.job : item));
+      setRefreshRevision(value => value + 1);
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
   }
 
   async function download(artifact, job) {
+    setStartingDownload(artifact.downloadUrl);
     setError('');
     try {
       const name = artifact.packetIndex && artifact.packetCount ? `double-faced-packet-${artifact.packetIndex}-of-${artifact.packetCount}` : artifact.id;
       await downloadPrintArtifact(artifact.downloadUrl, `${job.deckName || deck?.deck_name || 'Print-list'}-${job.id.slice(0, 8)}-${name}.pdf`);
+      setNotice('Check your browser’s downloads for progress.');
     } catch (err) { setError(err.message); }
+    finally { setStartingDownload(null); }
   }
 
   async function downloadManifest(job) {
@@ -528,7 +580,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       {queueUnavailable && <p className="print-panel-meta">{queueUnavailable} You can download the PDFs.</p>}
       <div className="print-panel-actions">
         {job.state === 'ready' && canQueueBatch && <button className="btn btn-primary" type="button" disabled={busy || !!queueUnavailable} onClick={() => jobAction(standalone ? queueStandalonePrintJob : queuePrintJob, job)}>Send to Mac</button>}
-        {(job.artifacts || []).filter(a => a.downloadUrl).map(artifact => <button className="btn btn-secondary btn-sm" type="button" key={artifact.id} title={artifact.label || undefined} onClick={() => download(artifact, job)}>Download {artifactName(artifact)} PDF{artifact.kind === 'dfc' ? ' · fronts + backs' : ''}</button>)}
+        {(job.artifacts || []).filter(a => a.downloadUrl).map(artifact => <button className="btn btn-secondary btn-sm" type="button" key={artifact.id} title={artifact.label || undefined} disabled={!!startingDownload} onClick={() => download(artifact, job)}>{startingDownload === artifact.downloadUrl ? 'Starting download…' : `Download ${artifactName(artifact)} PDF${artifact.kind === 'dfc' ? ' · fronts + backs' : ''}`}</button>)}
         {job.manifestSha256 && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => recordPrintedProxies(job)}>Confirm usable copies</button>}
       </div>
       {recordError?.jobId === job.id && <p className="print-panel-error" role="alert">{recordError.message}</p>}
@@ -582,7 +634,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     </section>}
 
     <div className="print-prepare-view" hidden={activeView !== 'prepare'}>
-    {!!activeJobs.length && <div className="print-active-summary"><span>{activeJobs.length} active {activeJobs.length === 1 ? 'batch' : 'batches'} · {STATES[activeJobs[0].state] || activeJobs[0].state}</span><button type="button" className="print-text-button" onClick={() => setActiveView('batches')}>View batches</button></div>}
+    {!!activity.activeCount && <div className="print-active-summary"><span>{activity.activeCount} active {activity.activeCount === 1 ? 'batch' : 'batches'} · {STATES[activeJob.state] || activeJob.state}</span><button type="button" className="print-text-button" onClick={() => setActiveView('batches')}>View batches</button></div>}
     {editingSource && !creationPending && <form className="print-panel-card print-source" onSubmit={preview}>
       <h3>Choose cards</h3>
       {standalone ? <fieldset className="print-list-inputs" disabled={busy || creationPending}>
@@ -667,9 +719,12 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     <section className="print-batches-view" hidden={activeView !== 'batches'} aria-label={standalone ? 'Print-list batches' : 'This deck’s batches'}>
       <p className="print-panel-meta"><a href="#print-station">View all batches at the Printer</a></p>
       <div className="print-panel-heading"><div><h3>{standalone ? 'Print-list batches' : 'This deck’s batches'}</h3><p className="print-panel-meta">{standalone ? 'Batches created from card lists here. Deck batches remain in each deck’s Print tab.' : 'PDFs, printer progress and usable-copy confirmations for this deck.'}</p></div><button className="btn btn-secondary btn-sm" type="button" disabled={busy || creationPending} onClick={openPrepare}>{plan ? 'Return to review' : 'Prepare another batch'}</button></div>
+      <button className="btn btn-secondary btn-sm" type="button" onClick={() => setRefreshRevision(value => value + 1)}>Refresh batches</button>
+      {historyError && <p role="status">Batch history could not refresh: {historyError}</p>}
+      {confirmationError && <p role="status">ManaSync confirmation records could not refresh: {confirmationError}</p>}
       {prominentJob && <section className="print-panel-jobs" aria-label="Current print batch">{renderJob(prominentJob)}</section>}
       {!!historyJobs.length && <details className="print-history" open={!prominentJob || undefined}><summary>Other print batches ({historyJobs.length})</summary><div className="print-panel-jobs">{historyJobs.map(renderJob)}</div></details>}
-      {!jobs.length && <p>No batches yet. Prepare a list and review its artwork to get started.</p>}
+      {!jobs.length && (historyLoaded ? <p>No batches yet. Prepare a list and review its artwork to get started.</p> : !historyError && <p role="status">Loading print batches…</p>)}
     </section>
 
     <details className="print-help" aria-label="PDF generator status"><summary>{generator?.available ? 'PDF setup' : generator?.updating ? 'Preparing the PDF generator…' : 'PDF generator unavailable'}</summary>

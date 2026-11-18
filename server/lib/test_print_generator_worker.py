@@ -88,6 +88,26 @@ class DahlePunchTests(unittest.TestCase):
                 for slot in range(occupied):
                     self.check_image(page, slot, self.front_colors[slot])
 
+    def test_merge_keeps_order_and_exact_stream_bytes_without_publishing_an_invalid_output(self):
+        mixed = self.render("ordered", self.cards[:2], double_faced=True)
+        ordinary = self.render("another", [{key: value for key, value in self.cards[-1].items() if not key.startswith("back")}])
+        output = self.directory / "packets.pdf"
+        request = {"inputs": [str(mixed), str(ordinary)], "output": str(output), "pageCount": 3, **self.paper}
+        merge(request)
+        with PdfReader(mixed) as first, PdfReader(ordinary) as second, PdfReader(output) as merged:
+            self.assertEqual(merged.metadata.title, "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch")
+            for source, target in zip([*first.pages, *second.pages], merged.pages):
+                self.assertEqual(source.extract_text(), target.extract_text())
+                for name, image in source["/Resources"]["/XObject"].items():
+                    target_image = target["/Resources"]["/XObject"][name]
+                    self.assertEqual(image.get_object()["/Filter"], target_image["/Filter"])
+                    self.assertEqual(image.get_object()._data, target_image._data)
+        original = output.read_bytes()
+        with self.assertRaisesRegex(ValueError, "Expected 2 pages, got 3"):
+            merge({**request, "pageCount": 2})
+        self.assertEqual(output.read_bytes(), original)
+        self.assertEqual(list(self.directory.glob(".merge-*")), [])
+
     def test_mirrors_columns_for_upright_long_edge_backs_and_keeps_single_placement(self):
         cards = [dict(card) for card in self.cards[:5]]
         cards[0].pop("backPath")

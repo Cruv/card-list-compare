@@ -145,7 +145,11 @@ stale requests receive only that owner's current snapshot and cannot write. Unve
 requests are rejected, including from older open tabs. Network failures and queued local
 edits do not authorize rebasing a draft onto newer choices without explicit review.
 
-PDF plans, jobs, manifests and downloads require the owning user. Queue submission also
+PDF plans, jobs, manifests and downloads require the owning user. A PDF download starts
+with an authenticated request for the exact artifact, then the browser streams the
+attachment with a one-use, 60-second HttpOnly SameSite cookie scoped to the download URL.
+That URL contains an opaque ID. Redemption checks the session, job owner and artifact
+checksum before streaming. Private download responses forbid caching. Queue submission also
 requires administrator status or an explicit `PRINT_ALLOWED_USER_IDS` grant. A separate
 `PRINT_STATION_TOKEN` authenticates the station protocol; it cannot create jobs, change
 decks or act as a JWT. Use a separate random value of at least 32 characters, protect the

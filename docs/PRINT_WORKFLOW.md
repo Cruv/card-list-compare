@@ -627,7 +627,8 @@ fixtures and mocked transports; they do not send real Discord messages or print 
 
 ## Queue, access and retention
 
-PDF preparation and downloads require a user session and ownership. Physical queue access
+PDF preparation and downloads require a user session and ownership. The browser shows
+PDF transfer progress in its downloads list. Physical queue access
 requires a configured `PRINT_STATION_TOKEN` and either administrator status or a user ID in
 `PRINT_ALLOWED_USER_IDS`. The station credential is separate from JWT sessions and grants
 access only to authorized queued jobs and their reporting/download protocol. Rotate it on
@@ -641,6 +642,11 @@ lease expiry is not permission to repeat a physical submission. Interrupted or a
 submissions require reconciliation rather than blind retry. The deferred workflow can request cancellation of an exact native submission; the
 Mac uses its durable CUPS ID and requires physical paper clearance before releasing work.
 Legacy or ambiguous submissions still require explicit Mac reconciliation.
+
+The server checks each PDF's exact length and SHA-256 in a bounded background worker,
+then rechecks the file and the job before authorizing a print transition. Routine station
+polls renew the two-minute lease in its final minute. Submission intent, the spooler ID
+and later outcomes still commit with their event receipts.
 
 States distinguish preparing, ready, queued, claimed, submitting, submitted, awaiting
 refeed, backs pending, paper reset, cancellation clearance, completed, uncertain, failed,

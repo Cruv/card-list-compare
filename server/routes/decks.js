@@ -19,16 +19,19 @@ const router = Router();
 router.use(requireAuth);
 router.use('/import', deckImports);
 
+const deckSummary = `
+  SELECT d.*,
+    (SELECT MAX(s.created_at) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as latest_snapshot_at,
+    (SELECT COUNT(*) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as snapshot_count,
+    CASE WHEN d.source_type = 'manual' THEN 'Manual decks' WHEN o.source_type = 'linked' THEN 'Linked sources' ELSE o.archidekt_username END AS archidekt_username,
+    sdv.id as share_id
+  FROM tracked_decks d
+  JOIN tracked_owners o ON d.tracked_owner_id = o.id
+  LEFT JOIN shared_deck_views sdv ON sdv.tracked_deck_id = d.id
+`;
+
 router.get('/', (req, res) => {
-  const decks = all(`
-    SELECT d.*,
-      (SELECT MAX(s.created_at) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as latest_snapshot_at,
-      (SELECT COUNT(*) FROM deck_snapshots s WHERE s.tracked_deck_id = d.id) as snapshot_count,
-      CASE WHEN d.source_type = 'manual' THEN 'Manual decks' WHEN o.source_type = 'linked' THEN 'Linked sources' ELSE o.archidekt_username END AS archidekt_username,
-      sdv.id as share_id
-    FROM tracked_decks d
-    JOIN tracked_owners o ON d.tracked_owner_id = o.id
-    LEFT JOIN shared_deck_views sdv ON sdv.tracked_deck_id = d.id
+  const decks = all(`${deckSummary}
     WHERE d.user_id = ?
     ORDER BY d.pinned DESC, d.deck_name ASC
   `, [req.user.userId]);
@@ -359,7 +362,7 @@ router.get('/:id/prices', async (req, res) => {
 
   const snap = latestSnapshot(deck.id);
   if (!snap?.deck_text) {
-    return res.json({ totalPrice: 0, cards: [], previousPrice: deck.last_known_price });
+    return res.json({ snapshotId: snap?.id ?? null, totalPrice: 0, cards: [], previousPrice: deck.last_known_price });
   }
 
   try {
@@ -802,6 +805,19 @@ router.put('/:id/mpc-overrides', (req, res) => {
     return baseRevision + 1;
   });
   res.json({ saved: true, count: overrides.length, revision });
+});
+
+// Register after static library routes so names such as /overlap keep their routes.
+router.get('/:id', (req, res) => {
+  const id = requireIntParam(req, res, 'id');
+  if (id === null) return;
+
+  const deck = get(`${deckSummary} WHERE d.user_id = ? AND d.id = ?`, [req.user.userId, id]);
+  if (!deck) return res.status(404).json({ error: 'Tracked deck not found' });
+
+  deck.tags = all('SELECT tag FROM deck_tags WHERE tracked_deck_id = ? ORDER BY tag ASC', [id]).map(row => row.tag);
+  deck.source_sync = sourceSyncSummary(deck);
+  res.json({ deck });
 });
 
 export default router;

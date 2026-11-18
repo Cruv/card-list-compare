@@ -25,7 +25,7 @@ ENV NODE_ENV=production
 ENV DB_PATH=/app/data/cardlistcompare.db
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends nginx curl ca-certificates git python3 python3-venv passwd \
+  && apt-get install -y --no-install-recommends nginx curl ca-certificates git python3 python3-venv qpdf passwd \
   && rm -rf /var/lib/apt/lists/*
 
 # SCM source, validated environments and binary wheels persist under /app/data.

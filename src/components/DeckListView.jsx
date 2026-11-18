@@ -211,7 +211,7 @@ function DeckAnalytics({ parsedDeck, cardMap }) {
   );
 }
 
-function DeckSection({ sectionName, cards, cardMap, layout, onInspect }) {
+function DeckSection({ sectionName, cards, cardMap, layout, onInspect, metadataLoading }) {
   const cardArray = useMemo(() => {
     const arr = [];
     for (const [, entry] of cards) {
@@ -254,7 +254,7 @@ function DeckSection({ sectionName, cards, cardMap, layout, onInspect }) {
         cheapestPriceUsdFoil={bareData?.priceUsdFoil}
       />;
     if (layout !== 'gallery') return cardLine;
-    return <DeckGalleryTile key={cardIdentityKey(card)} card={card} imageUri={data?.imageUri} onInspect={onInspect}>{cardLine}</DeckGalleryTile>;
+    return <DeckGalleryTile key={cardIdentityKey(card)} card={card} imageUri={data?.imageUri} onInspect={onInspect} metadataLoading={metadataLoading}>{cardLine}</DeckGalleryTile>;
   }
 
   return (
@@ -277,13 +277,13 @@ function DeckSection({ sectionName, cards, cardMap, layout, onInspect }) {
   );
 }
 
-function DeckGalleryTile({ card, imageUri, onInspect, children }) {
+function DeckGalleryTile({ card, imageUri, onInspect, children, metadataLoading }) {
   const [failedUri, setFailedUri] = useState(null);
   const available = imageUri && failedUri !== imageUri;
   return <article className="deck-gallery-card">
     <button className="deck-gallery-art" type="button" onClick={event => { event.currentTarget.focus(); onInspect({ name: card.name, imageUri }); }}
       aria-label={`View ${card.name} artwork`} disabled={!available}>
-      {available ? <img src={imageUri} alt="" loading="lazy" onError={() => setFailedUri(imageUri)} /> : <span><Icon name="cards" size={32} />Artwork unavailable</span>}
+      {available ? <img src={imageUri} alt="" loading="lazy" onError={() => setFailedUri(imageUri)} /> : <span><Icon name="cards" size={32} />{!metadataLoading && 'Artwork unavailable'}</span>}
       <span className="deck-gallery-quantity">{card.quantity}×</span>
     </button>
     <div className="deck-gallery-card-caption">{children}</div>
@@ -339,7 +339,7 @@ function computeBudgetPrice(parsedDeck, cardMap) {
   return hasAnyPrice ? total : null;
 }
 
-export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, insights }) {
+export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, insights, metadataLoading = false }) {
   // Hooks must run unconditionally — see Rules of Hooks. Guard on the derived
   // values below, never with an early return before the hooks.
   const { priceDisplayEnabled } = useAppSettings();
@@ -393,6 +393,7 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, in
           <button className={layout === 'list' ? 'is-active' : ''} aria-pressed={layout === 'list'} onClick={() => setLayout('list')} type="button"><Icon name="library" size={16} /> List</button>
         </div>
       </div>
+      {metadataLoading && <p className="deck-list-search-summary" role="status">Loading artwork and card details…</p>}
       {query && <p className="deck-list-search-summary" role="status">{filteredMainboard.size + filteredSideboard.size} matching printing{filteredMainboard.size + filteredSideboard.size === 1 ? '' : 's'} · filtering this view only</p>}
       {commanders && commanders.length > 0 && (
         <div className="deck-list-commanders">
@@ -421,9 +422,9 @@ export default memo(function DeckListView({ parsedDeck, cardMap, searchQuery, in
         </div>
       )}
       {showAnalytics && <section className="deck-insights-panel">{insights}{cardMap && cardMap.size > 0 && <DeckAnalytics parsedDeck={parsedDeck} cardMap={cardMap} />}</section>}
-      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />
+      <DeckSection sectionName="Mainboard" cards={filteredMainboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} metadataLoading={metadataLoading} />
       {filteredMainboard.size === 0 && filteredSideboard.size === 0 && <p className="deck-list-no-results">{query ? 'No cards match this search.' : 'This saved version has no cards.'}</p>}
-      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} />}
+      {filteredSideboard.size > 0 && <DeckSection sectionName="Sideboard" cards={filteredSideboard} cardMap={cardMap} layout={layout} onInspect={setInspectedCard} metadataLoading={metadataLoading} />}
       {inspectedCard && <DeckCardDialog card={inspectedCard} onClose={() => setInspectedCard(null)} />}
     </div>
   );

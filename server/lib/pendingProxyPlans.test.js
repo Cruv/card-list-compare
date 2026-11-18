@@ -618,9 +618,14 @@ describe('bounded ManaSync synchronization',() => {
 
   it('throttles successful and failed owner bulk reads for sixty seconds without using a previous actor cache',async () => {
     await publish();vi.useFakeTimers({toFake:['Date']});const start=Date.now();
-    await plans.refreshPendingProxyPlans(1);await plans.refreshPendingProxyPlans(1);expect(bulkCalls()).toHaveLength(1);
-    await connect('actor-two');await plans.refreshPendingProxyPlans(1);expect(bulkCalls()).toHaveLength(2);
-    vi.setSystemTime(start+60001);
+    expect(await plans.refreshPendingProxyPlans(1)).toBe(new Date(start).toISOString());
+    vi.setSystemTime(start+1000);
+    expect(await plans.refreshPendingProxyPlans(1)).toBe(new Date(start).toISOString());
+    expect(bulkCalls()).toHaveLength(1);
+    await connect('actor-two');
+    expect(await plans.refreshPendingProxyPlans(1)).toBe(new Date(start+1000).toISOString());
+    expect(bulkCalls()).toHaveLength(2);
+    vi.setSystemTime(start+61001);
     fetch.mockImplementation((url,options)=>url.endsWith('/pending-proxies')?(requests.push({url,...options}),response({error:'Offline'},503)):fakeManaSync(url,options));
     await expect(plans.refreshPendingProxyPlans(1)).rejects.toMatchObject({status:503});
     await expect(plans.refreshPendingProxyPlans(1)).rejects.toMatchObject({status:503});expect(bulkCalls()).toHaveLength(3);

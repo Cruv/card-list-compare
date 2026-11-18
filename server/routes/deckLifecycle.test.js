@@ -178,6 +178,35 @@ describe('deck metadata patches', () => {
   });
 });
 
+describe('deck detail scope', () => {
+  it('returns only the requested deck with the same summary as the library', async () => {
+    snapshot('1 Sol Ring');
+    snapshot('1 Lightning Bolt');
+    db.run("INSERT INTO deck_tags (tracked_deck_id, tag) VALUES (1, 'main'), (2, 'unrelated')");
+    db.run("INSERT INTO shared_deck_views (id, tracked_deck_id, user_id) VALUES ('fixture', 1, 1)");
+
+    const response = await request('/api/decks/1');
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    const { decks } = await (await request('/api/decks')).json();
+    expect(data).toEqual({ deck: decks.find(deck => deck.id === 1) });
+    expect(data.deck).toMatchObject({
+      snapshot_count: 2, latest_snapshot_at: '2026-09-08 12:00:00', tags: ['main'], share_id: 'fixture',
+    });
+  });
+
+  it('returns the same 404 for another owner’s deck as for a nonexistent deck', async () => {
+    db.run("INSERT INTO users (username, password_hash) VALUES ('other', 'unused')");
+    db.run("INSERT INTO tracked_owners (user_id, archidekt_username) VALUES (2, 'other')");
+    db.run("INSERT INTO tracked_decks (id, user_id, tracked_owner_id, archidekt_deck_id, deck_name) VALUES (3, 2, 2, 3, 'Other deck')");
+    const other = await request('/api/decks/3');
+    const absent = await request('/api/decks/999');
+    expect(other.status).toBe(404);
+    expect(absent.status).toBe(404);
+    expect(await other.json()).toEqual(await absent.json());
+  });
+});
+
 describe('snapshot price refreshes', () => {
   const requestFetch = globalThis.fetch;
 

@@ -313,7 +313,7 @@ export async function refreshPendingProxyPlans(userId,scope = {}) {
     AND (? IS NULL OR i.deck_id=?) AND (? IS NULL OR i.print_job_id=?)
     AND p.account_id=? AND p.base_url=?`,[userId,deckId,deckId,printJobId,printJobId,connection.account_id,connection.base_url]);
   if (!rows.length) return;
-  const result = await cachedRemoteRead(connection,'/api/v1/pending-proxies');
+  const { result, refreshedAt } = await cachedRemoteRead(connection,'/api/v1/pending-proxies',{ withTimestamp:true });
   assertCurrentConnection(connection);
   if (!Array.isArray(result.items) || result.items.length > 100000) fail('ManaSync returned an invalid pending print collection.',502);
   const byId = new Map();
@@ -336,6 +336,7 @@ export async function refreshPendingProxyPlans(userId,scope = {}) {
         ['ManaSync did not return this pending print. The last known record is retained; refresh or inspect it before another quantity decision.',plan.item_id]);
     }
   });
+  return refreshedAt;
 }
 
 /** A deliberate new retry budget still reuses the original immutable publication. */
