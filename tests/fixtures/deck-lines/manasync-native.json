@@ -1,0 +1,55 @@
+{
+  "source": "manasync",
+  "description": "ManaSync's own exporters (deck library, visual editor, preconstructed decks): commented board headers, an upper-case set code with a bracketed collector number, *F* and *E* finish markers.",
+  "lines": [
+    {
+      "line": 2,
+      "quantity": 1,
+      "name": "Kenrith, the Returned King",
+      "setCode": "eld",
+      "collectorNumber": "303",
+      "finish": "nonfoil",
+      "section": "commander"
+    },
+    {
+      "line": 5,
+      "quantity": 1,
+      "name": "Sol Ring",
+      "setCode": "ltc",
+      "collectorNumber": "284",
+      "finish": "foil",
+      "section": "mainboard"
+    },
+    {
+      "line": 6,
+      "quantity": 1,
+      "name": "Arcane Signet",
+      "setCode": "ltc",
+      "collectorNumber": "285",
+      "finish": "etched",
+      "section": "mainboard",
+      "clc": {
+        "line": 6,
+        "unreadable": "etched"
+      }
+    },
+    {
+      "line": 7,
+      "quantity": 10,
+      "name": "Forest",
+      "setCode": "",
+      "collectorNumber": "",
+      "finish": "nonfoil",
+      "section": "mainboard"
+    },
+    {
+      "line": 10,
+      "quantity": 2,
+      "name": "Deflecting Palm",
+      "setCode": "c19",
+      "collectorNumber": "22",
+      "finish": "nonfoil",
+      "section": "sideboard"
+    }
+  ]
+}

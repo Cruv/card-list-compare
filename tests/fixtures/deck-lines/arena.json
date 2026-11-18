@@ -1,0 +1,33 @@
+{
+  "source": "arena",
+  "description": "MTG Arena export: an `About` block holding `Name <deck name>` precedes the card lines. The About block is metadata, not an unreadable card line.",
+  "lines": [
+    {
+      "line": 5,
+      "quantity": 4,
+      "name": "Monastery Swiftspear",
+      "setCode": "ktk",
+      "collectorNumber": "118",
+      "finish": "nonfoil",
+      "section": "mainboard"
+    },
+    {
+      "line": 6,
+      "quantity": 20,
+      "name": "Mountain",
+      "setCode": "unf",
+      "collectorNumber": "244",
+      "finish": "nonfoil",
+      "section": "mainboard"
+    },
+    {
+      "line": 9,
+      "quantity": 2,
+      "name": "Smash to Smithereens",
+      "setCode": "shm",
+      "collectorNumber": "76",
+      "finish": "nonfoil",
+      "section": "sideboard"
+    }
+  ]
+}

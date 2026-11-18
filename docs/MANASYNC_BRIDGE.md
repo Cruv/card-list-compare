@@ -6,22 +6,18 @@ accounts, database, and secrets. An explicit user-granted connection maps each a
 ## Source checkouts and paired verification
 
 The ManaSync repository was supplied on 2026-09-11:
-[dennysparking/manasync](https://github.com/dennysparking/manasync). The paired source
-work uses ManaSync `codex/clc-bridge-verification`, based on `main` at `ef22e79`, and
-[Cruv/card-list-compare](https://github.com/Cruv/card-list-compare), branch
-`codex/project-audit-print-workflow`, at `b520c5c` (CLC v2.48.1). CLC PR #5 is integrated
-into that branch; it is not a direction to use the older `feature/manasync-bridge` checkout
-or an exported source archive. Integration work, merging CLC to `main`, and deployment are
-separate steps. Current verification results are recorded in [MANASYNC_REVIEW.md](MANASYNC_REVIEW.md).
-CLC v2.48.1 adds deck-creation/proposal size compatibility alongside ManaSync's etched-finish
-safeguards. The tested ManaSync code and verification harness are committed together at
-`9658bbd`; the complete paired record identifies both repositories' tested revisions.
+[dennysparking/manasync](https://github.com/dennysparking/manasync). Current CLC source lives on
+[`main`](https://github.com/Cruv/card-list-compare). The historical paired verification used CLC
+`b520c5c` (v2.48.1) for deck-creation/proposal size compatibility and ManaSync
+`codex/clc-bridge-verification` at `9658bbd` for the source resolver, verification harness, and
+etched-finish safeguards. The [paired verification record](MANASYNC_REVIEW.md) identifies both
+tested revisions.
 
 For a new working directory, clone the two repositories as siblings:
 
 ```sh
 git clone --branch codex/clc-bridge-verification https://github.com/dennysparking/manasync.git
-git clone --branch codex/project-audit-print-workflow https://github.com/Cruv/card-list-compare.git
+git clone --branch main https://github.com/Cruv/card-list-compare.git
 cd manasync
 export CLC_SOURCE_PATH="$(cd ../card-list-compare && pwd)"
 npm ci
@@ -118,6 +114,26 @@ account token was still required. No production collection connection or invento
 was created by visual QA. Hosted ManaSync currently uses manual personal tokens, not an
 OAuth/pairing flow; the guide reflects that actual contract.
 
+### The two tokens, and which app holds which
+
+The bridge is two independent one-way connections. Each application issues one token, holds
+the other application's token, and can revoke either side alone. They are never interchangeable:
+each is rejected by the other app's routes.
+
+| | **Outbound: CLC → ManaSync** | **Inbound: ManaSync → CLC** |
+| --- | --- | --- |
+| Issued by | ManaSync (its API tokens screen) | CLC (Settings → integration access) |
+| Held by | CLC, in `manasync_connections.token_cipher` | ManaSync, in its encrypted credential store |
+| Scopes | exactly `inventory:read` + `proxies:write` — a token carrying anything else is refused at connect time | `decks:read`, plus `decks:propose` to send edits for review, plus `decks:create` only for immediate deck creation and provider-source tracking |
+| Used for | ownership/shortage reads, `POST /api/v1/inventory/commands`, proxy artwork upload, pending-plan publish and confirm | `GET /api/integrations/v1/context` and `/decks`, `POST /decks`, `/decks/track-source`, proposals |
+| Storage | AES-256-GCM under `.manasync-bridge-key` beside `DB_PATH`, or `MANASYNC_BRIDGE_KEY` | AES-256-GCM under ManaSync's `ENCRYPTION_KEY` |
+| Revoking it | CLC stops reading ownership and stops delivering confirmations; saved confirmations wait for a reconnect of the **same** account | ManaSync stops importing decks and marks the connection `needs_auth` with a Reconnect action |
+
+Rotating a token within the same account is safe: pending work is pinned to the account and
+backend, not to the token string. Connecting a **different** account leaves existing saved work
+untouched and refuses to deliver it through the replacement — reconnect the original account, or
+reconcile each confirmation's receipt.
+
 ## Ownership and buying originals
 
 After **Review print list** in the Print tab or standalone print lists, the selected print list
@@ -200,9 +216,32 @@ Disconnected confirmations stay in CLC and can later be explicitly reported to t
 Each connected increment freezes its UUID, exact command, card metadata, destination, original
 encrypted token, account, and backend. Known printing/oracle IDs are preserved. A lost response
 retries identical bytes with the original actor. Only a valid ManaSync receipt marks it reported;
-its lot identity is retained. Transport/server errors retry with backoff, capped at six automatic
-attempts; **Retry original operation** uses the same UUID after that. Authentication problems
-request reconnection, malformed/scope failures stay visible, and conflicts require review.
+its lot identity is retained. Before recording a manual confirmation, CLC checks the destination
+against the shared short-lived ManaSync location cache. During a temporary outage it can use
+the last saved locations for that same connection.
+
+Every confirmation that has not been recorded carries a status, the reason behind it, and
+whether a person can retry it:
+
+| Status | Meaning | Retry |
+| --- | --- | --- |
+| `local` | Saved with no connection; never submitted. | Attach it to a connection (**bind**) instead. |
+| `pending` | Transport or server error; retrying automatically with backoff. | Automatic, up to six attempts. |
+| `gave_up` | The automatic attempts are exhausted. | **Retry original operation** — the same UUID, and the automatic budget starts over. |
+| `reconnect` | ManaSync rejected the token (401). | Reconnect the original account, then retry. |
+| `blocked` | ManaSync refused permission for the saved token (403). | Restore access for that token or inspect the receipt using the original account. |
+| `rejected` | ManaSync refused the request itself (other 4xx). | Review the error before retrying the same request. |
+| `review` | A conflict (409) or a changed connection; delivery is uncertain. | Inspect the receipt and holding first. |
+
+A retry returns the saved operation and its current delivery state. Manual records reserve the
+copies in all saved confirmations. Native plans hold further confirmations while an earlier
+decision is pending, blocked, needs the original token, or has exhausted automatic attempts.
+Revision checks protect new native decisions after a rejected or stale one.
+
+CLC removes cancelled manual items older than 90 days when they have no saved operation or
+published plan. `MANASYNC_PRINT_RETENTION_DAYS` changes this interval, and `0` disables pruning.
+CLC retains native batches, artwork, and all confirmation receipts for recovery and holding
+corrections. Holdings remain in ManaSync.
 
 If the connection changes, old increments stop delivering. **Inspect receipt and holding** uses
 the current token to read the same account's historical receipt for the original actor and
@@ -251,6 +290,19 @@ confirmations without a print-manifest attachment keep their normal card artwork
 version without the artwork/pending endpoints leaves the batch waiting with an update
 message; CLC never silently discards the art or changes its operation ID. Native pending
 decisions require a connection to the originally selected account and backend.
+
+## Reading decks from CLC
+
+`GET /api/integrations/v1/context` answers what this token may do — `capabilities`
+(`proposals`, `deckCreation`, `sourceLinks`, `sourceTracking`) plus its `scopes`, `instanceId`
+and `accountId`. Ask it before offering an action; it never lists decks.
+
+`GET /api/integrations/v1/decks` returns every deck with **every** snapshot: its exact text,
+hash and parsed cards. `GET /api/integrations/v1/decks?include=latest` returns the same decks
+and markers but only the current and paper snapshots, with their IDs, text and hashes and
+without the parsed cards — the response echoes `include: "latest"`. That is what a collection
+mirror keeps, and it is the listing ManaSync polls; an older CLC ignores the parameter and
+returns the full listing, which reads identically.
 
 ## Validation
 

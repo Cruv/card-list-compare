@@ -20,6 +20,24 @@ beforeEach(async () => {
 });
 afterEach(() => { vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true }); });
 
+describe('exact printing cache keys', () => {
+  it('keeps existing keys and stores marked collectors and their faces separately', () => {
+    expect(cache.buildCacheKey('M10', 'DDO-20', 'back')).toBe('m10_DDO-20_back.png');
+    const collectors = ['17', '17★', '17†', '17‡'];
+    writeFileSync(join(dir, 'm10_17.png'), 'legacy unmarked printing');
+    for (const collector of collectors.slice(1)) {
+      expect(cache.getCachedImage('m10', collector)).toBeNull();
+      cache.cacheImage('m10', collector, null, Buffer.from(`${collector} front`));
+      cache.cacheImage('m10', collector, 'back', Buffer.from(`${collector} back`));
+    }
+    expect(cache.getCachedImage('m10', '17')).toEqual(Buffer.from('legacy unmarked printing'));
+    for (const collector of collectors.slice(1)) {
+      expect(cache.getCachedImage('m10', collector)).toEqual(Buffer.from(`${collector} front`));
+      expect(cache.getCachedImage('m10', collector, 'back')).toEqual(Buffer.from(`${collector} back`));
+    }
+  });
+});
+
 describe('bounded disk cache reads', () => {
   it('rejects oversized exact-printing and name-cache files before reading them into memory', () => {
     for (const filename of [cache.buildCacheKey('m10', '146'), cache.buildNameCacheKey('Lightning Bolt')]) {

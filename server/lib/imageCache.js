@@ -36,7 +36,9 @@ export function getCacheDir() {
 export function buildCacheKey(set, collector, face) {
   if (set && collector) {
     const s = set.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const c = String(collector).replace(/[^a-zA-Z0-9_-]/g, '');
+    // Keep existing ASCII keys. Escape other characters so a marked collector
+    // number cannot read or overwrite an unmarked printing's cache entry.
+    const c = String(collector).replace(/[^a-zA-Z0-9_-]/gu, char => `~${char.codePointAt(0).toString(16)}~`);
     const suffix = face ? `_${face}` : '';
     return `${s}_${c}${suffix}.png`;
   }

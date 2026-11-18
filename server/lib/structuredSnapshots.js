@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { parseLine } from '../../src/lib/parser.js';
-import { COMMANDER_HEADER, MAINBOARD_HEADER, SIDEBOARD_HEADER, COMMENT_LINE } from '../../src/lib/constants.js';
+import { COMMANDER_HEADER, MAINBOARD_HEADER, SIDEBOARD_HEADER, COMMENT_LINE, COMMENT_PREFIX,
+  MAYBEBOARD_HEADER, ABOUT_HEADER } from '../../src/lib/constants.js';
 import { all, get } from '../db.js';
 import { trackedDeckSourceLink, sourceTrackingState } from './deckSources.js';
 
@@ -16,12 +17,20 @@ export function structuredCards(text) {
   const cards = [];
   const unresolvedLines = [];
   const sourceLines = text.split(/\r?\n/);
-  const hasExplicitCommander = sourceLines.some(line => COMMANDER_HEADER.test(line.trim()));
+  const heading = line => line.trim().replace(COMMENT_PREFIX, '');
+  const hasExplicitCommander = sourceLines.some(line => COMMANDER_HEADER.test(heading(line)));
   let section = 'mainboard';
   let sectionHasCards = false;
   let seenExplicitSideboard = false;
+  let skipping = false;
   for (const [index, rawLine] of sourceLines.entries()) {
     const line = rawLine.trim();
+    const header = heading(line);
+    if (COMMANDER_HEADER.test(header)) { section = 'commander'; sectionHasCards = false; skipping = false; continue; }
+    if (MAINBOARD_HEADER.test(header)) { section = 'mainboard'; sectionHasCards = false; skipping = false; continue; }
+    if (SIDEBOARD_HEADER.test(header)) { section = 'sideboard'; seenExplicitSideboard = true; sectionHasCards = false; skipping = false; continue; }
+    if (MAYBEBOARD_HEADER.test(header) || ABOUT_HEADER.test(header)) { skipping = true; continue; }
+    if (skipping) continue;
     if (!line) {
       // CLC's Archidekt converter ends the commander block with a blank line.
       // A blank directly after the heading still permits its first commander.
@@ -30,9 +39,6 @@ export function structuredCards(text) {
       sectionHasCards = false;
       continue;
     }
-    if (COMMANDER_HEADER.test(line)) { section = 'commander'; sectionHasCards = false; continue; }
-    if (MAINBOARD_HEADER.test(line)) { section = 'mainboard'; sectionHasCards = false; continue; }
-    if (SIDEBOARD_HEADER.test(line) || /^#\s*sideboard\s*$/i.test(line)) { section = 'sideboard'; seenExplicitSideboard = true; sectionHasCards = false; continue; }
     if (COMMENT_LINE.test(line)) continue;
     // Other explicit headings belong to the saved text, not fabricated cards.
     if (/^\[.+\]$|^[\w\s]+:$/.test(line)) {
@@ -56,24 +62,37 @@ export function structuredCards(text) {
   return { cards, unresolvedLines };
 }
 
-export function serializeSnapshot(snapshot, latestId, paperId) {
+export function serializeSnapshot(snapshot, latestId, paperId, { cards = true } = {}) {
   const proposal = snapshot.origin_proposal_id
     ? get('SELECT id, operation_id FROM deck_proposals WHERE id = ?', [snapshot.origin_proposal_id]) : null;
   return { id: String(snapshot.id), deckId: String(snapshot.tracked_deck_id),
     deckText: snapshot.deck_text, textHash: textHash(snapshot.deck_text),
     isLatest: snapshot.id === latestId, isPaper: snapshot.id === paperId,
     createdAt: snapshot.created_at, nickname: snapshot.nickname,
-    ...structuredCards(snapshot.deck_text),
+    // Parsing every historical snapshot costs more than the whole listing; an integrator
+    // asking for the current state gets the exact text and its hash, and parses if it wants.
+    ...(cards ? structuredCards(snapshot.deck_text) : {}),
     origin: proposal ? { source: 'manasync', proposalId: proposal.id, operationId: proposal.operation_id } : null };
 }
 
-export function serializeDeck(deck) {
-  const snapshots = all('SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC', [deck.id]);
+/**
+ * `include: 'latest'` serializes only the two snapshots a mirror keeps — the current list and
+ * the paper one — with their IDs, text and hashes, and without parsed cards. Every other field
+ * of the deck is unchanged, so a client written against the full listing reads it identically.
+ */
+export function serializeDeck(deck, { include } = {}) {
+  const latestOnly = include === 'latest';
+  const paperRow = !latestOnly || deck.paper_snapshot_id == null ? null
+    : get('SELECT * FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?', [deck.paper_snapshot_id, deck.id]);
+  const latest = latestOnly ? latestSnapshot(deck.id) : null;
+  const snapshots = latestOnly
+    ? [latest, paperRow?.id !== latest?.id ? paperRow : null].filter(Boolean)
+    : all('SELECT * FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC', [deck.id]);
   const latestId = snapshots[0]?.id ?? null;
-  const paperId = snapshots.find(snapshot => snapshot.id === deck.paper_snapshot_id)?.id ?? null;
+  const paperId = latestOnly ? paperRow?.id ?? null : snapshots.find(snapshot => snapshot.id === deck.paper_snapshot_id)?.id ?? null;
   return { id: String(deck.id), name: deck.deck_name, url: deck.deck_url, sourceLink: trackedDeckSourceLink(deck),
     sourceTracking: sourceTrackingState(deck.user_id, deck.id),
     latestSnapshotId: latestId === null ? null : String(latestId),
     paperSnapshotId: paperId === null ? null : String(paperId),
-    snapshots: snapshots.map(snapshot => serializeSnapshot(snapshot, latestId, paperId)) };
+    snapshots: snapshots.map(snapshot => serializeSnapshot(snapshot, latestId, paperId, { cards: !latestOnly })) };
 }

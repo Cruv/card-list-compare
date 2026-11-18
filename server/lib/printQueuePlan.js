@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { parse, parseLine } from '../../src/lib/parser.js';
+import { parse, parseLine, deckTextIncompatibilities } from '../../src/lib/parser.js';
 import { COMMENT_LINE, MAINBOARD_HEADER, SIDEBOARD_HEADER, COMMANDER_HEADER } from '../../src/lib/constants.js';
 import { printCardKey, isBasicLand } from '../../src/lib/printSelection.js';
 import { normalizeCardName, normalizedName } from '../../src/lib/cardIdentity.js';
@@ -17,8 +17,12 @@ export function printError(message, status = 400) { return Object.assign(new Err
 const identity = card => `${normalizeCardName(card.displayName)}|${(card.setCode || '').toLowerCase()}|${String(card.collectorNumber || '').toLowerCase()}`;
 const hasPrinting = card => !!(card.setCode || card.collectorNumber);
 
-function entries(text, includeSideboard) {
+function entries(text, includeSideboard, label) {
   const deck = parse(text);
+  if (deck.problems.length) {
+    const [problem] = includeSideboard ? deck.problems : deckTextIncompatibilities(text, { includeSideboard });
+    if (problem) throw printError(`${label} line ${problem.line} uses the unsupported etched finish (*E*).`);
+  }
   const result = new Map();
   for (const card of [...deck.mainboard.values(), ...(includeSideboard ? deck.sideboard.values() : [])]) {
     if (!Number.isSafeInteger(card.quantity) || card.quantity < 1) throw printError(`Invalid copy count for ${card.displayName}`);
@@ -31,8 +35,8 @@ function entries(text, includeSideboard) {
 
 /** Physical copies aggregate zones and ignore foil (home printing cannot reproduce it). */
 export function planPhysicalCopies(targetText, baselineText, { includeSideboard = false, replacePrintings = true, maxCopies = MAX_PRINT_COPIES } = {}) {
-  const target = entries(targetText, includeSideboard);
-  const baseline = entries(baselineText || '', includeSideboard);
+  const target = entries(targetText, includeSideboard, 'Target list');
+  const baseline = entries(baselineText || '', includeSideboard, 'Baseline list');
   const remaining = [...target.values()].map(card => ({ ...card }));
   // Preserve exact existing copies before spending unspecified/name-only counts.
   for (const card of remaining) {
@@ -169,6 +173,8 @@ function validateStandalonePrintText(text, label = 'Print-list') {
   // Reuse the parser for CSV rows as well as plain card lines. The ordinary
   // parser tolerates invalid rows; a print request must never silently omit one.
   const csv = lines.length > 1 && lines[0].includes(',') && /quantity|count|name|card/i.test(lines[0]);
+  const [problem] = csv ? [] : deckTextIncompatibilities(text);
+  if (problem) throw printError(`${label} line ${problem.line} uses the unsupported etched finish (*E*).`);
   const csvHeader = csv && lines[0].split(',').map(field => field.trim().replace(/^"|"$/g, '').toLowerCase());
   if (csv && !csvHeader.some(field => ['name', 'card', 'card name', 'cardname'].includes(field))) {
     throw printError('CSV print lists need a Name or Card column');

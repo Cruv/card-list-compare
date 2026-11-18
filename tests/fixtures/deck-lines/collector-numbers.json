@@ -1,0 +1,60 @@
+{
+  "source": "mixed",
+  "description": "The collector-number charset: bracketed and bare, hyphenated, a lower-case suffix, and the star and dagger promo marks that real printings carry.",
+  "lines": [
+    {
+      "line": 1,
+      "quantity": 1,
+      "name": "Sol Ring",
+      "setCode": "ltc",
+      "collectorNumber": "284",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 2,
+      "quantity": 1,
+      "name": "Sol Ring",
+      "setCode": "ltc",
+      "collectorNumber": "284",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 3,
+      "quantity": 1,
+      "name": "Fblthp, the Lost",
+      "setCode": "ddo",
+      "collectorNumber": "DDO-20",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 4,
+      "quantity": 1,
+      "name": "Serra Angel",
+      "setCode": "5dn",
+      "collectorNumber": "17★",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 5,
+      "quantity": 1,
+      "name": "Serra Angel",
+      "setCode": "5dn",
+      "collectorNumber": "17★",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 6,
+      "quantity": 1,
+      "name": "Nazgûl",
+      "setCode": "ltr",
+      "collectorNumber": "336p",
+      "finish": "nonfoil",
+      "section": null
+    }
+  ]
+}

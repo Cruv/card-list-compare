@@ -162,7 +162,7 @@ describe('saving print artwork to the current deck', () => {
     { scryfallId: 'fixture-other' },
     { printingDetails: { paper: false, language: 'en', setCode: 'plst', collectorNumber: 'M10-146' } },
     { printingDetails: { paper: true, language: 'ja', setCode: 'plst', collectorNumber: 'M10-146' } },
-    { printingDetails: { paper: true, language: 'en', setCode: 'plst', collectorNumber: '146★' } },
+    { printingDetails: { paper: true, language: 'en', setCode: 'plst', collectorNumber: '146!' } },
   ])('rejects a selected printing that fails validation (%j)', async invalid => {
     services.fetchCardImageUrls.mockImplementationOnce(async cards => {
       const [oldPrinting, newPrinting] = lookup(cards);
@@ -170,6 +170,16 @@ describe('saving print artwork to the current deck', () => {
     });
     expect((await submit(reviewed())).status).toBe(422);
     expect(db.all('SELECT id FROM deck_snapshots WHERE tracked_deck_id = 1')).toEqual([{ id: 1 }]);
+  });
+
+  it('preserves a supported promo collector mark when saving the exact printing', async () => {
+    services.fetchCardImageUrls.mockImplementationOnce(async cards => lookup(cards, { collectorNumber: '146★' }));
+    const response = await submit(reviewed());
+    expect(response.status).toBe(201);
+    const { snapshot, selectionKey } = await response.json();
+    expect(selectionKey).toBe(printCardKey({ name: 'Lightning Bolt', setCode: 'plst', collectorNumber: '146★' }));
+    expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [snapshot.id]).deck_text).toBe('1 Lightning Bolt (plst) [146★]');
+    expect((await preview()).cards).toEqual([expect.objectContaining({ setCode: 'plst', collectorNumber: '146★' })]);
   });
 
   it('keeps the existing version when the selected printing is already present', async () => {

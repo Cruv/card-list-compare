@@ -53,7 +53,8 @@ async function fakeManaSync(url,options) {
     if (failure === 'unsupported') return response({error:'Unsupported'},404);
     if (options.method === 'PUT') {
       const body = JSON.parse(options.body);
-      expect(assetHashes.has(body.card.proxyArtwork.front.split('/').at(-1))).toBe(true);
+      // A queue item whose artwork was never retained publishes a plain card.
+      if (body.card.proxyArtwork) expect(assetHashes.has(body.card.proxyArtwork.front.split('/').at(-1))).toBe(true);
       if (!pending.has(id)) pending.set(id,{id,...body,confirmedQuantity:0,dismissedQuantity:0,remainingQuantity:body.quantity,
         status:'pending',revision:1,confirmations:[],createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
       if (failure === 'create-lost') { failure = null; throw new Error('Create response lost'); }
@@ -188,6 +189,32 @@ describe('native pending proxy plans',() => {
     expect(db.get('SELECT create_payload FROM manasync_pending_proxy_plans').create_payload).toBe(original);
   });
 
+  it('publishes a plan for an item without retained artwork instead of recording a raw TypeError',async () => {
+    await connect();
+    const item = bridge.queueItem(1,{id:randomUUID(),card:{name:'Sol Ring'},quantity:2});
+    db.run("INSERT INTO manasync_pending_proxy_plans(item_id,user_id,status,created_at) VALUES(?,1,'local',?)",
+      [item.id,new Date().toISOString()]);
+    await plans.syncPendingProxy(1,item.id,true);
+    const row = db.get('SELECT * FROM manasync_pending_proxy_plans WHERE item_id=?',[item.id]);
+    expect(row.last_error).toBeNull();
+    expect(row.status).toBe('published');
+    expect(JSON.parse(row.remote_json)).toMatchObject({quantity:2,remainingQuantity:2,status:'pending'});
+  });
+  it('reports an unreadable plan in words rather than a JavaScript error message',async () => {
+    await connect();
+    const item = bridge.queueItem(1,{id:randomUUID(),card:{name:'Sol Ring'},quantity:1});
+    db.run("INSERT INTO manasync_pending_proxy_plans(item_id,user_id,status,created_at) VALUES(?,1,'local',?)",
+      [item.id,new Date().toISOString()]);
+    const original = fetch.getMockImplementation();
+    vi.stubGlobal('fetch',vi.fn(async (url,options) => options.method === 'PUT' && url.includes('/pending-proxies/')
+      ? response({pending:{id:item.id,source:'clc',sourceRef:null,quantity:1,status:'pending',revision:1,confirmations:[null],
+        confirmedQuantity:0,dismissedQuantity:0,remainingQuantity:1}})
+      : original(url,options)));
+    await plans.syncPendingProxy(1,item.id,true);
+    const row = db.get('SELECT * FROM manasync_pending_proxy_plans WHERE item_id=?',[item.id]);
+    expect(row.last_error).toMatch(/pending print plan/);
+    expect(row.last_error).not.toMatch(/TypeError|undefined/);
+  });
   it('automatically stages ready PDFs disconnected, then publishes actual art without acquiring stock',async () => {
     await plans.processPendingProxyPlans();
     const item = first();
@@ -283,7 +310,7 @@ describe('native pending proxy plans',() => {
     await publish(); failure = 'confirm-lost';
     const original = await confirm(1);
     await connect('actor-two');
-    await bridge.reportOperation(1,original.id,true);
+    await expect(bridge.reportOperation(1,original.id,true)).rejects.toMatchObject({status:409});
     expect(first().operations[0].status).toBe('reconnect');
     await plans.refreshPendingProxyPlans(1);
     expect(first().operations[0].status).toBe('reported');
@@ -291,6 +318,24 @@ describe('native pending proxy plans',() => {
     expect((await confirm(2)).status).toBe('reported');
     const deliveries = requests.filter(request => request.url.endsWith('/confirm'));
     expect(deliveries.map(request => request.headers.Authorization)).toEqual(['Bearer actor-one','Bearer actor-two']);
+  });
+
+  it('keeps a permission-blocked decision visible and retries the original bytes with the original token',async () => {
+    await publish();
+    fetch.mockImplementation((url,options) => url.endsWith('/confirm')
+      ? response({error:'Permission denied'},403) : fakeManaSync(url,options));
+    const operation = await confirm(1);
+    expect(operation).toMatchObject({status:'blocked',reason:'permission',canRetry:true});
+    expect(first().pendingProxy.actionPending).toBe(true);
+    await expect(confirm(1)).rejects.toThrow('outstanding quantity decision');
+    const saved = db.get('SELECT payload_json FROM manasync_print_operations WHERE id=?',[operation.id]);
+    fetch.mockImplementation(fakeManaSync);
+    await bridge.processPending();
+    expect(receipts.size).toBe(0);
+    await bridge.reportOperation(1,operation.id,true);
+    expect(requests.find(request => request.url.endsWith('/confirm')).body).toBe(saved.payload_json);
+    expect(first().operations[0]).toMatchObject({status:'reported',attempts:1,canRetry:false});
+    expect(first().pendingProxy.actionPending).toBe(false);
   });
 
   it('resolves a lost create with a replacement actor using the same account and immutable payload',async () => {

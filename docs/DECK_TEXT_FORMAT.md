@@ -26,14 +26,16 @@ disagree, the tests win.
 | bare `COLLECTOR` | Unbracketed collector number, **only valid directly after a set code** — Arena/Archidekt style | `(C20) 215` |
 | `*F*` or trailing `F` | Foil marker; exports emit `*F*` | `*F*`, `(sld) [731] F` |
 
-Collector numbers are alphanumeric with hyphens (promos: `136p`, `DDO-20`, `2022-3`).
+Collector numbers accept letters, digits, underscores, hyphens, and the promo marks `★`, `†`, and `‡`.
 
 Structure lines (defined in `src/lib/constants.js`):
 
-- Section headers: `Sideboard`/`SB`, `Mainboard`/`Main`/`Deck`, `Commander`/`Commanders`/`Command Zone` (optional trailing `:` or `.`); Archidekt's `# Sideboard` is also recognized
-- Trailing commander tags: `(Commander)` and `[Commander{top}]` (also `[Commander]`)
+- Board headers include `Sideboard`/`SB`, `Mainboard`/`Main`/`Deck`, and `Commander`/`Commanders`/`Command Zone`. They accept an optional trailing `:` or `.` and an optional `#` or `//` prefix.
+- Trailing commander tags include `(Commander)`, `[Commander]`, `[Commander{top}]`, and `*CMDR*`.
+- Trailing Archidekt categories and color flags and Moxfield tags are stripped before card parsing.
+- The comparison parser skips Maybeboard and Arena About blocks until the next board header.
 - `SB:` line prefix marks a single card as sideboard
-- Comments: lines starting with `//` or `#`, except the `# Sideboard` header
+- Other lines starting with `//` or `#` are comments.
 - CSV fallback: `4,Lightning Bolt` (quantity, name — no metadata)
 
 A blank line ends a populated Commander section and returns to the mainboard.
@@ -72,7 +74,7 @@ Native collection management has been removed in favor of ManaSync; the shared
 parser remains the contract for deck import and enrichment.
 
 ```
-/^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w-]+)\]|\s+([\w-]+))?)?(\s+\*F\*)?\s*$/i
+/^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]+)\)(?:\s+\[([\w★†‡-]+)\]|\s+([\w★†‡-]+))?)?(\s+(?:\*F\*|F))?\s*$/i
 ```
 
 | Group | Captures |
@@ -112,11 +114,15 @@ pinned in `src/lib/invariants.test.js` and exercised by enrichment tests in
 {
   mainboard: Map<key, entry>,
   sideboard: Map<key, entry>,
-  commanders: string[],        // flat array of display names — NOT entry objects
+  commanders: string[],        // flat array of display names
+  problems: Array<{ line: number, raw: string, code: string, reason: string }>,
 }
 ```
 
-Each entry is exactly:
+The parser reports `*E*` as an unsupported etched finish and excludes the affected line.
+The shared [ManaSync deck-line fixtures](../tests/fixtures/deck-lines/) exercise the interchange grammar.
+
+Each entry has the following fields.
 
 ```js
 {

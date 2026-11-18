@@ -37,4 +37,12 @@ describe('structured snapshot board boundaries', () => {
     expect(result.cards.map(row => row.section)).toEqual(['commander','mainboard','sideboard','sideboard']);
     expect(result.unresolvedLines).toEqual([]);
   });
+
+  it('recognizes commented board headings and keeps non-deck sections out of structured cards', () => {
+    const result = structuredCards('About\nName A Deck\n# Commander\n1 Partner\n\n// Deck\n1 Sol Ring\n# Maybeboard\n1 Considered Card\n# Sideboard\n1 Dispel');
+    expect(result.cards.map(({ name, section, lineNumber }) => [name, section, lineNumber])).toEqual([
+      ['Partner', 'commander', 4], ['Sol Ring', 'mainboard', 7], ['Dispel', 'sideboard', 11],
+    ]);
+    expect(result.unresolvedLines).toEqual([]);
+  });
 });

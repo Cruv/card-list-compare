@@ -1,0 +1,51 @@
+{
+  "source": "archidekt",
+  "description": "Archidekt text export: a bare collector number followed by a `[Category{flags}]` bracket and a `^Have,#colour^` flag group. Every one of these lines used to be handed to the catalog as a single long card name.",
+  "lines": [
+    {
+      "line": 1,
+      "quantity": 1,
+      "name": "Kenrith, the Returned King",
+      "setCode": "eld",
+      "collectorNumber": "303",
+      "finish": "nonfoil",
+      "section": "commander"
+    },
+    {
+      "line": 2,
+      "quantity": 1,
+      "name": "Sol Ring",
+      "setCode": "ltc",
+      "collectorNumber": "284",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 3,
+      "quantity": 1,
+      "name": "Command Tower",
+      "setCode": "ltc",
+      "collectorNumber": "302",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 4,
+      "quantity": 9,
+      "name": "Forest",
+      "setCode": "unf",
+      "collectorNumber": "235",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 5,
+      "quantity": 1,
+      "name": "Lim-Dûl's Vault",
+      "setCode": "c20",
+      "collectorNumber": "190",
+      "finish": "nonfoil",
+      "section": null
+    }
+  ]
+}

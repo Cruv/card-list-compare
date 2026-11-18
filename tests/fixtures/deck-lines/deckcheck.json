@@ -1,0 +1,33 @@
+{
+  "source": "deckcheck",
+  "description": "Deckcheck-style inline `(Commander)` tag rather than a command-zone header.",
+  "lines": [
+    {
+      "line": 1,
+      "quantity": 1,
+      "name": "Kenrith, the Returned King",
+      "setCode": "eld",
+      "collectorNumber": "303",
+      "finish": "nonfoil",
+      "section": "commander"
+    },
+    {
+      "line": 2,
+      "quantity": 1,
+      "name": "Sol Ring",
+      "setCode": "ltc",
+      "collectorNumber": "284",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 3,
+      "quantity": 4,
+      "name": "Forest",
+      "setCode": "",
+      "collectorNumber": "",
+      "finish": "nonfoil",
+      "section": null
+    }
+  ]
+}

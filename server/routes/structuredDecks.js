@@ -16,9 +16,15 @@ function context(req) {
 }
 
 router.get('/context', requireIntegration('decks:read'), (req, res) => res.json(context(req)));
+// Default: every snapshot of every deck with its text and parsed cards — the full history an
+// archiver wants. `?include=latest`: the current and paper snapshots only, with their IDs,
+// text and hashes, which is all a collection mirror keeps and is O(decks) instead of
+// O(snapshots) of text plus a deck-text parse each.
 router.get('/decks', requireIntegration('decks:read'), (req, res) => {
-  const decks = all('SELECT * FROM tracked_decks WHERE user_id = ? ORDER BY id', [req.user.userId]).map(serializeDeck);
-  res.json({ ...context(req), decks });
+  const include = req.query?.include === 'latest' ? 'latest' : undefined;
+  const decks = all('SELECT * FROM tracked_decks WHERE user_id = ? ORDER BY id', [req.user.userId])
+    .map(deck => serializeDeck(deck, { include }));
+  res.json({ ...context(req), ...(include ? { include } : {}), decks });
 });
 router.post('/decks', requireIntegration('decks:create'), (req, res, next) => {
   try {

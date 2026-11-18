@@ -105,6 +105,7 @@ describe('deck proposals', () => {
     { name: 'inline commander designation', before: '1 Test Commander\n1 Sol Ring', after: '1 Test Commander\n1 New Commander (Commander)', expected: ['New Commander'] },
     { name: 'removal of the latest explicit commander', before: 'Commander\n1 Test Commander\nMainboard\n1 Sol Ring', after: 'Mainboard\n1 Test Commander\n1 Sol Ring', expected: [] },
     { name: 'an explicitly empty command zone', before: '1 Test Commander\n1 Sol Ring', after: 'Commander\nMainboard\n1 Test Commander\n1 Sol Ring', expected: [] },
+    { name: 'an explicitly empty commented command zone', before: '1 Test Commander\n1 Sol Ring', after: '# Commander\n# Mainboard\n1 Test Commander\n1 Sol Ring', expected: [] },
     { name: 'manual metadata on an untagged draft', before: '1 Test Commander\n1 Sol Ring', after: '1 Test Commander\n2 Sol Ring', expected: ['Test Commander'] },
   ])('respects $name when accepting reviewed text', ({ before, after, expected }) => {
     const latestId = addSnapshot(before);

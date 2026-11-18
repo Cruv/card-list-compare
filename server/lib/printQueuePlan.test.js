@@ -41,6 +41,15 @@ describe('physical print copy planning', () => {
     expect(() => planPhysicalCopies('251 Sol Ring')).toThrow('at most 250');
     expect(planPhysicalCopies('1000 Sol Ring', '999 Sol Ring')[0].quantity).toBe(1);
   });
+  it('names unsupported etched rows before generating incomplete PDFs', () => {
+    const etched = '1 Sol Ring (LTC) [284] *E* #Utility';
+    expect(() => planPhysicalCopies('1 Island\n' + etched)).toThrow(/Target list line 2.*etched/);
+    expect(() => planPhysicalCopies('1 Island', etched)).toThrow(/Baseline list line 1.*etched/);
+    expect(planPhysicalCopies('1 Island\nSideboard\n' + etched)).toHaveLength(1);
+    expect(() => planPhysicalCopies('1 Island\nSideboard\n' + etched, '', { includeSideboard: true })).toThrow(/Target list line 3.*etched/);
+    expect(planPhysicalCopies('1 Island\nMaybeboard\n' + etched)).toHaveLength(1);
+  });
+
 });
 
 describe('resolved artwork review', () => {

@@ -19,11 +19,13 @@ it('rejects missing lists, unsupported finishes and malformed quantities instead
   for (const data of [{}, { boards: {} }, { boards: { mainboard: {} } }, { boards: { unknown: { cards: {} } } }]) expect(() => moxfieldSource(data)).toThrow();
   for (const data of [{}, { cards: { Island: 0 } }, { cards: { Island: 1.5 } }, { cards: { 'Fake\n1 Card': 1 } }]) expect(() => deckcheckSource(data)).toThrow();
 });
-it.each(['123★', '123/456', '123.4', '123[4', '123\\4'])('rejects collector %s before the shared parser can lose its identity', collector => {
+it.each(['123/456', '123.4', '123[4', '123\\4'])('rejects collector %s before the shared parser can lose its identity', collector => {
   const data = mox(); data.boards.mainboard.cards.b.card.cn = collector;
   expect(() => moxfieldSource(data)).toThrow(expect.objectContaining({ code: 'incomplete_source' }));
 });
-it.each(['136p', 'DDO-20', '2022-3', 'A_12'])('preserves supported collector %s through the shared parser', collector => {
+// 123★ and 48† are in the A7.1 grammar's collector charset, the same one ManaSync's shared/deck-text.ts
+// uses, so the round-trip guard above keeps them rather than refusing them.
+it.each(['136p', 'DDO-20', '2022-3', 'A_12', '123★', '48†'])('preserves supported collector %s through the shared parser', collector => {
   const data = mox(); data.boards.mainboard.cards.b.card.cn = collector;
   const parsed = parse(moxfieldSource(data).rawText);
   const island = [...parsed.mainboard.values()].find(card => card.displayName === 'Island');

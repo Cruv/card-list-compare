@@ -1,0 +1,4 @@
+1 Sol Ring (LTC) 284 *F* #Ramp
+1 Arcane Signet (LTC) 285 #Ramp #Artifacts
+1 Command Tower (LTC) 302
+1 Duress (M19) 94 #Interaction

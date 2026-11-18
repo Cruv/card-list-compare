@@ -63,6 +63,19 @@ describe('rewriteDeckPrinting()', () => {
 });
 
 describe('rewriteDeckPrintings()', () => {
+  it('preserves provider decorations and excludes Maybeboard lines when saving artwork', () => {
+    const text = [
+      '# Commander',
+      '1x Sol Ring (ltc) 284 [Commander{top}] ^Have,#7289da^',
+      '# Maybeboard',
+      '1x Sol Ring (ltc) 284 [Artifact]',
+    ].join('\r\n');
+    const updated = rewriteDeckPrintings(text, [{ selectionKey: printCardKey({ displayName: 'Sol Ring', setCode: 'ltc', collectorNumber: '284' }), setCode: 'CMM', collectorNumber: '410' }]);
+    expect(updated).toBe(text.replace('284 [Commander', '410 [Commander').replace('(ltc) 410', '(CMM) 410'));
+    expect(parse(updated).commanders).toEqual(['Sol Ring']);
+    expect([...parse(updated).mainboard.values()]).toMatchObject([{ displayName: 'Sol Ring', collectorNumber: '410' }]);
+  });
+
   const bolt = (setCode, collectorNumber) => printCardKey({ displayName: 'Lightning Bolt', setCode, collectorNumber });
   const swaps = [
     { selectionKey: bolt('m10', '146'), setCode: 'm11', collectorNumber: '149' },

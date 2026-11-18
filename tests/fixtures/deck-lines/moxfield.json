@@ -1,0 +1,42 @@
+{
+  "source": "moxfield",
+  "description": "Moxfield text export with tags: `#Tag` groups trail the finish marker, so both the finish and the printing match have to survive them.",
+  "lines": [
+    {
+      "line": 1,
+      "quantity": 1,
+      "name": "Sol Ring",
+      "setCode": "ltc",
+      "collectorNumber": "284",
+      "finish": "foil",
+      "section": null
+    },
+    {
+      "line": 2,
+      "quantity": 1,
+      "name": "Arcane Signet",
+      "setCode": "ltc",
+      "collectorNumber": "285",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 3,
+      "quantity": 1,
+      "name": "Command Tower",
+      "setCode": "ltc",
+      "collectorNumber": "302",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 4,
+      "quantity": 1,
+      "name": "Duress",
+      "setCode": "m19",
+      "collectorNumber": "94",
+      "finish": "nonfoil",
+      "section": null
+    }
+  ]
+}

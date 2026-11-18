@@ -805,13 +805,13 @@ a source snapshot does not rewrite a frozen print job.
 
 The actual companion source is [dennysparking/manasync](https://github.com/dennysparking/manasync),
 supplied on 2026-09-11. For local paired verification use separate clones and explicitly set
-`CLC_SOURCE_PATH` to the integrated `codex/project-audit-print-workflow` CLC checkout.
+`CLC_SOURCE_PATH` to the CLC `main` checkout being tested.
 It selects ManaSync's harness imports/processes and Compose build context; it does not
 configure either running app's API URL. The old `companions/clc` path remains only a fallback.
 See [source selection and disposable verification](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification)
 for install/build commands and database isolation. Record both tested revisions. A passing
-HTTP/browser harness neither deploys these branches nor validates physical printer/cutter
-behavior; a CLC `main` merge and production activation require their own release steps.
+HTTP/browser harness exercises the selected source revisions. Production activation and physical
+printer and cutter acceptance have their own procedures.
 
 Large ManaSync deck transfers use a scoped transport exception: each creation `deckText`,
 proposal `baseText`, `proposedText` or revised `reviewedText` field can contain 500,000

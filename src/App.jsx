@@ -30,9 +30,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.63.0';
+const APP_VERSION = '2.64.0';
 const WHATS_NEW = [
-  'Print nine 63×88 mm cards on A4 with strip-cut guides for the Dahle 550 and a manual R3 punch',
+  'Recognize more deck exports from ManaSync, Archidekt, Moxfield, and Arena',
+  'See why a print confirmation stopped and retry it after correcting the issue',
 ];
 
 function getResetToken() {
@@ -130,7 +131,7 @@ export default function App() {
     const before = parse(beforeText);
     const after = parse(afterText);
     const diff = computeDiff(before, after);
-    setComparedLists({ diff, beforeText, afterText });
+    setComparedLists({ diff, beforeText, afterText, beforeProblems: before.problems, afterProblems: after.problems });
     setCardMap(null);
 
     // Fetch card data in the background (non-blocking)
@@ -286,6 +287,12 @@ export default function App() {
         {diffResult && <>
           {(beforeText !== comparedLists.beforeText || afterText !== comparedLists.afterText) &&
             <p role="status">These results use your last comparison. Compare again to use the edited lists for printing or export.</p>}
+          {(comparedLists.beforeProblems.length > 0 || comparedLists.afterProblems.length > 0) &&
+            <p role="status">This comparison omits unsupported etched cards from {[
+              ['Before', comparedLists.beforeProblems],
+              ['After', comparedLists.afterProblems],
+            ].filter(([, problems]) => problems.length).map(([label, problems]) =>
+              `${label} (${problems.length} ${problems.length === 1 ? 'line' : 'lines'}, first on line ${problems[0].line})`).join(' and ')}.</p>}
           <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
         </>}
       </ErrorBoundary>

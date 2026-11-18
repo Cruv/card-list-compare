@@ -3,7 +3,7 @@ import { get, all, run, transaction } from '../db.js';
 import { latestSnapshot, textHash } from './structuredSnapshots.js';
 import { pruneSnapshots } from './pruneSnapshots.js';
 import { parse } from '../../src/lib/parser.js';
-import { COMMANDER_HEADER } from '../../src/lib/constants.js';
+import { COMMANDER_HEADER, COMMENT_PREFIX } from '../../src/lib/constants.js';
 import { validProposalText } from './proposalLimits.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,7 +43,7 @@ function basisAvailable(row, latest) {
 
 function updateReviewedCommanders(deckId, resultText, latestText) {
   const commanders = parse(resultText).commanders;
-  const hasCommanderHeading = resultText.split(/\r?\n/).some(line => COMMANDER_HEADER.test(line));
+  const hasCommanderHeading = resultText.split(/\r?\n/).some(line => COMMANDER_HEADER.test(line.replace(COMMENT_PREFIX, '')));
   // Explicit reviewed commander information replaces the deck metadata, including
   // removal from a previously tagged latest or an explicitly empty command zone.
   // Untagged lists keep manually assigned commanders, as manual snapshots do.

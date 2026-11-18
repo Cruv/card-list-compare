@@ -1,0 +1,42 @@
+{
+  "source": "mixed",
+  "description": "Names that arrive decomposed (macOS pastes, some provider exporters) or with typographic apostrophes. Both parsers compose to NFC and fold the quote; neither folds Æ or a ligature, which would rename a real card.",
+  "lines": [
+    {
+      "line": 1,
+      "quantity": 1,
+      "name": "Lim-Dül's Vault",
+      "setCode": "c20",
+      "collectorNumber": "190",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 2,
+      "quantity": 1,
+      "name": "Séance",
+      "setCode": "isd",
+      "collectorNumber": "63",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 3,
+      "quantity": 1,
+      "name": "Jötun Grunt",
+      "setCode": "csp",
+      "collectorNumber": "11",
+      "finish": "nonfoil",
+      "section": null
+    },
+    {
+      "line": 4,
+      "quantity": 1,
+      "name": "Æther Vial",
+      "setCode": "dst",
+      "collectorNumber": "91",
+      "finish": "nonfoil",
+      "section": null
+    }
+  ]
+}

@@ -196,6 +196,8 @@ it('treats formatting as equivalent but keeps effective boards, commander, quant
   expect(key(localText)).not.toBe(key(`${baseText}\n\n1 Island (DMU) [265]`));
   expect(key('1 Sol Ring (CMM) 396\n\n1 Sol Ring (LCC) 313'))
     .not.toBe(key('1 Sol Ring (LCC) 313\n\n1 Sol Ring (CMM) 396'));
+  expect(key('Commander\n1 Partner\nMainboard\n1 Sol Ring\nSideboard\n1 Dispel'))
+    .toBe(key('# Commander\n1 Partner\n// Mainboard\n1 Sol Ring\n# Sideboard\n1 Dispel'));
   expect(key(baseText)).not.toBe(key(`Commander\n${baseText}`));
   expect(key(baseText)).not.toBe(key(`${baseText} *F*`));
   expect(key(baseText)).not.toBe(key('1 Sol Ring (LCC) [396]'));

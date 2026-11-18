@@ -347,12 +347,10 @@ ManaSync owns collection holdings, purchases, proxies, and physical locations. O
 Collection access and deck access are separate directions. The optional **Let ManaSync use your CLC decks** section creates a CLC token to paste into ManaSync’s **More → Connected apps**. Deck reads are the default; proposals and immediate deck creation remain explicit grants. A CLC deck token cannot substitute for the ManaSync collection token.
 
 ManaSync is available in [dennysparking/manasync](https://github.com/dennysparking/manasync).
-Current paired verification uses ManaSync `codex/clc-bridge-verification` and CLC
-`codex/project-audit-print-workflow`. Exact tested revisions are in the verification record.
-Use separate clones and set
-`CLC_SOURCE_PATH` to this integrated CLC checkout for ManaSync's harness/Compose build;
-the old nested `companions/clc` path is only a compatibility fallback. Selecting or testing
-these sources does not merge CLC into `main` or deploy either app.
+Use CLC `main` with the ManaSync verification checkout described in the
+[paired setup](docs/MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification).
+Set `CLC_SOURCE_PATH` to the separate CLC checkout for ManaSync's harness and Compose build.
+The [verification record](docs/MANASYNC_REVIEW.md) lists the historical tested revisions.
 The v2.48.1 follow-up aligns large deck-creation/proposal text and transport limits and rejects unsupported
 etched transfers visibly while preserving ManaSync's local decks, drafts and exports.
 

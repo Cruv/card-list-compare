@@ -1,7 +1,7 @@
 # ManaSync deck access and review
 
 Use the actual [ManaSync repository](https://github.com/dennysparking/manasync) with CLC's
-integrated `codex/project-audit-print-workflow` checkout. Source selection and disposable
+`main` checkout. Source selection and disposable
 paired checks are documented in [MANASYNC_BRIDGE.md](MANASYNC_BRIDGE.md#source-checkouts-and-paired-verification).
 The older companion feature-branch/archive paths are historical, not a second API contract.
 

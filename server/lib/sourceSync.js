@@ -4,8 +4,9 @@ import { fetchDeck } from './archidekt.js';
 import { archidektToText } from './deckToText.js';
 import { enrichDeckText } from './enrichDeckText.js';
 import { pruneSnapshots } from './pruneSnapshots.js';
-import { parse } from '../../src/lib/parser.js';
-import { COMMANDER_HEADER, MAINBOARD_HEADER, SIDEBOARD_HEADER } from '../../src/lib/constants.js';
+import { parse, sectionedLines } from '../../src/lib/parser.js';
+import { COMMANDER_HEADER, MAINBOARD_HEADER, SIDEBOARD_HEADER, MAYBEBOARD_HEADER,
+  ABOUT_HEADER, COMMENT_LINE, COMMENT_PREFIX } from '../../src/lib/constants.js';
 import { trackedDeckSourceLink, sourceTrackingState, recordSourceTrackingStatus, sourceFailureMessage } from './deckSources.js';
 import { fetchTrackedProviderSource } from './trackedProviderSource.js';
 
@@ -21,28 +22,23 @@ const normalize = value => value.normalize('NFC').trim().replace(/[‘’′]/g,
 export function sourceTextKey(text) {
   if (text === null) return null;
   const { cards, unresolvedLines } = structuredCards(text);
-  // Match splitSections' legacy blank-line behavior per line, including which
-  // printing belongs to each board when a card name appears in both boards.
-  let target = 'mainboard', seen = false, explicitSideboard = false;
-  const content = { mainboard: 0, sideboard: 0, commander: 0 };
-  const effectiveSections = text.split(/\r?\n/).map(line => {
-    const trimmed = line.trim();
-    if (COMMANDER_HEADER.test(trimmed)) target = 'commander';
-    else if (SIDEBOARD_HEADER.test(trimmed)) { target = 'sideboard'; explicitSideboard = true; }
-    else if (MAINBOARD_HEADER.test(trimmed)) target = 'mainboard';
-    else if (!trimmed) {
-      if (seen && !explicitSideboard && target === 'mainboard' && content.mainboard) target = 'sideboard';
-      else if (target === 'commander' && content.commander) target = 'mainboard';
-    } else { seen = true; content[target]++; }
-    return target;
-  });
+  const lines = text.split(/\r?\n/);
+  // Preserve which printing belongs to each board even when the same name appears twice.
+  const effectiveSections = new Map();
+  for (const {index,section} of sectionedLines(lines)) {
+    effectiveSections.set(index, section === 'main' ? 'mainboard' : section);
+  }
   const counts = new Map();
   for (const card of cards) {
-    const key = JSON.stringify([normalize(card.name), card.section, effectiveSections[card.lineNumber - 1], card.setCode.toLowerCase(), card.collectorNumber, card.finish]);
+    const key = JSON.stringify([normalize(card.name), card.section, effectiveSections.get(card.lineNumber - 1), card.setCode.toLowerCase(), card.collectorNumber, card.finish]);
     counts.set(key, (counts.get(key) || 0) + card.quantity);
   }
-  const notes = [...unresolvedLines.map(line => normalize(line.rawLine)),
-    ...text.split(/\r?\n/).filter(line => /^\s*(\/\/|#)/.test(line)).map(normalize)];
+  const notes = unresolvedLines.map(line => normalize(line.rawLine));
+  for (const line of lines) {
+    if (!COMMENT_LINE.test(line)) continue;
+    const label = line.replace(COMMENT_PREFIX, '');
+    if (![COMMANDER_HEADER, MAINBOARD_HEADER, SIDEBOARD_HEADER, MAYBEBOARD_HEADER, ABOUT_HEADER].some(pattern => pattern.test(label))) notes.push(normalize(line));
+  }
   // Legacy CLC accepts a blank separator as an implicit sideboard. Its parser
   // may merge printings, so retain both this effective board membership and the
   // per-line printing identities above; neither representation alone is enough.
@@ -240,7 +236,7 @@ export function reviewSource(userId, deckId, input) {
       resultSnapshotId = String(run('INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,?)',
         [deckId, text, action === 'source' ? 'Reviewed Archidekt source' : 'Reviewed source merge']).lastInsertRowid);
       const commanders = parse(text).commanders;
-      const hasCommanderHeading = text.split(/\r?\n/).some(line => COMMANDER_HEADER.test(line));
+      const hasCommanderHeading = text.split(/\r?\n/).some(line => COMMANDER_HEADER.test(line.replace(COMMENT_PREFIX, '')));
       // Match deckProposals.updateReviewedCommanders: untagged source/merge
       // lists preserve manual metadata; explicit commander edits replace it.
       if (commanders.length || hasCommanderHeading || parse(state.currentText || '').commanders.length) {

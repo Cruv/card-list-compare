@@ -1,0 +1,40 @@
+{
+  "source": "mixed",
+  "description": "Lines that carry no usable card. The two apps still differ on two of them, and the differences are recorded here rather than left to be discovered in production.",
+  "lines": [
+    {
+      "line": 1,
+      "unreadable": "quantity",
+      "clc": {
+        "line": 1,
+        "quantity": 1,
+        "name": "Sol Ring (LTC) [284]",
+        "setCode": "",
+        "collectorNumber": "",
+        "finish": "nonfoil",
+        "section": null
+      }
+    },
+    {
+      "line": 2,
+      "unreadable": "count"
+    },
+    {
+      "line": 3,
+      "unreadable": "quantity"
+    },
+    {
+      "line": 4,
+      "unreadable": "count",
+      "clc": {
+        "line": 4,
+        "quantity": 1000001,
+        "name": "Island",
+        "setCode": "",
+        "collectorNumber": "",
+        "finish": "nonfoil",
+        "section": null
+      }
+    }
+  ]
+}

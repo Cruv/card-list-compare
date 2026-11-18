@@ -46,6 +46,13 @@ describe('raw deck identities for ownership and physical print reporting', () =>
     }
   });
 
+  it('recognizes commented ManaSync headings and ignores Arena metadata', () => {
+    const cards = deckBridgeLines('About\nName Fixture\n# Commander\n1 Partner\n# Deck\n1 Island\n# Maybeboard\n1 Negate');
+    expect(cards.map(row => [row.section, row.card.name])).toEqual([
+      ['commander','Partner'], ['mainboard','Island'], ['maybeboard','Negate'],
+    ]);
+  });
+
   it('recognizes the Archidekt comment-style sideboard header before skipping comments', () => {
     const cards = deckBridgeLines('Commander\n1 Partner\n\n1 Sol Ring\n# Sideboard\n2 Negate\n# Notes\n1 Dispel');
     expect(cards.map(row => row.section)).toEqual(['commander','mainboard','sideboard','sideboard']);
