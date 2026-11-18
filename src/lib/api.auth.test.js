@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { changePassword, createShare, getMe, login } from './api';
+import { changePassword, createShare, getMe, login, updateEmail } from './api';
+import { createAuthSession, installBrowserAuthSession } from './authSession';
 
 beforeEach(() => {
   vi.stubGlobal('localStorage', { getItem: vi.fn(() => 'existing-credential'), removeItem: vi.fn() });
@@ -63,5 +64,21 @@ describe('account validation credential handling', () => {
     expect(guest.headers).not.toHaveProperty('Authorization');
     expect(JSON.parse(owner.body)).toMatchObject({ beforeText, afterText });
     expect(guest.body).toBe(owner.body);
+  });
+
+  it('blocks a stale account write while allowing explicit validation and login', async () => {
+    const session = createAuthSession(localStorage);
+    session.activate(session.observe(), 1);
+    const remove = installBrowserAuthSession(session);
+    try {
+      localStorage.getItem.mockReturnValue('replacement-credential');
+      await expect(updateEmail('fixture@example.invalid')).rejects.toThrow('Your sign-in changed');
+      expect(fetch).not.toHaveBeenCalled();
+      fetch.mockImplementation(async () => Response.json({ user: { id: 2 } }));
+      await getMe('replacement-credential');
+      await login('fixture-b', 'DisposablePassword1!');
+      expect(fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer replacement-credential');
+      expect(fetch.mock.calls[1][1].headers).not.toHaveProperty('Authorization');
+    } finally { remove(); }
   });
 });

@@ -99,11 +99,12 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
   function applyImport() {
     if (!review?.accepted.length || review.baseline !== value) return;
     const text = review.text;
-    const restore = onApplyImport ? onApplyImport(text) : () => onChange(value);
+    const rejectedPaste = text === value && review.replacedText === '' && review.skipped.length > 0;
+    const restore = rejectedPaste ? () => true : onApplyImport ? onApplyImport(text) : () => onChange(value);
     if (!restore) return;
-    if (!onApplyImport) onChange(text);
+    if (!rejectedPaste && !onApplyImport) onChange(text);
     setUndoImport({ applied: text, restore, importedList });
-    setImportedList(review.site && (review.replacedText === undefined || review.replacedText === value) ? { text, site: review.site } : null);
+    if (!rejectedPaste) setImportedList(review.site && (review.replacedText === undefined || review.replacedText === value) ? { text, site: review.site } : null);
     setReview(null);
     textRef.current?.focus();
   }

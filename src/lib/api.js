@@ -1,3 +1,5 @@
+import { AUTH_TOKEN_KEY, getBrowserAuthToken as getToken, getStoredAuthToken } from './authSession.js';
+
 const API_BASE = '/api';
 
 // Incoming Discord commands use a separate signed application connection.
@@ -7,11 +9,8 @@ export const registerDiscordPrintBotCommands = botToken => apiFetch('/print-stat
 export const disconnectDiscordPrintBot = () => apiFetch('/print-station-management/discord-bot/disconnect', { method: 'POST', body: '{}' });
 const DEFAULT_TIMEOUT = 15_000; // 15 seconds
 
-function getToken() {
-  return localStorage.getItem('clc-auth-token');
-}
-
-async function apiFetch(path, { sessionToken: token = getToken(), ...options } = {}) {
+async function apiFetch(path, { sessionToken, ...options } = {}) {
+  const token = sessionToken === undefined ? getToken(!!options.method && options.method !== 'GET') : sessionToken;
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -51,8 +50,8 @@ async function apiFetch(path, { sessionToken: token = getToken(), ...options } =
 
   if (!res.ok) {
     const invalidSession = res.status === 401 && data.code === 'SESSION_INVALID';
-    if (invalidSession && token && getToken() === token) {
-      localStorage.removeItem('clc-auth-token');
+    if (invalidSession && token && !callerSignal?.aborted && getStoredAuthToken() === token) {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
       window.dispatchEvent(new Event('auth-expired'));
     }
     const error = new Error(invalidSession ? 'Session expired. Please log in again.' : data.error || `Request failed: ${res.status}`);
@@ -68,12 +67,12 @@ async function apiFetch(path, { sessionToken: token = getToken(), ...options } =
 export const createLibraryDeck = body => apiFetch('/decks/import', { method: 'POST', body: JSON.stringify(body), timeout: 60_000 });
 
 export const register = (username, password, inviteCode) =>
-  apiFetch('/auth/register', { method: 'POST', body: JSON.stringify({ username, password, inviteCode: inviteCode || undefined }) });
+  apiFetch('/auth/register', { sessionToken: null, method: 'POST', body: JSON.stringify({ username, password, inviteCode: inviteCode || undefined }) });
 
 export const login = (username, password) =>
-  apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
+  apiFetch('/auth/login', { sessionToken: null, method: 'POST', body: JSON.stringify({ username, password }) });
 
-export const getMe = () => apiFetch('/auth/me');
+export const getMe = (sessionToken, signal) => apiFetch('/auth/me', { sessionToken, signal });
 
 export const changePassword = (currentPassword, newPassword, sessionToken) =>
   apiFetch('/auth/change-password', { sessionToken, method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
@@ -82,18 +81,18 @@ export const updateEmail = (email) =>
   apiFetch('/auth/email', { method: 'PUT', body: JSON.stringify({ email }) });
 
 export const forgotPassword = (email) =>
-  apiFetch('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+  apiFetch('/auth/forgot-password', { sessionToken: null, method: 'POST', body: JSON.stringify({ email }) });
 
 export const resetPassword = (token, newPassword) =>
-  apiFetch('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, newPassword }) });
+  apiFetch('/auth/reset-password', { sessionToken: null, method: 'POST', body: JSON.stringify({ token, newPassword }) });
 
-export const deleteAccount = (confirmUsername) =>
-  apiFetch('/auth/account', { method: 'DELETE', body: JSON.stringify({ confirmUsername }) });
+export const deleteAccount = (confirmUsername, sessionToken) =>
+  apiFetch('/auth/account', { sessionToken, method: 'DELETE', body: JSON.stringify({ confirmUsername }) });
 
 export const getEmailConfigured = () => apiFetch('/auth/email-configured');
 
 export const verifyEmail = (token) =>
-  apiFetch('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) });
+  apiFetch('/auth/verify-email', { sessionToken: null, method: 'POST', body: JSON.stringify({ token }) });
 
 export const resendVerification = () =>
   apiFetch('/auth/resend-verification', { method: 'POST' });

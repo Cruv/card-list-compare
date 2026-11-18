@@ -1,4 +1,5 @@
 import { integrationApi } from './integrationApi';
+import { getBrowserAuthToken } from './authSession';
 import { createOperationId } from './operationId';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -134,7 +135,7 @@ export function isDefiniteProposalRejection(error) {
 }
 
 export async function proposalReviewRequest(userId, deckId, operation, isActive = () => true, canDispatch = () => true) {
-  const token = localStorage.getItem('clc-auth-token');
+  const token = getBrowserAuthToken(true);
   if (!token) throw new Error('Sign in to review this deck.');
   const headers = { Authorization: `Bearer ${token}` };
   const identity = await integrationApi('/auth/me', { headers });

@@ -1,5 +1,10 @@
 # Current work checkpoint
 
+## v2.65.1 audit follow-up
+
+- v2.65.2 fixes the three findings from `569367b`. The [audit follow-up](ROADMAP.md#v2651-audit-follow-up) records the reproductions and verification. Earlier roadmap items remain separate.
+- Browser fixtures check exact draft bytes, compact print polling, and shared sign-in state. Household activation and physical acceptance require separate authorization.
+
 ## Final v2.65.0 audit follow-up
 
 - v2.65.1 fixes the five findings from `c0f95ae`. The [audit follow-up](ROADMAP.md#final-v2650-audit-follow-up) records the failures and evidence. The earlier roadmap items remain separate.

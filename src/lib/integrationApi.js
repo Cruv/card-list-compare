@@ -1,7 +1,10 @@
+import { getBrowserAuthToken } from './authSession.js';
+
 export async function integrationApi(path, options = {}) {
+  const authorization = options.headers?.Authorization ?? `Bearer ${getBrowserAuthToken(!!options.method && options.method !== 'GET') || ''}`;
   const response = await fetch(`/api${path}`, {
     ...options,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('clc-auth-token') || ''}`, ...options.headers },
+    headers: { 'Content-Type': 'application/json', Authorization: authorization, ...options.headers },
     signal: AbortSignal.timeout(15000),
   });
   const data = await response.json().catch(() => ({}));

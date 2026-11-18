@@ -399,6 +399,16 @@ function rawTextareaOffset(text, offset) {
   return offset;
 }
 
+function splitsExistingPrinting(draft, prefix, suffix, replacedText, insertion) {
+  if (!insertion.includes('\n') || replacedText.includes('\n')) return false;
+  const before = prefix.slice(prefix.lastIndexOf('\n') + 1);
+  const [after] = suffix.split(/\r?\n/, 1);
+  if (!before.trim() || !after.trim()) return false;
+  const line = prefix.split('\n').length;
+  const row = inspectImportRows(draft, false).accepted.find(card => card.line === line);
+  return Boolean(row && (row.setCode || row.collectorNumber || row.isFoil));
+}
+
 /** Review a textarea paste without writing outside the selected range. */
 export function inspectDeckPaste(draft, pasted, selectionStart, selectionEnd) {
   const start = rawTextareaOffset(draft, selectionStart);
@@ -446,9 +456,18 @@ export function inspectDeckPaste(draft, pasted, selectionStart, selectionEnd) {
     keptFrom = range.end;
   }
   kept.push(candidate.slice(keptFrom, pasteEnd));
-  const text = prefix + kept.join('') + suffix;
+  const insertion = kept.join('');
+  const replacedText = draft.slice(start, end);
+  const splitsPrinting = skipped.length > 0 && splitsExistingPrinting(draft, prefix, suffix, replacedText, insertion);
+  if (splitsPrinting) {
+    for (const raw of insertion.split(/\r?\n/)) {
+      if (raw.trim()) skipped.push({ raw, reason: 'Would split an existing card printing. Paste at a line boundary or select the whole card row.' });
+    }
+  }
+  const keepDraft = skipped.length > 0 && (!insertion.trim() || splitsPrinting);
+  const text = keepDraft ? draft : prefix + insertion + suffix;
   return { accepted: previewAppliedRows(inspectImportRows(text, false).accepted), skipped,
-    text, replacedText: draft.slice(start, end) };
+    text, replacedText: keepDraft ? '' : replacedText };
 }
 
 export function rewriteDeckPrinting(text, selectionKey, printing, options) {

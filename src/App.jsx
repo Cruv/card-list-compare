@@ -31,11 +31,11 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.65.1';
+const APP_VERSION = '2.65.2';
 const WHATS_NEW = [
-  'Keep the active sign-in when an older password request finishes',
-  'See current printer readiness and a clear error when a PDF download cannot start',
-  'Keep existing deck text outside a paste and recover your share link in Export',
+  'Keep a card’s saved printing when a pasted finish is rejected',
+  'Keep PDF batch status current while viewing older batches',
+  'Pick up a verified sign-in change from another tab without reloading',
 ];
 
 function getResetToken() {
@@ -202,7 +202,7 @@ export default function App() {
   }, [shareScope, showComparison]);
 
   async function handleShare(expiresAt) {
-    const session = user ? getSession() : null;
+    const session = user ? getSession(user.id) : null;
     if (user && !session) throw new Error('Your sign-in changed. Sign in again to create a link for this account.');
     const commanders = diffResult?.commanders || [];
     const title = commanders.length > 0 ? commanders.join(' / ') + ' Changelog' : null;
