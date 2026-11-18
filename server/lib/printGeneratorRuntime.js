@@ -183,6 +183,7 @@ export class PrintGeneratorRuntime {
     this.active = Object.freeze(runtime);
     this.status.available = true;
     this.status.revision = runtime.revision;
+    this.status.adapterHash = runtime.adapterHash;
   }
 
   async prepare(revision, compatibility, adapterHash, { mirror, cachedSource, offline = false }) {

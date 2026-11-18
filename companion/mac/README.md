@@ -342,8 +342,8 @@ If the exact acknowledged job disappears from CUPS during a saved cancellation, 
 **Clear canceled batch with missing history** in CLC Printer. Check that the printer has
 stopped, remove printed or flipped sheets, and load blanks before confirming. The companion
 checks the local CUPS title and ID again and preserves the original attempt and the separate
-clearance receipt. Missing history with an ambiguous ID or an unavailable queue still needs
-manual reconciliation.
+clearance receipt. If the original submission has no acknowledged spooler ID, inspect CUPS
+using the exact title in Printer. The station stays reserved if the match remains uncertain.
 
 Old PDFs and manifests stay immutable. A legacy `double-faced.pdf` can contain several
 alternating front/back pairs and no job-specific printed label. Preview it and inspect all
@@ -547,7 +547,7 @@ The native companion advertises `printRecovery: true` when claiming jobs. Older 
 cannot claim a job containing a recovery `attemptId`; keep 2.57.0 or newer installed
 until that work is finished or canceled.
 
-To deliberately abandon an unresolved batch instead, inspect its output, clear the feeder
+To deliberately abandon an unresolved batch with no saved cancellation, inspect its output, clear the feeder
 and manually cancel any remaining unsafe CUPS job. Stop the foreground worker (or unload
 its login agent), then explicitly release the blocked job:
 

@@ -253,10 +253,15 @@ export const getSharedDeckSnapshot = (shareId, snapshotId) =>
   apiFetch(`/shared-deck/${shareId}/snapshot/${snapshotId}`);
 
 // Sharing
-export const createShare = (beforeText, afterText, title) =>
-  apiFetch('/share', { method: 'POST', body: JSON.stringify({ beforeText, afterText, title }) });
+export const createShare = (beforeText, afterText, title, expiresAt = null) =>
+  apiFetch('/share', { method: 'POST', body: JSON.stringify({ beforeText, afterText, title, expiresAt }) });
 
 export const getShare = (id) => apiFetch(`/share/${id}`);
+
+export const getMyComparisonShares = signal => apiFetch('/share/mine', { signal });
+export const updateComparisonShareExpiry = (id, expiresAt) =>
+  apiFetch(`/share/${id}`, { method: 'PATCH', body: JSON.stringify({ expiresAt }) });
+export const revokeComparisonShare = id => apiFetch(`/share/${id}`, { method: 'DELETE' });
 
 // Single snapshot (includes deck_text)
 export const getSnapshot = (deckId, snapshotId) =>
@@ -560,6 +565,34 @@ export async function downloadPrintArtifact(downloadUrl, filename) {
   if (manifest) setTimeout(() => URL.revokeObjectURL(href), 30_000);
 }
 
+const printProofPath = paper => `/print-proofs/${encodeURIComponent(paper)}`;
+export const getPrintProof = (paper, marks, signal) =>
+  apiFetch(`${printProofPath(paper)}?marks=${marks ? 'on' : 'off'}`, { signal });
+
+export async function downloadPrintProof(paper, proof, signal) {
+  const token = getToken();
+  const query = new URLSearchParams({ marks: proof.registrationMarks ? 'on' : 'off', key: proof.key });
+  const response = await fetch(`${API_BASE}${printProofPath(paper)}/pdf?${query}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {}, signal, redirect: 'error',
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || 'Paper proof download failed');
+  }
+  if (response.headers.get('x-clc-proof-key') !== proof.key) throw new Error('The proof recipe changed. Refresh the proof details.');
+  const pdf = await response.blob();
+  if (getToken() !== token) throw new Error('Your sign-in changed. Start the proof download again.');
+  const href = URL.createObjectURL(pdf);
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  const marks = proof.registrationMarks ? 'marks' : 'no-marks';
+  anchor.download = `${proof.recipeId}-${marks}-${proof.revision.slice(0, 12)}-proof.pdf`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 30_000);
+}
+
 // Optional ManaSync ownership and confirmed physical-print bridge.
 export const getManaSyncConnection = () => apiFetch('/manasync/connection');
 export const connectManaSync = data => apiFetch('/manasync/connection',{method:'PUT',body:JSON.stringify(data)});
@@ -608,8 +641,10 @@ export const getPrintBatches = ({ cursor, state = 'all', order = 'queue', limit 
 };
 export const getPrintStationStatus = (signal) =>
   apiFetch('/print-station-management/status', { signal, timeout: 10_000 });
-export const cancelHouseholdPrintJob = jobId =>
-  apiFetch(`/print-station-management/jobs/${jobId}/cancel`, { method: 'POST', body: '{}' });
+export const getPrintJobDiagnostics = (jobId, signal) =>
+  apiFetch(`/print-station-management/jobs/${encodeURIComponent(jobId)}/diagnostics`, { signal, timeout: 10_000 });
+export const cancelHouseholdPrintJob = (jobId, signal) =>
+  apiFetch(`/print-station-management/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', body: '{}', signal });
 export const preparePrintJobBacks = (jobId, artifactId, signal) =>
   apiFetch(`/print-station-management/jobs/${encodeURIComponent(jobId)}/backs/prepare`, { method: 'POST', body: JSON.stringify({ artifactId }), signal });
 export const cancelPrintJobBacks = (jobId, signal) =>

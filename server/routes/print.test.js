@@ -1214,6 +1214,23 @@ describe('station submission, manual refeed, and ambiguity', () => {
     expect(queue.getOwnedPrintJob(1, 1, first.id).state).toBe('canceled');
   });
 
+  it('does not reopen another user’s canceled batch when checking a delayed queue after revocation', async () => {
+    vi.stubEnv('PRINT_ALLOWED_USER_IDS', '2');
+    const first = await ready({ queueOnReady: true });
+    const { job: second } = await create({ queueOnReady: true }, 2, 2);
+    await queue.processNextPrintJob();
+    const hold = await holdVerifiedPdf();
+    const claiming = queue.claimPrintJob();
+    try {
+      await hold.verified;
+      queue.cancelPrintJob(1, 1, first.id);
+      queue.cancelPrintJob(2, 2, second.id);
+      vi.stubEnv('PRINT_ALLOWED_USER_IDS', '');
+    } finally { hold.release(); }
+    expect(await claiming).toBeNull();
+    expect(queue.getOwnedPrintJob(2, 2, second.id).state).toBe('canceled');
+  });
+
   it('coalesces lease polls without adding events and durably renews before expiration', async () => {
     const job = await ready({ queueOnReady: true });
     const claimed = await queue.claimPrintJob();

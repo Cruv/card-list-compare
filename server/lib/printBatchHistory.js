@@ -82,7 +82,8 @@ export function listPrintBatches(userId, query = {}, { deferredBacks = false } =
         ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
         ...(plan.sheetPacking === DOUBLE_FACED_FIRST ? { requiresMixedPrintSheets: true } : {}),
         queueOnReady: !!row.queue_requested, sourceKind: row.tracked_deck_id === null ? 'list' : 'deck',
-        canOpen, canCancel: canControl && (admin || canOpen) && (!!canCancelHouseholdBatch(row)
+        canOpen, canInspect: canControl && !!(row.station_id || row.queued_at || row.queue_requested),
+        canCancel: canControl && (admin || canOpen) && (!!canCancelHouseholdBatch(row)
           || (deferredBacks === true && row.station_id === 'household' && canCancelRemaining(row))),
         canCancelBacks: canControl && (admin || canOpen) && (isDeferred(row) || canCancelUnstartedBacks(row)
           || (deferredBacks === true && row.station_id === 'household')) && hasPendingBacks(row) && !row.cancel_requested,

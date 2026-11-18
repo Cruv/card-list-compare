@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, getPrintJob, getPrintJobActivity, getPrintQueue, getPrintStationStatus, queuePrintJob, cancelPrintJob, expirePrintArtifacts, downloadPrintArtifact, stagePrintJobConfirmations,
   getStandalonePrintJobs, getStandalonePrintJob, getStandalonePrintJobActivity, previewStandalonePrintJob, createStandalonePrintJob, queueStandalonePrintJob, cancelStandalonePrintJob, expireStandalonePrintArtifacts } from '../lib/api';
 import DeckInput from './DeckInput';
+import PrintPaperProof from './PrintPaperProof';
 import PrintArtPicker from './PrintArtPicker';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
@@ -243,7 +244,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       try {
         const data = standalone ? await getStandalonePrintJobActivity(signal) : await getPrintJobActivity(deckId, signal);
         if (signal.aborted) return;
-        const current = new Map(data.jobs.map(job => [job.id, job.updatedAt]));
+        const current = new Map(data.jobs.map(job => [job.id, `${job.state}:${job.updatedAt}`]));
         const choices = new Set([focusedJobId, data.jobs[0]?.id].filter(Boolean));
         if (activeView === 'batches' && last.size) choices.add(last.keys().next().value);
         setActivity(data);
@@ -310,13 +311,21 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     }
   }
 
-  function pasteSourceText(event) {
-    // React may skip onChange when pasted text equals the existing after list.
-    // A deliberate paste still replaces the source, including its old baseline.
-    if (!comparison || requestRef.current || event.target.tagName !== 'TEXTAREA') return;
-    change(setComparison, null);
-    if (listName === 'Compared lists') setListName('');
-    setNotice('Pasted cards use the whole list. The previous comparison is no longer applied.');
+  function applySourceImport(text) {
+    if (requestRef.current) return null;
+    replaceSourceText(text);
+    return () => {
+      if (requestRef.current) return false;
+      change(setCardText, cardText);
+      setComparison(comparison);
+      if (comparison && listName === 'Compared lists') setListName(current => current || listName);
+      setExcludedCards(excludedCards);
+      setRemovedCards(removedCards);
+      setPrintingOverrides(printingOverrides);
+      setPendingArt(pendingArt);
+      setNotice('The previous source list has been restored.');
+      return true;
+    };
   }
 
   function pickArt(choice, saveToDeck) {
@@ -635,13 +644,14 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
     <div className="print-prepare-view" hidden={activeView !== 'prepare'}>
     {!!activity.activeCount && <div className="print-active-summary"><span>{activity.activeCount} active {activity.activeCount === 1 ? 'batch' : 'batches'} · {STATES[activeJob.state] || activeJob.state}</span><button type="button" className="print-text-button" onClick={() => setActiveView('batches')}>View batches</button></div>}
+    <PrintPaperProof userId={user.id} selectedPaper={selectedPaper} selectedMarks={selectedRegistrationMarks} generator={generator} />
     {editingSource && !creationPending && <form className="print-panel-card print-source" onSubmit={preview}>
       <h3>Choose cards</h3>
       {standalone ? <fieldset className="print-list-inputs" disabled={busy || creationPending}>
         {comparison && <div className="print-comparison-source"><span className="print-panel-status">From Compare</span><p>Your before and after lists are copied here. Your comparison stays unchanged.</p><label className="print-list-name">What to print<select value={comparison.mode} onChange={event => change(setComparison, { ...comparison, mode: event.target.value })}><option value="changes">Added or increased cards</option><option value="full">Whole after list</option></select></label><details><summary>View before list</summary><textarea aria-label="Before list for printing" value={comparison.beforeText} readOnly rows={5} /></details></div>}
         <label className="print-list-name">List name <span className="print-panel-meta">Optional · helps identify this batch at the printer</span><input type="text" value={listName} maxLength={120} placeholder="For example, Jin Sakai" onChange={event => change(setListName, event.target.value, true)} /></label>
         {!comparison && <p className="print-comparison-scope"><strong>Printing the whole list.</strong> Your basic-land and selection options apply below.</p>}
-        <div onPasteCapture={pasteSourceText}><DeckInput label={comparison ? 'After list' : 'Cards to print'} value={cardText} onChange={replaceSourceText} /></div>
+        <DeckInput label={comparison ? 'After list' : 'Cards to print'} value={cardText} onChange={replaceSourceText} onApplyImport={applySourceImport} />
         <p className="print-panel-meta">Paste cards, use a file or import a deck URL. Up to 250 copies. Your draft saves in this browser.</p>
         {cardText.length > 100000 && <p role="alert">This list is too large. Use at most 100,000 characters.</p>}
         {draftError && <p role="status">{draftError}</p>}

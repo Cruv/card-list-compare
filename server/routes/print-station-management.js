@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { createStationCommand, printStationStatus, createDiscordCommand, findStationCommand, cancelHouseholdPrintJob, prepareHouseholdBacks, cancelHouseholdBacks } from '../lib/printStationManagement.js';
+import { createStationCommand, printStationStatus, printJobDiagnostics, createDiscordCommand, findStationCommand, cancelHouseholdPrintJob, prepareHouseholdBacks, cancelHouseholdBacks } from '../lib/printStationManagement.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -10,6 +10,7 @@ const route = callback => async (req, res) => {
   catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Station management is unavailable' }); }
 };
 router.get('/status', route((req, res) => res.json(printStationStatus(req.user.userId))));
+router.get('/jobs/:jobId/diagnostics', route((req, res) => res.json(printJobDiagnostics(req.user.userId, req.params.jobId))));
 router.post('/jobs/:jobId/cancel', route((req, res) => res.json(cancelHouseholdPrintJob(req.user.userId, req.params.jobId))));
 router.post('/jobs/:jobId/backs/prepare', route(async (req, res) => res.json(await prepareHouseholdBacks(req.user.userId, req.params.jobId, req.body))));
 router.post('/jobs/:jobId/backs/cancel', route((req, res) => res.json(cancelHouseholdBacks(req.user.userId, req.params.jobId))));

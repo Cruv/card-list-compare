@@ -57,3 +57,28 @@
 
 .changelog-output > .changelog-output-export-note { padding: 14px 0 18px; margin: 0; }
 .changelog-output-buttons .action-menu .btn { font-size: 13px; }
+
+.comparison-share-expiry {
+  display: grid;
+  gap: 5px;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.comparison-share-expiry select {
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.comparison-share-guest {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}

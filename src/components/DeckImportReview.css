@@ -1,0 +1,10 @@
+.deck-import-review { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-primary); }
+.deck-import-review h3 { margin: 0; font-size: 16px; }
+.deck-import-review p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.deck-import-review details { padding-top: 8px; border-top: 1px solid var(--border-color); }
+.deck-import-review summary { cursor: pointer; font-weight: 650; font-size: 13px; }
+.deck-import-review ul { list-style: none; margin-block: 6px; padding: 0 6px; max-height: 240px; overflow-y: auto; }
+.deck-import-review li { display: grid; gap: 2px; padding: 6px 4px; font-size: 13px; overflow-wrap: anywhere; }
+.deck-import-review li + li { border-top: 1px solid var(--border-color); }
+.deck-import-review li span { color: var(--text-secondary); }
+.deck-import-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

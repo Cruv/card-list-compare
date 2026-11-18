@@ -9,7 +9,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject, RectangleObject
 from PIL import Image, ImageDraw
 
-from printGeneratorWorker import CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, POINTS_PER_MM, chunk, dahle_face, identify_pages, merge, validate_pdf
+from printGeneratorWorker import CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, POINTS_PER_MM, chunk, dahle_face, identify_pages, merge, proof, validate_pdf
 
 
 class DahlePunchTests(unittest.TestCase):
@@ -107,6 +107,27 @@ class DahlePunchTests(unittest.TestCase):
             merge({**request, "pageCount": 2})
         self.assertEqual(output.read_bytes(), original)
         self.assertEqual(list(self.directory.glob(".merge-*")), [])
+
+    def test_one_sheet_proof_uses_exact_dahle_grid_ticks_and_metric_scale(self):
+        name = "household-dahle-a4-punch-v1"
+        revision = "0123456789ab/01234567"
+        proof({**self.paper, "directory": str(self.directory), "registrationMarks": True,
+               "proofRecipe": name, "proofRevision": revision})
+        with PdfReader(self.directory / "sheet.pdf", strict=True) as reader:
+            self.assertEqual(len(reader.pages), 1)
+            page = reader.pages[0]
+            self.assertEqual(len(page.images), 9)
+            boxes = self.mm_operators(page, b"re")
+            self.assertEqual(boxes, [(x, y, 65, 90) for y in (193.5, 103.5, 13.5) for x in (7.5, 72.5, 137.5)])
+            positions = self.mm_operators(page, b"m")
+            self.assertEqual(positions[:8], [(x, y) for y in (283.5, 193.5, 103.5, 13.5) for x in (4.5, 203)])
+            scale_start = next(x for x, y in positions if y == 6)
+            scale_end = next(x for x, y in self.mm_operators(page, b"l") if y == 6)
+            self.assertAlmostEqual(scale_end - scale_start, 50, places=4)
+            text = page.extract_text()
+            self.assertIn(f"{name} | {revision}", text)
+            self.assertIn("Dahle row ticks | FRONT", text)
+            self.assertIn("50 mm", text)
 
     def test_mirrors_columns_for_upright_long_edge_backs_and_keeps_single_placement(self):
         cards = [dict(card) for card in self.cards[:5]]

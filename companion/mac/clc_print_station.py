@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.61.1"
+COMPANION_VERSION = "2.65.0"
 # launchd owns this socket while idle cupsd is stopped. A TCP-only request to
 # localhost cannot wake the service; the fixed socket also ignores shell hosts.
 LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
@@ -1744,8 +1744,10 @@ def main(argv=None):
                     return 75
                 try:
                     status_text = station.poll_once(allow_submit=connected)
+                    station.management.record_poll_error(None)
                     station.cleanup()
                 except (StationError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    station.management.record_poll_error(error)
                     status_text = "Waiting: " + str(error)
                 if status_text != last_status:
                     station.management.event("error" if status_text.startswith("Waiting:") else "info", status_text)

@@ -1,7 +1,7 @@
 /** Household station controls. No executable paths, printer options or arbitrary commands. */
 import crypto from 'node:crypto';
 import { all, get, runTransaction } from '../db.js';
-import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, requestPrintCancellation, preparePrintBacks, assertStationArtifactCapacity, assertStationWorkflow, savedPrintJobPaper, hasMixedPrintSheets } from './printQueue.js';
+import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, requestPrintCancellation, preparePrintBacks, assertStationArtifactCapacity, assertStationWorkflow, savedPrintJobPaper, hasMixedPrintSheets, blockedPrintArtifact } from './printQueue.js';
 import { printError, sha256 } from './printQueuePlan.js';
 import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } from './printStationNotifications.js';
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
@@ -21,6 +21,8 @@ const ADMIN_COMMANDS = new Set([...UPDATE_COMMANDS, ...DISCORD_COMMANDS]);
 const UPDATE_STATES = new Set(['unsupported', 'idle', 'checking', 'available', 'updating', 'rollback', 'failed']);
 const ACTIVE_STATES = ACTIVE_PRINT_STATES;
 const LOCAL_STATES = new Set([...ACTIVE_STATES, 'backs_pending', 'awaiting_clearance', 'active', 'intent', 'completed', 'failed', 'canceled']);
+const DIAGNOSTIC_EVENTS = new Set(['submitting', 'submitted', 'completed', 'uncertain', 'failed', 'reconciled', 'recovery', 'refeed', 'paper_ready', 'canceled']);
+const DIAGNOSTIC_COMMANDS = ['resume', 'recover_print', ...CLEARANCE_COMMANDS];
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const OPAQUE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
 let latest = null;
@@ -139,6 +141,7 @@ function householdPrintJobs(userId, canManage = false) {
       ...(plan.printPreset ? savedPrintJobPaper(row) : {}),
       state: row.state, createdAt: row.created_at, queuedAt: row.queued_at,
       completedAt: row.completed_at, canOpen, canCancel: (canManage || canOpen) && (!!canCancelHouseholdBatch(row) || (online() && latest?.deferredBacks && canCancelRemaining(row))),
+      ...((canManage || canOpen) && row.error ? { diagnosticMessage: message(row.error.slice(0, 1000), true) } : {}),
       ...(hasMixedPrintSheets(row) ? { requiresMixedPrintSheets: true } : {}),
       requesterName: typeof plan.requesterName === 'string' ? plan.requesterName.slice(0, 120) : get('SELECT username FROM users WHERE id = ?', [row.user_id])?.username || 'Deleted account',
       ...workflowSummary(row),
@@ -167,7 +170,8 @@ function firstBack(jobId, snapshot) {
   const step = nextPrintStep(row);
   if (snapshot.activeJob.artifactId && snapshot.activeJob.artifactId !== step?.artifactId) return null;
   if (snapshot.activeJob.phase && snapshot.activeJob.phase !== 'backs') return null;
-  return step?.phase === 'backs' && step.state === 'pending' && !step.refeedConfirmed ? step.artifactId : null;
+  return step?.phase === 'backs' && step.state === 'pending' && !step.refeedConfirmed
+    && blockedPrintArtifact(row) !== step.artifactId ? step.artifactId : null;
 }
 function currentClearance(jobId, snapshot) {
   if (snapshot?.activeJob?.id !== jobId || !['awaiting_clearance', 'awaiting_paper_reset'].includes(snapshot.activeJob.state)) return null;
@@ -209,6 +213,7 @@ function currentRecovery(jobId, snapshot) {
   if (!step || step.artifactId !== recovery.artifactId || step.phase !== recovery.phase
     || step.spoolerId !== recovery.spoolerId || (step.attemptId || null) !== recovery.attemptId
     || !['submitting', 'submitted', 'uncertain'].includes(step.state)) return null;
+  if (recovery.mode === 'reprint_remaining' && blockedPrintArtifact(row) === step.artifactId) return null;
   const artifact = JSON.parse(row.manifest_json || 'null')?.artifacts?.find(item => item.id === step.artifactId);
   if (!artifact || sha256(row.manifest_json) !== row.manifest_sha256) return null;
   const allPages = artifact.kind === 'ordinary' ? Array.from({ length: artifact.pageCount }, (_, n) => n + 1)
@@ -301,10 +306,21 @@ export function printStationStatus(userId) {
     if (latest.recipeProofs && active.recipeId) active.duplexVerified = latest.recipeProofs[active.recipeId]?.duplexVerified === true;
     active.packet = activePacket(row, active);
     active.cancelRequested = row?.cancel_requested || null;
+    const blockedArtifact = blockedPrintArtifact(row);
+    if (blockedArtifact && blockedArtifact === (active.artifactId || nextPrintStep(row)?.artifactId)) active.artifactUnavailable = true;
     active.workflow = row?.workflow || null;
     active.clearanceId = currentClearance(active.id, latest);
     if (active.missingCancellationSpoolerId) active.missingCancellationSpoolerId = currentMissingCups(active.id, latest);
     active.recovery = currentRecovery(active.id, latest);
+    if (row && (access.canUpdate || row.user_id === userId)) {
+      active.diagnosticMessage = row.error ? message(row.error.slice(0, 1000), true) : live ? active.detail || null : null;
+      active.updatedAt = row.updated_at;
+      if (row.cancel_requested && readSteps(row).some(step => (row.cancel_requested === 'all' || step.phase === 'backs')
+        && ['submitting', 'uncertain'].includes(step.state) && !step.spoolerId)) active.unacknowledgedCancellation = true;
+    } else {
+      delete active.spoolerTitle;
+    }
+    delete active.detail;
   }
   return { station: {
     stationId: STATION, online: live, lastSeenAt: lastSeen === null ? null : new Date(lastSeen).toISOString(),
@@ -323,6 +339,31 @@ export function printStationStatus(userId) {
   }, permissions: access, jobs: householdPrintJobs(userId, access.canUpdate),
   commands: all('SELECT * FROM print_station_commands WHERE station_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 20', [STATION]).map(publicCommand),
   events: all('SELECT id, at, level, message FROM print_station_events ORDER BY received_at DESC, rowid DESC LIMIT 50') };
+}
+
+export function printJobDiagnostics(userId, jobId) {
+  const access = requireControl(userId);
+  if (!UUID.test(jobId)) throw printError('Invalid print batch ID');
+  const row = get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+  if (!row || (!row.station_id && !row.queued_at && !row.queue_requested)) throw printError('Household print batch not found', 404);
+  if (!access.canUpdate && row.user_id !== userId) throw printError('Only the batch owner or an administrator can inspect these receipts', 403);
+  const events = all(`SELECT event_id, created_at, event_json FROM print_job_events WHERE job_id = ?
+    AND json_extract(event_json, '$.state') != 'heartbeat' ORDER BY rowid DESC LIMIT 8`, [jobId]).flatMap(event => {
+    const saved = JSON.parse(event.event_json);
+    if (!DIAGNOSTIC_EVENTS.has(saved.state)) return [];
+    return [{ id: event.event_id, at: event.created_at, state: saved.state,
+      artifactId: typeof saved.artifactId === 'string' ? saved.artifactId.slice(0, 128) : null,
+      phase: ['fronts', 'backs'].includes(saved.phase) ? saved.phase : null,
+      spoolerId: typeof saved.spoolerId === 'string' ? saved.spoolerId.slice(0, 200) : null,
+      missingCupsHistory: saved.missingCupsHistory === true }];
+  });
+  const commands = all(`SELECT id, status, message, created_at, acknowledged_at, json_extract(payload_json, '$.type') AS type
+    FROM print_station_commands WHERE station_id = ? AND json_extract(payload_json, '$.jobId') = ?
+    AND json_extract(payload_json, '$.type') IN (${DIAGNOSTIC_COMMANDS.map(() => '?').join(',')}) ORDER BY rowid DESC LIMIT 5`,
+  [STATION, jobId, ...DIAGNOSTIC_COMMANDS]).map(command => ({ id: command.id, status: command.status, type: command.type,
+    at: command.acknowledged_at || command.created_at, message: command.message }));
+  return { id: jobId, state: row.state, updatedAt: row.updated_at, queuedAt: row.queued_at,
+    diagnosticMessage: row.error ? message(row.error.slice(0, 1000), true) : null, events, commands };
 }
 
 export function cancelHouseholdPrintJob(userId, jobId) {
@@ -513,6 +554,8 @@ function heartbeatInput(body) {
     object(body.activeJob, 'activeJob');
     if (!LOCAL_STATES.has(body.activeJob.state)) throw printError('Invalid active job state');
     activeJob = { id: id(body.activeJob.id, 'active job ID'), state: body.activeJob.state };
+    if (body.activeJob.detail !== undefined) activeJob.detail = message(body.activeJob.detail, true);
+    if (typeof body.activeJob.spoolerTitle === 'string' && /^CLC-[a-f0-9]{32}$/.test(body.activeJob.spoolerTitle)) activeJob.spoolerTitle = body.activeJob.spoolerTitle;
     if (body.activeJob.clearanceId !== undefined && body.activeJob.clearanceId !== null) {
       if (typeof body.activeJob.clearanceId !== 'string' || !/^(back|cancel):[a-f0-9-]{36}$/i.test(body.activeJob.clearanceId)) throw printError('Invalid active paper-clearance ID');
       activeJob.clearanceId = body.activeJob.clearanceId;

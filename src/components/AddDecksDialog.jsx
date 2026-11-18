@@ -5,9 +5,10 @@ import { useModalLayer } from '../lib/useModalLayer';
 import { getOwners, getOwnerDecks, addOwner, trackDeck, createLibraryDeck } from '../lib/api';
 import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
 import { createOperationId } from '../lib/operationId';
-import { parse } from '../lib/parser';
+import { inspectDeckImport, parse } from '../lib/parser';
 import { emptyLibraryDraft, loadLibraryImport, saveLibraryDraft, saveLibraryImportRequest, settleLibraryImport } from '../lib/libraryImport';
 import Icon from './Icon';
+import DeckImportReview from './DeckImportReview';
 import './AddDecksDialog.css';
 
 const TRACKED_SITES = ['archidekt', 'moxfield', 'deckcheck'];
@@ -24,6 +25,10 @@ function ScopedAddDecksDialog({ userId, onClose, onAdded }) {
   const sourceSequence = useRef(0);
   const token = useRef(null);
   const [draft, setDraft] = useState(emptyLibraryDraft);
+  const [importReview, setImportReview] = useState(null);
+  const [undoImport, setUndoImport] = useState(null);
+  const [reviewedSource, setReviewedSource] = useState(null);
+  const [sourcePreviewFailed, setSourcePreviewFailed] = useState(false);
   const [pending, setPending] = useState(null);
   const [storageReady, setStorageReady] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -71,6 +76,10 @@ function ScopedAddDecksDialog({ userId, onClose, onAdded }) {
   }
   function edit(patch) {
     if (busyRef.current || pending || !storageReady) return;
+    if (Object.hasOwn(patch, 'text') || Object.hasOwn(patch, 'tab') || Object.hasOwn(patch, 'url')) {
+      setImportReview(null); setReviewedSource(null); setSourcePreviewFailed(false);
+    }
+    if (Object.hasOwn(patch, 'text')) setUndoImport(null);
     const next = { ...draft, ...patch };
     setDraft(next); setError(''); setNotice('');
     try { saveLibraryDraft(localStorage, userId, next); }
@@ -105,30 +114,56 @@ function ScopedAddDecksDialog({ userId, onClose, onAdded }) {
   }
   function saveText(event) {
     event.preventDefault();
+    if (importReview) return;
     const parsed = parse(draft.text);
     if (!draft.name.trim() || !draft.text.trim() || parsed.mainboard.size + parsed.sideboard.size === 0) {
       setError('Enter a name and at least one card in the list.'); return;
     }
     void submit({ operationId: createOperationId(), name: draft.name, deckText: draft.text });
   }
+  function previewPaste(event) {
+    const pasted = event.clipboardData?.getData('text/plain');
+    if (!pasted?.trim()) return;
+    event.preventDefault();
+    const { selectionStart, selectionEnd } = event.currentTarget;
+    const text = draft.text.slice(0, selectionStart) + pasted + draft.text.slice(selectionEnd);
+    if (text.length > 500000) { setError('The card list exceeds 500,000 characters.'); return; }
+    setImportReview(inspectDeckImport(text));
+  }
+  function applyImport() {
+    if (!importReview?.accepted.length) return;
+    if (importReview.sourceUrl) {
+      setReviewedSource({ sourceUrl: importReview.sourceUrl, deckText: importReview.text, name: importReview.sourceName });
+      setImportReview(null);
+      return;
+    }
+    const fromUrl = draft.tab === 'url';
+    edit({ tab: 'text', text: importReview.text });
+    setUndoImport({ text: draft.text, tab: draft.tab });
+    if (fromUrl) setNotice('Add a name and save this list as a manual deck.');
+  }
   async function importUrl(event) {
     event.preventDefault();
     const url = draft.url.trim(), site = detectSite(url);
     if (!site) { setError('Enter a supported public deck URL.'); return; }
-    if (TRACKED_SITES.includes(site)) {
-      void submit({ operationId: createOperationId(), sourceUrl: url, ...(draft.name.trim() ? { name: draft.name } : {}) }); return;
+    const tracked = TRACKED_SITES.includes(site);
+    if (reviewedSource?.sourceUrl === url) {
+      const name = draft.name.trim() || reviewedSource.name;
+      void submit({ operationId: createOperationId(), sourceUrl: url, deckText: reviewedSource.deckText,
+        ...(name ? { name } : {}) });
+      return;
     }
     if (busyRef.current) return;
-    busyRef.current = true; setBusy(true); setError('');
+    busyRef.current = true; setBusy(true); setError(''); setSourcePreviewFailed(false);
     try {
       sessionCurrent();
-      const { text } = await fetchDeckFromUrl(url);
+      const { text, skipped = [], sourceName } = await fetchDeckFromUrl(url, { review: true });
       sessionCurrent();
       if (text.length > 500000) throw new Error('The imported card list exceeds 500,000 characters.');
-      const next = { ...draft, tab: 'text', text };
-      saveLibraryDraft(localStorage, userId, next); setDraft(next);
-      setNotice('List loaded. Add a name and save it below. This site supports a one-time import; future updates are saved manually.');
-    } catch (cause) { if (mounted.current) setError(cause.message); }
+      const result = inspectDeckImport(text);
+      setImportReview({ ...result, skipped: [...result.skipped, ...skipped],
+        ...(tracked ? { sourceUrl: url, sourceName: typeof sourceName === 'string' ? sourceName.trim().slice(0, 200) : null } : {}) });
+    } catch (cause) { if (mounted.current) { setError(cause.message); setSourcePreviewFailed(tracked); } }
     finally { busyRef.current = false; if (mounted.current) setBusy(false); }
   }
   async function addAccount(event) {
@@ -163,16 +198,24 @@ function ScopedAddDecksDialog({ userId, onClose, onAdded }) {
       </div>}
       {draft.tab === 'text' && <form className="add-decks-form" onSubmit={saveText}>
         <label>Deck name<input value={draft.name} onChange={event => edit({ name: event.target.value })} maxLength={200} disabled={disabled} required /></label>
-        <label>Card list<textarea value={draft.text} onChange={event => edit({ text: event.target.value })} maxLength={500000} disabled={disabled} rows={10} placeholder={'1 Sol Ring (C21) 263\n1 Counterspell\n\nSideboard\n1 Negate'} required /></label>
+        <label>Card list<textarea value={draft.text} onChange={event => edit({ text: event.target.value })} onPaste={previewPaste} maxLength={500000} disabled={disabled} rows={10} placeholder={'1 Sol Ring (C21) 263\n1 Counterspell\n\nSideboard\n1 Negate'} required /></label>
+        {undoImport && <button className="btn btn-secondary" type="button" disabled={disabled} onClick={() => edit(undoImport)}>Undo import</button>}
         <p>Saved as a manual deck. You can add new versions later; the original text and printing choices are kept.</p>
-        <button className="btn btn-primary" type="submit" disabled={disabled || !draft.name.trim() || !draft.text.trim()}>Save deck</button>
+        <button className="btn btn-primary" type="submit" disabled={disabled || !!importReview || !draft.name.trim() || !draft.text.trim()}>Save deck</button>
       </form>}
       {draft.tab === 'url' && <form className="add-decks-form" onSubmit={importUrl}>
         <label>Deck URL<input type="url" value={draft.url} onChange={event => edit({ url: event.target.value })} maxLength={2000} disabled={disabled} required placeholder="https://archidekt.com/decks/…" /></label>
         <label>Deck name (optional)<input value={draft.name} onChange={event => edit({ name: event.target.value })} maxLength={200} disabled={disabled} /></label>
-        <p>{site && !TRACKED_SITES.includes(site) ? 'This site supports a one-time list import. You’ll review the text and name before saving a manual deck.' : 'Archidekt, Moxfield, and DeckCheck stay linked for future updates. Saved local edits remain protected.'}</p>
-        <button className="btn btn-primary" type="submit" disabled={disabled || !draft.url.trim()}>{site && !TRACKED_SITES.includes(site) ? 'Load list' : 'Start tracking'}</button>
+        <p>{site && !TRACKED_SITES.includes(site) ? 'This site supports a one-time list import. Review the list before saving a manual deck.' : 'Archidekt, Moxfield, and DeckCheck stay linked for future updates. Saved local edits remain protected.'}</p>
+        {reviewedSource && <p role="status">Reviewed list ready to save. {reviewedSource.name && `Source deck: ${reviewedSource.name}`}</p>}
+        <button className="btn btn-primary" type="submit" disabled={disabled || !!importReview || !draft.url.trim()}>{reviewedSource ? 'Track reviewed deck' : 'Preview list'}</button>
+        {reviewedSource && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setReviewedSource(null)}>Undo import</button>}
+        {sourcePreviewFailed && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => submit({
+          operationId: createOperationId(), sourceUrl: draft.url.trim(), ...(draft.name.trim() ? { name: draft.name } : {}),
+        })}>Track URL and wait for source</button>}
       </form>}
+      {importReview && !disabled && <DeckImportReview review={importReview} baseline={draft.text} label="Preview deck import"
+        onApply={applyImport} onCancel={() => setImportReview(null)} />}
     </section>
   </div>, document.body);
 }

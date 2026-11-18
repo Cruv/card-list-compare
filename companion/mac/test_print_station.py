@@ -849,6 +849,22 @@ class StationTests(unittest.TestCase):
         self.assertEqual(self.client.job["state"], "failed")
         self.assertEqual(self.cups.submissions, [])
 
+    def test_pending_cancellation_without_acknowledged_id_stays_reserved(self):
+        self.cups.after_accept_error = True
+        self.assertEqual(self.station.poll_once(), "uncertain")
+        self.cups.history.clear()
+        request_id = "f3042e49-3395-47e4-9f39-04350b101e41"
+        self.client.job.update(cancelRequested="all", cancelRequestId=request_id)
+        with self.assertRaisesRegex(station.StationError, "saved cancellation"):
+            self.station.release("job1", True)
+        with self.assertRaisesRegex(station.StationError, "exact CUPS cancellation"):
+            self.station.poll_once()
+        with self.assertRaisesRegex(station.StationError, "exact CUPS cancellation"):
+            self.station.clear_paper("job1", "cancel:" + request_id, missing_spooler_id="EPSON-1", command_id="command123")
+        self.assertEqual(self.station.ledger.current()["state"], "awaiting_clearance")
+        self.assertEqual(len(self.cups.submissions), 1)
+        self.assertTrue(all(event["state"] != "canceled" for event in self.client.events))
+
     def test_release_pending_back_pass_also_clears_earlier_physical_output_hold(self):
         self.client.job = job("dfc")
         self.station.poll_once()

@@ -72,6 +72,42 @@ function seedJob(state = 'awaiting_refeed', steps = [
   return id;
 }
 
+describe('exact batch diagnostics', () => {
+  const diagnostics = (jobId, user = 1) => request(`/api/print-station-management/jobs/${jobId}/diagnostics`, { token: tokens[user] });
+  it('reveals only the named batch’s recent pass and command receipts to its owner or an administrator', async () => {
+    const jobId = seedJob('submitted'), other = seedJob('submitted');
+    db.run("UPDATE print_jobs SET user_id = 2, error = 'Original Epson receipt needs review' WHERE id = ?", [jobId]);
+    const submitted = { claimToken: 'private-claim-in-legacy-fixture', state: 'submitted', artifactId: 'fronts', phase: 'fronts', spoolerId: 'EPSON-23' };
+    const report = (id, event) => db.run('INSERT INTO print_job_events (job_id, event_id, request_hash, event_json, created_at) VALUES (?, ?, ?, ?, ?)',
+      [id, crypto.randomUUID(), 'hash', JSON.stringify(event), new Date().toISOString()]);
+    report(jobId, submitted); report(jobId, { state: 'heartbeat' });
+    report(other, { ...submitted, spoolerId: 'EPSON-other' });
+    const id = crypto.randomUUID();
+    db.run(`INSERT INTO print_station_commands (id, station_id, requester_id, request_key, request_hash, payload_json, status, created_at, expires_at, message)
+      VALUES (?, 'household', 2, 'request', 'hash', ?, 'rejected', ?, ?, 'CUPS queue could not confirm the pass')`,
+    [id, JSON.stringify({ type: 'recover_print', jobId, recoveryId: 'private-internal' }), new Date().toISOString(), new Date(instant + 1000).toISOString()]);
+    const response = await diagnostics(jobId, 2), data = await response.json();
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(data).toMatchObject({ id: jobId, diagnosticMessage: 'Original Epson receipt needs review',
+      events: [{ state: 'submitted', artifactId: 'fronts', phase: 'fronts', spoolerId: 'EPSON-23' }],
+      commands: [{ id, type: 'recover_print', status: 'rejected' }] });
+    for (const value of ['claimToken', 'private-claim-in-legacy-fixture', 'private-internal', 'EPSON-other']) expect(JSON.stringify(data)).not.toContain(value);
+    expect((await diagnostics(jobId)).status).toBe(200);
+    expect((await diagnostics(other, 2)).status).toBe(403);
+    expect((await diagnostics(jobId, 3)).status).toBe(403);
+  });
+
+  it('scopes the current Mac’s reason to its batch owner and administrator', async () => {
+    const jobId = seedJob('uncertain');
+    const detail = 'Cannot read Epson queue. Bearer example-private-printer-token';
+    expect((await beat(heartbeat({ activeJob: { id: jobId, state: 'uncertain', detail } }))).status).toBe(200);
+    const admin = await (await status()).json(), other = await (await status(2)).json();
+    expect(admin.station.activeJob.diagnosticMessage).toBe('Cannot read Epson queue. Bearer [redacted]');
+    expect(other.station.activeJob).not.toHaveProperty('diagnosticMessage');
+    expect(other.station.activeJob).not.toHaveProperty('detail');
+  });
+});
+
 describe('queued batch notification heartbeat delivery', () => {
   async function seedNotice(state = 'queued', extra = {}) {
     const jobId = seedJob(state);
@@ -946,6 +982,15 @@ describe('operator recovery of interrupted physical print passes', () => {
         artifactId: 'fronts', phase: item.recovery.phase, state: 'recovery', commandId: control.id,
         oldSpoolerId: item.recovery.spoolerId, pages: [1, 2, 3], ...extra } });
   }
+
+  it('explains a missing exact PDF and offers no retry for that interrupted pass', async () => {
+    const item = interrupted();
+    const error = 'PDF artifact is missing (fronts). Resolve or cancel this exact batch before proceeding.';
+    db.run('UPDATE print_jobs SET error = ? WHERE id = ?', [error, item.jobId]);
+    await beat(item.snapshot);
+    expect((await (await status()).json()).station.activeJob).toMatchObject({ artifactUnavailable: true, diagnosticMessage: error, recovery: null });
+    expect((await send(recoverRequest(item, { firstUnprintedSheet: 2 }))).status).toBe(409);
+  });
 
   it('requires an inspected physical-sheet checkpoint for canceled/aborted/stopped passes', async () => {
     const item = interrupted(); await beat(item.snapshot);

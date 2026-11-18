@@ -113,9 +113,13 @@ scoped allowance to accept large deck transfers.
 ## Share links
 
 Comparison and tracked-deck share links are unauthenticated, guessable only by their random
-id. Anyone with the link can read that comparison/deck (read-only). Tracked-deck links can
-be revoked by their owner; comparison links currently have no owner-side revocation.
-Neither link type has configurable expiry (see ROADMAP).
+id. Anyone with an active link can read the shared comparison or deck. Public comparison
+responses use `Cache-Control: no-store` and omit account information. A signed-in creator
+can list, update expiry, or revoke their own comparison links. Expiry is enforced by the
+public read, and revoking a link permanently removes the shared copy. Deleting an account
+also removes its owned comparison links. Existing and anonymous comparison links remain
+unowned and available for administrator moderation. Anonymous creation still supports an
+optional expiry. Tracked-deck owners can revoke their links.
 
 ## Admin surface
 

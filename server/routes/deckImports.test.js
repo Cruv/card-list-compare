@@ -85,6 +85,17 @@ it('reuses a tracked source across new requests without replacing saved content'
   expect(second.status).toBe(200); expect(second.body.linkedExisting).toBe(true); expect(second.body.deck.id).toBe(first.body.deck.id);
   expect(db.get('SELECT deck_text FROM deck_snapshots').deck_text).toBe('1 Sol Ring');
 });
+it('starts tracking from the exact reviewed text and replays the saved import', async () => {
+  const deckText = 'Commander\r\n1 Thalia, Guardian of Thraben (SLD) [DDO-20] *F*\r\n\r\nMainboard\r\n1 Sol Ring (C21) [263]\r\n';
+  const input = { operationId: randomUUID(), sourceUrl: 'https://moxfield.com/decks/preview-source', name: 'Reviewed import', deckText };
+  const first = await request(input), retry = await request(input);
+  expect(first.status).toBe(201);
+  expect(first.body.tracking).toMatchObject({ status: 'awaiting_source', provider: 'moxfield' });
+  expect(retry.status).toBe(200);
+  expect(retry.body).toMatchObject({ replayed: true, deck: first.body.deck });
+  expect(db.all('SELECT deck_text FROM deck_snapshots')).toEqual([{ deck_text: deckText }]);
+  expect((await request({ ...input, deckText: '1 Island' })).status).toBe(409);
+});
 it('a retry cannot recreate a deliberately deleted deck', async () => {
   const input = manual(), first = await request(input);
   db.run('DELETE FROM tracked_decks WHERE id=?', [first.body.deck.id]);

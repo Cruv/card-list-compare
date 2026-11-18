@@ -30,8 +30,8 @@ const deckId = req => {
   if (!/^\d+$/.test(req.params.deckId) || !Number.isSafeInteger(value) || value < 1) throw printError('Invalid deck ID');
   return value;
 };
-const route = callback => async (req, res) => {
-  try { await callback(req, res); }
+const route = callback => async (req, res, next) => {
+  try { await callback(req, res, next); }
   catch (error) {
     if (res.headersSent) return res.destroy(error);
     res.status(error.status || 500).json({ error: error.message });
@@ -84,13 +84,14 @@ printDownloadsRouter.get('/:id', (req, res, next) => {
   req.headers.authorization = grant.authorization;
   res.locals.download = grant;
   next();
-}, requireAuth, route(async (req, res) => {
-  const { userId, deck, jobId, artifactId, hash, filename } = res.locals.download;
+}, requireAuth, route(async (req, res, next) => {
+  const { userId, deck, jobId, artifactId, hash } = res.locals.download;
   if (req.user.userId !== userId) throw printError('PDF download expired. Start it again from the batch.', 404);
   const artifact = await ownedPrintArtifact(userId, deck, jobId, artifactId);
   if (artifact.sha256 !== hash) throw printError('The saved PDF changed. Start its download again from the batch.', 409);
-  await sendPdf(res, artifact, filename);
-}));
+  res.locals.verifiedPdf = artifact;
+  next();
+}), requireAuth, route((_req, res) => sendPdf(res, res.locals.verifiedPdf, res.locals.download.filename)));
 function sendActivity(res, userId, deck) {
   res.set('Cache-Control', 'private, no-store').json({ ...listPrintJobActivity(userId, deck),
     capabilities: printCapabilities(userId), generator: getPrintGeneratorStatus() });
@@ -127,10 +128,12 @@ router.delete('/:deckId/print-jobs/:jobId/artifacts', route((req, res) => {
 router.get('/:deckId/print-jobs/:jobId/manifest', route((req, res) => {
   res.set('Cache-Control', 'private, no-store').json(ownedPrintManifest(req.user.userId, deckId(req), req.params.jobId));
 }));
-router.get('/:deckId/print-jobs/:jobId/artifacts/:artifactId', route(async (req, res) => {
-  const artifact = await ownedPrintArtifact(req.user.userId, deckId(req), req.params.jobId, req.params.artifactId);
-  await sendPdf(res, artifact);
-}));
+const verifyOwnedPdf = lookupDeckId => route(async (req, res, next) => {
+  res.locals.verifiedPdf = await ownedPrintArtifact(req.user.userId, lookupDeckId(req), req.params.jobId, req.params.artifactId);
+  next();
+});
+const sendVerifiedPdf = route((_req, res) => sendPdf(res, res.locals.verifiedPdf));
+router.get('/:deckId/print-jobs/:jobId/artifacts/:artifactId', verifyOwnedPdf(deckId), requireAuth, sendVerifiedPdf);
 router.post('/:deckId/print-jobs/:jobId/artifacts/:artifactId/download', route((req, res) => {
   res.set('Cache-Control', 'private, no-store');
   startPdfDownload(req, res, deckId(req));
@@ -162,9 +165,7 @@ standalonePrintRouter.delete('/jobs/:jobId/artifacts', route((req, res) => {
 standalonePrintRouter.get('/jobs/:jobId/manifest', route((req, res) => {
   res.set('Cache-Control', 'private, no-store').json(ownedPrintManifest(req.user.userId, null, req.params.jobId));
 }));
-standalonePrintRouter.get('/jobs/:jobId/artifacts/:artifactId', route(async (req, res) => {
-  await sendPdf(res, await ownedPrintArtifact(req.user.userId, null, req.params.jobId, req.params.artifactId));
-}));
+standalonePrintRouter.get('/jobs/:jobId/artifacts/:artifactId', verifyOwnedPdf(() => null), requireAuth, sendVerifiedPdf);
 standalonePrintRouter.post('/jobs/:jobId/artifacts/:artifactId/download', route((req, res) => {
   res.set('Cache-Control', 'private, no-store');
   startPdfDownload(req, res, null);

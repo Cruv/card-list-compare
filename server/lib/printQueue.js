@@ -525,6 +525,12 @@ function neverClaimed(row) {
     && !get('SELECT 1 FROM print_job_events WHERE job_id = ? LIMIT 1', [row.id]);
 }
 
+const ARTIFACT_ACTION = 'Resolve or cancel this exact batch before proceeding.';
+export function blockedPrintArtifact(row) {
+  if (!row?.error?.endsWith(ARTIFACT_ACTION)) return null;
+  return /\(([a-zA-Z0-9_-]{1,128})\)\. $/.exec(row.error.slice(0, -ARTIFACT_ACTION.length))?.[1] ?? null;
+}
+
 async function verifyStationArtifact(row, artifactId, isolateUnclaimed = false) {
   try { return await verifiedPrintArtifact(row, artifactId); }
   catch (error) {
@@ -539,7 +545,7 @@ async function verifyStationArtifact(row, artifactId, isolateUnclaimed = false) 
       return null;
     }
     if (['queued', 'backs_pending', ...ACTIVE_STATES].includes(row.state)) {
-      const detail = `${failure} Resolve or cancel this exact batch before proceeding.`;
+      const detail = `${failure} ${ARTIFACT_ACTION}`;
       if (current.error !== detail) run('UPDATE print_jobs SET error = ?, updated_at = ? WHERE id = ?', [detail, now(), row.id]);
     }
     throw error;
@@ -655,6 +661,7 @@ async function claimNextPrintJob({ maxArtifacts = MAX_PRINT_ARTIFACTS, deferredB
   }
   const requested = all("SELECT * FROM print_jobs WHERE station_id = ? AND state = 'backs_pending' AND back_request_json IS NOT NULL ORDER BY json_extract(back_request_json, '$.requestedAt'), id", [STATION_ID]);
   for (const saved of requested) {
+    if (!samePhysicalState(saved, getPrintRow(saved.id))) continue;
     if (!eligible(saved)) continue;
     assertStationWorkflow(saved, deferredBacks, printRecovery, mixedPrintSheets);
     assertStationArtifactCapacity(saved, maxArtifacts);
@@ -671,6 +678,7 @@ async function claimNextPrintJob({ maxArtifacts = MAX_PRINT_ARTIFACTS, deferredB
     return formatPrintJob(get('SELECT * FROM print_jobs WHERE id = ?', [saved.id]), true);
   }
   for (const queued of all("SELECT * FROM print_jobs WHERE state = 'queued' ORDER BY queued_at, created_at, id")) {
+    if (!samePhysicalState(queued, getPrintRow(queued.id))) continue;
     row = queued;
     if (!printCapabilities(row.user_id).canQueue) {
       run("UPDATE print_jobs SET state = 'ready', queue_requested = 0, error = ?, updated_at = ? WHERE id = ?", ['Printing authorization was revoked; PDF remains available to its owner', now(), row.id]);

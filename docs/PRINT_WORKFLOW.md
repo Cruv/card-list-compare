@@ -486,6 +486,12 @@ already submitted. Unselected saved backs release the front queue; selecting a b
 Owner links open the exact batch without overwriting a draft; summaries do not grant
 access to another user's deck text or artifact URLs.
 
+**Batch diagnostics** shows the current batch's saved failure or the Mac's latest reason
+for holding its pass. Owners and administrators can open **Batch receipts** for that job
+or from its batch history row to inspect recent print and recovery outcomes. The controls
+use the current job, pass and paper state. If the Mac cannot confirm the exact submission,
+inspect the Epson queue and the paper at the Mac before requesting a recovery.
+
 Owners and administrators can **Cancel batch** to stop every unfinished pass, or
 **Cancel only backs** to preserve front work while canceling unfinished backs. This never
 undoes already printed output. Pending-only cancellations settle immediately. If affected
@@ -495,7 +501,9 @@ releasing more front work. If Mac print history loses an acknowledged CUPS job, 
 or an administrator can choose **Clear canceled batch with missing history** after the same
 paper checks. The Mac checks the exact saved CUPS title and ID again. The clearance keeps
 the original receipts and finishes only the pending cancellation. If a read fails or the
-job identity is ambiguous, inspect and reconcile the submission at the Mac. Completed passes remain completed, canceled
+original submission has no acknowledged spooler ID, use the exact job title in Printer to
+inspect the queue at the Mac. The station holds the reservation if the match remains
+uncertain. Completed passes remain completed, canceled
 passes remain canceled, and neither is automatically retried. A job whose fronts finish
 but backs are canceled is shown as **Finished · backs canceled**, not as every face printed.
 Preparing another batch remains available while earlier jobs wait or print.
@@ -628,7 +636,12 @@ fixtures and mocked transports; they do not send real Discord messages or print 
 ## Queue, access and retention
 
 PDF preparation and downloads require a user session and ownership. The browser shows
-PDF transfer progress in its downloads list. Physical queue access
+PDF transfer progress in its downloads list. Open **One-sheet paper proof** in Prepare
+to download a synthetic test sheet for a paper layout, including the Dahle punch layout.
+Print at Actual Size, measure the 50 mm line and check the cut frame and bleed. Record
+that check in the browser after inspecting the sheet. The record follows the exact
+recipe, registration setting and generator revision. The Mac uses its own local
+physical checks for queue readiness. Physical queue access
 requires a configured `PRINT_STATION_TOKEN` and either administrator status or a user ID in
 `PRINT_ALLOWED_USER_IDS`. The station credential is separate from JWT sessions and grants
 access only to authorized queued jobs and their reporting/download protocol. Rotate it on

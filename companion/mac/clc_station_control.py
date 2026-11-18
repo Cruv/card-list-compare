@@ -34,6 +34,7 @@ class StationControl:
         self.health = {"ok": False, "known": False, "message": "Printer check pending", "advisories": []}
         self.last_doctor = None
         self.printer_read_failures = 0
+        self.poll_error = None
         self.update = {"supported": False, "currentVersion": version, "previousVersion": None,
                        "availableVersion": None, "status": "unsupported", "error": None}
         if manager is None:
@@ -161,6 +162,19 @@ class StationControl:
         except Exception:
             self.event("warning", "Printer-error alerts are unavailable. Check Printer in CLC.")
 
+    @staticmethod
+    def pass_identity(current, job, pending):
+        return (current["id"], current["state"], clearance_id(job),
+                tuple(pending[key] for key in ("artifact_id", "phase", "attempt_id", "spooler_id")) if pending else None)
+
+    def record_poll_error(self, error):
+        self.poll_error = None
+        current = self.ledger.current()
+        if error and current:
+            job = json.loads(current["payload"])
+            identity = self.pass_identity(current, job, self.ledger.pending(job))
+            self.poll_error = (identity, self.safe_message(error))
+
     def snapshot(self):
         current = self.ledger.current()
         if current:
@@ -176,8 +190,14 @@ class StationControl:
                 except (StationError, OSError, ValueError, subprocess.TimeoutExpired):
                     pass  # Incomplete or conflicting spooler data cannot expose recovery.
             pending = self.ledger.pending(job)
+            detail = current["detail"]
+            if self.poll_error and self.poll_error[0] == self.pass_identity(current, job, pending):
+                detail = self.poll_error[1]
+            if detail:
+                active["detail"] = self.safe_message(detail)
             if pending:
                 active.update(artifactId=pending["artifact_id"], phase=pending["phase"])
+                active["spoolerTitle"] = pending["title"]
                 try:
                     active["recovery"] = self.station.recovery_summary(job, pending)
                 except (StationError, OSError, ValueError, subprocess.TimeoutExpired):

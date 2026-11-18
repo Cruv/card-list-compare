@@ -27,6 +27,7 @@ export default function DeferredPrintBacks({ jobs, station, fresh, canPrepare, u
         {paperUnavailable && <p className="station-small">{paperUnavailable}</p>}
         {job.cancelRequested && <p role="status">Cancellation requested. Waiting for the Mac to stop any submitted pages; follow its paper-clearance instructions.</p>}
         {job.backRequest && <p className="station-message" role="status">Backs requested for {job.packets.find(packet => packet.artifactId === job.backRequest.artifactId)?.label || job.backRequest.artifactId}. Keep blank paper loaded until this packet is ready to reload.</p>}
+        {job.diagnosticMessage && <p className="station-message station-message--warning">{job.diagnosticMessage}</p>}
         <ul className="station-deferred-packets">{job.packets.map(packet => <li key={packet.artifactId}>
           <div><strong>{packet.label || `Packet ${packet.packetIndex} of ${packet.packetCount}`}</strong>
             <p className="station-small">{packet.sheetCount} {packet.sheetCount === 1 ? 'sheet' : 'sheets'} · {printPacketBackCountLabel(packet)} · {PACKET_STATES[packet.state] || packet.state}</p>

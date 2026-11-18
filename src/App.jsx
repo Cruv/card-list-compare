@@ -23,6 +23,7 @@ import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
 import { collectCardIdentifiers, fetchCardData } from './lib/scryfall';
 import { createShare, getShare, verifyEmail } from './lib/api';
+import { comparisonShareUrl } from './lib/comparisonSharing';
 import { clearPasswordResetUrl } from './lib/authNavigation';
 import { toast } from './components/Toast';
 import { preloadManaSymbols } from './components/ManaCost';
@@ -30,10 +31,11 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.64.0';
+const APP_VERSION = '2.65.0';
 const WHATS_NEW = [
-  'Recognize more deck exports from ManaSync, Archidekt, Moxfield, and Arena',
-  'See why a print confirmation stopped and retry it after correcting the issue',
+  'Preview exact printings and skipped rows before importing a deck',
+  'Download a one-sheet paper proof and inspect recovery options in Printer',
+  'Set an expiry or revoke a comparison link you own',
 ];
 
 function getResetToken() {
@@ -199,13 +201,11 @@ export default function App() {
     return () => { active = false; };
   }, [shareScope, showComparison]);
 
-  async function handleShare() {
+  async function handleShare(expiresAt) {
     const commanders = diffResult?.commanders || [];
     const title = commanders.length > 0 ? commanders.join(' / ') + ' Changelog' : null;
-    const data = await createShare(comparedLists.beforeText, comparedLists.afterText, title);
-    const url = `${window.location.origin}${window.location.pathname}#share/${data.id}`;
-    window.history.replaceState(null, '', `#share/${data.id}`);
-    return url;
+    const { id } = await createShare(comparedLists.beforeText, comparedLists.afterText, title, expiresAt);
+    return comparisonShareUrl(id);
   }
 
   // Ctrl+Enter to compare
@@ -309,7 +309,8 @@ export default function App() {
               ['After', comparedLists.afterProblems],
             ].filter(([, problems]) => problems.length).map(([label, problems]) =>
               `${label} (${problems.length} ${problems.length === 1 ? 'line' : 'lines'}, first on line ${problems[0].line})`).join(' and ')}.</p>}
-          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
+          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} shareOwnerId={user?.id}
+            afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
         </>}
       </ErrorBoundary>
 

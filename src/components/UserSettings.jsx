@@ -2,10 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
+import CopyButton from './CopyButton';
 import {
   getMe, changePassword, updateEmail, deleteAccount, resendVerification,
   createInviteCode, getMyInvites, deleteInviteCode,
+  getMyComparisonShares, updateComparisonShareExpiry, revokeComparisonShare,
 } from '../lib/api';
+import { comparisonShareExpiry, comparisonShareUrl, shareExpiryOptions } from '../lib/comparisonSharing';
 import PasswordRequirements from './PasswordRequirements';
 import './UserSettings.css';
 
@@ -231,6 +234,8 @@ export default function UserSettings() {
         <details className="account-disclosure" id="my-invitations"><summary>My invitations<small>Create and manage invitation codes you share</small></summary><InviteManagement /></details>
       )}
 
+      <ComparisonShares />
+
       {/* Account deletion remains a separate, deliberate action. */}
 
 
@@ -267,6 +272,113 @@ export default function UserSettings() {
       </div>
     </div>
   );
+}
+
+function ComparisonShares() {
+  const [open, setOpen] = useState(false);
+
+  return <details className="account-disclosure" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>My comparison links<small>Change expiry or revoke links created while signed in</small></summary>
+    {open && <ComparisonShareList />}
+  </details>;
+}
+
+function ComparisonShareList() {
+  const [shares, setShares] = useState(null);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getMyComparisonShares(controller.signal).then(data => {
+      if (!Array.isArray(data.shares)) throw new Error('Could not load comparison links.');
+      if (!controller.signal.aborted) setShares(data.shares);
+    }).catch(error => {
+      if (!controller.signal.aborted) setError(error.message);
+    });
+    return () => controller.abort();
+  }, [retry]);
+
+  return <section className="user-settings-section" aria-label="Owned comparison links">
+    {error ? <>
+      <p role="alert">{error}</p>
+      <button className="btn btn-secondary btn-sm" type="button" onClick={() => { setError(''); setRetry(value => value + 1); }}>Retry</button>
+    </> : !shares ? <p role="status">Loading comparison links…</p>
+      : shares.length === 0 ? <p>You haven’t created any comparison links while signed in.</p>
+      : <ul className="comparison-share-list">
+        {shares.map(share => <OwnedComparisonShare key={share.id} share={share}
+          onUpdated={expiresAt => setShares(rows => rows.map(row => row.id === share.id ? { ...row, expiresAt } : row))}
+          onRemoved={() => setShares(rows => rows.filter(row => row.id !== share.id))} />)}
+      </ul>}
+  </section>;
+}
+
+function OwnedComparisonShare({ share, onUpdated, onRemoved }) {
+  const [expiry, setExpiry] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [confirm, ConfirmDialog] = useConfirm();
+  const created = new Date(share.createdAt.replace(' ', 'T') + 'Z');
+  const expires = share.expiresAt ? new Date(share.expiresAt) : null;
+  const expired = expires && expires.getTime() <= Date.now();
+
+  async function saveExpiry(event) {
+    event.preventDefault();
+    if (!expiry || saving) return;
+    setSaving(true);
+    try {
+      const data = await updateComparisonShareExpiry(share.id, comparisonShareExpiry(expiry));
+      onUpdated(data.expiresAt);
+      setExpiry('');
+      toast.success('Link expiry updated');
+    } catch (error) {
+      if (error.status === 404) onRemoved();
+      toast.error(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function revoke() {
+    if (!await confirm({
+      title: 'Revoke comparison link?',
+      message: 'This permanently closes the public link for everyone who has it.',
+      confirmLabel: 'Revoke link',
+      danger: true,
+    })) return;
+    setSaving(true);
+    try {
+      await revokeComparisonShare(share.id);
+      onRemoved();
+      toast.success('Comparison link revoked');
+    } catch (error) {
+      if (error.status === 404) onRemoved();
+      toast.error(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <li className="comparison-share-list-row">
+    {ConfirmDialog}
+    <strong>{share.title || 'Untitled comparison'}</strong>
+    <p>Created {created.toLocaleString()} · {expires ? `${expired ? 'Expired' : 'Expires'} ${expires.toLocaleString()}` : 'No expiry'}</p>
+    <div className="comparison-share-actions">
+      {!expired && <>
+        <a className="btn btn-secondary btn-sm" href={comparisonShareUrl(share.id)} target="_blank" rel="noreferrer">Open link</a>
+        <CopyButton getText={() => comparisonShareUrl(share.id)} label="Copy link" />
+      </>}
+      <button className="btn btn-secondary btn-sm" type="button" onClick={revoke} disabled={saving}>Revoke link</button>
+    </div>
+    <form className="comparison-share-actions" onSubmit={saveExpiry}>
+      <label>Set expiry
+        <select value={expiry} onChange={event => setExpiry(event.target.value)} disabled={saving}>
+          <option value="">Choose expiry</option>
+          {shareExpiryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      </label>
+      <button className="btn btn-primary btn-sm" type="submit" disabled={!expiry || saving}>Save expiry</button>
+    </form>
+  </li>;
 }
 
 // --- Invite Code Management ---

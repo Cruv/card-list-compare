@@ -1818,3 +1818,48 @@
 .account-disclosure .user-settings-section { border-top:0; padding-bottom:8px; }
 .account-danger > summary { color:var(--text-destructive); }
 .user-settings-section h2 { font-size:20px; margin:0 0 20px; }
+
+.comparison-share-list {
+  display: grid;
+  gap: var(--space-md);
+  list-style: none;
+  padding: 0;
+}
+
+.comparison-share-list-row {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: var(--space-md);
+  overflow-wrap: anywhere;
+}
+
+.comparison-share-list-row p {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  margin: var(--space-xs) 0 var(--space-md);
+}
+
+.comparison-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.comparison-share-actions label {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.comparison-share-actions select {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  font: inherit;
+  min-height: 36px;
+  padding: 4px 8px;
+}

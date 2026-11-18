@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { evaluatePriceAlert, processSingleDeck, sendDiscordWebhook, sendPriceAlertWebhook } from './notificationScheduler.js';
-import { refreshArchidektDeck } from './sourceSync.js';
+import { evaluatePriceAlert, sendDiscordWebhook, sendPriceAlertWebhook } from './notificationScheduler.js';
 
 vi.mock('./sourceSync.js', () => ({ refreshArchidektDeck: vi.fn() }));
 
@@ -45,13 +44,16 @@ describe('evaluatePriceAlert (audit: price-alert baseline)', () => {
 });
 
 describe('price alert snapshots', () => {
-  let dir, db, deck, snapshot;
+  let dir, db, deck, processSingleDeck;
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'clc-price-alert-'));
     vi.stubEnv('DB_PATH', join(dir, 'test.db'));
+    vi.resetModules();
     db = await import('../db.js');
     await db.initDb();
+    ({ processSingleDeck } = await import('./notificationScheduler.js'));
+    const { refreshArchidektDeck } = await import('./sourceSync.js');
     db.run("INSERT INTO users (username, password_hash) VALUES ('u', 'h')");
     db.run("INSERT INTO tracked_owners (user_id, archidekt_username) VALUES (1, 'u')");
     db.run(`INSERT INTO tracked_decks
@@ -61,8 +63,7 @@ describe('price alert snapshots', () => {
     deck = db.get('SELECT * FROM tracked_decks WHERE id = 1');
     const deckText = '1 Rat Colony\n1 Relentless Rats';
     const snapshotId = db.run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [1, deckText]).lastInsertRowid;
-    snapshot = { changed: true, deckText, sourceSync: { currentSnapshotId: String(snapshotId) } };
-    refreshArchidektDeck.mockResolvedValue(snapshot);
+    refreshArchidektDeck.mockResolvedValue({ changed: true, deckText, sourceSync: { currentSnapshotId: String(snapshotId) } });
   });
 
   afterEach(() => {

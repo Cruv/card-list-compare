@@ -212,7 +212,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **URL import** &mdash; pull decks from Archidekt, Moxfield, DeckCheck, TappedOut, Deckstats, MTGGoldfish, and TCGPlayer links with metadata coverage feedback (subject to source availability and access restrictions). DeckCheck supports public builder, deckview and deck links
 - **Card type grouping** &mdash; changelogs grouped by Creature, Instant, Sorcery, Artifact, Enchantment, Land, Planeswalker, Battle
 - **Search & filter** &mdash; real-time card name filtering across all sections
-- **Share links** &mdash; generate shareable URLs for any comparison
+- **Share links** &mdash; create a public link with an optional expiry. Open **Account settings → My comparison links** to change expiry or revoke links you created while signed in.
 - **Keyboard shortcuts** &mdash; Ctrl+Enter to compare
 
 ### Household PDFs
