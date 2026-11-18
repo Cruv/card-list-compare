@@ -209,7 +209,8 @@ Nginx resolves its fixed external proxy hosts on demand through the container's 
 servers; an unavailable external site no longer prevents the local web app from starting.
 
 `PRINT_ENABLED=false` disables preparation. For local Node development, install Python with
-venv/pip support and Git, or use the Docker image; `PRINT_PYTHON` can select a local Python.
+venv/pip support, Git and `qpdf`, or use the Docker image. `PRINT_PYTHON` can select a local Python.
+The merger copies sheet streams directly from disk and validates the finished PDF before publication.
 Do not copy a Windows or Mac venv into the Linux cache. Runtime compatibility is checked;
 an offline rebuild succeeds only if compatible wheels are already stored. Back up the whole
 data mount, including source and wheels, for offline recovery.

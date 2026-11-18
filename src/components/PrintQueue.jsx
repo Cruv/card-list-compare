@@ -28,6 +28,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
   const destinationConnectionRef = useRef('');
   const [expanded,setExpanded] = useState(true);
   const [items,setItems] = useState([]);
+  const [refreshedAt,setRefreshedAt] = useState(null);
   const [connection,setConnection] = useState(null);
   const [locations,setLocations] = useState([]);
   const [destination,setDestination] = useState('');
@@ -40,7 +41,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
   const refresh = useCallback(function loadQueue(syncPending = false, stillCurrent = () => true) {
     if (!stillCurrent() || !printQueueVisible(detailsRef.current)) return Promise.resolve();
     const existing = requestRef.current;
-    if (existing?.scope === scope) {
+    if (existing?.scope === scope && existing.current()) {
       // A deliberate remote refresh must not be swallowed by a local timer read.
       return syncPending && !existing.remote
         ? existing.promise.then(() => loadQueue(true,stillCurrent)) : existing.promise;
@@ -51,6 +52,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
     const current = () => stillCurrent() && requestRef.current === request
       && printQueueVisible(detailsRef.current) && detailsRef.current.dataset.queueScope === scope
       && localStorage.getItem('clc-auth-token') === token;
+    request.current = current;
     const identity = value => JSON.stringify([token,!!value.connected,value.baseUrl,value.accountId,value.actorId]);
     request.promise = (async () => {
       try {
@@ -67,9 +69,10 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
         setItems(printJobId ? deckItems.filter(item => item.printJobId === printJobId) : deckItems);setConnection(c);
         const connectionKey = identity(c);
         const changed = destinationConnectionRef.current !== connectionKey;
-        if (changed) { setLocations([]);setDestination(''); }
+        if (changed) { setLocations([]);setDestination('');setRefreshedAt(null); }
         destinationConnectionRef.current = connectionKey;
         if (remoteError) { setError(remoteError.message);return; }
+        if (syncPending) setRefreshedAt(queue.refreshedAt ?? null);
         if (!c.connected || (!syncPending && !changed)) return;
         try {
           const result = await getManaSyncContainers();
@@ -78,7 +81,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
           if (!current()) return;
           if (identity(latest) !== connectionKey) {
             destinationConnectionRef.current = '';
-            setConnection(latest);setLocations([]);setDestination('');return;
+            setConnection(latest);setLocations([]);setDestination('');setRefreshedAt(null);return;
           }
           setLocations(result.containers);
         } catch { if (current()) setLocations([]); }
@@ -126,6 +129,7 @@ export default function PrintQueue({deckId,printJobId,refreshKey,onReported}) {
     <summary>{printJobId ? 'Printed proxies from this batch' : 'Proxy print records'} {items.length ? `(${items.length})` : ''}</summary>
     <p>Prepared batches appear in ManaSync&rsquo;s Proxy binder under Pending prints with their actual artwork. Confirm usable copies there or here after printing; the result stays in sync. Dismiss any failed or cancelled copies. Pending prints are separate from your available proxies.</p>
     <p>Local progress updates while this panel is open. Opening it or choosing Refresh records checks ManaSync for decisions made there.</p>
+    {refreshedAt && <p>ManaSync quantities checked <time dateTime={refreshedAt}>{new Date(refreshedAt).toLocaleString()}</time>. The backend reuses that check for up to one minute.</p>}
     <p>{!connection ? 'Loading ManaSync connection…' : connection.connected ? `Reports go to ${connection.username} (${connection.accountId}).` : 'ManaSync is disconnected. Prepared batches wait in CLC until the connection is restored.'}</p>
     <div className="mana-sync-actions"><label>Physical destination <select value={destination} onChange={e => setDestination(e.target.value)} disabled={!connection?.connected || busy}>
       <option value="">Unassigned</option>{locations.filter(v => v.kind !== 'unassigned').map(v => <option key={v.id} value={v.id}>{v.name} ({v.kind})</option>)}</select></label>

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import SectionChangelog from './SectionChangelog';
 import CopyButton from './CopyButton';
 import PrintComparisonButton from './PrintComparisonButton';
@@ -6,6 +6,7 @@ import Icon from './Icon';
 import ActionMenu from './ActionMenu';
 import { formatChangelog, formatMpcFill, formatReddit, formatJSON, formatForArchidekt, formatTTS } from '../lib/formatter';
 import { DECKCHECK_POWER_URL } from '../lib/deckcheck';
+import { comparisonShareExpiry, shareExpiryOptions } from '../lib/comparisonSharing';
 import { toast } from './Toast';
 import './ChangelogOutput.css';
 
@@ -25,7 +26,7 @@ function filterSection(section, query) {
   };
 }
 
-export default function ChangelogOutput({ diffResult, cardMap, onShare, afterText, beforeText }) {
+export default function ChangelogOutput({ diffResult, cardMap, onShare, shareOwnerId, afterText, beforeText }) {
   const { mainboard, sideboard, hasSideboard, commanders } = diffResult;
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -82,6 +83,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
             hasAdditions={hasAdditions}
             noChanges={noChanges}
             onShare={onShare}
+            shareOwnerId={shareOwnerId}
             commanders={commanders}
           />
         </div>
@@ -129,7 +131,7 @@ export default function ChangelogOutput({ diffResult, cardMap, onShare, afterTex
   );
 }
 
-function ExportMenu({ diffResult, cardMap, beforeText, afterText, noChanges, hasAdditions, onShare, commanders }) {
+function ExportMenu({ diffResult, cardMap, beforeText, afterText, noChanges, hasAdditions, onShare, shareOwnerId, commanders }) {
   function downloadTts() {
     const json = formatTTS(afterText, cardMap, commanders);
     if (!json) return;
@@ -156,33 +158,52 @@ function ExportMenu({ diffResult, cardMap, beforeText, afterText, noChanges, has
       {cardMap?.size > 0 && <button type="button" onClick={downloadTts}>Download TTS</button>}
       {commanders.length > 0 && <a href={DECKCHECK_POWER_URL} target="_blank" rel="noopener noreferrer">Open DeckCheck ↗</a>}
     </>}
-    {onShare && <><span className="action-menu-heading">Share this comparison</span><ShareMenuItem onShare={onShare} /></>}
+    {onShare && <><span className="action-menu-heading">Share this comparison</span>
+      <ShareMenuItem key={shareOwnerId ?? 'guest'} onShare={onShare} canManageShares={!!shareOwnerId} /></>}
   </ActionMenu>;
 }
 
-function ShareMenuItem({ onShare }) {
-  const [state, setState] = useState('idle');
+function ShareMenuItem({ onShare, canManageShares }) {
+  const [expiry, setExpiry] = useState('0');
+  const [sharing, setSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
   async function handleShare() {
-    setState('loading');
+    setSharing(true);
     try {
-      const url = await onShare();
-      await navigator.clipboard.writeText(url);
-      setState('done');
-      setTimeout(() => setState('idle'), 1500);
-    } catch {
-      toast.error('Failed to create share link');
-      setState('idle');
+      const url = await onShare(comparisonShareExpiry(expiry));
+      if (!mounted.current) return;
+      setShareUrl(url);
+      try {
+        await navigator.clipboard.writeText(url);
+        if (mounted.current) toast.success('Share link copied');
+      } catch {
+        if (mounted.current) toast.info('Share link created. Open it to copy the address.');
+      }
+    } catch (error) {
+      if (mounted.current) toast.error(error.message || 'Failed to create share link');
+    } finally {
+      if (mounted.current) setSharing(false);
     }
   }
 
-  return (
-    <button
-      type="button"
-      className="more-menu-item"
-      onClick={handleShare}
-      disabled={state === 'loading' || state === 'done'}
-    >
-      {state === 'done' ? 'Link Copied!' : state === 'loading' ? 'Sharing...' : 'Create share link'}
-    </button>
-  );
+  return <>
+    <label className="comparison-share-expiry">
+      Link expires
+      <select value={expiry} onChange={event => { setExpiry(event.target.value); setShareUrl(null); }} disabled={sharing}>
+        {shareExpiryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+    {shareUrl ? <>
+      <CopyButton getText={() => shareUrl} label="Copy share link" />
+      <a href={shareUrl} target="_blank" rel="noreferrer">Open share link</a>
+    </> : <button type="button" onClick={handleShare} disabled={sharing}>{sharing ? 'Creating…' : 'Create share link'}</button>}
+    {canManageShares ? <a href="#settings">Manage my share links</a>
+      : <p className="comparison-share-guest">Sign in to manage links you create.</p>}
+  </>;
 }

@@ -470,8 +470,8 @@ router.get('/users/export', (req, res) => {
 });
 
 router.post('/cleanup/tokens', (req, res) => {
-  const resetResult = run('DELETE FROM password_reset_tokens WHERE used = 1 OR expires_at < datetime("now")');
-  const verifyResult = run('DELETE FROM email_verification_tokens WHERE expires_at < datetime("now")');
+  const resetResult = run("DELETE FROM password_reset_tokens WHERE used = 1 OR julianday(expires_at) <= julianday('now')");
+  const verifyResult = run("DELETE FROM email_verification_tokens WHERE julianday(expires_at) <= julianday('now')");
   const total = resetResult.changes + verifyResult.changes;
 
   logAdminAction(req.user.userId, req.user.username, 'cleanup_tokens', null, null, `${total} tokens removed`);

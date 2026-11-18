@@ -45,14 +45,29 @@ export function planPhysicalCopies(targetText, baselineText, { includeSideboard 
     card.quantity -= consumed;
     if (old) old.quantity -= consumed;
   }
+  const byName = new Map();
+  for (const old of baseline.values()) {
+    if (!old.quantity) continue;
+    const name = normalizeCardName(old.displayName);
+    let group = byName.get(name);
+    if (!group) {
+      group = { all: { cards: [], index: 0 }, unspecified: { cards: [], index: 0 } };
+      byName.set(name, group);
+    }
+    group.all.cards.push(old);
+    if (replacePrintings && !hasPrinting(old)) group.unspecified.cards.push(old);
+  }
   for (const card of remaining) {
-    for (const old of baseline.values()) {
-      if (!card.quantity) break;
-      if (normalizeCardName(card.displayName) !== normalizeCardName(old.displayName)) continue;
-      if (replacePrintings && hasPrinting(card) && hasPrinting(old)) continue;
+    if (!card.quantity) continue;
+    const group = byName.get(normalizeCardName(card.displayName));
+    if (!group) continue;
+    const queue = replacePrintings && hasPrinting(card) ? group.unspecified : group.all;
+    while (card.quantity && queue.index < queue.cards.length) {
+      const old = queue.cards[queue.index];
       const consumed = Math.min(card.quantity, old.quantity);
       card.quantity -= consumed;
       old.quantity -= consumed;
+      if (!old.quantity) queue.index++;
     }
   }
   const cards = remaining.filter(card => card.quantity > 0);

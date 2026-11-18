@@ -30,6 +30,14 @@ describe('physical print copy planning', () => {
     expect(planPhysicalCopies(target, '2 Lightning Bolt (LEA) [161]', { replacePrintings: false }))
       .toEqual([expect.objectContaining({ setCode: 'M10', quantity: 2 })]);
   });
+  it('spends leftover copies in target order after reserving exact printings', () => {
+    const target = '2 Lightning Bolt (M10) [146]\n2 Lightning Bolt (LEA) [161]\n2 Lightning Bolt (STA) [42]';
+    const baseline = '1 lightning bolt\n2 Lightning Bolt (STA) [42]\n2 Lightning Bolt (2X2) [117]';
+    expect(planPhysicalCopies(target, baseline).map(card => [card.setCode, card.quantity]))
+      .toEqual([['M10', 1], ['LEA', 2]]);
+    expect(planPhysicalCopies(target, baseline, { replacePrintings: false }).map(card => [card.setCode, card.quantity]))
+      .toEqual([['LEA', 1]]);
+  });
   it('does not reprint finish changes, DFC aliases, or newly supplied metadata alone', () => {
     expect(planPhysicalCopies('1 Sol Ring (C21) [263] *F*', '1 Sol Ring (C21) [263]')).toEqual([]);
     expect(planPhysicalCopies('1 Malakir Rebirth // Malakir Mire (ZNR) [111]', '1 Malakir Rebirth (ZNR) [111]')).toEqual([]);

@@ -38,7 +38,7 @@ describe('versioned saved artwork requests', () => {
   it('still expires unauthorized sessions without leaking a conflict snapshot', async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal('window', { dispatchEvent });
-    setup({ error: 'Unauthorized' }, 401);
+    setup({ error: 'Unauthorized', code: 'SESSION_INVALID' }, 401);
     await expect(getMpcOverrides(12)).rejects.toThrow('Session expired');
     expect(localStorage.removeItem).toHaveBeenCalledWith('clc-auth-token');
     expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'auth-expired' }));

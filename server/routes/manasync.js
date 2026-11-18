@@ -37,8 +37,8 @@ router.post('/print-queue/batch',handle(req => ({items:queueItems(req.user.userI
 router.post('/print-queue/refresh',handle(async req => {
   const { refreshPendingProxyPlans, pendingProxyRefreshScope } = await import('../lib/pendingProxyPlans.js');
   const scope = pendingProxyRefreshScope(req.body);
-  await refreshPendingProxyPlans(req.user.userId,req.body);
-  return {items:listQueue(req.user.userId,scope.deckId).filter(item => !scope.printJobId || item.printJobId === scope.printJobId)};
+  const refreshedAt = await refreshPendingProxyPlans(req.user.userId,req.body);
+  return {items:listQueue(req.user.userId,scope.deckId).filter(item => !scope.printJobId || item.printJobId === scope.printJobId),...(refreshedAt ? {refreshedAt} : {})};
 }));
 router.post('/print-queue/:id/retry-publication',handle(async req => ({
   item:await (await import('../lib/pendingProxyPlans.js')).retryPendingProxyPublication(req.user.userId,req.params.id,req.body),

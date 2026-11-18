@@ -212,7 +212,7 @@ The server rewrites the database atomically (temporary file, fsync, rename), so 
 - **URL import** &mdash; pull decks from Archidekt, Moxfield, DeckCheck, TappedOut, Deckstats, MTGGoldfish, and TCGPlayer links with metadata coverage feedback (subject to source availability and access restrictions). DeckCheck supports public builder, deckview and deck links
 - **Card type grouping** &mdash; changelogs grouped by Creature, Instant, Sorcery, Artifact, Enchantment, Land, Planeswalker, Battle
 - **Search & filter** &mdash; real-time card name filtering across all sections
-- **Share links** &mdash; generate shareable URLs for any comparison
+- **Share links** &mdash; create a public link with an optional expiry. Open **Account settings → My comparison links** to change expiry or revoke links you created while signed in.
 - **Keyboard shortcuts** &mdash; Ctrl+Enter to compare
 
 ### Household PDFs
@@ -361,7 +361,7 @@ feature stays retired; existing legacy rows remain in backups with no automatic 
 
 ### Deck Analytics
 
-- **Price checking** &mdash; fetch current Scryfall prices with per-card breakdown, total, and top-10 most expensive cards
+- **Price checking** &mdash; fetch current Scryfall prices with a per-card breakdown and the ten most expensive cards. An incomplete lookup keeps the last complete totals and skips price alerts.
 - **Budget prices** &mdash; cheapest printing totals alongside selected printing totals, with savings calculation
 - **Price history** &mdash; smooth SVG chart showing deck value over time across snapshots
 - **Price alerts** &mdash; set a dollar-change threshold for specific or cheapest printings; notify when value moves that far from the alert baseline, through configured email/Discord channels

@@ -5,6 +5,7 @@ import { printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
 import { mixedPrintCompanionWait } from '../lib/printReview';
 import ConfirmModal from './ConfirmModal';
 import Icon from './Icon';
+import PrintJobDiagnostics from './PrintJobDiagnostics';
 import './PrintBatchList.css';
 
 const STATES = {
@@ -58,6 +59,7 @@ function BatchRow({ job, station, scope, fresh, busy, onCancel }) {
       {job.cancelRequested && <p>Cancellation requested · waiting for the Mac</p>}
       {job.progress && Number.isFinite(job.progress.completed) && Number.isFinite(job.progress.total) && job.progress.total > 0 && job.state === 'preparing' && <p>{job.progress.completed} of {job.progress.total} prepared</p>}
       {job.error && <p className="batch-list-error-detail">{job.error}</p>}
+      {job.canInspect && <PrintJobDiagnostics jobId={job.id} />}
     </div>
     <div className="batch-list-actions">
       {href && <a className="btn btn-secondary btn-sm" href={href}>View batch</a>}

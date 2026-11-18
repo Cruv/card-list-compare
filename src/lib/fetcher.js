@@ -14,6 +14,7 @@
  */
 
 import { parseDeckCheckId } from './deckcheck.js';
+import { unsupportedImportFinish } from './parser.js';
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -66,7 +67,7 @@ export function detectSite(url) {
 // Archidekt
 // ---------------------------------------------------------------------------
 
-async function fetchArchidekt(url) {
+async function fetchArchidekt(url, review) {
   const match = url.match(ARCHIDEKT_RE);
   if (!match) throw new Error('Could not parse Archidekt deck ID from URL.');
   const deckId = match[1];
@@ -81,22 +82,24 @@ async function fetchArchidekt(url) {
   }
 
   const data = await res.json();
-  return archidektToText(data);
+  return archidektToText(data, { review });
 }
 
-function archidektToText(data) {
+function archidektToText(data, { review = false } = {}) {
   const mainLines = [];
   const sideLines = [];
   const commanderLines = [];
   const commanderNames = [];
+  const skipped = [];
   let totalCards = 0;
   let cardsWithMeta = 0;
 
   const cards = data.cards || [];
 
   for (const entry of cards) {
-    const name = entry.card?.oracleCard?.name || entry.card?.name || 'Unknown';
-    const qty = entry.quantity || 1;
+    const cardName = entry.card?.oracleCard?.name || entry.card?.name;
+    const name = cardName || 'Unknown';
+    const qty = review ? entry.quantity ?? 1 : entry.quantity || 1;
     const setCode = entry.card?.edition?.editioncode || '';
     const collectorNumber = entry.card?.collectorNumber || '';
     const modifier = entry.modifier || 'Normal';
@@ -104,17 +107,19 @@ function archidektToText(data) {
       typeof c === 'string' ? c.toLowerCase() : (c.name || '').toLowerCase()
     );
 
-    if (categories.includes('maybeboard') || categories.includes('considering')) {
-      continue;
-    }
-
-    totalCards += qty;
-    if (setCode && collectorNumber) cardsWithMeta += qty;
-
     let line = `${qty} ${name}`;
     if (setCode) line += ` (${setCode})`;
     if (collectorNumber) line += ` [${collectorNumber}]`;
-    if (modifier === 'Foil') line += ` *F*`;
+    const maybe = categories.includes('maybeboard') || categories.includes('considering');
+    if (review && (maybe || !cardName || unsupportedImportFinish(modifier))) {
+      skipped.push({ raw: line, reason: maybe ? 'Maybeboard' : !cardName ? 'Missing card name' : `Unsupported finish (${modifier})` });
+      continue;
+    }
+    if (maybe) continue;
+
+    totalCards += qty;
+    if (setCode && collectorNumber) cardsWithMeta += qty;
+    if (modifier === 'Foil' || (review && String(modifier).toLowerCase() === 'foil')) line += ` *F*`;
 
     if (categories.includes('commander') || categories.includes('commanders')) {
       commanderLines.push(line);
@@ -139,14 +144,14 @@ function archidektToText(data) {
     text += '\n\nSideboard\n' + sideLines.join('\n');
   }
 
-  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta } };
+  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta }, ...(review ? { skipped, sourceName: data.name } : {}) };
 }
 
 // ---------------------------------------------------------------------------
 // Moxfield
 // ---------------------------------------------------------------------------
 
-async function fetchMoxfield(url) {
+async function fetchMoxfield(url, review) {
   const match = url.match(MOXFIELD_RE);
   if (!match) throw new Error('Could not parse Moxfield deck ID from URL.');
   const deckId = match[1];
@@ -164,10 +169,10 @@ async function fetchMoxfield(url) {
   }
 
   const data = await res.json();
-  return moxfieldToText(data);
+  return moxfieldToText(data, { review });
 }
 
-function moxfieldToText(data) {
+function moxfieldToText(data, { review = false } = {}) {
   const sections = {
     commanders: [],
     mainboard: [],
@@ -175,6 +180,7 @@ function moxfieldToText(data) {
     companions: [],
   };
   const commanderNames = [];
+  const skipped = [];
   let totalCards = 0;
   let cardsWithMeta = 0;
 
@@ -185,22 +191,28 @@ function moxfieldToText(data) {
     const cards = board.cards || {};
     const target = boardName.toLowerCase();
 
-    if (target === 'maybeboard' || target === 'considering') continue;
+    const maybe = target === 'maybeboard' || target === 'considering';
+    if (maybe && !review) continue;
 
     for (const [, cardEntry] of Object.entries(cards)) {
-      const name = cardEntry.card?.name || 'Unknown';
-      const qty = cardEntry.quantity || 1;
+      const cardName = cardEntry.card?.name;
+      const name = cardName || 'Unknown';
+      const qty = review ? cardEntry.quantity ?? 1 : cardEntry.quantity || 1;
       const setCode = cardEntry.card?.set || '';
       const collectorNumber = cardEntry.card?.cn || '';
       const finish = cardEntry.finish || '';
-      const isFoil = cardEntry.isFoil || finish === 'foil' || finish === 'etched';
-
-      totalCards += qty;
-      if (setCode && collectorNumber) cardsWithMeta += qty;
+      const isFoil = cardEntry.isFoil || finish === 'foil' || finish === 'etched' || (review && String(finish).toLowerCase() === 'foil');
 
       let line = `${qty} ${name}`;
       if (setCode) line += ` (${setCode})`;
       if (collectorNumber) line += ` [${collectorNumber}]`;
+      if (review && (maybe || !cardName || unsupportedImportFinish(finish))) {
+        skipped.push({ raw: line, reason: maybe ? 'Maybeboard' : !cardName ? 'Missing card name' : `Unsupported finish (${finish})` });
+        continue;
+      }
+
+      totalCards += qty;
+      if (setCode && collectorNumber) cardsWithMeta += qty;
       if (isFoil) line += ` *F*`;
 
       if (target === 'commanders' || target === 'commander') {
@@ -234,14 +246,14 @@ function moxfieldToText(data) {
     text += '\n\nSideboard\n' + sections.sideboard.join('\n');
   }
 
-  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta } };
+  return { text, commanders: commanderNames, stats: { totalCards, cardsWithMeta }, ...(review ? { skipped, sourceName: data.name } : {}) };
 }
 
 // ---------------------------------------------------------------------------
 // DeckCheck
 // ---------------------------------------------------------------------------
 
-async function fetchDeckcheck(url) {
+async function fetchDeckcheck(url, review) {
   const hash = deckcheckId(url);
   if (!hash) throw new Error('Could not parse DeckCheck deck ID from URL.');
 
@@ -254,7 +266,7 @@ async function fetchDeckcheck(url) {
   }
 
   const data = await res.json();
-  return deckcheckToText(data);
+  return { ...deckcheckToText(data), ...(review ? { sourceName: data.name || data.deckName } : {}) };
 }
 
 function deckcheckToText(data) {
@@ -454,22 +466,19 @@ function tcgPlayerToText(data) {
  * stats: { totalCards: number, cardsWithMeta: number } — metadata coverage info
  * Throws Error with user-friendly message on failure.
  */
-export async function fetchDeckFromUrl(url) {
+export async function fetchDeckFromUrl(url, { review = false } = {}) {
   const site = detectSite(url);
 
   if (site === 'archidekt') {
-    const { text, commanders, stats } = await fetchArchidekt(url);
-    return { text, site, commanders, stats };
+    return { ...await fetchArchidekt(url, review), site };
   }
 
   if (site === 'moxfield') {
-    const { text, commanders, stats } = await fetchMoxfield(url);
-    return { text, site, commanders, stats };
+    return { ...await fetchMoxfield(url, review), site };
   }
 
   if (site === 'deckcheck') {
-    const { text, commanders, stats } = await fetchDeckcheck(url);
-    return { text, site, commanders, stats };
+    return { ...await fetchDeckcheck(url, review), site };
   }
 
   if (site === 'tappedout') {

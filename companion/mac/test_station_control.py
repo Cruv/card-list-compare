@@ -89,6 +89,13 @@ class ControlTests(unittest.TestCase):
             self.control.apply(control("unpause"))
         self.assertTrue(self.station.ledger.paused())
 
+    def test_poll_failure_belongs_only_to_the_exact_local_pass(self):
+        self.station.adopt(self.client.job)
+        self.control.record_poll_error(native.StationError("Cannot confirm spooler outcome"))
+        self.assertEqual(self.control.snapshot()["activeJob"]["detail"], "Cannot confirm spooler outcome")
+        self.station.ledger.write("UPDATE passes SET spooler_id='EPSON-2' WHERE job_id='job1'")
+        self.assertNotIn("detail", self.control.snapshot()["activeJob"])
+
     def test_expired_unknown_or_executable_controls_have_no_effect(self):
         for number, request in enumerate([control("unpause", expiresAt="2001-01-01T00:00:00Z"),
                                           control("run", path="/usr/bin/lp"), control("unpause", expiresAt="bad")]):

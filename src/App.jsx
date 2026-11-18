@@ -23,6 +23,7 @@ import { parse } from './lib/parser';
 import { computeDiff } from './lib/differ';
 import { collectCardIdentifiers, fetchCardData } from './lib/scryfall';
 import { createShare, getShare, verifyEmail } from './lib/api';
+import { comparisonShareUrl } from './lib/comparisonSharing';
 import { clearPasswordResetUrl } from './lib/authNavigation';
 import { toast } from './components/Toast';
 import { preloadManaSymbols } from './components/ManaCost';
@@ -30,10 +31,11 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.64.0';
+const APP_VERSION = '2.65.0';
 const WHATS_NEW = [
-  'Recognize more deck exports from ManaSync, Archidekt, Moxfield, and Arena',
-  'See why a print confirmation stopped and retry it after correcting the issue',
+  'Preview exact printings and skipped rows before importing a deck',
+  'Download a one-sheet paper proof and inspect recovery options in Printer',
+  'Set an expiry or revoke a comparison link you own',
 ];
 
 function getResetToken() {
@@ -60,9 +62,12 @@ const AUTH_ROUTES = {
 export default function App() {
   const { user, loading: authLoading } = useAuth();
   const { route, shareId, deckShareId, deckId, initialPrintJobId } = useHashRoute();
-  const [beforeText, setBeforeText] = useState('');
-  const [afterText, setAfterText] = useState('');
-  const [comparedLists, setComparedLists] = useState(null);
+  const shareScope = useMemo(() => route === 'share' ? { id: shareId } : null, [route, shareId]);
+  const [shareLoad, setShareLoad] = useState(null);
+  const [inputs, setInputs] = useState({ scope: null, beforeText: '', afterText: '' });
+  const { beforeText, afterText } = inputs.scope === shareScope ? inputs : { beforeText: '', afterText: '' };
+  const [comparison, setComparedLists] = useState(null);
+  const comparedLists = comparison?.scope === shareScope ? comparison : null;
   const diffResult = comparedLists?.diff || null;
   const comparisonRevision = useRef(0);
   const [handoffRevision, setHandoffRevision] = useState(0);
@@ -126,12 +131,12 @@ export default function App() {
       });
   }, []);
 
-  const showComparison = useCallback((beforeText, afterText) => {
+  const showComparison = useCallback((beforeText, afterText, scope) => {
     const revision = ++comparisonRevision.current;
     const before = parse(beforeText);
     const after = parse(afterText);
     const diff = computeDiff(before, after);
-    setComparedLists({ diff, beforeText, afterText, beforeProblems: before.problems, afterProblems: after.problems });
+    setComparedLists({ scope, diff, beforeText, afterText, beforeProblems: before.problems, afterProblems: after.problems });
     setCardMap(null);
 
     // Fetch card data in the background (non-blocking)
@@ -145,20 +150,25 @@ export default function App() {
   }, []);
 
   function handleCompare() {
-    showComparison(beforeText, afterText);
+    showComparison(beforeText, afterText, shareScope);
+  }
+
+  function updateInput(field, text) {
+    setInputs(current => ({
+      ...(current.scope === shareScope ? current : { scope: shareScope, beforeText: '', afterText: '' }),
+      [field]: text,
+    }));
   }
 
   function handleClear() {
-    setBeforeText('');
-    setAfterText('');
+    setInputs({ scope: shareScope, beforeText: '', afterText: '' });
     comparisonRevision.current++;
     setComparedLists(null);
     setCardMap(null);
   }
 
   function handleSwap() {
-    setBeforeText(afterText);
-    setAfterText(beforeText);
+    setInputs({ scope: shareScope, beforeText: afterText, afterText: beforeText });
     comparisonRevision.current++;
     setComparedLists(null);
     setCardMap(null);
@@ -171,31 +181,31 @@ export default function App() {
 
   // Load shared comparison from URL hash (e.g. #share/abc123)
   useEffect(() => {
-    if (route !== 'share' || !shareId) return;
+    if (!shareScope) return;
     let active = true;
-    const revision = ++comparisonRevision.current;
+    comparisonRevision.current++;
     async function loadShare() {
       try {
-        const data = await getShare(shareId);
-        if (!active || revision !== comparisonRevision.current) return;
-        setBeforeText(data.beforeText || '');
-        setAfterText(data.afterText || '');
-        showComparison(data.beforeText || '', data.afterText || '');
+        const data = await getShare(shareScope.id);
+        if (!active) return;
+        const beforeText = data.beforeText || '';
+        const afterText = data.afterText || '';
+        setInputs({ scope: shareScope, beforeText, afterText });
+        showComparison(beforeText, afterText, shareScope);
+        setShareLoad({ scope: shareScope, status: 'ready' });
       } catch {
-        if (active && revision === comparisonRevision.current) toast.error('Failed to load shared comparison. The link may be invalid or expired.');
+        if (active) setShareLoad({ scope: shareScope, status: 'error' });
       }
     }
     loadShare();
     return () => { active = false; };
-  }, [route, shareId, showComparison]);
+  }, [shareScope, showComparison]);
 
-  async function handleShare() {
+  async function handleShare(expiresAt) {
     const commanders = diffResult?.commanders || [];
     const title = commanders.length > 0 ? commanders.join(' / ') + ' Changelog' : null;
-    const data = await createShare(comparedLists.beforeText, comparedLists.afterText, title);
-    const url = `${window.location.origin}${window.location.pathname}#share/${data.id}`;
-    window.history.replaceState(null, '', `#share/${data.id}`);
-    return url;
+    const { id } = await createShare(comparedLists.beforeText, comparedLists.afterText, title, expiresAt);
+    return comparisonShareUrl(id);
   }
 
   // Ctrl+Enter to compare
@@ -237,6 +247,12 @@ export default function App() {
   if (route === 'library' && user) return inShell(<DeckLibrary key={user.id} />);
   if (route === 'libraryDeck' && user && deckId) return inShell(<DeckPage key={`${user.id}:${deckId}`} deckId={deckId} initialPrintJobId={initialPrintJobId} />);
   if (route === 'deck' && deckShareId) return inShell(<SharedDeckView key={deckShareId} shareId={deckShareId} />);
+  if (shareScope && shareLoad?.scope !== shareScope) return inShell(<div className="app-loading" role="status">Loading shared comparison…</div>);
+  if (shareScope && shareLoad.status === 'error') return inShell(<section className="app-auth-required">
+    <h1>Shared comparison unavailable</h1>
+    <p role="alert">The link may be invalid or expired.</p>
+    <a className="btn btn-secondary" href="#">Compare deck lists</a>
+  </section>);
 
   return inShell(
     <div className="app compare-workspace">
@@ -251,7 +267,7 @@ export default function App() {
           label="Before"
           caption="Earlier version or the deck you have in paper"
           value={beforeText}
-          onChange={setBeforeText}
+          onChange={text => updateInput('beforeText', text)}
           user={user}
         />
         <DeckInput
@@ -259,7 +275,7 @@ export default function App() {
           label="After"
           caption="Newer version you want to build"
           value={afterText}
-          onChange={setAfterText}
+          onChange={text => updateInput('afterText', text)}
           user={user}
         />
       </div>
@@ -293,7 +309,8 @@ export default function App() {
               ['After', comparedLists.afterProblems],
             ].filter(([, problems]) => problems.length).map(([label, problems]) =>
               `${label} (${problems.length} ${problems.length === 1 ? 'line' : 'lines'}, first on line ${problems[0].line})`).join(' and ')}.</p>}
-          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
+          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} shareOwnerId={user?.id}
+            afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
         </>}
       </ErrorBoundary>
 

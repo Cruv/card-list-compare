@@ -14,18 +14,21 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('clc-auth-token');
     if (!token) return;
+    let canceled = false;
 
     getMe()
-      .then(data => setUser(data.user))
+      .then(data => {
+        if (!canceled && localStorage.getItem('clc-auth-token') === token) setUser(data.user);
+      })
       .catch((err) => {
-        // apiFetch removes an actually unauthorized token on HTTP 401. Offline
-        // or temporary server failures must not erase a recoverable session.
-        // If account was suspended, show a clear message
-        if (err.message && err.message.toLowerCase().includes('suspended')) {
+        if (!canceled && localStorage.getItem('clc-auth-token') === token && err.message?.toLowerCase().includes('suspended')) {
           toast.error('Your account has been suspended. Please contact an admin.');
         }
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!canceled) setLoading(false);
+      });
+    return () => { canceled = true; };
   }, []);
 
   useEffect(() => {

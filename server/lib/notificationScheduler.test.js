@@ -4,6 +4,8 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { evaluatePriceAlert, sendDiscordWebhook, sendPriceAlertWebhook } from './notificationScheduler.js';
 
+vi.mock('./sourceSync.js', () => ({ refreshArchidektDeck: vi.fn() }));
+
 describe('evaluatePriceAlert (audit: price-alert baseline)', () => {
   it('establishes a baseline on first observation without firing', () => {
     expect(evaluatePriceAlert(null, 100, 10)).toEqual({ fire: false, newBaseline: 100 });
@@ -15,8 +17,7 @@ describe('evaluatePriceAlert (audit: price-alert baseline)', () => {
   });
 
   it('ignores a $0 reading (Scryfall outage) instead of alerting and resetting the baseline', () => {
-    // computeDeckPrices yields 0 when Scryfall returns nothing. Alerting on it
-    // would send "decreased by $250", store 0, then "increased by $250" on recovery.
+    // Empty decks must not alert or establish a price baseline.
     const outage = evaluatePriceAlert(250, 0, 10);
     expect(outage).toEqual({ fire: false, newBaseline: 250 }); // baseline preserved
     // …so the recovery reading compares against the real baseline and stays quiet.
@@ -39,6 +40,50 @@ describe('evaluatePriceAlert (audit: price-alert baseline)', () => {
     }
     const final = evaluatePriceAlert(baseline, 111, 10);
     expect(final.fire).toBe(true); // 111 - 100 = 11 >= 10
+  });
+});
+
+describe('price alert snapshots', () => {
+  let dir, db, deck, processSingleDeck;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'clc-price-alert-'));
+    vi.stubEnv('DB_PATH', join(dir, 'test.db'));
+    vi.resetModules();
+    db = await import('../db.js');
+    await db.initDb();
+    ({ processSingleDeck } = await import('./notificationScheduler.js'));
+    const { refreshArchidektDeck } = await import('./sourceSync.js');
+    db.run("INSERT INTO users (username, password_hash) VALUES ('u', 'h')");
+    db.run("INSERT INTO tracked_owners (user_id, archidekt_username) VALUES (1, 'u')");
+    db.run(`INSERT INTO tracked_decks
+      (id, user_id, tracked_owner_id, archidekt_deck_id, deck_name, discord_webhook_url, price_alert_threshold,
+       price_alert_baseline, last_known_price, last_known_budget_price)
+      VALUES (1, 1, 1, 42, 'Test deck', 'https://discord.invalid/fixture', 5, 40, 40, 40)`);
+    deck = db.get('SELECT * FROM tracked_decks WHERE id = 1');
+    const deckText = '1 Rat Colony\n1 Relentless Rats';
+    const snapshotId = db.run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (?, ?)', [1, deckText]).lastInsertRowid;
+    refreshArchidektDeck.mockResolvedValue({ changed: true, deckText, sourceSync: { currentSnapshotId: String(snapshotId) } });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps the last total and alert baseline when one card has no price', async () => {
+    const transport = vi.fn(async (url) => url.startsWith('https://api.scryfall.com')
+      ? Response.json({ data: [{ name: 'Rat Colony', prices: { usd: '10.00' } }] })
+      : new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', transport);
+    await processSingleDeck(deck);
+
+    expect(db.get('SELECT last_known_price, price_alert_baseline FROM tracked_decks WHERE id = 1'))
+      .toEqual({ last_known_price: 40, price_alert_baseline: 40 });
+    expect(db.all('SELECT notification_type FROM notification_log'))
+      .toEqual([{ notification_type: 'deck_change' }]);
+    expect(transport.mock.calls.filter(([url]) => url.startsWith('https://discord.invalid'))).toHaveLength(1);
   });
 });
 

@@ -4,7 +4,7 @@ import { useAppSettings } from '../context/AppSettingsContext';
 import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import {
-  getTrackedDecks, untrackDeck, refreshDeck,
+  getTrackedDeck, untrackDeck, refreshDeck,
   getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
   getDeckChangelog, updateDeckCommanders, updateDeckNotify,
   lockSnapshot, unlockSnapshot, setPaperSnapshot, clearPaperSnapshot,
@@ -77,8 +77,10 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
 
   // Core data
   const [deck, setDeck] = useState(null);
+  const [deckError, setDeckError] = useState(null);
   const coverFor = useDeckArtwork(deck ? [deck] : []);
   const [loading, setLoading] = useState(true);
+  const requestSequence = useRef({ deck: 0, snapshots: 0 });
   const [snapshots, setSnapshots] = useState([]);
   const [snapshotsLoading, setSnapshotsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -130,10 +132,8 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
   const [overlayEntry, setOverlayEntry] = useState(null);
 
   // Full deck tab state
-  const [parsedDeck, setParsedDeck] = useState(null);
-  const [deckCardMap, setDeckCardMap] = useState(null);
-  const [deckText, setDeckText] = useState(null);
-  const [deckLoading, setDeckLoading] = useState(false);
+  const [savedVersion, setSavedVersion] = useState(null);
+  const [savedVersionError, setSavedVersionError] = useState(null);
 
   // Analytics tab state
   const [priceData, setPriceData] = useState(null);
@@ -162,40 +162,44 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
   // --- Data loading ---
 
   const loadDeck = useCallback(async () => {
+    const sequence = ++requestSequence.current.deck;
     try {
-      const data = await getTrackedDecks();
-      const found = data.decks.find(d => d.id === deckId);
-      if (!found) {
-        toast.error('Deck not found');
-        window.location.hash = '#library';
-        return;
-      }
-      setDeck(found);
-    } catch {
-      toast.error('Failed to load deck');
+      const { deck: currentDeck } = await getTrackedDeck(deckId);
+      if (sequence !== requestSequence.current.deck) return;
+      setDeck(currentDeck);
+      setDeckError(null);
+    } catch (error) {
+      if (sequence !== requestSequence.current.deck) return;
+      if (error.status === 404) setDeck(null);
+      setDeckError(error.status === 404 ? 'Deck not found.' : 'Failed to load deck details.');
     }
   }, [deckId]);
 
   const loadSnapshots = useCallback(async () => {
+    const sequence = ++requestSequence.current.snapshots;
     setSnapshotsLoading(true);
     try {
       const data = await getDeckSnapshots(deckId);
+      if (sequence !== requestSequence.current.snapshots) return;
       setSnapshots(data.snapshots);
-      return data.snapshots;
     } catch {
-      toast.error('Failed to load snapshots');
+      if (sequence === requestSequence.current.snapshots) toast.error('Failed to load snapshots');
     } finally {
-      setSnapshotsLoading(false);
+      if (sequence === requestSequence.current.snapshots) setSnapshotsLoading(false);
     }
   }, [deckId]);
 
   useEffect(() => {
-    async function init() {
-      setLoading(true);
-      await Promise.all([loadDeck(), loadSnapshots()]);
-      setLoading(false);
-    }
-    init();
+    const requests = requestSequence.current;
+    let active = true;
+    void Promise.all([loadDeck(), loadSnapshots()]).then(() => {
+      if (active) setLoading(false);
+    });
+    return () => {
+      active = false;
+      requests.deck++;
+      requests.snapshots++;
+    };
   }, [loadDeck, loadSnapshots]);
 
   // Sync settings tab defaults when deck loads
@@ -222,7 +226,8 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
     comparisonSequence.current++;
     fullDeckSequence.current++;
     setComparisonDiff(null); setComparisonCardMap(null); setComparisonTexts(null); setComparisonPair(null);
-    setParsedDeck(null); setDeckCardMap(null); setDeckText(null); setTimelineData(null);
+    setSavedVersion(null); setSavedVersionError(null); setTimelineData(null);
+    setPriceData(null);
     setDataRevision(value => value + 1);
   }
   async function afterDeckChanged() {
@@ -244,22 +249,26 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
   }, [deckId]);
 
   const loadFullDeck = useCallback(async snapshotId => {
-    if (!snapshotId) return;
     const sequence = ++fullDeckSequence.current;
-    setDeckLoading(true);
+    setSavedVersionError(null);
+    let snapshot;
     try {
-      const data = await getSnapshot(deckId, snapshotId);
-      const rawText = data.snapshot.deck_text, parsed = parse(rawText);
-      const identifiers = collectDeckIdentifiers(parsed);
-      let cm = new Map();
-      try { if (identifiers.size > 0) cm = await fetchCardData(identifiers); }
-      catch { /* Saved text remains usable when card metadata is temporarily unavailable. */ }
-      if (sequence !== fullDeckSequence.current) return;
-      setDeckText(rawText); setParsedDeck(parsed); setDeckCardMap(cm);
+      ({ snapshot } = await getSnapshot(deckId, snapshotId));
+      if (snapshot?.id !== snapshotId || typeof snapshot.deck_text !== 'string') throw new Error('Invalid snapshot response');
     } catch {
-      if (sequence === fullDeckSequence.current) toast.error('Failed to load cards');
-    } finally {
-      if (sequence === fullDeckSequence.current) setDeckLoading(false);
+      if (sequence === fullDeckSequence.current) setSavedVersionError(snapshotId);
+      return;
+    }
+    if (sequence !== fullDeckSequence.current) return;
+
+    const text = snapshot.deck_text;
+    const parsed = parse(text);
+    const identifiers = collectDeckIdentifiers(parsed);
+    const version = { id: snapshotId, text, parsed, cardMap: identifiers.size ? null : new Map() };
+    setSavedVersion(version);
+    if (identifiers.size > 0) {
+      const cardMap = await fetchCardData(identifiers).catch(() => new Map());
+      if (sequence === fullDeckSequence.current) setSavedVersion({ ...version, cardMap });
     }
   }, [deckId]);
 
@@ -592,6 +601,8 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
 
   // Data follows its saved version, including first load and same-tab refresh.
   const latestSnapshotId = snapshots[0]?.id, previousSnapshotId = snapshots[1]?.id, paperSnapshotId = deck?.paper_snapshot_id;
+  const { text: deckText, parsed: parsedDeck, cardMap: deckCardMap } =
+    savedVersion && savedVersion.id === latestSnapshotId ? savedVersion : {};
   useEffect(() => {
     if (activeTab === 'fulldeck' && latestSnapshotId) void loadFullDeck(latestSnapshotId);
   }, [activeTab, latestSnapshotId, dataRevision, loadFullDeck]);
@@ -657,7 +668,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
         <button className="deck-page-back" onClick={() => { window.location.hash = '#library'; }} type="button">
           &larr; Back to Decks
         </button>
-        <p className="deck-page-empty">Deck not found.</p>
+        <p className="deck-page-empty" role="alert">{deckError || 'Deck not found.'}</p>
       </div>
     );
   }
@@ -863,6 +874,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
 
       {/* Tab content */}
       <div className="deck-page-content">
+        {deckError && <p role="alert">{deckError}</p>}
         {activeTab === 'printing' && <PrintPanel key={deckId} deck={deck} snapshots={snapshots} initialJobId={initialPrintJobId} onDeckChanged={afterDeckChanged} />}
 
         {/* ── Snapshots Tab ── */}
@@ -1031,7 +1043,12 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
         {/* ── Full Deck Tab ── */}
         {activeTab === 'fulldeck' && (
           <div className="deck-page-tab-panel">
-            {deckLoading ? (
+            {savedVersionError === latestSnapshotId && latestSnapshotId ? (
+              <div className="deck-page-empty">
+                <p role="alert">Could not load the latest saved version.</p>
+                <button className="btn btn-secondary btn-sm" type="button" onClick={() => loadFullDeck(latestSnapshotId)}>Retry</button>
+              </div>
+            ) : latestSnapshotId && !parsedDeck ? (
               <Skeleton lines={10} />
             ) : !parsedDeck ? (
               <p className="deck-page-empty">No saved version is available yet.</p>
@@ -1047,7 +1064,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
                         className="copy-btn copy-btn--archidekt"
                       />
                       <CopyButton getText={() => deckText} label="Copy Deck Text" />
-                      <CopyButton getText={() => formatTTS(deckText, deckCardMap, commanders)} label="Copy for TTS" className="copy-btn copy-btn--tts" />
+                      {deckCardMap && <CopyButton getText={() => formatTTS(deckText, deckCardMap, commanders)} label="Copy for TTS" className="copy-btn copy-btn--tts" />}
                     </>
                   )}
                   <button className="btn btn-secondary btn-sm" onClick={event => { event.currentTarget.focus(); handlePrintProxies(); }} type="button">
@@ -1077,9 +1094,10 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
                   </div>
                 )}
                 <details className="deck-ownership-disclosure"><summary><Icon name="connections" size={17} /> Ownership & shopping</summary>
-                  <ManaSyncOwnership deckId={deckId} parsedDeck={parsedDeck} cardMap={deckCardMap} deckText={deckText} />
+                  {deckCardMap ? <ManaSyncOwnership deckId={deckId} parsedDeck={parsedDeck} cardMap={deckCardMap} deckText={deckText} />
+                    : <p>Loading card details…</p>}
                 </details>
-                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} commanders={commanders} insights={<>
+                <DeckListView parsedDeck={parsedDeck} cardMap={deckCardMap} metadataLoading={deckCardMap === null} insights={<>
             <div className="deck-page-analytics-actions">
               {priceDisplayEnabled && <button className="btn btn-secondary btn-sm" onClick={handleCheckPrices} disabled={loadingPrices} type="button">
                 {loadingPrices ? 'Checking…' : 'Check prices'}
@@ -1094,7 +1112,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
               </button>
             </div>
 
-            {priceDisplayEnabled && priceData && (
+            {priceDisplayEnabled && priceData && priceData.snapshotId === latestSnapshotId && (
               <div className="deck-page-price-summary">
                 <div className="deck-page-price-header">
                   <span className="deck-page-price-total">

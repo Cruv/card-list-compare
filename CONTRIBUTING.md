@@ -36,7 +36,7 @@ export settings or configure `.env.example` as `.env` and run
 | `npm audit` / `npm --prefix server audit` | Root / server dependency advisories; record unavailable checks separately |
 
 PDF worker changes also need the following command using the worker's pypdf/Pillow
-environment. This is not included in JavaScript or portable companion discovery.
+environment and `qpdf` on `PATH`. This is not included in JavaScript or portable companion discovery.
 See [PDF runtime setup](docs/OPERATIONS.md#silhouette-runtime).
 
 ```bash

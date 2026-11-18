@@ -82,6 +82,12 @@
 .print-paper-controls { display: flex; align-items: end; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-lg); }
 .print-paper-controls select { min-width: 9rem; }
 .print-paper-controls > .print-panel-meta { align-self: center; }
+.print-paper-proof > summary { cursor: pointer; font-weight: 600; }
+.print-paper-proof-content { display: grid; gap: var(--space-sm); }
+.print-paper-proof-content .print-paper-controls { margin-top: 0; }
+.print-paper-proof-content ol { padding-left: 1.5rem; margin: 0; }
+.print-paper-proof-content li + li { margin-top: var(--space-xs); }
+.print-paper-proof-content p { margin: 0; }
 .print-review-footer { position: sticky; bottom: 16px; z-index: 20; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 16px 18px; box-shadow: var(--shadow-md); margin-top: 24px; }
 .print-review-footer strong { font-size: 17px; }
 .print-review-footer > div:first-child { display: grid; gap: 4px; }

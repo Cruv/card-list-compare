@@ -266,7 +266,7 @@ function parseCSV(text) {
   return { mainboard, sideboard, commanders };
 }
 
-export function* sectionedLines(lines) {
+export function* sectionedLines(lines, onSkipped) {
   // Explicit headers can be commented in ManaSync exports.
   const heading = line => line.trim().replace(COMMENT_PREFIX, '');
   const hasExplicitCommander = lines.some(line => COMMANDER_HEADER.test(heading(line)));
@@ -274,7 +274,7 @@ export function* sectionedLines(lines) {
   let hasMainLines = false;
   let hasCommanderLines = false;
   let foundExplicitSideboard = false;
-  let skipping = false;
+  let skipping = '';
 
   for (const [index, line] of lines.entries()) {
     const trimmed = line.trim();
@@ -282,25 +282,29 @@ export function* sectionedLines(lines) {
     if (COMMANDER_HEADER.test(header)) {
       section = 'commander';
       hasCommanderLines = false;
-      skipping = false;
+      skipping = '';
       continue;
     }
     if (SIDEBOARD_HEADER.test(header)) {
       section = 'sideboard';
       foundExplicitSideboard = true;
-      skipping = false;
+      skipping = '';
       continue;
     }
     if (MAINBOARD_HEADER.test(header)) {
       section = 'main';
-      skipping = false;
+      skipping = '';
       continue;
     }
     if (MAYBEBOARD_HEADER.test(header) || ABOUT_HEADER.test(header)) {
-      skipping = true;
+      skipping = MAYBEBOARD_HEADER.test(header) ? 'Maybeboard' : 'Deck information';
       continue;
     }
-    if (skipping || COMMENT_LINE.test(trimmed)) continue;
+    if (COMMENT_LINE.test(trimmed)) continue;
+    if (skipping) {
+      if (trimmed) onSkipped?.({ index, reason: skipping });
+      continue;
+    }
 
     if (trimmed === '') {
       if (hasMainLines && section === 'main' && !foundExplicitSideboard && !hasExplicitCommander) section = 'sideboard';
@@ -312,6 +316,58 @@ export function* sectionedLines(lines) {
     if (section === 'commander') hasCommanderLines = true;
     yield { index, section, line: trimmed };
   }
+}
+
+const KNOWN_IMPORT_FINISHES = new Set(['', 'normal', 'nonfoil', 'regular', 'foil', '*f*', 'true', 'false', 'yes', 'no', '0', '1']);
+export const unsupportedImportFinish = value => typeof value === 'string'
+  && !KNOWN_IMPORT_FINISHES.has(value.trim().toLowerCase().replace(/[-\s]/g, ''));
+
+/** Report what a new import would use without rewriting existing decks or the parser grammar. */
+export function inspectDeckImport(rawText) {
+  const lines = rawText.split(/\r?\n/);
+  const accepted = [], skipped = [];
+  const skip = (index, reason) => skipped.push({ line: index + 1, raw: lines[index], reason });
+  const add = (index, card, section, sourceSection = section) => accepted.push({ line: index + 1,
+    displayName: card.displayName ?? card.name, quantity: card.quantity, setCode: card.setCode,
+    collectorNumber: card.collectorNumber, isFoil: card.isFoil, section, sourceSection });
+  const header = lines.findIndex(line => line.trim());
+  const columns = isCSV(rawText) ? csvColumns(lines[header]) : null;
+  if (columns && columns.nameIdx !== -1) {
+    for (let index = header + 1; index < lines.length; index++) {
+      if (!lines[index].trim()) continue;
+      const cells = splitCsvLine(lines[index]);
+      const section = cells[columns.sectionIdx]?.toLowerCase();
+      const finish = cells[columns.foilIdx];
+      if (['maybeboard', 'considering'].includes(section)) { skip(index, 'Maybeboard'); continue; }
+      if (unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
+      const row = csvCard(cells, columns);
+      if (row) add(index, row.entry, row.sideboard ? 'sideboard' : row.commander ? 'commander' : 'main');
+      else skip(index, 'Missing card name or invalid quantity');
+    }
+    const included = skipped.length ? [lines[header], ...accepted.map(row => lines[row.line - 1])] : null;
+    return { accepted, skipped, text: included ? included.join(rawText.includes('\r\n') ? '\r\n' : '\n') : rawText };
+  }
+
+  for (const { index, section, line } of sectionedLines(lines, ({ index, reason }) => skip(index, reason))) {
+    const card = parseLine(line);
+    const finish = stripDecorations(line).text.match(/\s(\*[a-z]+\*)\s*$/i)?.[1];
+    if (unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
+    if (!card) { skip(index, 'Invalid card row or quantity'); continue; }
+    if (card.isSB && section === 'commander') { skip(index, 'Sideboard card in the commander section'); continue; }
+    add(index, card, card.isSB ? 'sideboard' : section === 'main' && card.isCommander ? 'commander' : section, section);
+  }
+  if (!skipped.length) return { accepted, skipped, text: rawText };
+  skipped.sort((a, b) => a.line - b.line);
+  const included = [];
+  let section;
+  for (const row of accepted) {
+    if (row.sourceSection !== section) {
+      section = row.sourceSection;
+      included.push({ main: 'Mainboard', commander: 'Commander', sideboard: 'Sideboard' }[section]);
+    }
+    included.push(lines[row.line - 1]);
+  }
+  return { accepted, skipped, text: included.join(rawText.includes('\r\n') ? '\r\n' : '\n') };
 }
 
 export function rewriteDeckPrinting(text, selectionKey, printing, options) {

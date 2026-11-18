@@ -9,7 +9,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject, RectangleObject
 from PIL import Image, ImageDraw
 
-from printGeneratorWorker import CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, POINTS_PER_MM, chunk, dahle_face, identify_pages, merge, validate_pdf
+from printGeneratorWorker import CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, POINTS_PER_MM, chunk, dahle_face, identify_pages, merge, proof, validate_pdf
 
 
 class DahlePunchTests(unittest.TestCase):
@@ -87,6 +87,47 @@ class DahlePunchTests(unittest.TestCase):
                 self.assertEqual(transforms, [(65, 0, 0, 90, x, y) for x, y, _, _ in positions[:occupied]])
                 for slot in range(occupied):
                     self.check_image(page, slot, self.front_colors[slot])
+
+    def test_merge_keeps_order_and_exact_stream_bytes_without_publishing_an_invalid_output(self):
+        mixed = self.render("ordered", self.cards[:2], double_faced=True)
+        ordinary = self.render("another", [{key: value for key, value in self.cards[-1].items() if not key.startswith("back")}])
+        output = self.directory / "packets.pdf"
+        request = {"inputs": [str(mixed), str(ordinary)], "output": str(output), "pageCount": 3, **self.paper}
+        merge(request)
+        with PdfReader(mixed) as first, PdfReader(ordinary) as second, PdfReader(output) as merged:
+            self.assertEqual(merged.metadata.title, "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch")
+            for source, target in zip([*first.pages, *second.pages], merged.pages):
+                self.assertEqual(source.extract_text(), target.extract_text())
+                for name, image in source["/Resources"]["/XObject"].items():
+                    target_image = target["/Resources"]["/XObject"][name]
+                    self.assertEqual(image.get_object()["/Filter"], target_image["/Filter"])
+                    self.assertEqual(image.get_object()._data, target_image._data)
+        original = output.read_bytes()
+        with self.assertRaisesRegex(ValueError, "Expected 2 pages, got 3"):
+            merge({**request, "pageCount": 2})
+        self.assertEqual(output.read_bytes(), original)
+        self.assertEqual(list(self.directory.glob(".merge-*")), [])
+
+    def test_one_sheet_proof_uses_exact_dahle_grid_ticks_and_metric_scale(self):
+        name = "household-dahle-a4-punch-v1"
+        revision = "0123456789ab/01234567"
+        proof({**self.paper, "directory": str(self.directory), "registrationMarks": True,
+               "proofRecipe": name, "proofRevision": revision})
+        with PdfReader(self.directory / "sheet.pdf", strict=True) as reader:
+            self.assertEqual(len(reader.pages), 1)
+            page = reader.pages[0]
+            self.assertEqual(len(page.images), 9)
+            boxes = self.mm_operators(page, b"re")
+            self.assertEqual(boxes, [(x, y, 65, 90) for y in (193.5, 103.5, 13.5) for x in (7.5, 72.5, 137.5)])
+            positions = self.mm_operators(page, b"m")
+            self.assertEqual(positions[:8], [(x, y) for y in (283.5, 193.5, 103.5, 13.5) for x in (4.5, 203)])
+            scale_start = next(x for x, y in positions if y == 6)
+            scale_end = next(x for x, y in self.mm_operators(page, b"l") if y == 6)
+            self.assertAlmostEqual(scale_end - scale_start, 50, places=4)
+            text = page.extract_text()
+            self.assertIn(f"{name} | {revision}", text)
+            self.assertIn("Dahle row ticks | FRONT", text)
+            self.assertIn("50 mm", text)
 
     def test_mirrors_columns_for_upright_long_edge_backs_and_keeps_single_placement(self):
         cards = [dict(card) for card in self.cards[:5]]

@@ -1,16 +1,16 @@
 """Generate approved Silhouette sheets and CLC's metric manual-punch sheets."""
 import hashlib
 import io
-import gc
 import json
 import math
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, EncodedStreamObject, NameObject, NumberObject
 
@@ -172,7 +172,7 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
         reader.close()
 
 
-def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False):
+def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False, proof_scale=False):
     """Add vector identification between the registration marks and above the artwork."""
     values = [identification.get("requesterName"), identification.get("batchName")]
     if identification.get("version") != 1 or any(not isinstance(value, str) or not value
@@ -200,8 +200,8 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             if refeed_front and item["phase"] == "fronts":
                 packet += " | REFEED FOR BACK"
             requester_label = "Prepared by" if recipe == DAHLE_A4_PUNCH else "Queued by"
-            requester = f"{requester_label}: {values[0]}"
-            batch = f"Batch: {values[1]}"
+            requester = values[0] if proof_scale else f"{requester_label}: {values[0]}"
+            batch = f"{'Recipe' if proof_scale else 'Batch'}: {values[1]}"
             resources = DictionaryObject(page["/Resources"])
             fonts = DictionaryObject(resources.get("/Font", DictionaryObject()).get_object())
             if "/CLCPageIdentity" in fonts:
@@ -234,6 +234,16 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
                 commands.extend((f"/CLCPageIdentity {size:.3f} Tf", f"1 0 0 1 {inset} {top - offset:g} Tm",
                                  f"<{text.encode('ascii').hex()}> Tj"))
             commands.extend(("ET", "Q"))
+            if proof_scale:
+                scale_width = 50 * POINTS_PER_MM
+                left = (float(page.mediabox.width) - scale_width) / 2
+                right = left + scale_width
+                y = 6 * POINTS_PER_MM
+                label_at = (left + right) / 2 - 11
+                commands.extend(("q 0 G 0.5 w", f"{left:.6f} {y:g} m {right:.6f} {y:g} l S",
+                                 f"{left:.6f} {y-2:g} m {left:.6f} {y+2:g} l S",
+                                 f"{right:.6f} {y-2:g} m {right:.6f} {y+2:g} l S",
+                                 f"BT /CLCPageIdentity 7 Tf 1 0 0 1 {label_at:g} {y+4:g} Tm (50 mm) Tj ET Q"))
             overlay = DecodedStreamObject()
             overlay.set_data(("\n" + "\n".join(commands) + "\n").encode("ascii"))
             contents = page.raw_get("/Contents")
@@ -477,31 +487,61 @@ def chunk(request):
     else:
         metadata = generate_upstream_sheet(request, recipe, output, registration_marks)
     identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe,
-                   refeed_front=double_faced and recipe != DAHLE_A4_PUNCH)
+                   refeed_front=double_faced and recipe != DAHLE_A4_PUNCH, proof_scale=request.get("proofScale", False))
     validate_pdf(output, 2 if double_faced else 1, recipe)
     (directory / "result.json").write_text(json.dumps({"images": metadata, "registrationMarks": registration_marks}))
 
 
 def merge(request):
     recipe = paper_key(request)
-    writer = PdfWriter()
-    for filename in request["inputs"]:
-        with open(filename, "rb") as stream:
-            reader = PdfReader(stream, strict=True)
-            writer.append(reader, import_outline=False)
-            reader.close()
     if recipe == DAHLE_A4_PUNCH:
-        writer.add_metadata({"/Title": "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch", "/Creator": "CLC"})
+        title, creator = "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch", "CLC"
     else:
-        writer.add_metadata({"/Title": f"CLC household-{recipe}-v{APPROVED_PAPER[recipe]['version']}",
-                             "/Creator": "CLC / Silhouette Card Maker"})
-    with open(request["output"], "wb") as stream:
-        writer.write(stream)
-    # PdfWriter.close() is a no-op. Release its compressed image objects before
-    # reopening the output, rather than retaining several copies of a whole deck.
-    del writer, reader
-    gc.collect()
-    validate_pdf(request["output"], request["pageCount"], recipe)
+        title = f"CLC household-{recipe}-v{APPROVED_PAPER[recipe]['version']}"
+        creator = "CLC / Silhouette Card Maker"
+    output = Path(request["output"])
+    with tempfile.TemporaryDirectory(prefix=".merge-", dir=output.parent) as temporary:
+        metadata = Path(temporary) / "metadata.pdf"
+        merged = Path(temporary) / "merged.pdf"
+        writer = PdfWriter()
+        writer.add_metadata({"/Title": title, "/Creator": creator})
+        writer.write(metadata)
+        # qpdf copies streams from the sheet files on disk as it writes the
+        # output. Preserve the artwork bytes, resource dictionaries, and page order.
+        inputs = [f"--file={filename}" for filename in request["inputs"]]
+        subprocess.run(["qpdf", "--suppress-recovery", "--stream-data=preserve", "--keep-files-open=n",
+                        "--remove-unreferenced-resources=no", "--deterministic-id", str(metadata),
+                        "--pages", *inputs, "--", str(merged)], stdin=subprocess.DEVNULL, check=True, timeout=105)
+        validate_pdf(merged, request["pageCount"], recipe)
+        merged.replace(output)
+
+
+def proof(request):
+    recipe = paper_key(request)
+    directory = Path(request["directory"])
+    cards = []
+    width, height = PORTRAIT_CARD["width"], PORTRAIT_CARD["height"]
+    number = ImageFont.load_default(78)
+    body = ImageFont.load_default(31)
+    for slot in usable_slots(recipe):
+        file = directory / f"proof-{slot}.png"
+        with Image.new("RGB", (width, height), "#aa492c") as artwork:
+            marks = ImageDraw.Draw(artwork)
+            marks.rectangle((22, 22, width - 23, height - 23), fill="#fbf7ee")
+            marks.rectangle((60, 60, width - 61, height - 61), outline="#12384a", width=4)
+            marks.line((width / 2, 112, width / 2, 197), fill="#12384a", width=5)
+            marks.polygon(((width / 2, 104), (width / 2 - 14, 128), (width / 2 + 14, 128)), fill="#12384a")
+            for y, text, font in [(365, f"Slot {slot + 1}", number), (478, "63 x 88 mm after cutting", body),
+                                  (627, "Keep the dark frame intact.", body), (689, "Check cut edges for white slivers.", body)]:
+                marks.text((width / 2, y), text, font=font, fill="#12384a", anchor="mm")
+            artwork.save(file)
+        cards.append({"id": f"proof-{slot}", "frontPath": str(file), "frontSource": "scryfall"})
+    mark_label = "Dahle row ticks" if recipe == DAHLE_A4_PUNCH else (
+        "Cameo registration marks" if request["registrationMarks"] else "No registration marks")
+    identification = {"version": 1, "requesterName": "Paper proof",
+                      "batchName": f"{request['proofRecipe']} | {request['proofRevision']}"}
+    chunk({**request, "cards": cards, "doubleFaced": False, "proofScale": True, "printedIdentification": identification,
+           "pageLabels": [{"page": 1, "phase": "fronts", "label": mark_label}]})
 
 
 def smoke(source, directory):
@@ -625,6 +665,8 @@ if __name__ == "__main__":
         chunk(json.loads(Path(sys.argv[2]).read_text()))
     elif sys.argv[1] == "merge":
         merge(json.loads(Path(sys.argv[2]).read_text()))
+    elif sys.argv[1] == "proof":
+        proof(json.loads(Path(sys.argv[2]).read_text()))
     elif sys.argv[1] == "upstream":
         args = sys.argv[3:]
         omit_marks = args[0] == "--omit-registration-marks"

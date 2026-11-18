@@ -272,8 +272,8 @@ async function fetchSingleImage(url, availableBytes) {
 
 /**
  * Progress counts physical files, including both DFC faces and duplicate copies.
- * Successful disk/session cache hits count toward cachedImages. Only fully
- * downloaded cards enter images; failures prevent callers publishing the ZIP.
+ * downloadedImages counts all completed faces, including the cachedImages subset.
+ * Only complete cards enter images, and failures prevent callers publishing the ZIP.
  */
 async function downloadImages(cards, cache, progressCallback) {
   validateCopies(cards);

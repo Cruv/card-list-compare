@@ -486,13 +486,24 @@ already submitted. Unselected saved backs release the front queue; selecting a b
 Owner links open the exact batch without overwriting a draft; summaries do not grant
 access to another user's deck text or artifact URLs.
 
+**Batch diagnostics** shows the current batch's saved failure or the Mac's latest reason
+for holding its pass. Owners and administrators can open **Batch receipts** for that job
+or from its batch history row to inspect recent print and recovery outcomes. The controls
+use the current job, pass and paper state. If the Mac cannot confirm the exact submission,
+inspect the Epson queue and the paper at the Mac before requesting a recovery.
+
 Owners and administrators can **Cancel batch** to stop every unfinished pass, or
 **Cancel only backs** to preserve front work while canceling unfinished backs. This never
 undoes already printed output. Pending-only cancellations settle immediately. If affected
 pages have entered submission, the Mac stops only their recorded Epson submission and
 requires `awaiting_clearance`: remove partial/flipped paper and confirm blank paper before
-releasing more front work. A missing or ambiguous submission still needs reconciliation;
-software does not infer paper clearance. Completed passes remain completed, canceled
+releasing more front work. If Mac print history loses an acknowledged CUPS job, the owner
+or an administrator can choose **Clear canceled batch with missing history** after the same
+paper checks. The Mac checks the exact saved CUPS title and ID again. The clearance keeps
+the original receipts and finishes only the pending cancellation. If a read fails or the
+original submission has no acknowledged spooler ID, use the exact job title in Printer to
+inspect the queue at the Mac. The station holds the reservation if the match remains
+uncertain. Completed passes remain completed, canceled
 passes remain canceled, and neither is automatically retried. A job whose fronts finish
 but backs are canceled is shown as **Finished · backs canceled**, not as every face printed.
 Preparing another batch remains available while earlier jobs wait or print.
@@ -624,7 +635,13 @@ fixtures and mocked transports; they do not send real Discord messages or print 
 
 ## Queue, access and retention
 
-PDF preparation and downloads require a user session and ownership. Physical queue access
+PDF preparation and downloads require a user session and ownership. The browser shows
+PDF transfer progress in its downloads list. Open **One-sheet paper proof** in Prepare
+to download a synthetic test sheet for a paper layout, including the Dahle punch layout.
+Print at Actual Size, measure the 50 mm line and check the cut frame and bleed. Record
+that check in the browser after inspecting the sheet. The record follows the exact
+recipe, registration setting and generator revision. The Mac uses its own local
+physical checks for queue readiness. Physical queue access
 requires a configured `PRINT_STATION_TOKEN` and either administrator status or a user ID in
 `PRINT_ALLOWED_USER_IDS`. The station credential is separate from JWT sessions and grants
 access only to authorized queued jobs and their reporting/download protocol. Rotate it on
@@ -639,10 +656,21 @@ submissions require reconciliation rather than blind retry. The deferred workflo
 Mac uses its durable CUPS ID and requires physical paper clearance before releasing work.
 Legacy or ambiguous submissions still require explicit Mac reconciliation.
 
+The server checks each PDF's exact length and SHA-256 in a bounded background worker,
+then rechecks the file and the job before authorizing a print transition. Routine station
+polls renew the two-minute lease in its final minute. Submission intent, the spooler ID
+and later outcomes still commit with their event receipts.
+
 States distinguish preparing, ready, queued, claimed, submitting, submitted, awaiting
 refeed, backs pending, paper reset, cancellation clearance, completed, uncertain, failed,
 canceled and expired. “Completed” means confirmed
 spooler completion, not proof that usable cards emerged or were cut and assembled.
+
+If an unclaimed batch has a missing or damaged PDF and has no submission evidence, the
+queue marks it failed and advances to the next eligible batch. Prepare a replacement batch
+after inspecting the failure. A claimed or uncertain job and any saved backs keep their
+receipts and state. Use the exact job's cancellation or paper-clearance controls before
+moving past a blocked reservation or requested back packet.
 
 Ready and terminal artifacts expire after seven days; queued, active, uncertain and
 refeed-waiting, paper-reset and saved-back batches are protected without a waiting-time limit. Default retained-job storage is 10 GiB, configurable

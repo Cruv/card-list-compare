@@ -7,6 +7,15 @@ const STATES = new Set(['all', 'preparing', 'ready', 'queued', 'claimed', 'submi
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const number = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000 ? value : 0;
 
+export function listPrintJobActivity(userId, deckId) {
+  const rows = all(`SELECT id, state, updated_at AS updatedAt, COUNT(*) OVER () AS activeCount,
+    MAX(state != 'ready') OVER () AS watching FROM print_jobs
+    WHERE user_id = ? AND tracked_deck_id IS ? AND state NOT IN ('completed', 'canceled', 'failed', 'expired')
+    ORDER BY created_at DESC, id DESC LIMIT 50`, [userId, deckId]);
+  return { activeCount: rows[0]?.activeCount ?? 0, watching: !!rows[0]?.watching,
+    jobs: rows.map(({ id, state, updatedAt }) => ({ id, state, updatedAt })) };
+}
+
 export function canCancelHouseholdBatch(row) {
   return (row.station_id === 'household' || (row.station_id === null && (row.queue_requested || row.queued_at)))
     && (isDeferred(row) ? canCancelRemaining(row) : ['preparing', 'ready', 'queued', 'claimed'].includes(row.state)
@@ -15,7 +24,7 @@ export function canCancelHouseholdBatch(row) {
 
 function publicProgress(raw) {
   const value = raw && JSON.parse(raw);
-  if (value?.phase === 'images') return { phase: 'images', completed: number(value.downloaded) + number(value.cached), total: number(value.total) };
+  if (value?.phase === 'images') return { phase: 'images', completed: number(value.downloaded), total: number(value.total) };
   if (value?.phase === 'generating') return { phase: 'generating', completed: number(value.completedSheets), total: number(value.totalSheets) };
   return null;
 }
@@ -73,7 +82,8 @@ export function listPrintBatches(userId, query = {}, { deferredBacks = false } =
         ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
         ...(plan.sheetPacking === DOUBLE_FACED_FIRST ? { requiresMixedPrintSheets: true } : {}),
         queueOnReady: !!row.queue_requested, sourceKind: row.tracked_deck_id === null ? 'list' : 'deck',
-        canOpen, canCancel: canControl && (admin || canOpen) && (!!canCancelHouseholdBatch(row)
+        canOpen, canInspect: canControl && !!(row.station_id || row.queued_at || row.queue_requested),
+        canCancel: canControl && (admin || canOpen) && (!!canCancelHouseholdBatch(row)
           || (deferredBacks === true && row.station_id === 'household' && canCancelRemaining(row))),
         canCancelBacks: canControl && (admin || canOpen) && (isDeferred(row) || canCancelUnstartedBacks(row)
           || (deferredBacks === true && row.station_id === 'household')) && hasPendingBacks(row) && !row.cancel_requested,

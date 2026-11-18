@@ -108,6 +108,12 @@ results aliased back to every original `//` name that mapped there.
   conceptually aligned (e.g. if name normalization changes) but do not merge or
   literally sync them.
 
+- Server price totals require a usable budget price for every included card and
+  a matching price for the exact finish of every printing-qualified row.
+  Failed or incomplete lookups leave saved prices and alert baselines alone.
+  A completed lookup can record the exact snapshot it priced in history, and can
+  update the current deck summary or trigger an alert only while that snapshot is current.
+
 ## 6. Enrichment carry-forward (server)
 
 `server/lib/enrichDeckText.js` rebuilds snapshot text line-by-line:

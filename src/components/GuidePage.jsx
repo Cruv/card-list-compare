@@ -44,12 +44,13 @@ function CompareLists() {
     <h2>Compare lists</h2>
     <ol className="guide-steps">
       <li>Enter the older list in <strong>Before</strong> and the newer list in <strong>After</strong>. Paste text, choose <strong>Import URL</strong>, <strong>Load saved</strong> or <strong>Upload file</strong>.</li>
+      <li>For paste, URL and file imports, check the accepted printings, skipped rows and change summary. Choose <strong>Apply import</strong> to load the list. <strong>Undo import</strong> brings back the previous text.</li>
       <li>Choose <strong>Compare Lists</strong>, or press <kbd className="guide-kbd">Ctrl+Enter</kbd> / <kbd className="guide-kbd">⌘+Enter</kbd>.</li>
       <li>Review added, removed, changed quantities and printing swaps, grouped by card type. Search narrows the visible results. Hover or open a card to inspect its artwork and printing.</li>
     </ol>
     <p>CLC keeps the text used for the displayed comparison. Editing either input does not change its exports or print request until you compare again. Exact set, collector number and foil details are preserved when supplied; unavailable exact artwork does not silently become another printing.</p>
     <h3>Copy, print or share the result</h3>
-    <p><strong>Copy changes</strong> copies the changelog. <strong>Print cards</strong> opens a review of new copies; you can choose the full After list instead. <strong>Export</strong> groups other copy formats, downloads and public sharing. A public comparison link can be opened without a login.</p>
+    <p><strong>Copy changes</strong> copies the changelog. <strong>Print cards</strong> opens a review of new copies. You can choose the full After list there. Open <strong>Export</strong> to copy other formats, download files or create a public comparison link with an optional expiry. Anyone with an active link can open it. To change expiry or revoke a link you created while signed in, open <strong>Account settings → My comparison links</strong>.</p>
     <p>The print handoff retains both compared lists. If you already have a print draft, choose whether to keep it or use the compared lists. The previous draft stays recoverable. An unresolved batch-creation request must be recovered before another list replaces it.</p>
     <h3>Save a version</h3>
     <p>When signed in, use the input’s <strong>Save version</strong> panel. An unchanged URL import can use its provider name automatically. <strong>Load saved</strong> only loads a version; rename, delete, lock and paper-marker actions live in the deck’s <strong>Changes</strong> tab.</p>
@@ -61,7 +62,7 @@ function Decks() {
   return <div className="guide-section">
     <h2>Decks and changes</h2>
     <p>Open <a href="#library">Decks</a> to find your saved decks. Search, tags, pins and owner groups help organize them. <strong>Add decks</strong> starts with untracked decks from your configured Archidekt accounts. Choose <strong>Track deck</strong> beside a list to save it and check for future updates. Add another account inside the dialog, or use <strong>Manage sources</strong> in the library to manage existing accounts.</p>
-    <p><strong>Paste a list</strong> saves a named manual deck with its exact card text. <strong>Import URL</strong> starts ongoing source tracking for Archidekt, Moxfield and DeckCheck. Other supported sites load a one-time list for you to name and save; they do not gain automatic updates. If a linked source cannot supply its first complete list, the saved deck shows that it is waiting for the source.</p>
+    <p><strong>Paste a list</strong> previews the pasted cards before loading the list into a named manual deck draft. With <strong>Import URL</strong>, review the fetched printings and skipped rows first. Archidekt, Moxfield and DeckCheck can then track the reviewed list for future updates. Other sites load a one-time list for you to name and save. If a linked source cannot supply a preview, you can track its URL and wait for the source.</p>
     <p>Your unfinished list stays in this browser for your account. An uncertain save keeps its original request: use <strong>Retry saved import</strong> to confirm the same deck. A successful import offers <strong>Open deck</strong>. There is no Before/After comparison step when adding a deck.</p>
     <p><strong>Shared cards</strong> compares overlap between your decks; it does not represent inventory. <strong>Alert history</strong> keeps deck-change and price alerts.</p>
     <h3>One workspace per deck</h3>

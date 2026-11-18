@@ -1,5 +1,18 @@
 # Current work checkpoint
 
+## November 18 audit implementation
+
+- Started from `23e15f4`. [PR #21](https://github.com/Cruv/card-list-compare/pull/21)
+  contains the integrity stage `6f0606d` and the performance and browser stage `7b02911`.
+  The latter passed the PR workflow for both Docker architectures.
+- The audit record in [ROADMAP](ROADMAP.md#november-18-2026-audit) tracks the fixtures,
+  measurements and externally owned follow-up. Source changes and CI use disposable
+  state and fake printer and provider effects. Physical proof and household activation
+  require separate authorization.
+- v2.65.0 passed the complete local release checks and paired HTTP verification with
+  ManaSync `f6d4241`. PR and main workflow records track the exact hosted checks.
+- Local `output/` is unrelated to the audit and remains outside Git.
+
 ## Branch consolidation and project review
 
 - Dahle PDF support was already integrated through [PR #20](https://github.com/Cruv/card-list-compare/pull/20)
@@ -13,7 +26,7 @@
   Chrome covered confirmation retries, the etched comparison warning, Dahle PDF-only
   controls and public offline navigation. The scoped HTTP pairing with disposable
   ManaSync verified deck reads, proposal replay and the lost-receipt path.
-  [The review backlog](ROADMAP.md#open--reviewed-2026-11-18) records the open findings.
+  [The audit record](ROADMAP.md#november-18-2026-audit) tracks the findings and fixes.
 - The source review used disposable databases, synthetic artwork and PDFs, and fake
   provider and printer responses. Physical Dahle feed, trim, punch and duplex acceptance
   require the separate proof in [the Dahle guide](DAHLE_A4_PUNCH.md#one-proof-before-a-batch).

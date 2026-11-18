@@ -172,7 +172,7 @@ export function assertCurrentConnection(connection) {
   return current;
 }
 /** Private owner reads only: share in-flight results/failures across tabs for one minute. */
-export async function cachedRemoteRead(connection,path) {
+export async function cachedRemoteRead(connection,path,{ withTimestamp = false } = {}) {
   if (!['/api/v1/pending-proxies','/api/v1/containers'].includes(path)) throw new BridgeError('Unsupported cached ManaSync read.',400);
   assertCurrentConnection(connection);
   for (const [key,value] of cachedReads) if (!value.pending && value.expiresAt <= Date.now()) cachedReads.delete(key);
@@ -188,6 +188,7 @@ export async function cachedRemoteRead(connection,path) {
           if (cachedReads.get(key) === entry) cachedReads.delete(key);
           throw error;
         }
+        entry.refreshedAt = new Date().toISOString();
         return value;
       } finally { entry.pending = false; entry.expiresAt = Date.now()+READ_CACHE_MS; }
     })();
@@ -195,7 +196,7 @@ export async function cachedRemoteRead(connection,path) {
   }
   const result = await entry.promise;
   assertCurrentConnection(connection);
-  return result;
+  return withTimestamp ? { result, refreshedAt:entry.refreshedAt } : result;
 }
 export function invalidatePendingRead(userId) {
   cachedReads.delete(`${userId}:/api/v1/pending-proxies`);

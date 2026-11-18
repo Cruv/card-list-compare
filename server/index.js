@@ -15,7 +15,8 @@ import shareRoutes from './routes/share.js';
 import sharedDeckRoutes from './routes/shared-decks.js';
 import adminRoutes from './routes/admin.js';
 import mpcRoutes from './routes/mpcautofill.js';
-import printRoutes, { standalonePrintRouter, printBatchesRouter } from './routes/print.js';
+import printRoutes, { standalonePrintRouter, printBatchesRouter, printDownloadsRouter } from './routes/print.js';
+import printProofRoutes from './routes/print-proofs.js';
 import printStationRoutes from './routes/print-station.js';
 import integrationTokenRoutes from './routes/integrationTokens.js';
 import structuredDeckRoutes from './routes/structuredDecks.js';
@@ -102,6 +103,8 @@ app.use('/api/print-station-management', discordPrintBotRoutes);
 app.use('/api/decks', printRoutes);
 app.use('/api/print-lists', standalonePrintRouter);
 app.use('/api/print-batches', printBatchesRouter);
+app.use('/api/print-downloads', printDownloadsRouter);
+app.use('/api/print-proofs', printProofRoutes);
 app.use('/api/manasync', manasyncRouter);
 
 async function start() {

@@ -28,7 +28,7 @@ from clc_printer_health import parse_printer_health, printer_attributes, stale_p
 
 
 HERE = Path(__file__).resolve().parent
-COMPANION_VERSION = "2.61.1"
+COMPANION_VERSION = "2.65.0"
 # launchd owns this socket while idle cupsd is stopped. A TCP-only request to
 # localhost cannot wake the service; the fixed socket also ignores shell hosts.
 LOCAL_CUPS_SERVER = "/private/var/run/cupsd"
@@ -452,6 +452,8 @@ class Ledger:
             base += "/recovery:" + str(extra.get("commandId"))
         if state in {"canceled", "paper_ready"}:
             base += "/" + str(extra.get("clearanceId"))
+        if state == "canceled" and extra.get("missingCupsHistory"):
+            base += "/missing-cups:" + str(extra.get("commandId"))
         prefix = base + "/"
         existing = self.db.execute("SELECT * FROM events WHERE substr(event_key,1,?)=? ORDER BY rowid DESC LIMIT 1", (len(prefix), prefix)).fetchone()
         if existing and (existing["reply"] is None or not renew):
@@ -1082,12 +1084,15 @@ class Station:
             elif step.get("state") == "canceled" and entry["state"] not in PASS_TERMINAL:
                 # A server-only cancellation is safe only while both sides agree
                 # no physical call occurred. Started passes require clearance.
-                clear_proof = any(json.loads(row["payload"]).get("state") == "canceled"
-                                  and json.loads(row["payload"]).get("paperCleared") is True
-                                  and json.loads(row["payload"]).get("claimToken") == job["claimToken"]
-                                  for row in self.ledger.db.execute("SELECT payload FROM events WHERE event_key LIKE ?", (job["id"] + "/%",)))
+                boundary = step.get("cancellationClearanceId")
+                receipts = self.ledger.db.execute("SELECT payload FROM events WHERE event_key LIKE ?", (job["id"] + "/%",))
+                clear_proof = any(event.get("state") == "canceled" and event.get("paperCleared") is True
+                                  and event.get("claimToken") == job["claimToken"]
+                                  and (boundary is None or event.get("clearanceId") == boundary)
+                                  for event in (json.loads(row["payload"]) for row in receipts))
                 if (entry["cups_started"] == 0 and not entry["spooler_id"]) or clear_proof:
-                    self.ledger.set_pass(entry, "canceled", "Canceled before a CUPS attempt")
+                    detail = "Cancellation confirmed after clearing paper" if clear_proof else "Canceled before a CUPS attempt"
+                    self.ledger.set_pass(entry, "canceled", detail)
 
     def deferred_transition(self, job):
         if job.get("workflow") != DEFERRED_WORKFLOW:
@@ -1126,7 +1131,7 @@ class Station:
         return [entry for entry in self.ledger.passes(job["id"])
                 if entry["state"] not in PASS_TERMINAL and (scope == "all" or (scope == "backs" and entry["phase"] == "backs"))]
 
-    def cancellation_observations(self, job):
+    def cancellation_observations(self, job, allow_missing_history=False):
         """Never cancel by owner/all-jobs. Match the exact saved title and ID."""
         targets = self.cancel_entries(job)
         history = None
@@ -1136,13 +1141,33 @@ class Station:
                 observed.append((entry, None))
                 continue
             if history is None:
-                history = self.cups.jobs()
-            matches = [item for item in history if item["title"] == entry["title"]]
-            if (len(matches) != 1 or (entry["spooler_id"] and matches[0]["id"] != entry["spooler_id"])
+                history = self.cups.jobs(require_complete=True) if allow_missing_history else self.cups.jobs()
+            matches = [item for item in history if item["title"] == entry["title"] or item["id"] == entry["spooler_id"]]
+            if not matches and allow_missing_history and self.acknowledged_cancellation_pass(job, entry):
+                observed.append((entry, None))
+                continue
+            if (len(matches) != 1 or matches[0]["title"] != entry["title"]
+                    or (entry["spooler_id"] and matches[0]["id"] != entry["spooler_id"])
                     or matches[0]["state"] not in {3, 4, 5, 6, 7, 8, 9}):
                 raise StationError("Cannot identify the exact CUPS cancellation outcome. Inspect its queue and reconcile before clearing this batch.")
             observed.append((entry, matches[0]))
         return observed
+
+    def acknowledged_cancellation_pass(self, job, entry):
+        remote = next((step for step in job["steps"] if step["artifactId"] == entry["artifact_id"]
+                       and step["phase"] == entry["phase"]), {})
+        return (entry["spooler_id"] and re.fullmatch(re.escape(self.config["queue"]) + r"-[1-9]\d*", entry["spooler_id"])
+                and remote.get("spoolerId") == entry["spooler_id"] and remote.get("attemptId") == entry["attempt_id"]
+                and remote.get("state") in {"submitted", "uncertain"})
+
+    def missing_cancellation_spooler(self, job):
+        if job.get("cancelRequested") not in {"all", "backs"}:
+            return None
+        observations = self.cancellation_observations(job, allow_missing_history=True)
+        missing = [entry["spooler_id"] for entry, observed in observations if observed is None and entry["spooler_id"]]
+        if len(missing) == 1 and not any(observed and observed["state"] < 7 for _, observed in observations):
+            return missing[0]
+        return None
 
     def handle_cancel(self, job):
         if job.get("cancelRequested") not in {"all", "backs"}:
@@ -1164,7 +1189,7 @@ class Station:
         self.notify_stage("cancellation", job, artifact)
         return "awaiting_clearance"
 
-    def clear_paper(self, job_id, expected_clearance):
+    def clear_paper(self, job_id, expected_clearance, missing_spooler_id=None, command_id=None):
         checked_id(job_id, "job ID")
         current = self.ledger.current()
         if not current or current["id"] != job_id or current["state"] not in {"awaiting_clearance", "awaiting_paper_reset"}:
@@ -1175,18 +1200,36 @@ class Station:
         if clearance_id(job) != expected_clearance:
             raise StationError("Paper confirmation belongs to a different packet or cancellation")
         self.sync_steps(job)
+        missing_entry = None
+        if missing_spooler_id is not None:
+            checked_id(command_id, "paper-clearance command ID")
+            if current["state"] != "awaiting_clearance" or not job.get("cancelRequested"):
+                raise StationError("Only a canceled batch can be cleared after losing its CUPS history")
+            if current["recipe_hash"] != recipe_fingerprint(self.config, job["recipeId"]):
+                raise StationError("Restore the original local queue and recipe before clearing this job")
         if job.get("cancelRequested"):
-            for _entry, observed in self.cancellation_observations(job):
+            observations = self.cancellation_observations(job, allow_missing_history=missing_spooler_id is not None)
+            if missing_spooler_id is not None:
+                missing = [entry for entry, observed in observations if observed is None and entry["spooler_id"]]
+                if len(missing) != 1 or missing[0]["spooler_id"] != missing_spooler_id:
+                    raise StationError("Missing CUPS history no longer matches the exact canceled pass")
+                missing_entry = missing[0]
+            for _entry, observed in observations:
                 if observed and observed["state"] < 7:
                     raise StationError("The canceled CUPS pass is still active. Wait for it to stop before clearing the paper.")
                 if observed and observed["state"] == 9:
                     self.observe(job, _entry)
             job = self.refresh_job(job)
             self.sync_steps(job)
-            entry = next(iter(self.cancel_entries(job)), None)
+            if clearance_id(job) != expected_clearance:
+                raise StationError("Paper confirmation belongs to a different cancellation")
+            if missing_entry and self.missing_cancellation_spooler(job) != missing_spooler_id:
+                raise StationError("Missing CUPS history no longer matches the exact canceled pass")
+            entry = missing_entry or next(iter(self.cancel_entries(job)), None)
             if entry is None:
                 entry = self.ledger.passes(job_id)[-1]
-            reply = self.report(job, entry, "canceled", paperCleared=True, clearanceId=expected_clearance)
+            evidence = {"missingCupsHistory": True, "spoolerId": missing_spooler_id, "commandId": command_id} if missing_entry else {}
+            reply = self.report(job, entry, "canceled", paperCleared=True, clearanceId=expected_clearance, **evidence)
             fresh = reply["job"]
             remote = {(step["artifactId"], step["phase"]): step for step in fresh["steps"]}
             for entry in self.ledger.passes(job_id):
@@ -1533,6 +1576,8 @@ class Station:
         if (not isinstance(job, dict) or job.get("id") != job_id
                 or job.get("manifestSha256") != original["manifestSha256"] or job.get("claimToken") != original["claimToken"]):
             raise StationError("Server job identity changed; refusing to release")
+        if job.get("cancelRequested"):
+            raise StationError("Finish this saved cancellation through its exact paper-clearance controls in CLC")
         detail = "Operator checked output, cleared paper and unsafe CUPS jobs; abandon without automatic reprint"
         if job.get("state") not in TERMINAL and job.get("state") != "expired":
             entry = self.ledger.pending(job)
@@ -1699,8 +1744,10 @@ def main(argv=None):
                     return 75
                 try:
                     status_text = station.poll_once(allow_submit=connected)
+                    station.management.record_poll_error(None)
                     station.cleanup()
                 except (StationError, OSError, ValueError, subprocess.TimeoutExpired) as error:
+                    station.management.record_poll_error(error)
                     status_text = "Waiting: " + str(error)
                 if status_text != last_status:
                     station.management.event("error" if status_text.startswith("Waiting:") else "info", status_text)

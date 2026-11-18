@@ -8,6 +8,10 @@ import express from 'express';
 import { printCardKey } from '../../src/lib/printSelection.js';
 
 const services = vi.hoisted(() => ({ fetchCardImageUrls: vi.fn(), preparePrintImages: vi.fn(), generatePrintPdfs: vi.fn(), getPrintGeneratorStatus: vi.fn(() => ({ available: true, revision: 'fixture' })), prunePrintGenerator: vi.fn(async () => {}) }));
+vi.mock('../lib/printPdfHash.js', async importOriginal => {
+  const actual = await importOriginal();
+  return { ...actual, hashPrintPdf: vi.fn(actual.hashPrintPdf) };
+});
 vi.mock('../lib/scryfallImages.js', () => ({ fetchCardImageUrls: services.fetchCardImageUrls }));
 vi.mock('../lib/printQueueImages.js', () => ({ preparePrintImages: services.preparePrintImages }));
 vi.mock('../lib/printGenerator.js', () => ({ generatePrintPdfs: services.generatePrintPdfs, getPrintGeneratorStatus: services.getPrintGeneratorStatus, prunePrintGenerator: services.prunePrintGenerator }));
@@ -74,6 +78,7 @@ beforeEach(async () => {
   app.use('/api/decks', printRoutes.default);
   app.use('/api/print-lists', printRoutes.standalonePrintRouter);
   app.use('/api/print-batches', printRoutes.printBatchesRouter);
+  app.use('/api/print-downloads', printRoutes.printDownloadsRouter);
   app.use('/api/print-station', (await import('./print-station.js')).default);
   server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
   url = `http://127.0.0.1:${server.address().port}`;
@@ -83,8 +88,8 @@ afterEach(async () => {
   server?.closeAllConnections(); if (server) await new Promise(resolve => server.close(resolve));
   vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir, { recursive: true, force: true });
 });
-function request(path, { method = 'GET', body, token = 'user-1' } = {}) {
-  return fetch(url + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+function request(path, { method = 'GET', body, token = 'user-1', headers = {} } = {}) {
+  return fetch(url + path, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
 function preview(options = {}, user = 1, deck = user) { return planModule.buildPrintPlan(user, deck, options); }
 async function create(options = {}, user = 1, deck = user) {
@@ -95,6 +100,83 @@ async function ready(options = {}) { const { job } = await create(options); awai
 function station(path, method = 'GET', body) { return request(`/api/print-station${path}`, { method, body, token: stationToken }); }
 function report(job, state, extras = {}) { return queue.reportPrintJob(job.id, { claimToken: job.claimToken, eventId: crypto.randomUUID(), state, ...extras }); }
 function ordinary(job) { return { artifactId: 'fronts', phase: 'fronts', ...job }; }
+
+async function holdVerifiedPdf() {
+  const { hashPrintPdf } = await import('../lib/printPdfHash.js');
+  const realHash = hashPrintPdf.getMockImplementation();
+  const verified = Promise.withResolvers(), resume = Promise.withResolvers();
+  hashPrintPdf.mockImplementationOnce(async (...args) => {
+    const result = await realHash(...args);
+    verified.resolve();
+    await resume.promise;
+    return result;
+  });
+  return { verified: verified.promise, release: resume.resolve };
+}
+
+describe('private browser PDF downloads', () => {
+  async function issue(artifactUrl, token, filename = 'Fixture [fronts].pdf') {
+    return request(`${artifactUrl}/download`, { method: 'POST', token, body: { filename } });
+  }
+
+  it.each(['deck', 'standalone'])('streams exact bytes once to the owner with a scoped cookie (%s)', async scope => {
+    let job;
+    if (scope === 'deck') job = await ready();
+    else {
+      const result = await create({ mode: 'adhoc', cardText: '1 Lightning Bolt' }, 1, null);
+      await queue.processNextPrintJob();
+      job = queue.getOwnedPrintJob(1, null, result.job.id);
+    }
+    const [{ downloadUrl, size, sha256 }] = job.artifacts;
+    expect((await issue(downloadUrl, 'user-2')).status).toBe(404);
+    expect((await issue(downloadUrl, '')).status).toBe(401);
+    const ticket = await issue(downloadUrl, 'user-1');
+    expect(ticket.status).toBe(200);
+    const { url: grantedUrl } = await ticket.json();
+    expect(grantedUrl).toMatch(/^\/api\/print-downloads\/[a-f0-9-]+$/);
+    const setCookie = ticket.headers.get('set-cookie');
+    expect(setCookie).toContain('HttpOnly');
+    expect(setCookie).toContain('SameSite=Strict');
+    expect(setCookie).toContain('Max-Age=60');
+    expect(setCookie).toContain(`Path=${grantedUrl}`);
+    expect(ticket.headers.get('cache-control')).toContain('no-store');
+    expect((await request(grantedUrl, { token: 'user-2' })).status).toBe(404);
+    const navigation = { token: '', headers: { cookie: setCookie.split(';')[0] } };
+    expect((await request(grantedUrl, { ...navigation, method: 'HEAD' })).status).toBe(405);
+    const downloaded = await request(grantedUrl, navigation);
+    expect(downloaded.status).toBe(200);
+    expect(downloaded.headers.get('content-disposition')).toBe('attachment; filename="Fixture _fronts_.pdf"');
+    expect(downloaded.headers.get('content-length')).toBe(String(size));
+    expect(downloaded.headers.get('cache-control')).toContain('no-store');
+    expect(downloaded.headers.get('x-content-sha256')).toBe(sha256);
+    expect(hash(Buffer.from(await downloaded.arrayBuffer()))).toBe(sha256);
+    expect((await request(grantedUrl, navigation)).status).toBe(404);
+  });
+
+  it('rejects expired grants and artifacts corrupted or removed after issuance', async () => {
+    const job = await ready();
+    const [{ downloadUrl }] = job.artifacts;
+    const ticket = await issue(downloadUrl, 'user-1');
+    const { url: grantedUrl } = await ticket.json();
+    const expired = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+    expect((await request(grantedUrl, { token: '', headers: { cookie: ticket.headers.get('set-cookie').split(';')[0] } })).status).toBe(404);
+    expired.mockRestore();
+
+    const nextTicket = await issue(downloadUrl, 'user-1');
+    const next = await nextTicket.json();
+    const artifact = await queue.ownedPrintArtifact(1, 1, job.id, 'fronts');
+    const altered = readFileSync(artifact.path);
+    altered[9] ^= 1;
+    writeFileSync(artifact.path, altered);
+    expect((await request(next.url, { token: '', headers: { cookie: nextTicket.headers.get('set-cookie').split(';')[0] } })).status).toBe(409);
+
+    const lastTicket = await issue(downloadUrl, 'user-1');
+    const last = await lastTicket.json();
+    queue.expireOwnedPrintArtifacts(1, 1, job.id);
+    expect((await request(last.url, { token: '', headers: { cookie: lastTicket.headers.get('set-cookie').split(';')[0] } })).status).toBe(410);
+    expect((await issue(downloadUrl, 'user-1')).status).toBe(410);
+  });
+});
 
 describe('saving print artwork to the current deck', () => {
   const path = '/api/decks/1/print-art';
@@ -451,10 +533,10 @@ describe('batch paper size', () => {
     const front = { artifactId, phase: 'fronts' };
     const receipt = { ...front, spoolerId: 'EPSON-landscape-front' };
     expect(claimed).toMatchObject({ id: job.id, printPreset, recipeId: recipe.id });
-    report(claimed, 'submitting', front); report(claimed, 'submitted', receipt);
-    expect(report(claimed, 'completed', receipt).job.state).toBe('backs_pending');
+    await report(claimed, 'submitting', front); await report(claimed, 'submitted', receipt);
+    expect((await report(claimed, 'completed', receipt)).job.state).toBe('backs_pending');
     const saved = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
-    queue.preparePrintBacks(saved, artifactId, 1);
+    await queue.preparePrintBacks(saved, artifactId, 1);
     expect((await beat(portrait)).status).toBe(200);
     expect(await (await claim(portrait)).json()).toEqual({ job: null });
     expect((await beat(withProofs(true))).status).toBe(200);
@@ -558,14 +640,14 @@ describe('durable queued batch announcements', () => {
     expect(notice.queued_at).toBe(db.get('SELECT queued_at FROM print_jobs WHERE id = ?', [created.job.id]).queued_at);
     db.run("UPDATE users SET username = 'renamed' WHERE id = 1");
     await queue.createPrintJob(1, 1, request); await queue.processNextPrintJob();
-    queue.queuePrintJob(1, 1, created.job.id);
+    await queue.queuePrintJob(1, 1, created.job.id);
     expect(notices()).toEqual([notice]);
     expect(Object.keys(notice)).not.toContain('plan_json');
   });
   it('does not announce download-only preparation until that exact PDF is explicitly queued', async () => {
     const job = await ready();
     expect(notices()).toEqual([]);
-    queue.queuePrintJob(1, 1, job.id); queue.queuePrintJob(1, 1, job.id);
+    await queue.queuePrintJob(1, 1, job.id); await queue.queuePrintJob(1, 1, job.id);
     expect(notices()).toHaveLength(1);
     expect(notices()[0]).toMatchObject({ job_id: job.id, total_copies: 1 });
   });
@@ -588,11 +670,11 @@ describe('durable queued batch announcements', () => {
   it('atomically rolls back queue acceptance when its outbox cannot be persisted', async () => {
     const job = await ready(), previous = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
     db.run("CREATE TRIGGER reject_notice BEFORE INSERT ON print_queue_notifications BEGIN SELECT RAISE(ABORT, 'fixture outbox unavailable'); END");
-    expect(() => queue.queuePrintJob(1, 1, job.id)).toThrow('fixture outbox unavailable');
+    await expect(queue.queuePrintJob(1, 1, job.id)).rejects.toThrow('fixture outbox unavailable');
     expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id])).toEqual(previous);
     expect(notices()).toEqual([]);
     db.run('DROP TRIGGER reject_notice');
-    queue.queuePrintJob(1, 1, job.id);
+    await queue.queuePrintJob(1, 1, job.id);
     expect(notices()).toHaveLength(1);
   });
   it('normalizes display labels without rewriting immutable plans and falls back for blank labels', async () => {
@@ -601,14 +683,14 @@ describe('durable queued batch announcements', () => {
     Object.assign(plan, { deckName: '  Deck\n\twith\u0000 spaces  ', requesterName: '  Household\u0085 user  ' });
     const immutable = JSON.stringify(plan);
     db.run('UPDATE print_jobs SET plan_json = ? WHERE id = ?', [immutable, job.id]);
-    queue.queuePrintJob(1, 1, job.id);
+    await queue.queuePrintJob(1, 1, job.id);
     expect(notices()[0]).toMatchObject({ deck_name: 'Deck with spaces', requester_name: 'Household user' });
     expect(db.get('SELECT plan_json FROM print_jobs WHERE id = ?', [job.id]).plan_json).toBe(immutable);
     const next = await ready();
     const nextPlan = JSON.parse(db.get('SELECT plan_json FROM print_jobs WHERE id = ?', [next.id]).plan_json);
     Object.assign(nextPlan, { deckName: '\u0000\n', requesterName: '\t\r' });
     db.run('UPDATE print_jobs SET plan_json = ? WHERE id = ?', [JSON.stringify(nextPlan), next.id]);
-    queue.queuePrintJob(1, 1, next.id);
+    await queue.queuePrintJob(1, 1, next.id);
     expect(db.get('SELECT deck_name, requester_name FROM print_queue_notifications WHERE job_id = ?', [next.id])).toEqual({ deck_name: 'Card batch', requester_name: 'printer' });
   });
   it('retains one notice across startup and cascades it when its account print jobs are purged', async () => {
@@ -629,10 +711,27 @@ describe('global print batch history', () => {
     [id, userId, extra.deckId ?? null, crypto.randomUUID(), JSON.stringify({ deckName: extra.name || 'Fixture batch', totalCopies: 94,
       list: { text: 'private source' }, comparison: { beforeText: 'private comparison' }, cards: [{ secret: 'private art' }] }), state,
     createdAt, createdAt, ['queued', 'submitted'].includes(state) ? extra.queuedAt || createdAt : null,
-    state === 'queued' ? 1 : 0, JSON.stringify({ phase: 'images', downloaded: 2, cached: 1, total: 94, token: 'private-progress-token' }),
+    state === 'queued' ? 1 : 0, JSON.stringify({ phase: 'images', downloaded: 2, cached: 2, total: 2, token: 'private-progress-token' }),
     'Bearer private-error-token']);
     return id;
   }
+
+  it('lists only minimal, active owner jobs in the requested deck or print-list scope', async () => {
+    const date = '2026-09-01T00:00:00Z';
+    const deckJob = seed(1, 'preparing', date, { deckId: 1 });
+    const listJob = seed(1, 'ready', date);
+    seed(1, 'failed', date, { deckId: 1 });
+    seed(2, 'queued', date, { deckId: 1 });
+    const result = await request('/api/decks/1/print-jobs/activity');
+    expect(result.headers.get('cache-control')).toBe('private, no-store');
+    const deck = await result.json();
+    expect(deck).toMatchObject({ activeCount: 1, watching: true });
+    expect(deck.jobs).toEqual([{ id: deckJob, state: 'preparing', updatedAt: date }]);
+    const list = await (await request('/api/print-lists/jobs/activity')).json();
+    expect(list).toMatchObject({ activeCount: 1, watching: false });
+    expect(list.jobs).toEqual([{ id: listJob, state: 'ready', updatedAt: date }]);
+    expect((await request('/api/print-lists/jobs/activity', { token: null })).status).toBe(401);
+  });
 
   it('enables active legacy cancellation only from a live native capability and preserves owner authorization', async () => {
     const id = seed(2, 'submitted', new Date().toISOString());
@@ -674,7 +773,7 @@ describe('global print batch history', () => {
     expect(collected.some(job => job.sourceKind === 'list')).toBe(true);
     expect(collected.some(job => job.sourceKind === 'deck')).toBe(true);
     for (const value of ['private source', 'private comparison', 'private art', 'private-progress-token', 'private-error-token', 'downloadUrl', 'manifestSha256']) expect(JSON.stringify(collected)).not.toContain(value);
-    expect(collected[0].progress).toEqual({ phase: 'images', completed: 3, total: 94 });
+    expect(collected[0].progress).toEqual({ phase: 'images', completed: 2, total: 2 });
     const own = await (await request('/api/print-batches', { token: 'user-2' })).json();
     expect(own.scope).toBe('mine'); expect(own.totalCount).toBe(27);
     expect(own.jobs.every(job => job.canOpen && !job.canCancel && !Object.hasOwn(job, 'requesterName'))).toBe(true);
@@ -851,17 +950,17 @@ describe('standalone print lists', () => {
     services.generatePrintPdfs.mockImplementationOnce(packetPdfs);
     const { job } = await create({ mode: 'adhoc', cardText: '1 Malakir Rebirth // Malakir Mire', queueOnReady: true }, 1, null);
     await queue.processNextPrintJob();
-    const claimed = queue.claimPrintJob();
+    const claimed = await queue.claimPrintJob();
     expect(claimed).toMatchObject({ id: job.id, mode: 'adhoc', deckId: null, deckName: 'Print list' });
     expect(claimed.artifacts[0].downloadUrl).toBe(`/api/print-station/jobs/${job.id}/artifacts/double-faced-001`);
     const front = { artifactId: 'double-faced-001', phase: 'fronts' }, back = { artifactId: 'double-faced-001', phase: 'backs' };
-    report(claimed, 'submitting', front); report(claimed, 'submitted', { ...front, spoolerId: 'fixture-1' });
-    report(claimed, 'completed', { ...front, spoolerId: 'fixture-1' });
+    await report(claimed, 'submitting', front); await report(claimed, 'submitted', { ...front, spoolerId: 'fixture-1' });
+    await report(claimed, 'completed', { ...front, spoolerId: 'fixture-1' });
     expect(queue.getOwnedPrintJob(1, null, job.id).state).toBe('awaiting_refeed');
-    expect(() => report(claimed, 'submitting', back)).toThrow();
-    report(claimed, 'refeed', back);
-    report(claimed, 'submitting', back); report(claimed, 'submitted', { ...back, spoolerId: 'fixture-2' });
-    report(claimed, 'completed', { ...back, spoolerId: 'fixture-2' });
+    await expect(report(claimed, 'submitting', back)).rejects.toThrow();
+    await report(claimed, 'refeed', back);
+    await report(claimed, 'submitting', back); await report(claimed, 'submitted', { ...back, spoolerId: 'fixture-2' });
+    await report(claimed, 'completed', { ...back, spoolerId: 'fixture-2' });
     expect(queue.getOwnedPrintJob(1, null, job.id).state).toBe('completed');
   });
 });
@@ -881,9 +980,9 @@ describe('standalone print lists', () => {
     expect((await station('/claim', 'POST', { ...old, mixedPrintSheets: 'true' })).status).toBe(400);
     expect((await (await station('/claim', 'POST', old)).json()).job.id).toBe(other.id);
     expect(db.get('SELECT state, claim_nonce FROM print_jobs WHERE id = ?', [job.id])).toEqual({ state: 'queued', claim_nonce: null });
-    const legacy = queue.claimPrintJob(old);
-    report(legacy, 'submitting', ordinary()); report(legacy, 'submitted', ordinary({ spoolerId: 'EPSON-other' }));
-    report(legacy, 'completed', ordinary({ spoolerId: 'EPSON-other' }));
+    const legacy = await queue.claimPrintJob(old);
+    await report(legacy, 'submitting', ordinary()); await report(legacy, 'submitted', ordinary({ spoolerId: 'EPSON-other' }));
+    await report(legacy, 'completed', ordinary({ spoolerId: 'EPSON-other' }));
     expect(await (await station('/claim', 'POST', { mixedPrintSheets: true })).json()).toEqual({ job: null });
     expect(job.artifacts.map(item => item.id)).toEqual(['double-faced-001', 'double-faced-002', 'fronts']);
     expect(job.artifacts[0]).toMatchObject({ label: `CLC ${job.id.slice(0, 8)} DFC 1/2`, packetIndex: 1, packetCount: 2, cardCount: 7, frontPages: [1], backPages: [2] });
@@ -897,20 +996,20 @@ describe('standalone print lists', () => {
     expect(claimed.steps.map(step => [step.artifactId, step.phase])).toEqual([
       ['double-faced-001', 'fronts'], ['double-faced-002', 'fronts'], ['fronts', 'fronts'], ['double-faced-001', 'backs'], ['double-faced-002', 'backs'],
     ]);
-    expect(() => report(claimed, 'submitting', ordinary())).toThrow('not eligible');
+    await expect(report(claimed, 'submitting', ordinary())).rejects.toThrow('not eligible');
     for (const [index, pass] of claimed.steps.filter(step => step.phase === 'fronts').entries()) {
       const step = { artifactId: pass.artifactId, phase: 'fronts' };
       const receipt = { ...step, spoolerId: `EPSON-mixed-${index}` };
-      report(claimed, 'submitting', step); report(claimed, 'submitted', receipt); report(claimed, 'completed', receipt);
+      await report(claimed, 'submitting', step); await report(claimed, 'submitted', receipt); await report(claimed, 'completed', receipt);
     }
     const saved = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
     expect(saved.state).toBe('backs_pending');
-    queue.preparePrintBacks(saved, 'double-faced-002', 1);
+    await queue.preparePrintBacks(saved, 'double-faced-002', 1);
     expect(await (await station('/claim', 'POST', old)).json()).toEqual({ job: null });
     expect((await (await station('/claim', 'POST', capable)).json()).job).toMatchObject({
       state: 'awaiting_refeed', backRequest: { artifactId: 'double-faced-002' },
     });
-    expect(() => report(claimed, 'submitting', { artifactId: 'double-faced-002', phase: 'backs' })).toThrow();
+    await expect(report(claimed, 'submitting', { artifactId: 'double-faced-002', phase: 'backs' })).rejects.toThrow();
   });
   it('refuses wrong reverse-face counts before publishing a mixed batch', async () => {
     db.run("UPDATE deck_snapshots SET deck_text = '1 Lightning Bolt\n1 Malakir Rebirth' WHERE tracked_deck_id = 1");
@@ -932,7 +1031,7 @@ describe('standalone print lists', () => {
     });
     const { job } = await create({ queueOnReady: true }); await queue.processNextPrintJob();
     expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'failed', error: expect.stringContaining('invalid double-sided packet') });
-    expect(queue.claimPrintJob()).toBeNull();
+    expect(await queue.claimPrintJob()).toBeNull();
     expect(existsSync(join(dir, 'jobs', job.id))).toBe(false);
   });
   it('automatically retains an unqueued prepared PDF as an unconfirmed ManaSync plan',async () => {
@@ -1060,20 +1159,131 @@ describe('standalone print lists', () => {
     const row = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]), manifest = JSON.parse(row.manifest_json);
     const artifact = manifest.artifacts[0], path = join(dir, 'jobs', job.id, artifact.fileName);
     writeFileSync(path, '%PDF-tampered');
-    expect(() => queue.ownedPrintArtifact(1, 1, job.id, 'fronts')).toThrow('checksum mismatch');
+    await expect(queue.ownedPrintArtifact(1, 1, job.id, 'fronts')).rejects.toThrow('checksum mismatch');
     truncateSync(path, 1024 * 1024 * 1024 + 1);
-    expect(() => queue.ownedPrintArtifact(1, 1, job.id, 'fronts')).toThrow('checksum mismatch');
+    await expect(queue.ownedPrintArtifact(1, 1, job.id, 'fronts')).rejects.toThrow('checksum mismatch');
     artifact.fileName = '../outside.pdf';
     const text = JSON.stringify(manifest);
     db.run('UPDATE print_jobs SET manifest_json = ?, manifest_sha256 = ? WHERE id = ?', [text, hash(text), job.id]);
-    expect(() => queue.ownedPrintArtifact(1, 1, job.id, 'fronts')).toThrow('missing');
+    await expect(queue.ownedPrintArtifact(1, 1, job.id, 'fronts')).rejects.toThrow('missing');
   });
 });
 
 describe('station submission, manual refeed, and ambiguity', () => {
+  it('rejects a submission that was canceled during checksum verification', async () => {
+    const job = await ready({ queueOnReady: true });
+    const claimed = await queue.claimPrintJob();
+    const hold = await holdVerifiedPdf();
+    const submitting = report(claimed, 'submitting', ordinary());
+    try {
+      await hold.verified;
+      queue.cancelPrintJob(1, 1, job.id);
+    } finally { hold.release(); }
+    await expect(submitting).rejects.toThrow('no longer active');
+    expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'canceled', steps: [expect.objectContaining({ state: 'pending' })] });
+    expect(db.all('SELECT * FROM print_job_events WHERE job_id = ?', [job.id])).toEqual([]);
+  });
+
+  it('does not queue bytes replaced after their exact checksum was calculated', async () => {
+    const job = await ready();
+    const path = (await queue.ownedPrintArtifact(1, 1, job.id, 'fronts')).path;
+    const hold = await holdVerifiedPdf();
+    const queueing = queue.queuePrintJob(1, 1, job.id);
+    try {
+      await hold.verified;
+      const bytes = readFileSync(path);
+      bytes[bytes.length - 7] ^= 1;
+      writeFileSync(path, bytes);
+    } finally { hold.release(); }
+    await expect(queueing).rejects.toThrow('changed during verification');
+    expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('ready');
+  });
+
+  it('rechecks a discarded queued job before concurrent claims', async () => {
+    const first = await ready({ queueOnReady: true });
+    const next = await ready({ queueOnReady: true });
+    const hold = await holdVerifiedPdf();
+    const claimOne = queue.claimPrintJob(), claimTwo = queue.claimPrintJob();
+    try {
+      await hold.verified;
+      queue.cancelPrintJob(1, 1, first.id);
+    } finally { hold.release(); }
+    const claims = await Promise.all([claimOne, claimTwo]);
+    expect(claims.map(claim => claim.id)).toEqual([next.id, next.id]);
+    expect(claims[0].claimToken).toBe(claims[1].claimToken);
+    expect(queue.getOwnedPrintJob(1, 1, first.id).state).toBe('canceled');
+  });
+
+  it('does not reopen another user’s canceled batch when checking a delayed queue after revocation', async () => {
+    vi.stubEnv('PRINT_ALLOWED_USER_IDS', '2');
+    const first = await ready({ queueOnReady: true });
+    const { job: second } = await create({ queueOnReady: true }, 2, 2);
+    await queue.processNextPrintJob();
+    const hold = await holdVerifiedPdf();
+    const claiming = queue.claimPrintJob();
+    try {
+      await hold.verified;
+      queue.cancelPrintJob(1, 1, first.id);
+      queue.cancelPrintJob(2, 2, second.id);
+      vi.stubEnv('PRINT_ALLOWED_USER_IDS', '');
+    } finally { hold.release(); }
+    expect(await claiming).toBeNull();
+    expect(queue.getOwnedPrintJob(2, 2, second.id).state).toBe('canceled');
+  });
+
+  it('coalesces lease polls without adding events and durably renews before expiration', async () => {
+    const job = await ready({ queueOnReady: true });
+    const claimed = await queue.claimPrintJob();
+    const dbPath = join(dir, 'db.sqlite'), before = readFileSync(dbPath);
+    expect((await report(claimed, 'heartbeat')).job.leaseExpiresAt).toBe(claimed.leaseExpiresAt);
+    expect((await queue.claimPrintJob()).leaseExpiresAt).toBe(claimed.leaseExpiresAt);
+    expect(readFileSync(dbPath)).toEqual(before);
+
+    const soon = new Date(Date.now() + 30_000).toISOString();
+    db.run('UPDATE print_jobs SET lease_expires_at = ? WHERE id = ?', [soon, job.id]);
+    const renewed = (await report(claimed, 'heartbeat')).job.leaseExpiresAt;
+    expect(renewed > soon).toBe(true);
+    const reopened = new (db.getDb().constructor)(readFileSync(dbPath));
+    try { expect(reopened.exec('SELECT lease_expires_at FROM print_jobs')[0].values).toEqual([[renewed]]); }
+    finally { reopened.close(); }
+    expect(db.all('SELECT * FROM print_job_events WHERE job_id = ?', [job.id])).toEqual([]);
+    await report(claimed, 'submitting', ordinary());
+    expect(db.all('SELECT * FROM print_job_events WHERE job_id = ?', [job.id])).toHaveLength(1);
+  });
+
+  it.each(['missing', 'checksum mismatch'])('isolates an unclaimed %s PDF and claims the next eligible batch', async failure => {
+    const first = await ready({ queueOnReady: true });
+    const second = await ready({ queueOnReady: true });
+    const path = (await queue.ownedPrintArtifact(1, 1, first.id, 'fronts')).path;
+    if (failure === 'missing') rmSync(path);
+    else {
+      const bytes = readFileSync(path);
+      bytes[bytes.length - 7] ^= 1;
+      writeFileSync(path, bytes);
+    }
+    const response = await station('/claim', 'POST');
+    expect(response.status).toBe(200);
+    expect((await response.json()).job.id).toBe(second.id);
+    expect(queue.getOwnedPrintJob(1, 1, first.id)).toMatchObject({ state: 'failed', error: expect.stringContaining(failure) });
+    expect(db.get('SELECT claim_nonce FROM print_jobs WHERE id = ?', [first.id]).claim_nonce).toBeNull();
+    expect(db.all('SELECT * FROM print_job_events WHERE job_id = ?', [first.id])).toEqual([]);
+  });
+
+  it('keeps a claimed batch reserved if its PDF disappears', async () => {
+    const first = await ready({ queueOnReady: true });
+    const claimed = await queue.claimPrintJob();
+    const second = await ready({ queueOnReady: true });
+    rmSync((await queue.ownedPrintArtifact(1, 1, first.id, 'fronts')).path);
+    expect((await station(`/jobs/${first.id}/artifacts/fronts`)).status).toBe(410);
+    expect((await queue.claimPrintJob()).id).toBe(first.id);
+    expect(queue.getOwnedPrintJob(1, 1, first.id)).toMatchObject({ state: 'claimed', error: expect.stringContaining('PDF artifact is missing') });
+    expect(db.all('SELECT * FROM print_job_events WHERE job_id = ?', [first.id])).toEqual([]);
+    queue.cancelPrintJob(1, 1, claimed.id);
+    expect((await queue.claimPrintJob()).id).toBe(second.id);
+  });
   it('rejects owner cancellation between printed packets while preserving the same unsubmitted-cancel receipt', async () => {
     const waiting = await ready({ queueOnReady: true });
-    const claimed = queue.claimPrintJob();
+    const claimed = await queue.claimPrintJob();
     expect(claimed.id).toBe(waiting.id);
     const canceled = await request(`/api/decks/1/print-jobs/${claimed.id}/cancel`, { method: 'POST' });
     expect(canceled.status).toBe(200);
@@ -1082,10 +1292,10 @@ describe('station submission, manual refeed, and ambiguity', () => {
     expect(db.get('SELECT * FROM print_jobs WHERE id = ?', [claimed.id])).toEqual(persisted);
 
     await readyLargePacketJob();
-    const partial = queue.claimPrintJob();
-    report(partial, 'submitting', ordinary({}));
-    report(partial, 'submitted', ordinary({ spoolerId: 'Epson-partial' }));
-    report(partial, 'completed', ordinary({ spoolerId: 'Epson-partial' }));
+    const partial = await queue.claimPrintJob();
+    await report(partial, 'submitting', ordinary({}));
+    await report(partial, 'submitted', ordinary({ spoolerId: 'Epson-partial' }));
+    await report(partial, 'completed', ordinary({ spoolerId: 'Epson-partial' }));
     const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [partial.id]);
     expect(before.state).toBe('claimed');
     expect(JSON.parse(before.steps_json)[0].state).toBe('completed');
@@ -1131,9 +1341,9 @@ describe('station submission, manual refeed, and ambiguity', () => {
   });
   it('preserves an active physical claim when an older or paused client cannot handle its artifacts', async () => {
     const job = await readyLargePacketJob();
-    const claimed = queue.claimPrintJob(); // Internal callers retain current capacity.
-    report(claimed, 'submitting', ordinary());
-    report(claimed, 'submitted', ordinary({ spoolerId: 'EPSON-42' }));
+    const claimed = await queue.claimPrintJob(); // Internal callers retain current capacity.
+    await report(claimed, 'submitting', ordinary());
+    await report(claimed, 'submitted', ordinary({ spoolerId: 'EPSON-42' }));
     const before = db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
     for (const paused of [0, 1]) {
       db.run("UPDATE print_station_controls SET paused = ? WHERE station_id = 'household'", [paused]);
@@ -1156,40 +1366,40 @@ describe('station submission, manual refeed, and ambiguity', () => {
     expect((await request('/api/print-station/claim', { method: 'POST', body: {}, token: 'user-1' })).status).toBe(401);
     const job = await ready({ queueOnReady: true });
     db.run('UPDATE users SET suspended = 1 WHERE id = 1');
-    expect(queue.claimPrintJob()).toBeNull();
+    expect(await queue.claimPrintJob()).toBeNull();
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('ready');
   });
   it('keeps one FIFO claim, records intent before ack, and deduplicates reports atomically', async () => {
     const first = await ready({ queueOnReady: true });
     const second = await ready({ queueOnReady: true });
-    const job = queue.claimPrintJob();
+    const job = await queue.claimPrintJob();
     expect(job.id).toBe(first.id);
-    expect(queue.claimPrintJob().id).toBe(first.id);
+    expect((await queue.claimPrintJob()).id).toBe(first.id);
     const event = { claimToken: job.claimToken, eventId: crypto.randomUUID(), state: 'submitting', artifactId: 'fronts', phase: 'fronts' };
-    expect(queue.reportPrintJob(job.id, event).replayed).toBe(false);
-    expect(queue.reportPrintJob(job.id, event).replayed).toBe(true);
-    expect(() => queue.reportPrintJob(job.id, { ...event, state: 'completed' })).toThrow('already used');
-    expect(() => report(job, 'failed', {})).toThrow('may have happened');
-    report(job, 'submitted', ordinary({ spoolerId: 'Epson-42' }));
-    report(job, 'completed', ordinary({ spoolerId: 'Epson-42' }));
+    expect((await queue.reportPrintJob(job.id, event)).replayed).toBe(false);
+    expect((await queue.reportPrintJob(job.id, event)).replayed).toBe(true);
+    await expect(queue.reportPrintJob(job.id, { ...event, state: 'completed' })).rejects.toThrow('already used');
+    await expect(report(job, 'failed', {})).rejects.toThrow('may have happened');
+    await report(job, 'submitted', ordinary({ spoolerId: 'Epson-42' }));
+    await report(job, 'completed', ordinary({ spoolerId: 'Epson-42' }));
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
-    expect(queue.claimPrintJob().id).toBe(second.id);
+    expect((await queue.claimPrintJob()).id).toBe(second.id);
     expect(db.all('SELECT event_json FROM print_job_events').every(row => !row.event_json.includes(job.claimToken))).toBe(true);
   });
   it('holds DFC backs until explicit operator refeed and prevents other jobs interleaving', async () => {
     db.run("UPDATE deck_snapshots SET deck_text = '1 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
     const prepared = await ready({ queueOnReady: true });
-    const job = queue.claimPrintJob();
+    const job = await queue.claimPrintJob();
     expect(job.artifacts[0]).toMatchObject({ kind: 'dfc', frontPages: [1], backPages: [2] });
     const front = { artifactId: 'double-faced', phase: 'fronts' }, back = { artifactId: 'double-faced', phase: 'backs' };
-    expect(() => report(job, 'submitting', back)).toThrow('not eligible');
-    report(job, 'submitting', front); report(job, 'submitted', { ...front, spoolerId: 'Epson-1' });
-    report(job, 'completed', { ...front, spoolerId: 'Epson-1' });
+    await expect(report(job, 'submitting', back)).rejects.toThrow('not eligible');
+    await report(job, 'submitting', front); await report(job, 'submitted', { ...front, spoolerId: 'Epson-1' });
+    await report(job, 'completed', { ...front, spoolerId: 'Epson-1' });
     expect(queue.getOwnedPrintJob(1, 1, prepared.id).state).toBe('awaiting_refeed');
-    expect(queue.claimPrintJob().id).toBe(job.id);
-    expect(() => report(job, 'submitting', back)).toThrow();
-    report(job, 'refeed', back); report(job, 'submitting', back);
-    report(job, 'submitted', { ...back, spoolerId: 'Epson-2' }); report(job, 'completed', { ...back, spoolerId: 'Epson-2' });
+    expect((await queue.claimPrintJob()).id).toBe(job.id);
+    await expect(report(job, 'submitting', back)).rejects.toThrow();
+    await report(job, 'refeed', back); await report(job, 'submitting', back);
+    await report(job, 'submitted', { ...back, spoolerId: 'Epson-2' }); await report(job, 'completed', { ...back, spoolerId: 'Epson-2' });
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
   });
   it('binds refeed reports to the exact pending back pass and never reuses a prior batch confirmation', async () => {
@@ -1203,91 +1413,91 @@ describe('station submission, manual refeed, and ambiguity', () => {
       });
       return { revision: 'fixture', runtimeVersion: 'fixture', recipe: { id: 'household-letter-v6' }, artifacts, slots: [], images: [] };
     });
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
     const firstFront = { artifactId: 'fronts', phase: 'fronts' }, firstBack = { artifactId: 'fronts', phase: 'backs' };
     const secondFront = { artifactId: 'double-faced', phase: 'fronts' }, secondBack = { artifactId: 'double-faced', phase: 'backs' };
-    const finish = (pass, spoolerId) => {
-      report(job, 'submitting', pass); report(job, 'submitted', { ...pass, spoolerId }); report(job, 'completed', { ...pass, spoolerId });
+    const finish = async (pass, spoolerId) => {
+      await report(job, 'submitting', pass); await report(job, 'submitted', { ...pass, spoolerId }); await report(job, 'completed', { ...pass, spoolerId });
     };
     const sendRefeed = extras => station(`/jobs/${job.id}/report`, 'POST', {
       claimToken: job.claimToken, eventId: crypto.randomUUID(), state: 'refeed', ...extras,
     });
     expect((await sendRefeed(firstBack)).status).toBe(409); // fronts have not printed
-    finish(firstFront, 'Epson-1');
+    await finish(firstFront, 'Epson-1');
     const before = db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id]);
     for (const wrong of [{}, { artifactId: 'fronts' }, { phase: 'backs' }, firstFront, secondBack]) {
       expect((await sendRefeed(wrong)).status).toBe(409);
       expect(db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id])).toEqual(before);
     }
     const original = { claimToken: job.claimToken, eventId: crypto.randomUUID(), state: 'refeed', ...firstBack };
-    expect(queue.reportPrintJob(job.id, original).replayed).toBe(false);
-    finish(firstBack, 'Epson-2'); finish(secondFront, 'Epson-3');
+    expect((await queue.reportPrintJob(job.id, original)).replayed).toBe(false);
+    await finish(firstBack, 'Epson-2'); await finish(secondFront, 'Epson-3');
     const held = db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id]);
     expect(held.state).toBe('awaiting_refeed');
-    expect(queue.reportPrintJob(job.id, original).replayed).toBe(true);
+    expect((await queue.reportPrintJob(job.id, original)).replayed).toBe(true);
     expect((await sendRefeed(firstBack)).status).toBe(409);
     expect(db.get('SELECT state, steps_json FROM print_jobs WHERE id=?', [job.id])).toEqual(held);
     expect((await sendRefeed(secondBack)).status).toBe(200);
-    finish(secondBack, 'Epson-4');
+    await finish(secondBack, 'Epson-4');
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
   });
   it('rejects refeed when the matching front completion is absent from a malformed recovered step list', async () => {
     db.run("UPDATE deck_snapshots SET deck_text = '1 Malakir Rebirth // Malakir Mire (ZNR) [111]' WHERE tracked_deck_id = 1");
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
     const steps = job.steps.filter(step => step.phase === 'backs');
     db.run("UPDATE print_jobs SET state='awaiting_refeed', steps_json=? WHERE id=?", [JSON.stringify(steps), job.id]);
-    expect(() => report(job, 'refeed', { artifactId: 'double-faced', phase: 'backs' })).toThrow('completed fronts');
+    await expect(report(job, 'refeed', { artifactId: 'double-faced', phase: 'backs' })).rejects.toThrow('completed fronts');
     expect(queue.getOwnedPrintJob(1, 1, job.id).steps[0].refeedConfirmed).toBe(false);
   });
   it('turns restart after submission intent into uncertainty and requires reconciliation before retry', async () => {
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
-    report(job, 'submitting', ordinary());
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
+    await report(job, 'submitting', ordinary());
     stopQueue = queue.initPrintQueue();
-    expect(queue.claimPrintJob().state).toBe('uncertain');
-    expect(() => report(job, 'submitting', ordinary())).toThrow('not eligible');
+    expect((await queue.claimPrintJob()).state).toBe('uncertain');
+    await expect(report(job, 'submitting', ordinary())).rejects.toThrow('not eligible');
     expect(() => queue.cancelPrintJob(1, 1, job.id)).toThrow('spooler submission may exist');
-    report(job, 'reconciled', ordinary({ resolution: 'submitted', spoolerId: 'Epson-42', detail: 'Found the matching immutable title in the spooler' }));
-    report(job, 'completed', ordinary({ spoolerId: 'Epson-42' }));
+    await report(job, 'reconciled', ordinary({ resolution: 'submitted', spoolerId: 'Epson-42', detail: 'Found the matching immutable title in the spooler' }));
+    await report(job, 'completed', ordinary({ spoolerId: 'Epson-42' }));
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
   });
   it('releases a pending claim after a printing grant is revoked, without physical submission', async () => {
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
     db.run('UPDATE users SET suspended = 1 WHERE id = 1');
-    expect(() => report(job, 'submitting', ordinary())).toThrow('authorization was revoked');
-    expect(queue.claimPrintJob()).toBeNull();
+    await expect(report(job, 'submitting', ordinary())).rejects.toThrow('authorization was revoked');
+    expect(await queue.claimPrintJob()).toBeNull();
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('ready');
   });
   it('can explicitly abandon unknown output after an operator clears the paper, without reprinting', async () => {
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
-    report(job, 'submitting', ordinary()); report(job, 'uncertain', ordinary());
-    expect(() => report(job, 'reconciled', ordinary({ resolution: 'abandoned', detail: 'Inspected printer' }))).toThrow();
-    report(job, 'reconciled', ordinary({ resolution: 'abandoned', detail: 'Inspected output, stopped the spooler job and cleared the feeder', paperCleared: true }));
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
+    await report(job, 'submitting', ordinary()); await report(job, 'uncertain', ordinary());
+    await expect(report(job, 'reconciled', ordinary({ resolution: 'abandoned', detail: 'Inspected printer' }))).rejects.toThrow();
+    await report(job, 'reconciled', ordinary({ resolution: 'abandoned', detail: 'Inspected output, stopped the spooler job and cleared the feeder', paperCleared: true }));
     expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'failed', steps: [expect.objectContaining({ state: 'failed', abandonedFrom: 'uncertain' })] });
-    expect(queue.claimPrintJob()).toBeNull();
+    expect(await queue.claimPrintJob()).toBeNull();
   });
   it('keeps claim identity stable when the station authentication credential rotates', async () => {
-    await ready({ queueOnReady: true }); const claimed = queue.claimPrintJob();
+    await ready({ queueOnReady: true }); const claimed = await queue.claimPrintJob();
     const replacement = 'rotated-station-credential-012345678901234567890123456';
     vi.stubEnv('PRINT_STATION_TOKEN', replacement);
     expect(() => queue.requireStationToken(stationToken)).toThrow('Invalid station credential');
     expect(() => queue.requireStationToken(replacement)).not.toThrow();
-    expect(queue.claimPrintJob().claimToken).toBe(claimed.claimToken);
-    expect(report(claimed, 'heartbeat').job.claimToken).toBe(claimed.claimToken);
+    expect((await queue.claimPrintJob()).claimToken).toBe(claimed.claimToken);
+    expect((await report(claimed, 'heartbeat')).job.claimToken).toBe(claimed.claimToken);
   });
   it('holds a canceled spooler pass on the server until partial paper is explicitly cleared', async () => {
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
-    report(job, 'submitting', ordinary()); report(job, 'submitted', ordinary({ spoolerId: 'Epson-1' }));
-    const failure = report(job, 'failed', ordinary({ spoolerId: 'Epson-1', detail: 'CUPS reports canceled' })).job;
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
+    await report(job, 'submitting', ordinary()); await report(job, 'submitted', ordinary({ spoolerId: 'Epson-1' }));
+    const failure = (await report(job, 'failed', ordinary({ spoolerId: 'Epson-1', detail: 'CUPS reports canceled' }))).job;
     expect(failure).toMatchObject({ state: 'uncertain', steps: [expect.objectContaining({ state: 'uncertain', spoolerOutcome: 'failed' })] });
-    expect(queue.claimPrintJob().id).toBe(job.id);
-    report(job, 'reconciled', ordinary({ resolution: 'abandoned', detail: 'Inspected partial pages and cleared the printer', paperCleared: true }));
-    expect(queue.claimPrintJob()).toBeNull();
+    expect((await queue.claimPrintJob()).id).toBe(job.id);
+    await report(job, 'reconciled', ordinary({ resolution: 'abandoned', detail: 'Inspected partial pages and cleared the printer', paperCleared: true }));
+    expect(await queue.claimPrintJob()).toBeNull();
   });
   it('requires a live lease before submission but can renew an expired claim safely', async () => {
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
     db.run("UPDATE print_jobs SET lease_expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?", [job.id]);
-    expect(() => report(job, 'submitting', ordinary())).toThrow('lease expired');
-    report(job, 'heartbeat'); expect(report(job, 'submitting', ordinary()).job.state).toBe('submitting');
+    await expect(report(job, 'submitting', ordinary())).rejects.toThrow('lease expired');
+    await report(job, 'heartbeat'); expect((await report(job, 'submitting', ordinary())).job.state).toBe('submitting');
   });
 });
 
@@ -1303,10 +1513,10 @@ describe('print storage, deletion, and durable transactions', () => {
     expect(existsSync(join(dir, 'jobs', active.id))).toBe(true);
   });
   it('refreshes retention after a long queued job finishes and retains its exact generator runtime', async () => {
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
     db.run("UPDATE print_jobs SET created_at = '2000-01-01T00:00:00.000Z', expires_at = '2000-01-08T00:00:00.000Z'");
-    report(job, 'submitting', ordinary()); report(job, 'submitted', ordinary({ spoolerId: 'Epson-1' }));
-    const completed = report(job, 'completed', ordinary({ spoolerId: 'Epson-1' })).job;
+    await report(job, 'submitting', ordinary()); await report(job, 'submitted', ordinary({ spoolerId: 'Epson-1' }));
+    const completed = (await report(job, 'completed', ordinary({ spoolerId: 'Epson-1' }))).job;
     expect(Date.parse(completed.expiresAt)).toBeGreaterThan(Date.now() + 6 * 86400000);
     queue.cleanupPrintArtifacts(); await Promise.resolve();
     expect(queue.getOwnedPrintJob(1, 1, job.id).state).toBe('completed');
@@ -1338,10 +1548,10 @@ describe('print storage, deletion, and durable transactions', () => {
     expect(services.generatePrintPdfs).toHaveBeenCalledWith(expect.objectContaining({ maxOutputBytes: queue.MAX_PRINT_JOB_BYTES - 1101 * 1024 * 1024 }));
   });
   it('blocks account deletion during unresolved submission then purges safe private history', async () => {
-    await ready({ queueOnReady: true }); const job = queue.claimPrintJob();
-    report(job, 'submitting', ordinary());
+    await ready({ queueOnReady: true }); const job = await queue.claimPrintJob();
+    await report(job, 'submitting', ordinary());
     expect(() => queue.purgeUserPrintJobs(1)).toThrow('Reconcile active print');
-    report(job, 'reconciled', ordinary({ resolution: 'completed', spoolerId: 'Epson-1', detail: 'Verified completed spooler job' }));
+    await report(job, 'reconciled', ordinary({ resolution: 'completed', spoolerId: 'Epson-1', detail: 'Verified completed spooler job' }));
     queue.purgeUserPrintJobs(1);
     expect(db.all('SELECT * FROM print_jobs')).toEqual([]);
     expect(db.all('SELECT * FROM print_job_events')).toEqual([]);
@@ -1370,18 +1580,18 @@ describe('deferred back-side scheduling', () => {
   const back = artifactId => ({ artifactId, phase: 'backs' });
   const row = job => db.get('SELECT * FROM print_jobs WHERE id = ?', [job.id]);
   const cleared = job => { const saved = row(job); return { paperCleared: true, clearanceId: saved.cancel_requested ? `cancel:${saved.cancel_request_id}` : `back:${JSON.parse(saved.back_request_json).id}` }; };
-  function finish(job, pass, spoolerId) {
-    report(job, 'submitting', pass); report(job, 'submitted', { ...pass, spoolerId });
-    return report(job, 'completed', { ...pass, spoolerId }).job;
+  async function finish(job, pass, spoolerId) {
+    await report(job, 'submitting', pass); await report(job, 'submitted', { ...pass, spoolerId });
+    return (await report(job, 'completed', { ...pass, spoolerId })).job;
   }
   async function packets() {
     const readyJob = await readyLegacyPackets(8);
     const original = row(readyJob);
-    const job = queue.claimPrintJob({ deferredBacks: true });
+    const job = await queue.claimPrintJob({ deferredBacks: true });
     return { job, original };
   }
-  function finishFronts(job) {
-    for (const [index, pass] of job.steps.filter(step => step.phase === 'fronts').entries()) finish(job, front(pass.artifactId), `EPSON-front-${index}`);
+  async function finishFronts(job) {
+    for (const [index, pass] of job.steps.filter(step => step.phase === 'fronts').entries()) await finish(job, front(pass.artifactId), `EPSON-front-${index}`);
     return queue.getOwnedPrintJob(1, 1, job.id);
   }
   it('prints every front first, parks saved backs without a queue blocker and preserves immutable identity', async () => {
@@ -1390,113 +1600,128 @@ describe('deferred back-side scheduling', () => {
     expect(job.steps.map(step => step.phase)).toEqual(['fronts', 'fronts', 'fronts', 'backs', 'backs']);
     expect(row(job).manifest_json).toBe(original.manifest_json);
     expect(row(job).manifest_sha256).toBe(original.manifest_sha256);
-    finish(job, front('fronts'), 'EPSON-ordinary');
-    finish(job, front('double-faced-001'), 'EPSON-dfc-1');
+    await finish(job, front('fronts'), 'EPSON-ordinary');
+    await finish(job, front('double-faced-001'), 'EPSON-dfc-1');
     expect(row(job).state).toBe('claimed');
-    finish(job, front('double-faced-002'), 'EPSON-dfc-2');
+    await finish(job, front('double-faced-002'), 'EPSON-dfc-2');
     expect(row(job)).toMatchObject({ state: 'backs_pending', expires_at: null });
-    expect(queue.claimPrintJob({ deferredBacks: true })).toBeNull();
+    expect(await queue.claimPrintJob({ deferredBacks: true })).toBeNull();
     const next = await ready({ queueOnReady: true });
-    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(next.id);
+    expect((await queue.claimPrintJob({ deferredBacks: true })).id).toBe(next.id);
     expect(row(job).claim_nonce).toBeTruthy();
     expect(queue.formatPrintJob(row(job), true).claimToken).toBe(job.claimToken);
   });
   it('keeps deferred PDFs, pass receipts and saved request through restart and retention cleanup', async () => {
-    const { job } = await packets(); finishFronts(job);
-    queue.preparePrintBacks(row(job), 'double-faced-002', 1);
+    const { job } = await packets(); await finishFronts(job);
+    await queue.preparePrintBacks(row(job), 'double-faced-002', 1);
     db.run("UPDATE print_jobs SET expires_at = '2000-01-01T00:00:00Z', updated_at = '2000-01-01T00:00:00Z' WHERE id = ?", [job.id]);
     const before = row(job);
     stopQueue = queue.initPrintQueue();
     expect(row(job)).toEqual(before);
-    expect(queue.verifiedPrintArtifact(row(job), 'double-faced-002').path).toBeTruthy();
+    expect((await queue.verifiedPrintArtifact(row(job), 'double-faced-002')).path).toBeTruthy();
     expect(() => queue.expireOwnedPrintArtifacts(1, 1, job.id)).toThrow('must be kept');
   });
   it('reserves a selected later packet before refeed and requires blank-paper reset after backs', async () => {
-    const { job } = await packets(); finishFronts(job);
+    const { job } = await packets(); await finishFronts(job);
     const originalNotice = db.all('SELECT * FROM print_queue_notifications');
-    queue.preparePrintBacks(row(job), 'double-faced-002', 1);
+    await queue.preparePrintBacks(row(job), 'double-faced-002', 1);
     const parked = row(job);
-    queue.preparePrintBacks(row(job), 'double-faced-002', 1);
+    await queue.preparePrintBacks(row(job), 'double-faced-002', 1);
     expect(row(job)).toEqual(parked); // retry is not a new physical request
     expect(db.all('SELECT * FROM print_queue_notifications')).toEqual(originalNotice);
-    expect(() => queue.preparePrintBacks(row(job), 'double-faced-001', 1)).toThrow('already requested');
-    const reserved = queue.claimPrintJob({ deferredBacks: true });
+    await expect(queue.preparePrintBacks(row(job), 'double-faced-001', 1)).rejects.toThrow('already requested');
+    const reserved = await queue.claimPrintJob({ deferredBacks: true });
     expect(reserved).toMatchObject({ id: job.id, state: 'awaiting_refeed', claimToken: job.claimToken });
-    expect(() => report(job, 'refeed', back('double-faced-001'))).toThrow('exact back pass');
-    report(job, 'refeed', back('double-faced-002'));
+    await expect(report(job, 'refeed', back('double-faced-001'))).rejects.toThrow('exact back pass');
+    await report(job, 'refeed', back('double-faced-002'));
     expect(() => queue.purgeUserPrintJobs(1)).toThrow('Reconcile active print submissions');
-    const reset = finish(job, back('double-faced-002'), 'EPSON-late-back');
+    const reset = await finish(job, back('double-faced-002'), 'EPSON-late-back');
     expect(reset.state).toBe('awaiting_paper_reset');
-    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(job.id);
-    expect(() => report(job, 'paper_ready')).toThrow('blank paper');
-    expect(report(job, 'paper_ready', cleared(job)).job).toMatchObject({ state: 'backs_pending', backRequest: null });
-    expect(queue.claimPrintJob({ deferredBacks: true })).toBeNull();
-    expect(() => queue.preparePrintBacks(row(job), 'double-faced-002', 1)).toThrow('unfinished');
-    queue.preparePrintBacks(row(job), 'double-faced-001', 1); queue.claimPrintJob({ deferredBacks: true });
-    report(job, 'refeed', back('double-faced-001'));
-    finish(job, back('double-faced-001'), 'EPSON-final-back');
+    expect((await queue.claimPrintJob({ deferredBacks: true })).id).toBe(job.id);
+    await expect(report(job, 'paper_ready')).rejects.toThrow('blank paper');
+    expect((await report(job, 'paper_ready', cleared(job))).job).toMatchObject({ state: 'backs_pending', backRequest: null });
+    expect(await queue.claimPrintJob({ deferredBacks: true })).toBeNull();
+    await expect(queue.preparePrintBacks(row(job), 'double-faced-002', 1)).rejects.toThrow('unfinished');
+    await queue.preparePrintBacks(row(job), 'double-faced-001', 1); await queue.claimPrintJob({ deferredBacks: true });
+    await report(job, 'refeed', back('double-faced-001'));
+    await finish(job, back('double-faced-001'), 'EPSON-final-back');
     expect(row(job).state).toBe('awaiting_paper_reset');
-    expect(report(job, 'paper_ready', cleared(job)).job.state).toBe('completed');
+    expect((await report(job, 'paper_ready', cleared(job))).job.state).toBe('completed');
   });
   it('waits behind the current physical job before reserving old paper ahead of ordinary queued work', async () => {
-    const { job } = await packets(); finishFronts(job);
+    const { job } = await packets(); await finishFronts(job);
     const second = await ready({ queueOnReady: true }), third = await ready({ queueOnReady: true });
-    const active = queue.claimPrintJob({ deferredBacks: true });
+    const active = await queue.claimPrintJob({ deferredBacks: true });
     expect(active.id).toBe(second.id);
-    queue.preparePrintBacks(row(job), 'double-faced-001', 1);
-    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(second.id);
-    finishFronts(active);
-    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(job.id);
+    await queue.preparePrintBacks(row(job), 'double-faced-001', 1);
+    expect((await queue.claimPrintJob({ deferredBacks: true })).id).toBe(second.id);
+    await finishFronts(active);
+    expect((await queue.claimPrintJob({ deferredBacks: true })).id).toBe(job.id);
     expect(row(third).state).toBe('queued');
   });
   it('blocks an old native client from resuming the new workflow without mutating its saved request', async () => {
-    const { job } = await packets(); finishFronts(job);
-    queue.preparePrintBacks(row(job), 'double-faced-001', 1);
+    const { job } = await packets(); await finishFronts(job);
+    await queue.preparePrintBacks(row(job), 'double-faced-001', 1);
     const before = row(job);
-    expect(() => queue.claimPrintJob()).toThrow('deferred back-side');
+    await expect(queue.claimPrintJob()).rejects.toThrow('deferred back-side');
     expect(row(job)).toEqual(before);
     const invalid = await station('/claim', 'POST', { deferredBacks: 'true' });
     expect(invalid.status).toBe(400);
   });
   it('does not reorder or upgrade an already active legacy physical batch', async () => {
-    const prepared = await ready({ queueOnReady: true }); const legacy = queue.claimPrintJob();
-    report(legacy, 'submitting', front('fronts')); report(legacy, 'submitted', { ...front('fronts'), spoolerId: 'EPSON-legacy' });
+    const prepared = await ready({ queueOnReady: true }); const legacy = await queue.claimPrintJob();
+    await report(legacy, 'submitting', front('fronts')); await report(legacy, 'submitted', { ...front('fronts'), spoolerId: 'EPSON-legacy' });
     const before = row(prepared);
-    expect(queue.claimPrintJob({ deferredBacks: true }).workflow).toBeNull();
+    expect((await queue.claimPrintJob({ deferredBacks: true })).workflow).toBeNull();
     expect(row(prepared)).toEqual(before);
   });
   it('cancels only pending backs while ordinary fronts are running and keeps the acknowledged spooler state', async () => {
     const { job } = await packets();
-    report(job, 'submitting', front('fronts')); report(job, 'submitted', { ...front('fronts'), spoolerId: 'EPSON-live' });
+    await report(job, 'submitting', front('fronts')); await report(job, 'submitted', { ...front('fronts'), spoolerId: 'EPSON-live' });
     const result = queue.requestPrintCancellation(row(job), 'backs');
     expect(result).toMatchObject({ state: 'submitted', cancelRequested: null, backsCanceled: 2 });
     expect(result.steps[0]).toMatchObject({ state: 'submitted', spoolerId: 'EPSON-live' });
-    report(job, 'completed', { ...front('fronts'), spoolerId: 'EPSON-live' });
-    finish(job, front('double-faced-001'), 'EPSON-remaining-front-1');
-    const last = finish(job, front('double-faced-002'), 'EPSON-remaining-front-2');
+    await report(job, 'completed', { ...front('fronts'), spoolerId: 'EPSON-live' });
+    await finish(job, front('double-faced-001'), 'EPSON-remaining-front-1');
+    const last = await finish(job, front('double-faced-002'), 'EPSON-remaining-front-2');
     expect(last).toMatchObject({ state: 'canceled', backsCanceled: 2, frontsCompleted: true });
-    expect(queue.claimPrintJob({ deferredBacks: true })).toBeNull();
+    expect(await queue.claimPrintJob({ deferredBacks: true })).toBeNull();
   });
   it('cancels parked backs immediately but protects a reserved sheet until native paper clearance', async () => {
-    const { job } = await packets(); finishFronts(job);
-    queue.preparePrintBacks(row(job), 'double-faced-001', 1); queue.claimPrintJob({ deferredBacks: true });
+    const { job } = await packets(); await finishFronts(job);
+    await queue.preparePrintBacks(row(job), 'double-faced-001', 1); await queue.claimPrintJob({ deferredBacks: true });
     const requested = queue.requestPrintCancellation(row(job), 'backs');
     expect(requested).toMatchObject({ state: 'awaiting_refeed', cancelRequested: 'backs' });
-    expect(() => report(job, 'refeed', back('double-faced-001'))).toThrow('cancellation');
-    expect(() => report(job, 'canceled')).toThrow('paper clearance');
-    const canceled = report(job, 'canceled', cleared(job)).job;
+    await expect(report(job, 'refeed', back('double-faced-001'))).rejects.toThrow('cancellation');
+    await expect(report(job, 'canceled')).rejects.toThrow('paper clearance');
+    const canceled = (await report(job, 'canceled', cleared(job))).job;
     expect(canceled).toMatchObject({ state: 'canceled', cancelRequested: null, backRequest: null, backsCanceled: 2, frontsCompleted: true });
     expect(canceled.steps.filter(step => step.phase === 'fronts').every(step => step.state === 'completed')).toBe(true);
   });
+  it('keeps requested saved backs and completed front receipts when the packet PDF is missing', async () => {
+    const { job } = await packets(); await finishFronts(job);
+    await queue.preparePrintBacks(row(job), 'double-faced-001', 1);
+    const requested = row(job), next = await ready({ queueOnReady: true });
+    rmSync((await queue.ownedPrintArtifact(1, 1, job.id, 'double-faced-001')).path);
+    await expect(queue.claimPrintJob({ deferredBacks: true })).rejects.toThrow('PDF artifact is missing');
+    expect(row(job)).toMatchObject({ state: 'backs_pending', back_request_json: requested.back_request_json,
+      steps_json: requested.steps_json, claim_nonce: requested.claim_nonce,
+      error: expect.stringContaining('Resolve or cancel this exact batch') });
+    expect(row(next).state).toBe('queued');
+    queue.requestPrintCancellation(row(job), 'backs');
+    expect((await queue.claimPrintJob({ deferredBacks: true })).id).toBe(next.id);
+    expect(JSON.parse(row(job).steps_json).filter(step => step.phase === 'fronts')).toEqual(
+      JSON.parse(requested.steps_json).filter(step => step.phase === 'fronts'));
+  });
   it('retains active cancellation across a racing final front completion until native acknowledgement', async () => {
     const { job } = await packets();
-    finish(job, front('fronts'), 'EPSON-ordinary'); finish(job, front('double-faced-001'), 'EPSON-first');
-    report(job, 'submitting', front('double-faced-002')); report(job, 'submitted', { ...front('double-faced-002'), spoolerId: 'EPSON-last' });
+    await finish(job, front('fronts'), 'EPSON-ordinary'); await finish(job, front('double-faced-001'), 'EPSON-first');
+    await report(job, 'submitting', front('double-faced-002')); await report(job, 'submitted', { ...front('double-faced-002'), spoolerId: 'EPSON-last' });
     queue.requestPrintCancellation(row(job), 'all');
-    expect(report(job, 'completed', { ...front('double-faced-002'), spoolerId: 'EPSON-last' }).job).toMatchObject({ state: 'claimed', cancelRequested: 'all' });
+    expect((await report(job, 'completed', { ...front('double-faced-002'), spoolerId: 'EPSON-last' })).job).toMatchObject({ state: 'claimed', cancelRequested: 'all' });
     expect(() => queue.purgeUserPrintJobs(1)).toThrow('Reconcile active print submissions');
-    expect(queue.claimPrintJob({ deferredBacks: true }).id).toBe(job.id);
-    expect(report(job, 'canceled', cleared(job)).job.state).toBe('canceled');
+    expect((await queue.claimPrintJob({ deferredBacks: true })).id).toBe(job.id);
+    expect((await report(job, 'canceled', cleared(job))).job.state).toBe('canceled');
   });
   it('freezes requester name for generated page identification', async () => {
     const { job } = await create({ queueOnReady: false });

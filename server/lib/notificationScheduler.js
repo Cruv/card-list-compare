@@ -4,6 +4,7 @@ import { isEmailConfigured, sendEmail, getAppUrl } from './email.js';
 import { parse } from '../../src/lib/parser.js';
 import { computeDiff } from '../../src/lib/differ.js';
 import { computeDeckPrices } from './priceCalculator.js';
+import { latestSnapshot } from './structuredSnapshots.js';
 
 let intervalHandle = null;
 let isRunning = false; // Overlap protection — prevents concurrent scheduler runs
@@ -21,10 +22,7 @@ const STARTUP_RUN_DELAY_MS = 60 * 1000; // let the server settle before the firs
  * baseline reset).
  */
 export function evaluatePriceAlert(baseline, current, threshold) {
-  // A price of 0 is not a real observation — it is what computeDeckPrices returns
-  // when Scryfall is unreachable (a 429/503 yields empty price maps). Alerting on
-  // it would email "decreased by $250", persist 0 as the baseline, then email
-  // "increased by $250" the moment Scryfall recovers. Ignore it entirely.
+  // Empty decks have no market observation to use as an alert baseline.
   if (current == null || current === 0) return { fire: false, newBaseline: baseline };
   // Likewise treat a 0/absent baseline as "not established yet".
   if (baseline == null || baseline === 0) return { fire: false, newBaseline: current };
@@ -129,7 +127,11 @@ export async function processSingleDeck(deck) {
   } catch { /* Non-fatal */ }
 
   let priceResult = null;
-  try { priceResult = await computeDeckPrices(deck.id, enrichedText); } catch { /* Scryfall may be down */ }
+  try {
+    priceResult = await computeDeckPrices(deck.id, {
+      id: Number(refresh.sourceSync.currentSnapshotId), deck_text: enrichedText,
+    });
+  } catch { /* Price persistence does not block deck-change notifications. */ }
 
   run('UPDATE tracked_decks SET last_notified_at = datetime("now") WHERE id = ?', [deck.id]);
 
@@ -155,8 +157,8 @@ export async function processSingleDeck(deck) {
     }
   }
 
-  if (priceResult && deck.price_alert_threshold) {
-    await checkPriceAlert(deck, priceResult);
+  if (priceResult?.isCurrent) {
+    await checkPriceAlert(deck.id, priceResult);
   }
 
   return { changed: true };
@@ -237,7 +239,17 @@ async function checkDecksForChanges() {
 /**
  * Check if a deck's price change exceeds its alert threshold and send notifications.
  */
-async function checkPriceAlert(deck, priceResult) {
+async function checkPriceAlert(deckId, priceResult) {
+  // An edit may have landed during the provider lookup or an earlier
+  // deck-change notification. Re-read the snapshot, baseline and preferences.
+  if (latestSnapshot(deckId)?.id !== priceResult.snapshotId) return false;
+  const deck = get(`
+    SELECT d.*, u.email, u.username, u.email_verified
+    FROM tracked_decks d JOIN users u ON d.user_id = u.id
+    WHERE d.id = ? AND u.suspended = 0 AND d.price_alert_threshold > 0
+      AND d.last_known_price = ? AND d.last_known_budget_price = ?
+  `, [deckId, priceResult.totalPrice, priceResult.budgetPrice]);
+  if (!deck) return false;
   const mode = deck.price_alert_mode || 'specific';
   const currentPrice = mode === 'cheapest' ? priceResult.budgetPrice : priceResult.totalPrice;
   if (currentPrice == null) return false;
@@ -509,12 +521,7 @@ async function checkPriceAlerts() {
   if (enabled?.value === 'false') return;
 
   const decks = all(`
-    SELECT d.id, d.deck_name, d.user_id, d.commanders,
-           d.last_known_price, d.last_known_budget_price,
-           d.price_alert_baseline, d.price_alert_baseline_budget,
-           d.price_alert_threshold, d.price_alert_mode,
-           d.notify_on_change, d.discord_webhook_url,
-           u.email, u.username, u.email_verified
+    SELECT d.id
     FROM tracked_decks d
     JOIN users u ON d.user_id = u.id
     WHERE u.suspended = 0
@@ -531,18 +538,14 @@ async function checkPriceAlerts() {
   let alerts = 0;
 
   for (const deck of decks) {
-    const snap = get(
-      'SELECT deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-      [deck.id]
-    );
+    const snap = latestSnapshot(deck.id);
     if (!snap?.deck_text) continue;
 
     try {
-      const priceResult = await computeDeckPrices(deck.id, snap.deck_text);
-      if (!priceResult) continue;
+      const priceResult = await computeDeckPrices(deck.id, snap);
 
       // checkPriceAlert owns the baseline comparison and fires if warranted.
-      if (await checkPriceAlert(deck, priceResult)) alerts++;
+      if (priceResult?.isCurrent && await checkPriceAlert(deck.id, priceResult)) alerts++;
 
       await new Promise(r => setTimeout(r, 200));
     } catch (err) {
@@ -589,7 +592,11 @@ export async function autoRefreshScheduledDecks() {
     async (deck) => {
       try {
         const refresh = await refreshArchidektDeck(deck.user_id, deck.id);
-        try { await computeDeckPrices(deck.id, refresh.deckText); } catch { /* non-fatal */ }
+        try {
+          await computeDeckPrices(deck.id, {
+            id: Number(refresh.sourceSync.currentSnapshotId), deck_text: refresh.deckText,
+          });
+        } catch { /* non-fatal */ }
         return refresh;
       } catch (err) {
         console.error(`[AutoRefresh] Failed for deck ${deck.id}:`, err.message);

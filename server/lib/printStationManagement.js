@@ -1,25 +1,28 @@
 /** Household station controls. No executable paths, printer options or arbitrary commands. */
 import crypto from 'node:crypto';
 import { all, get, runTransaction } from '../db.js';
-import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, requestPrintCancellation, preparePrintBacks, assertStationArtifactCapacity, assertStationWorkflow, savedPrintJobPaper, hasMixedPrintSheets } from './printQueue.js';
+import { printCapabilities, claimPrintJob, formatPrintJob, cancelPrintJob, requestPrintCancellation, preparePrintBacks, assertStationArtifactCapacity, assertStationWorkflow, savedPrintJobPaper, hasMixedPrintSheets, blockedPrintArtifact } from './printQueue.js';
 import { printError, sha256 } from './printQueuePlan.js';
 import { discordSettings, discordTelemetry, sealDiscordUrl, openDiscordUrl } from './printStationNotifications.js';
 import { canCancelHouseholdBatch } from './printBatchHistory.js';
 import { queueNotificationInput, queueNotificationReceiptChanges, queueNotificationDelivery } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
 import { PRINT_PRESETS, LEGACY_STATION_PAPER, stationCanPrintPaper, stationPaperInput } from './printPaper.js';
-import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId } from './printWorkflow.js';
+import { DEFERRED_BACKS_WORKFLOW, ACTIVE_PRINT_STATES, readSteps, readBackRequest, nextPrintStep, isDeferred, hasPendingBacks, canCancelRemaining, canCancelUnstartedBacks, workflowSummary, paperClearanceId, missingCancellationStep } from './printWorkflow.js';
 
 const STATION = 'household';
 export const STATION_ONLINE_MS = 20_000;
 export const STATION_COMMAND_TTL_MS = 5 * 60_000;
-const COMMANDS = new Set(['pause', 'unpause', 'resume', 'recover_print', 'clear_paper', 'check_update', 'update', 'rollback']);
+const CLEARANCE_COMMANDS = new Set(['clear_paper', 'clear_missing_cups']);
+const COMMANDS = new Set(['pause', 'unpause', 'resume', 'recover_print', ...CLEARANCE_COMMANDS, 'check_update', 'update', 'rollback']);
 const UPDATE_COMMANDS = new Set(['check_update', 'update', 'rollback']);
 const DISCORD_COMMANDS = new Set(['configure_discord', 'test_discord']);
 const ADMIN_COMMANDS = new Set([...UPDATE_COMMANDS, ...DISCORD_COMMANDS]);
 const UPDATE_STATES = new Set(['unsupported', 'idle', 'checking', 'available', 'updating', 'rollback', 'failed']);
 const ACTIVE_STATES = ACTIVE_PRINT_STATES;
 const LOCAL_STATES = new Set([...ACTIVE_STATES, 'backs_pending', 'awaiting_clearance', 'active', 'intent', 'completed', 'failed', 'canceled']);
+const DIAGNOSTIC_EVENTS = new Set(['submitting', 'submitted', 'completed', 'uncertain', 'failed', 'reconciled', 'recovery', 'refeed', 'paper_ready', 'canceled']);
+const DIAGNOSTIC_COMMANDS = ['resume', 'recover_print', ...CLEARANCE_COMMANDS];
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const OPAQUE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
 let latest = null;
@@ -58,6 +61,10 @@ function id(value, field) {
 }
 function artifactId(value) {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(value)) throw printError('Invalid artifact ID');
+  return value;
+}
+function cupsJobId(value) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_.-]{1,96}-[1-9]\d{0,9}$/.test(value)) throw printError('Invalid CUPS job ID');
   return value;
 }
 function version(value, nullable = false) {
@@ -134,6 +141,7 @@ function householdPrintJobs(userId, canManage = false) {
       ...(plan.printPreset ? savedPrintJobPaper(row) : {}),
       state: row.state, createdAt: row.created_at, queuedAt: row.queued_at,
       completedAt: row.completed_at, canOpen, canCancel: (canManage || canOpen) && (!!canCancelHouseholdBatch(row) || (online() && latest?.deferredBacks && canCancelRemaining(row))),
+      ...((canManage || canOpen) && row.error ? { diagnosticMessage: message(row.error.slice(0, 1000), true) } : {}),
       ...(hasMixedPrintSheets(row) ? { requiresMixedPrintSheets: true } : {}),
       requesterName: typeof plan.requesterName === 'string' ? plan.requesterName.slice(0, 120) : get('SELECT username FROM users WHERE id = ?', [row.user_id])?.username || 'Deleted account',
       ...workflowSummary(row),
@@ -162,7 +170,8 @@ function firstBack(jobId, snapshot) {
   const step = nextPrintStep(row);
   if (snapshot.activeJob.artifactId && snapshot.activeJob.artifactId !== step?.artifactId) return null;
   if (snapshot.activeJob.phase && snapshot.activeJob.phase !== 'backs') return null;
-  return step?.phase === 'backs' && step.state === 'pending' && !step.refeedConfirmed ? step.artifactId : null;
+  return step?.phase === 'backs' && step.state === 'pending' && !step.refeedConfirmed
+    && blockedPrintArtifact(row) !== step.artifactId ? step.artifactId : null;
 }
 function currentClearance(jobId, snapshot) {
   if (snapshot?.activeJob?.id !== jobId || !['awaiting_clearance', 'awaiting_paper_reset'].includes(snapshot.activeJob.state)) return null;
@@ -171,6 +180,13 @@ function currentClearance(jobId, snapshot) {
   const value = paperClearanceId(row);
   if (!value || snapshot.activeJob.clearanceId !== value) return null;
   return value;
+}
+function currentMissingCups(jobId, snapshot) {
+  const spoolerId = snapshot?.activeJob?.missingCancellationSpoolerId;
+  if (!spoolerId || spoolerId.slice(0, spoolerId.lastIndexOf('-')) !== snapshot.queue
+    || !currentClearance(jobId, snapshot)?.startsWith('cancel:')) return null;
+  const row = get('SELECT * FROM print_jobs WHERE id = ? AND station_id = ?', [jobId, STATION]);
+  return missingCancellationStep(row, spoolerId) ? spoolerId : null;
 }
 function recoveryInput(value) {
   if (value === null || value === undefined) return null;
@@ -197,6 +213,7 @@ function currentRecovery(jobId, snapshot) {
   if (!step || step.artifactId !== recovery.artifactId || step.phase !== recovery.phase
     || step.spoolerId !== recovery.spoolerId || (step.attemptId || null) !== recovery.attemptId
     || !['submitting', 'submitted', 'uncertain'].includes(step.state)) return null;
+  if (recovery.mode === 'reprint_remaining' && blockedPrintArtifact(row) === step.artifactId) return null;
   const artifact = JSON.parse(row.manifest_json || 'null')?.artifacts?.find(item => item.id === step.artifactId);
   if (!artifact || sha256(row.manifest_json) !== row.manifest_sha256) return null;
   const allPages = artifact.kind === 'ordinary' ? Array.from({ length: artifact.pageCount }, (_, n) => n + 1)
@@ -232,7 +249,8 @@ function publicCommand(row) {
     ...(payload.type === 'recover_print' ? { phase: payload.phase, spoolerId: payload.spoolerId,
       recoveryId: payload.recoveryId, paperReady: true, ...(payload.paperReloaded ? { paperReloaded: true } : {}),
       ...(payload.firstUnprintedSheet === undefined ? {} : { firstUnprintedSheet: payload.firstUnprintedSheet }) } : {}),
-    ...(payload.type === 'clear_paper' ? { paperCleared: true, clearanceId: payload.clearanceId } : {}),
+    ...(CLEARANCE_COMMANDS.has(payload.type) ? { paperCleared: true, clearanceId: payload.clearanceId } : {}),
+    ...(payload.type === 'clear_missing_cups' ? { spoolerId: payload.spoolerId } : {}),
     ...(DISCORD_COMMANDS.has(payload.type) ? { revision: payload.revision, ...(payload.type === 'configure_discord' ? { enabled: payload.enabled } : {}) } : {}),
     requesterId: row.requester_id, status: row.status, createdAt: row.created_at, expiresAt: row.expires_at,
     deliveredAt: row.delivered_at, acknowledgedAt: row.acknowledged_at, message: row.message };
@@ -288,9 +306,21 @@ export function printStationStatus(userId) {
     if (latest.recipeProofs && active.recipeId) active.duplexVerified = latest.recipeProofs[active.recipeId]?.duplexVerified === true;
     active.packet = activePacket(row, active);
     active.cancelRequested = row?.cancel_requested || null;
+    const blockedArtifact = blockedPrintArtifact(row);
+    if (blockedArtifact && blockedArtifact === (active.artifactId || nextPrintStep(row)?.artifactId)) active.artifactUnavailable = true;
     active.workflow = row?.workflow || null;
     active.clearanceId = currentClearance(active.id, latest);
+    if (active.missingCancellationSpoolerId) active.missingCancellationSpoolerId = currentMissingCups(active.id, latest);
     active.recovery = currentRecovery(active.id, latest);
+    if (row && (access.canUpdate || row.user_id === userId)) {
+      active.diagnosticMessage = row.error ? message(row.error.slice(0, 1000), true) : live ? active.detail || null : null;
+      active.updatedAt = row.updated_at;
+      if (row.cancel_requested && readSteps(row).some(step => (row.cancel_requested === 'all' || step.phase === 'backs')
+        && ['submitting', 'uncertain'].includes(step.state) && !step.spoolerId)) active.unacknowledgedCancellation = true;
+    } else {
+      delete active.spoolerTitle;
+    }
+    delete active.detail;
   }
   return { station: {
     stationId: STATION, online: live, lastSeenAt: lastSeen === null ? null : new Date(lastSeen).toISOString(),
@@ -309,6 +339,31 @@ export function printStationStatus(userId) {
   }, permissions: access, jobs: householdPrintJobs(userId, access.canUpdate),
   commands: all('SELECT * FROM print_station_commands WHERE station_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 20', [STATION]).map(publicCommand),
   events: all('SELECT id, at, level, message FROM print_station_events ORDER BY received_at DESC, rowid DESC LIMIT 50') };
+}
+
+export function printJobDiagnostics(userId, jobId) {
+  const access = requireControl(userId);
+  if (!UUID.test(jobId)) throw printError('Invalid print batch ID');
+  const row = get('SELECT * FROM print_jobs WHERE id = ?', [jobId]);
+  if (!row || (!row.station_id && !row.queued_at && !row.queue_requested)) throw printError('Household print batch not found', 404);
+  if (!access.canUpdate && row.user_id !== userId) throw printError('Only the batch owner or an administrator can inspect these receipts', 403);
+  const events = all(`SELECT event_id, created_at, event_json FROM print_job_events WHERE job_id = ?
+    AND json_extract(event_json, '$.state') != 'heartbeat' ORDER BY rowid DESC LIMIT 8`, [jobId]).flatMap(event => {
+    const saved = JSON.parse(event.event_json);
+    if (!DIAGNOSTIC_EVENTS.has(saved.state)) return [];
+    return [{ id: event.event_id, at: event.created_at, state: saved.state,
+      artifactId: typeof saved.artifactId === 'string' ? saved.artifactId.slice(0, 128) : null,
+      phase: ['fronts', 'backs'].includes(saved.phase) ? saved.phase : null,
+      spoolerId: typeof saved.spoolerId === 'string' ? saved.spoolerId.slice(0, 200) : null,
+      missingCupsHistory: saved.missingCupsHistory === true }];
+  });
+  const commands = all(`SELECT id, status, message, created_at, acknowledged_at, json_extract(payload_json, '$.type') AS type
+    FROM print_station_commands WHERE station_id = ? AND json_extract(payload_json, '$.jobId') = ?
+    AND json_extract(payload_json, '$.type') IN (${DIAGNOSTIC_COMMANDS.map(() => '?').join(',')}) ORDER BY rowid DESC LIMIT 5`,
+  [STATION, jobId, ...DIAGNOSTIC_COMMANDS]).map(command => ({ id: command.id, status: command.status, type: command.type,
+    at: command.acknowledged_at || command.created_at, message: command.message }));
+  return { id: jobId, state: row.state, updatedAt: row.updated_at, queuedAt: row.queued_at,
+    diagnosticMessage: row.error ? message(row.error.slice(0, 1000), true) : null, events, commands };
 }
 
 export function cancelHouseholdPrintJob(userId, jobId) {
@@ -344,12 +399,12 @@ function ownedHouseholdBatch(userId, jobId, allowUnstarted = false) {
   if (!access.canUpdate && row.user_id !== userId) throw printError('Only the batch owner or an administrator can change this batch', 403);
   return row;
 }
-export function prepareHouseholdBacks(userId, jobId, body = {}) {
+export async function prepareHouseholdBacks(userId, jobId, body = {}) {
   const row = ownedHouseholdBatch(userId, jobId);
   if (!body || typeof body !== 'object' || Object.keys(body).some(key => key !== 'artifactId')) throw printError('Supply only the selected packet artifactId');
   const selected = artifactId(body.artifactId);
   if (readBackRequest(row)?.artifactId !== selected) assertQueuePaper(savedPrintJobPaper(row));
-  preparePrintBacks(row, selected, userId);
+  await preparePrintBacks(row, selected, userId, () => assertQueuePaper(savedPrintJobPaper(ownedHouseholdBatch(userId, jobId))));
   return printStationStatus(userId);
 }
 export function cancelHouseholdBacks(userId, jobId) {
@@ -371,7 +426,7 @@ function commandInput(body) {
   object(body, 'command');
   if (typeof body.idempotencyKey !== 'string' || !UUID.test(body.idempotencyKey)) throw printError('idempotencyKey must be a UUID');
   if (!COMMANDS.has(body.type)) throw printError('Unsupported station command');
-  const allowed = new Set(['idempotencyKey', 'type', ...(body.type === 'resume' ? ['jobId', 'artifactId', 'paperReloaded'] : []), ...(body.type === 'recover_print' ? ['jobId', 'artifactId', 'phase', 'spoolerId', 'recoveryId', 'paperReady', 'firstUnprintedSheet', 'paperReloaded'] : []), ...(body.type === 'clear_paper' ? ['jobId', 'clearanceId', 'paperCleared'] : []), ...(['update', 'rollback'].includes(body.type) ? ['targetVersion'] : [])]);
+  const allowed = new Set(['idempotencyKey', 'type', ...(body.type === 'resume' ? ['jobId', 'artifactId', 'paperReloaded'] : []), ...(body.type === 'recover_print' ? ['jobId', 'artifactId', 'phase', 'spoolerId', 'recoveryId', 'paperReady', 'firstUnprintedSheet', 'paperReloaded'] : []), ...(CLEARANCE_COMMANDS.has(body.type) ? ['jobId', 'clearanceId', 'paperCleared'] : []), ...(body.type === 'clear_missing_cups' ? ['spoolerId'] : []), ...(['update', 'rollback'].includes(body.type) ? ['targetVersion'] : [])]);
   if (Object.keys(body).some(key => !allowed.has(key))) throw printError('Unexpected station command field');
   const payload = { type: body.type };
   if (body.type === 'resume') {
@@ -380,12 +435,13 @@ function commandInput(body) {
     if (body.paperReloaded !== true) throw printError('Confirm that this batch has been flipped and reloaded');
     payload.paperReloaded = true;
   }
-  if (body.type === 'clear_paper') {
+  if (CLEARANCE_COMMANDS.has(body.type)) {
     payload.jobId = id(body.jobId, 'job ID');
     if (typeof body.clearanceId !== 'string' || !/^(back|cancel):[a-f0-9-]{36}$/i.test(body.clearanceId)) throw printError('Supply the exact paper-clearance ID');
     payload.clearanceId = body.clearanceId;
     if (body.paperCleared !== true) throw printError('Confirm printed or partial sheets are removed and only blank paper is loaded');
     payload.paperCleared = true;
+    if (body.type === 'clear_missing_cups') payload.spoolerId = cupsJobId(body.spoolerId);
   }
   if (body.type === 'recover_print') {
     payload.jobId = id(body.jobId, 'job ID'); payload.artifactId = artifactId(body.artifactId);
@@ -423,9 +479,12 @@ export function createStationCommand(userId, body, notification = false) {
     if (payload.artifactId !== firstBack(payload.jobId, latest) || latest.paused) throw printError('This station is not waiting for that paper refeed, or is paused', 409);
     assertQueuePaper(savedPrintJobPaper(get('SELECT * FROM print_jobs WHERE id = ?', [payload.jobId])));
   }
-  if (payload.type === 'clear_paper') {
+  if (CLEARANCE_COMMANDS.has(payload.type)) {
     ownedHouseholdBatch(userId, payload.jobId);
     if (payload.clearanceId !== currentClearance(payload.jobId, latest)) throw printError('This station is not waiting for that exact paper clearance', 409);
+    if (payload.type === 'clear_missing_cups' && payload.spoolerId !== currentMissingCups(payload.jobId, latest)) {
+      throw printError('The missing CUPS job no longer matches this cancellation', 409);
+    }
   }
   if (payload.type === 'recover_print') {
     const batch = ownedHouseholdBatch(userId, payload.jobId);
@@ -495,9 +554,15 @@ function heartbeatInput(body) {
     object(body.activeJob, 'activeJob');
     if (!LOCAL_STATES.has(body.activeJob.state)) throw printError('Invalid active job state');
     activeJob = { id: id(body.activeJob.id, 'active job ID'), state: body.activeJob.state };
+    if (body.activeJob.detail !== undefined) activeJob.detail = message(body.activeJob.detail, true);
+    if (typeof body.activeJob.spoolerTitle === 'string' && /^CLC-[a-f0-9]{32}$/.test(body.activeJob.spoolerTitle)) activeJob.spoolerTitle = body.activeJob.spoolerTitle;
     if (body.activeJob.clearanceId !== undefined && body.activeJob.clearanceId !== null) {
       if (typeof body.activeJob.clearanceId !== 'string' || !/^(back|cancel):[a-f0-9-]{36}$/i.test(body.activeJob.clearanceId)) throw printError('Invalid active paper-clearance ID');
       activeJob.clearanceId = body.activeJob.clearanceId;
+    }
+    if (body.activeJob.missingCancellationSpoolerId !== undefined) {
+      if (activeJob.state !== 'awaiting_clearance' || !activeJob.clearanceId?.startsWith('cancel:')) throw printError('Missing CUPS history requires an active cancellation');
+      activeJob.missingCancellationSpoolerId = cupsJobId(body.activeJob.missingCancellationSpoolerId);
     }
     if (body.activeJob.artifactId !== null && body.activeJob.artifactId !== undefined) activeJob.artifactId = artifactId(body.activeJob.artifactId);
     if (body.activeJob.phase !== null && body.activeJob.phase !== undefined) {
@@ -558,7 +623,12 @@ function invalidDelivery(row, snapshot) {
   const payload = JSON.parse(row.payload_json), access = permissions(row.requester_id);
   if (!access.canControl || (ADMIN_COMMANDS.has(payload.type) && !access.canUpdate)) return 'Requester is no longer authorized';
   if (payload.type === 'resume' && (snapshot.paused || firstBack(payload.jobId, snapshot) !== payload.artifactId)) return 'Paper refeed no longer matches the current batch';
-  if (payload.type === 'clear_paper' && payload.clearanceId !== currentClearance(payload.jobId, snapshot)) return 'Paper clearance no longer matches the exact current packet or cancellation';
+  if (CLEARANCE_COMMANDS.has(payload.type) && payload.clearanceId !== currentClearance(payload.jobId, snapshot)) return 'Paper clearance no longer matches the exact current packet or cancellation';
+  if (payload.type === 'clear_missing_cups') {
+    const batch = get('SELECT user_id FROM print_jobs WHERE id = ?', [payload.jobId]);
+    if (!access.canUpdate && batch?.user_id !== row.requester_id) return 'Requester is no longer authorized for this batch';
+    if (payload.spoolerId !== currentMissingCups(payload.jobId, snapshot)) return 'The missing CUPS job no longer matches this cancellation';
+  }
   if (payload.type === 'recover_print') {
     const recovery = currentRecovery(payload.jobId, snapshot);
     if (!recovery || ['artifactId', 'phase', 'spoolerId', 'recoveryId'].some(key => recovery[key] !== payload[key])) return 'Print recovery no longer matches the exact interrupted pass';
@@ -635,11 +705,14 @@ export function stationManagementHeartbeat(body) {
 /** Pause blocks only fresh claims; existing durable claims remain recoverable. */
 export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, printRecovery = false, paper = LEGACY_STATION_PAPER, mixedPrintSheets = false) {
   expireCommands();
-  const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
-  const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
-  const matchesHeartbeat = online() && latest.loadedPaperSize === paper.loadedPaperSize
-    && latest.loadedPrintPreset === paper.loadedPrintPreset;
-  if (paused || pendingPause || ((online() || paper.loadedPaperSize === 'a4') && !matchesHeartbeat)) {
+  const canClaim = () => {
+    const paused = !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused;
+    const pendingPause = get("SELECT id FROM print_station_commands WHERE station_id = ? AND status = 'pending' AND json_extract(payload_json, '$.type') = 'pause'", [STATION]);
+    const matchesHeartbeat = online() && latest.loadedPaperSize === paper.loadedPaperSize
+      && latest.loadedPrintPreset === paper.loadedPrintPreset;
+    return !paused && !pendingPause && (matchesHeartbeat || (!online() && paper.loadedPaperSize !== 'a4'));
+  };
+  if (!canClaim()) {
     const active = activeServerJob();
     if (active) {
       if (!paper.supportedRecipeIds.includes(savedPrintJobPaper(active).recipeId)) throw printError('Upgrade the Mac companion to continue this batch’s paper size', 409);
@@ -647,8 +720,7 @@ export function claimForManagedStation(maxArtifacts = 8, deferredBacks = false, 
     }
     return active ? formatPrintJob(active, true) : null;
   }
-  const eligibleRecipeIds = paper.supportedRecipeIds.filter(id =>
-    (!latest || latest.supportedRecipeIds.includes(id))
-    && (latest?.testPrintingEnabled === true || (latest?.recipeProofs?.[id]?.recipeVerified ?? latest?.recipeVerified) !== false));
-  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper, eligibleRecipeIds, mixedPrintSheets });
+  const mayClaim = ({ recipeId }) => canClaim() && (!latest || latest.supportedRecipeIds.includes(recipeId))
+    && (latest?.testPrintingEnabled === true || (latest?.recipeProofs?.[recipeId]?.recipeVerified ?? latest?.recipeVerified) !== false);
+  return claimPrintJob({ maxArtifacts, deferredBacks, printRecovery, paper, mayClaim, mixedPrintSheets });
 }

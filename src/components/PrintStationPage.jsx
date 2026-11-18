@@ -6,14 +6,17 @@ import Icon from './Icon';
 import PrintBatchList from './PrintBatchList';
 import DeferredPrintBacks from './DeferredPrintBacks';
 import PrintRecoveryCard from './PrintRecoveryCard';
+import PrintJobDiagnostics from './PrintJobDiagnostics';
+import ConfirmModal from './ConfirmModal';
 import DiscordPrintBotSettings from './DiscordPrintBotSettings';
-import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand, preparePrintJobBacks, cancelPrintJobBacks } from '../lib/api';
+import { getPrintStationStatus, sendPrintStationCommand, configurePrintStationDiscord, testPrintStationDiscord, findPrintStationCommand, preparePrintJobBacks, cancelPrintJobBacks, cancelHouseholdPrintJob } from '../lib/api';
 import { PRINT_JOB_STATES as JOB_STATES, printerHealthPresentation, printStationSummary, paperClearanceIdentity, printRecoveryIdentity } from '../lib/printStationStatus';
 import './PrintStationPage.css';
 
 const COMMAND_NAMES = {
   pause: 'Pause station', unpause: 'Unpause station', resume: 'Print reloaded backs',
   clear_paper: 'Confirm paper cleared',
+  clear_missing_cups: 'Clear canceled batch with missing CUPS history',
   recover_print: 'Continue interrupted print',
   configure_discord: 'Save Discord settings', test_discord: 'Send Discord test',
   check_update: 'Check for updates', update: 'Update companion', rollback: 'Roll back companion',
@@ -78,6 +81,7 @@ export default function PrintStationPage() {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [discordUserId, setDiscordUserId] = useState('');
   const [editingDiscord, setEditingDiscord] = useState(false);
+  const [cancelDiagnosticJob, setCancelDiagnosticJob] = useState(null);
   const pendingRef = useRef(pendingRequest);
   const mountedRef = useRef(false);
   const commandControllerRef = useRef(null);
@@ -171,6 +175,8 @@ export default function PrintStationPage() {
   const commandWaiting = commands.some(command => command.status === 'pending');
   const canControl = online && data?.permissions.canControl && !busy && !pendingRequest && !commandWaiting;
   const activeJob = station?.activeJob;
+  const activeStoredJob = data?.jobs?.pending?.find(job => job.id === activeJob?.id);
+  const diagnosticJob = activeJob || data?.jobs?.pending?.find(job => ['claimed', 'submitting', 'submitted', 'awaiting_refeed', 'awaiting_paper_reset', 'uncertain'].includes(job.state));
   const loadedPaper = PRINT_PAPER[stationPaperChoice(station)];
   const loadedPaperLabel = loadedPaper.label;
   const activePaperUnavailable = activeJob && printPaperUnavailable(activeJob, station);
@@ -179,8 +185,9 @@ export default function PrintStationPage() {
   const keepFeedEdge = refeedSameShortEdge(activeJob);
   const testingRefeed = station?.testPrintingEnabled && !(activeJob?.duplexVerified ?? station.duplexVerified);
   const recoveryBoundary = printRecoveryIdentity(activeJob);
-  const canRecoverBatch = data?.permissions.canUpdate || data?.jobs?.pending?.some(job => job.id === activeJob?.id && job.canOpen);
-  const showPrintRecovery = recoveryBoundary && (activeJob.recovery.mode === 'reprint_remaining'
+  const canRecoverBatch = data?.permissions.canUpdate || activeStoredJob?.canOpen;
+  const artifactBlocked = activeJob?.artifactUnavailable === true;
+  const showPrintRecovery = recoveryBoundary && (!artifactBlocked || activeJob.recovery.mode === 'resume') && (activeJob.recovery.mode === 'reprint_remaining'
     || activeJob.recovery.cupsState === 4 || (station?.health?.known === true && station.health.ok === false));
   const deferredWorkflow = activeJob?.workflow === 'deferred-backs-v1';
   const packet = activeJob?.packet;
@@ -188,12 +195,13 @@ export default function PrintStationPage() {
   const checkDryFronts = crownedBatch || markedForRefeed;
   const packetName = packet?.label ? `Packet ${packet.packetIndex} of ${packet.packetCount}` : 'Legacy double-faced PDF';
   const sheetWord = packet?.sheetCount === 1 ? 'sheet' : 'sheets';
-  const canResume = canControl && !station.paused && !activeJob?.cancelRequested && activeJob?.state === 'awaiting_refeed'
+  const canResume = canControl && !station.paused && !artifactBlocked && !activeJob?.cancelRequested && activeJob?.state === 'awaiting_refeed'
     && !activePaperUnavailable && !!activeJob.artifactId && packet?.artifactId === activeJob.artifactId;
   const matchingResume = activeJob?.id === resumeJobId && activeJob?.artifactId === resumeArtifactId;
   const needsPaperClearance = ['awaiting_clearance', 'awaiting_paper_reset'].includes(activeJob?.state);
   const clearanceBoundary = paperClearanceIdentity(activeJob);
-  const canClearPaper = canControl && !!clearanceBoundary && paperClearedBoundary === clearanceBoundary;
+  const missingCancellationSpoolerId = activeJob?.state === 'awaiting_clearance' ? activeJob.missingCancellationSpoolerId : null;
+  const canClearPaper = canControl && canRecoverBatch && !!clearanceBoundary && paperClearedBoundary === clearanceBoundary;
   const deferredJobs = Array.isArray(data?.jobs?.deferred) ? data.jobs.deferred : [];
   const backPreparationUnavailable = !fresh ? 'Refresh status before selecting saved backs.' : !online ? 'The Mac must be online before you select backs.'
     : !data?.permissions.canControl ? 'Household printer access is required to select saved backs.' : station.paused ? 'Unpause the station before selecting backs.'
@@ -306,28 +314,31 @@ export default function PrintStationPage() {
   function command(type, extra = {}) {
     if (!canControl || pendingRef.current) return;
     if (type === 'resume' && (!canResume || !paperReloaded || !matchingResume)) return;
-    if (type === 'clear_paper' && !canClearPaper) return;
-    if (type === 'recover_print' && (!recoveryBoundary || !canRecoverBatch || station.paused || activeJob.cancelRequested || activePaperUnavailable)) return;
+    if (['clear_paper', 'clear_missing_cups'].includes(type) && !canClearPaper) return;
+    if (type === 'recover_print' && (!showPrintRecovery || !canRecoverBatch || station.paused || activeJob.cancelRequested || activePaperUnavailable)) return;
     if (type === 'check_update' && !canCheckUpdate) return;
     if (['update', 'rollback'].includes(type) && !canUpdate) return;
     submit({ idempotencyKey: requestId(), type, ...extra });
   }
 
-  async function backAction(type, job, selectedPacket) {
+  async function jobAction(type, job, selectedPacket) {
     if (commandControllerRef.current || !fresh || busy || pendingRef.current) return;
     if (type === 'prepare_backs' && (!canControl || !job.canPrepareBacks || !selectedPacket || printPaperUnavailable(job, station))) return;
     if (type === 'cancel_backs' && !job.canCancelBacks) return;
+    if (type === 'cancel_batch' && (job.id !== activeJob?.id || !job.canCancel || job.cancelRequested)) return;
     const controller = new AbortController();
     commandControllerRef.current = controller;
     setBusy(true); setActionError(''); setNotice('');
     try {
-      await (type === 'prepare_backs' ? preparePrintJobBacks(job.id, selectedPacket.artifactId, controller.signal) : cancelPrintJobBacks(job.id, controller.signal));
+      if (type === 'prepare_backs') await preparePrintJobBacks(job.id, selectedPacket.artifactId, controller.signal);
+      else if (type === 'cancel_backs') await cancelPrintJobBacks(job.id, controller.signal);
+      else await cancelHouseholdPrintJob(job.id, controller.signal);
       if (!mountedRef.current) return;
       setNotice(type === 'prepare_backs'
         ? `Backs requested for ${job.deckName || 'Card batch'} · ${selectedPacket.label || selectedPacket.artifactId}. Keep blank paper loaded until the matching packet is ready to reload.`
-        : `Cancellation requested for the remaining backs of ${job.deckName || 'Card batch'}. Check its status and follow any paper-clearance instructions.`);
+        : `Cancellation requested for ${type === 'cancel_backs' ? 'the remaining backs of ' : ''}${job.deckName || 'Card batch'}. Check its status and follow any paper-clearance instructions.`);
     } catch (error) {
-      if (mountedRef.current) setActionError(`The request could not be confirmed for batch ${job.id}. ${error.message} Check the refreshed status before retrying this same packet or cancellation.`);
+      if (mountedRef.current) setActionError(`The request could not be confirmed for batch ${job.id}. ${error.message} Check the refreshed status before retrying.`);
     } finally {
       commandControllerRef.current = null;
       if (mountedRef.current) { setBusy(false); refreshRef.current(); }
@@ -378,8 +389,10 @@ export default function PrintStationPage() {
           <h2>{activeJob.state === 'awaiting_clearance' ? 'Remove canceled-job paper' : 'Backs finished — restore blank paper'}</h2>
           <h3>{activeJob.deckName || 'Card batch'}</h3><p className="station-batch-id">Batch {activeJob.id}</p>
           <p>{activeJob.state === 'awaiting_clearance' ? 'Wait for the printer to stop. Remove any partially printed or flipped sheets from this job and clear the rear feeder.' : 'Remove the finished double-sided sheet and any remaining flipped paper from the rear feeder.'} Load only blank {loadedPaperLabel} paper before releasing the next front job.</p>
-          <label className="station-paper-check"><input type="checkbox" checked={!!clearanceBoundary && paperClearedBoundary === clearanceBoundary} disabled={!canControl || !clearanceBoundary} onChange={event => setPaperClearedBoundary(event.target.checked ? clearanceBoundary : null)} /><span>I removed the printed or flipped paper, checked the printer has stopped, and left only blank {loadedPaperLabel} paper in the rear feeder.</span></label>
-          <button className="btn btn-primary" type="button" disabled={!canClearPaper} onClick={() => command('clear_paper', { jobId: activeJob.id, clearanceId: activeJob.clearanceId, paperCleared: true })}>Confirm blank paper is ready</button>
+          {missingCancellationSpoolerId && <p>Mac print history no longer shows {missingCancellationSpoolerId}. The Mac will check that exact job again and keep its submission receipt. This action finishes the cancellation and releases the paper hold.</p>}
+          {activeJob.unacknowledgedCancellation && <p>CLC is missing an acknowledged spooler ID for this pass. Find its exact job in the Mac’s Epson queue{activeJob.spoolerTitle ? ` using title ${activeJob.spoolerTitle}` : ''}. If the match stays uncertain, the station holds this batch for manual reconciliation.</p>}
+          <label className="station-paper-check"><input type="checkbox" checked={!!clearanceBoundary && paperClearedBoundary === clearanceBoundary} disabled={!canControl || !canRecoverBatch || !clearanceBoundary} onChange={event => setPaperClearedBoundary(event.target.checked ? clearanceBoundary : null)} /><span>I removed the printed or flipped paper, checked the printer has stopped, and left only blank {loadedPaperLabel} paper in the rear feeder.</span></label>
+          <button className="btn btn-primary" type="button" disabled={!canClearPaper} onClick={() => command(missingCancellationSpoolerId ? 'clear_missing_cups' : 'clear_paper', { jobId: activeJob.id, clearanceId: activeJob.clearanceId, paperCleared: true, ...(missingCancellationSpoolerId ? { spoolerId: missingCancellationSpoolerId } : {}) })}>{missingCancellationSpoolerId ? 'Clear canceled batch with missing history' : 'Confirm blank paper is ready'}</button>
           {!clearanceBoundary && <p className="station-small">The Mac has not confirmed which paper-clearance step is waiting. Refresh status before confirming.</p>}
           <p className="station-small">The Mac checks the previous submission before releasing more pages. This does not restart a canceled pass.{station.paused && ' The station remains paused.'}</p>
         </section> : activeJob?.state === 'awaiting_refeed' ? <section className="station-card station-refeed" aria-label="Paper reload required">
@@ -413,7 +426,25 @@ export default function PrintStationPage() {
             </> : <div className="station-empty-batch"><Icon name="print" size={32} /><p>{fresh ? 'No active batch reported by the Mac.' : 'Refresh status to confirm the current batch.'}</p><span className="station-small">Your next batch appears here when the Mac picks it up.</span></div>}
           </section>}
 
-        <DeferredPrintBacks jobs={deferredJobs} station={station} fresh={fresh} canPrepare={canControl && !station?.paused} unavailableReason={backPreparationUnavailable} busy={busy || !!pendingRequest || commandWaiting} onAction={backAction} />
+        {diagnosticJob && (data?.permissions.canUpdate || activeStoredJob?.canOpen || diagnosticJob.canOpen) && <section className="station-card" aria-label="Batch diagnostics">
+          <h2>Batch diagnostics</h2>
+          <h3>{diagnosticJob.deckName || 'Card batch'}</h3>
+          <p className="station-batch-id">Batch {diagnosticJob.id}</p>
+          {activeJob?.id !== diagnosticJob.id || !online ? <p>Waiting for the Mac to confirm this batch’s current state. Review the saved receipts below.</p>
+            : diagnosticJob.diagnosticMessage ? <p>{diagnosticJob.diagnosticMessage}</p>
+              : diagnosticJob.state === 'uncertain' && !showPrintRecovery ? <p>The exact spooler status is still unknown. Check the batch in the Epson queue on the Mac and refresh this page for recovery choices.</p>
+                : <p>{JOB_STATES[diagnosticJob.state] || 'Waiting for a status report from the Mac'}</p>}
+          {diagnosticJob.artifactId && <p className="station-small">{diagnosticJob.phase === 'backs' ? 'Backs' : 'Fronts'} · {diagnosticJob.artifactId}{diagnosticJob.recovery?.spoolerId ? ` · ${diagnosticJob.recovery.spoolerId}` : ''}</p>}
+          <PrintJobDiagnostics key={diagnosticJob.id} jobId={diagnosticJob.id} showReason={!diagnosticJob.diagnosticMessage} />
+          {activeStoredJob?.canCancel && !activeStoredJob.cancelRequested && <div className="station-actions"><button className="btn btn-secondary" type="button" disabled={!fresh || busy || !!pendingRequest || commandWaiting} onClick={() => setCancelDiagnosticJob(activeStoredJob)}>Cancel remaining printing</button></div>}
+        </section>}
+        {cancelDiagnosticJob && <ConfirmModal title="Cancel remaining printing?" message={`${cancelDiagnosticJob.deckName || 'Card batch'} · batch ${cancelDiagnosticJob.id}. The Mac stops this batch’s unfinished passes and may require a paper check before the queue continues.`} confirmLabel="Cancel remaining printing" cancelLabel="Keep printing" danger onCancel={() => setCancelDiagnosticJob(null)} onConfirm={() => {
+          const confirmed = cancelDiagnosticJob;
+          setCancelDiagnosticJob(null);
+          if (activeStoredJob?.id === confirmed.id) jobAction('cancel_batch', activeStoredJob);
+          else setActionError('The active batch changed. Review the current diagnostics before canceling.');
+        }} />}
+        <DeferredPrintBacks jobs={deferredJobs} station={station} fresh={fresh} canPrepare={canControl && !station?.paused} unavailableReason={backPreparationUnavailable} busy={busy || !!pendingRequest || commandWaiting} onAction={jobAction} />
       </>}
       <PrintBatchList station={fresh ? station : null} />
       {!restricted && <>

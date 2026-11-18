@@ -163,9 +163,20 @@ export async function initDb() {
       before_text TEXT NOT NULL,
       after_text TEXT NOT NULL,
       title TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      expires_at_ms INTEGER
     )
   `);
+  // Existing anonymous shares keep their URLs and have no expiry or owner.
+  const shareColumns = all('PRAGMA table_info(shared_comparisons)');
+  if (!shareColumns.some(column => column.name === 'owner_user_id')) {
+    db.run('ALTER TABLE shared_comparisons ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+  }
+  if (!shareColumns.some(column => column.name === 'expires_at_ms')) {
+    db.run('ALTER TABLE shared_comparisons ADD COLUMN expires_at_ms INTEGER');
+  }
+  db.run('CREATE INDEX IF NOT EXISTS idx_shared_comparisons_owner ON shared_comparisons(owner_user_id, created_at DESC, id DESC)');
 
   db.run(`
     CREATE TABLE IF NOT EXISTS server_settings (

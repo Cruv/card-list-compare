@@ -18,7 +18,8 @@ from clc_station_alerts import (DISCORD_SETTING, DISCORD_TEST_SETTING, validate_
                                 discord_queued_payload)
 
 
-CONTROL_TYPES = {"pause", "unpause", "resume", "recover_print", "clear_paper", "check_update", "update", "rollback", "configure_discord", "test_discord"}
+CLEARANCE_CONTROLS = {"clear_paper", "clear_missing_cups"}
+CONTROL_TYPES = {"pause", "unpause", "resume", "recover_print", *CLEARANCE_CONTROLS, "check_update", "update", "rollback", "configure_discord", "test_discord"}
 QUEUE_NOTIFICATION_ID = re.compile(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\Z", re.I)
 
 
@@ -33,6 +34,7 @@ class StationControl:
         self.health = {"ok": False, "known": False, "message": "Printer check pending", "advisories": []}
         self.last_doctor = None
         self.printer_read_failures = 0
+        self.poll_error = None
         self.update = {"supported": False, "currentVersion": version, "previousVersion": None,
                        "availableVersion": None, "status": "unsupported", "error": None}
         if manager is None:
@@ -79,7 +81,7 @@ class StationControl:
                             "Saved recovery authorization reconciled; its physical attempt will not be duplicated" if accepted else
                             "Print recovery was interrupted. Check the current pass before requesting recovery again.")
                 continue
-            if request.get("type") == "clear_paper":
+            if request.get("type") in CLEARANCE_CONTROLS:
                 # Local/network acknowledgements can be lost. Do not replay a
                 # physical confirmation after a restart or another sheet load.
                 self.finish(row["id"], "rejected", "Paper clearance was interrupted. Check the current batch before confirming again.")
@@ -160,6 +162,19 @@ class StationControl:
         except Exception:
             self.event("warning", "Printer-error alerts are unavailable. Check Printer in CLC.")
 
+    @staticmethod
+    def pass_identity(current, job, pending):
+        return (current["id"], current["state"], clearance_id(job),
+                tuple(pending[key] for key in ("artifact_id", "phase", "attempt_id", "spooler_id")) if pending else None)
+
+    def record_poll_error(self, error):
+        self.poll_error = None
+        current = self.ledger.current()
+        if error and current:
+            job = json.loads(current["payload"])
+            identity = self.pass_identity(current, job, self.ledger.pending(job))
+            self.poll_error = (identity, self.safe_message(error))
+
     def snapshot(self):
         current = self.ledger.current()
         if current:
@@ -167,9 +182,22 @@ class StationControl:
             job = json.loads(current["payload"])
             if current["state"] in {"awaiting_clearance", "awaiting_paper_reset"}:
                 active["clearanceId"] = clearance_id(job)
+            if current["state"] == "awaiting_clearance" and active.get("clearanceId"):
+                try:
+                    missing_spooler = self.station.missing_cancellation_spooler(job)
+                    if missing_spooler:
+                        active["missingCancellationSpoolerId"] = missing_spooler
+                except (StationError, OSError, ValueError, subprocess.TimeoutExpired):
+                    pass  # Incomplete or conflicting spooler data cannot expose recovery.
             pending = self.ledger.pending(job)
+            detail = current["detail"]
+            if self.poll_error and self.poll_error[0] == self.pass_identity(current, job, pending):
+                detail = self.poll_error[1]
+            if detail:
+                active["detail"] = self.safe_message(detail)
             if pending:
                 active.update(artifactId=pending["artifact_id"], phase=pending["phase"])
+                active["spoolerTitle"] = pending["title"]
                 try:
                     active["recovery"] = self.station.recovery_summary(job, pending)
                 except (StationError, OSError, ValueError, subprocess.TimeoutExpired):
@@ -215,8 +243,10 @@ class StationControl:
         if kind in {"configure_discord", "test_discord"}:
             return self.apply_discord(request, command_id)
         payload_keys = ("type", "jobId", "artifactId", "paperReloaded", "targetVersion")
-        if kind == "clear_paper":
+        if kind in CLEARANCE_CONTROLS:
             payload_keys += ("paperCleared", "clearanceId")
+        if kind == "clear_missing_cups":
+            payload_keys += ("spoolerId",)
         if kind == "recover_print":
             payload_keys += ("phase", "spoolerId", "recoveryId", "paperReady", "firstUnprintedSheet", "paperReloaded")
         payload = json.dumps({key: request.get(key) for key in payload_keys}, sort_keys=True)
@@ -286,12 +316,21 @@ class StationControl:
                 rejection = self.safe_message(error)
                 self.update.update(status="failed", error=rejection)
                 self.finish(command_id, "rejected", rejection)
-        if not rejection and kind == "clear_paper":
+        if not rejection and kind in CLEARANCE_CONTROLS:
             try:
                 if request.get("paperCleared") is not True:
                     raise StationError("Explicit confirmation that printed paper was removed and blank paper loaded is required")
-                self.station.clear_paper(request.get("jobId"), request.get("clearanceId"))
-                self.finish(command_id, "applied", "Paper clearance confirmed; the station may continue")
+                if kind == "clear_missing_cups":
+                    spooler_id = request.get("spoolerId")
+                    if not isinstance(spooler_id, str) or not spooler_id:
+                        raise StationError("Exact missing CUPS job ID is required")
+                    self.station.clear_paper(request.get("jobId"), request.get("clearanceId"),
+                                             missing_spooler_id=spooler_id, command_id=command_id)
+                    message = "Exact CUPS job is absent and paper clearance confirmed. Its submission receipt was kept."
+                else:
+                    self.station.clear_paper(request.get("jobId"), request.get("clearanceId"))
+                    message = "Paper clearance confirmed; the station may continue"
+                self.finish(command_id, "applied", message)
             except (StationError, OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
                 rejection = self.safe_message(error)
                 self.finish(command_id, "rejected", rejection)

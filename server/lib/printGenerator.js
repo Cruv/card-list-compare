@@ -4,6 +4,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
+import { createPrintProofs } from './printProof.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET } from './printPaper.js';
 import crownedPortraitGeometry from './crownedPortraitGeometry.json' with { type: 'json' };
@@ -126,10 +127,16 @@ export function planPrintSheets(cards, recipe = PRINT_RECIPE, sheetPacking) {
 export function createPrintGenerator(options = {}) {
   const runtime = options.runtime || new PrintGeneratorRuntime({ dataDir: DEFAULT_DATA, ...options });
   const run = options.run || runPrintCommand;
+  const proofs = createPrintProofs(runtime, run, { ...PRINT_RECIPES, ...PRINT_PRESETS });
   let generating = false;
   return {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
+    describeProof: proofs.describe,
+    downloadProof(paper, marks, key) {
+      if (generating) throw Object.assign(new Error('The PDF generator is preparing a batch. Try the proof again shortly.'), { status: 429 });
+      return proofs.download(paper, marks, key);
+    },
     async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES,
       batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter', printPreset, sheetPacking, registrationMarks = true }) {
       if (typeof registrationMarks !== 'boolean') throw new Error('registrationMarks must be true or false');
@@ -158,6 +165,7 @@ export function createPrintGenerator(options = {}) {
       const artifacts = [], images = [], slots = [];
       const published = [];
       try {
+        await proofs.waitForPending();
         await fs.mkdir(working, { recursive: true });
         // Never replace completed artifacts during an accidental duplicate invocation.
         for (const group of plan) {
@@ -250,6 +258,14 @@ const disabledStatus = () => ({ ...singleton.getStatus(), available: false, upda
 export const initializePrintGenerator = () => process.env.PRINT_ENABLED === 'false' ? Promise.resolve(disabledStatus()) : singleton.initialize();
 export const refreshPrintGenerator = () => process.env.PRINT_ENABLED === 'false' ? Promise.resolve(disabledStatus()) : singleton.refresh();
 export const getPrintGeneratorStatus = () => process.env.PRINT_ENABLED === 'false' ? disabledStatus() : singleton.getStatus();
+export const describePrintProof = (paper, marks) => {
+  if (process.env.PRINT_ENABLED === 'false') throw Object.assign(new Error('PDF generation is disabled'), { status: 503 });
+  return singleton.describeProof(paper, marks);
+};
+export const downloadPrintProof = (paper, marks, key) => {
+  if (process.env.PRINT_ENABLED === 'false') throw Object.assign(new Error('PDF generation is disabled'), { status: 503 });
+  return singleton.downloadProof(paper, marks, key);
+};
 export const generatePrintPdfs = options => {
   if (process.env.PRINT_ENABLED === 'false') return Promise.reject(new Error('PDF generation is disabled'));
   return singleton.generate(options);

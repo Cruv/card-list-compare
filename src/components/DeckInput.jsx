@@ -1,9 +1,10 @@
-import { useRef, useState, useEffect, useCallback, useId } from 'react';
+import { useRef, useState, useEffect, useLayoutEffect, useCallback, useId } from 'react';
 import { fetchDeckFromUrl, detectSite } from '../lib/fetcher';
 import { getTrackedDecks, getDeckSnapshots, getSnapshot, createSnapshot } from '../lib/api';
-import { parse } from '../lib/parser';
+import { inspectDeckImport, parse } from '../lib/parser';
 import { toast } from './Toast';
 import Icon from './Icon';
+import DeckImportReview from './DeckImportReview';
 import './DeckInput.css';
 import { sourceStatusLabel } from '../lib/sourceSync';
 import './SourceSyncReview.css';
@@ -30,15 +31,17 @@ function siteLabel(site) {
   return site;
 }
 
-export default function DeckInput({ label, caption, value, onChange, user }) {
+export default function DeckInput({ label, caption, value, onChange, onApplyImport, user }) {
   const fileRef = useRef(null);
   const textRef = useRef(null);
   const snapshotRequest = useRef(0);
+  const contentRevision = useRef(0);
   const inputId = useId();
   const [urlInput, setUrlInput] = useState('');
   const [showUrl, setShowUrl] = useState(false);
   const [showTracked, setShowTracked] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [pendingLoad, setPendingLoad] = useState(null);
+  const loading = pendingLoad?.value === value;
   const [error, setError] = useState(null);
 
   // Tracked deck state
@@ -50,6 +53,8 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
 
   const [showAllSnapshots, setShowAllSnapshots] = useState(false);
   const [importedList, setImportedList] = useState(null);
+  const [review, setReview] = useState(null);
+  const [undoImport, setUndoImport] = useState(null);
 
   // Manual save-to-tracked panel state
   const [showSavePanel, setShowSavePanel] = useState(false);
@@ -59,25 +64,70 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   const [savePanelSelected, setSavePanelSelected] = useState(null);
   const [savePanelNickname, setSavePanelNickname] = useState('');
 
+  // Parent edits such as swapping lists also invalidate pending loads.
+  useLayoutEffect(() => () => { contentRevision.current++; }, [value]);
+
+  const cancelContentLoad = useCallback(() => {
+    contentRevision.current++;
+    setPendingLoad(null);
+  }, []);
+
+  function beginContentLoad() {
+    const request = { value, revision: ++contentRevision.current };
+    setPendingLoad(request);
+    return {
+      isCurrent: () => request.revision === contentRevision.current,
+      finish: () => setPendingLoad(current => current === request ? null : current),
+    };
+  }
+
   const closeAllPanels = useCallback(() => {
+    cancelContentLoad();
     setShowUrl(false);
     setShowTracked(false);
     setShowSavePanel(false);
     setError(null);
-  }, []);
+    setReview(null);
+  }, [cancelContentLoad]);
+
+  function previewImport(text, site, skipped = []) {
+    const result = inspectDeckImport(text);
+    setReview({ ...result, skipped: [...result.skipped, ...skipped], baseline: value, site, revision: contentRevision.current });
+    setError(null);
+  }
+
+  function applyImport() {
+    if (!review?.accepted.length || review.baseline !== value) return;
+    const text = review.text;
+    const restore = onApplyImport ? onApplyImport(text) : () => onChange(value);
+    if (!restore) return;
+    if (!onApplyImport) onChange(text);
+    setUndoImport({ applied: text, restore, importedList });
+    setImportedList(review.site ? { text, site: review.site } : null);
+    setReview(null);
+    textRef.current?.focus();
+  }
+
+  function restoreBeforeImport() {
+    if (undoImport?.applied !== value || undoImport.restore() === false) return;
+    setImportedList(undoImport.importedList);
+    setUndoImport(null);
+    textRef.current?.focus();
+  }
 
   function handleFile(e) {
     const file = e.target.files[0];
     if (!file) return;
+    const load = beginContentLoad();
     const reader = new FileReader();
     reader.onload = (ev) => {
-      onChange(ev.target.result);
-      setError(null);
-      setImportedList(null);
+      if (!load.isCurrent()) return;
+      previewImport(ev.target.result);
     };
     reader.onerror = () => {
-      setError('Failed to read file. Please try again.');
+      if (load.isCurrent()) setError('Failed to read file. Please try again.');
     };
+    reader.onloadend = load.finish;
     reader.readAsText(file);
     e.target.value = '';
   }
@@ -97,30 +147,19 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   }
 
   async function importFromUrl(url) {
-    setLoading(true);
+    const load = beginContentLoad();
     setError(null);
-    setImportedList(null);
+    setReview(null);
     try {
-      const { text, site, stats } = await fetchDeckFromUrl(url);
-      onChange(text);
+      const { text, site, skipped } = await fetchDeckFromUrl(url, { review: true });
+      if (!load.isCurrent()) return;
+      previewImport(text, site, skipped);
       setShowUrl(false);
       setUrlInput('');
-
-      // Show metadata coverage feedback
-      if (stats && stats.totalCards > 0) {
-        const pct = Math.round((stats.cardsWithMeta / stats.totalCards) * 100);
-        if (stats.cardsWithMeta > 0) {
-          toast.success(`Imported ${stats.totalCards} cards from ${siteLabel(site)} \u2014 ${pct}% with printing info`);
-        } else {
-          toast.info(`Imported ${stats.totalCards} cards from ${siteLabel(site)} (no printing info available)`);
-        }
-      }
-
-      setImportedList({ text, site });
     } catch (err) {
-      setError(err.message);
+      if (load.isCurrent()) setError(err.message);
     } finally {
-      setLoading(false);
+      load.finish();
     }
   }
 
@@ -130,12 +169,14 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   }
 
   function handlePaste(e) {
-    const pasted = e.clipboardData?.getData('text/plain')?.trim();
-    if (!pasted || pasted.includes('\n')) return; // Multi-line = deck text, not a URL
-    if (detectSite(pasted)) {
-      e.preventDefault();
-      importFromUrl(pasted);
-    }
+    const pasted = e.clipboardData?.getData('text/plain');
+    if (!pasted?.trim()) return;
+    e.preventDefault();
+    const trimmed = pasted.trim();
+    if (!trimmed.includes('\n') && detectSite(trimmed)) { importFromUrl(trimmed); return; }
+    const { selectionStart, selectionEnd } = e.currentTarget;
+    cancelContentLoad();
+    previewImport(value.slice(0, selectionStart) + pasted + value.slice(selectionEnd));
   }
 
   async function handleOpenSavePanel() {
@@ -186,6 +227,7 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
       handleUrlImport();
     }
     if (e.key === 'Escape') {
+      cancelContentLoad();
       setShowUrl(false);
       setError(null);
     }
@@ -232,17 +274,20 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
   }
 
   async function handleLoadTrackedSnapshot(deckId, snapshotId) {
-    setLoading(true);
+    const load = beginContentLoad();
     try {
       const data = await getSnapshot(deckId, snapshotId);
+      if (!load.isCurrent()) return;
       onChange(data.snapshot.deck_text);
       setShowTracked(false);
       setExpandedDeckId(null);
       setImportedList(null);
+      setReview(null);
+      setUndoImport(null);
     } catch {
-      setError('Failed to load snapshot');
+      if (load.isCurrent()) setError('Failed to load snapshot');
     } finally {
-      setLoading(false);
+      load.finish();
     }
   }
 
@@ -274,7 +319,7 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
       <div className="deck-input-actions" role="group" aria-label={`${label} import options`}>
           <button
             className={`deck-input-btn${showUrl ? ' deck-input-btn--active' : ''}`}
-            onClick={() => { closeAllPanels(); setImportedList(null); setShowUrl(!showUrl); }}
+            onClick={() => { closeAllPanels(); setShowUrl(!showUrl); }}
             type="button"
             title="Import from URL"
             aria-expanded={showUrl}
@@ -284,7 +329,7 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
           {user && (
             <button
               className={`deck-input-btn${showTracked ? ' deck-input-btn--active' : ''}`}
-              onClick={() => { closeAllPanels(); setImportedList(null); setShowTracked(!showTracked); }}
+              onClick={() => { closeAllPanels(); setShowTracked(!showTracked); }}
               type="button"
               title="Load a saved deck version"
               aria-expanded={showTracked}
@@ -477,13 +522,26 @@ export default function DeckInput({ label, caption, value, onChange, user }) {
         ref={textRef}
         className="deck-input-textarea"
         value={value}
-        onChange={(e) => { onChange(e.target.value); setError(null); setImportedList(null); }}
+        onChange={(e) => {
+          cancelContentLoad();
+          onChange(e.target.value);
+          setError(null);
+          setImportedList(null);
+          setReview(null);
+          setUndoImport(null);
+        }}
         onPaste={handlePaste}
         placeholder={PLACEHOLDER}
         spellCheck={false}
         aria-label={`${label} deck list`}
         aria-describedby={`${inputId}-hint`}
       />
+      {review?.baseline === value && <DeckImportReview key={review.revision} review={review} baseline={value}
+        label={`Preview ${label.toLowerCase()} import${review.site ? ` from ${siteLabel(review.site)}` : ''}`}
+        onApply={applyImport} onCancel={() => { setReview(null); textRef.current?.focus(); }} />}
+      {undoImport?.applied === value && <div className="deck-import-actions">
+        <button className="btn btn-secondary btn-sm" type="button" onClick={restoreBeforeImport}>Undo import</button>
+      </div>}
       <div className="deck-input-footer" id={`${inputId}-hint`}>
         <a href="#guide/importing-decks">Supported list formats</a>
         <span>{value.trim() ? `${value.trim().split('\n').length} lines` : 'Ready for your list'}</span>

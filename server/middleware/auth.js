@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { randomUUID } from 'node:crypto';
 import { get } from '../db.js';
 import { getJwtSecret } from '../lib/jwtSecret.js';
 
@@ -28,7 +29,7 @@ export function createToken(user) {
   return jwt.sign(
     { userId: user.id, username: user.username, isAdmin: !!user.is_admin },
     getJwtSecret(),
-    { expiresIn: '7d' }
+    { expiresIn: '7d', jwtid: randomUUID() }
   );
 }
 
@@ -50,7 +51,7 @@ export function requireAuth(req, res, next) {
       const dbUser = get('SELECT suspended, password_changed_at FROM users WHERE id = ?', [payload.userId]);
       if (!dbUser) {
         authCache.delete(payload.userId);
-        return res.status(401).json({ error: 'User not found' });
+        return res.status(401).json({ error: 'User not found', code: 'SESSION_INVALID' });
       }
       authInfo = { suspended: dbUser.suspended, passwordChangedAt: dbUser.password_changed_at, cachedAt: now };
       authCache.set(payload.userId, authInfo);
@@ -63,13 +64,13 @@ export function requireAuth(req, res, next) {
     if (authInfo.passwordChangedAt) {
       const changedAtSeconds = Math.floor(new Date(authInfo.passwordChangedAt + 'Z').getTime() / 1000);
       if (payload.iat < changedAtSeconds) {
-        return res.status(401).json({ error: 'Session invalidated — please log in again' });
+        return res.status(401).json({ error: 'Session invalidated — please log in again', code: 'SESSION_INVALID' });
       }
     }
 
     next();
   } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    return res.status(401).json({ error: 'Invalid or expired token', code: 'SESSION_INVALID' });
   }
 }
 

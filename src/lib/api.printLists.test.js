@@ -47,6 +47,28 @@ describe('standalone print requests', () => {
   it.each(['/api/print-lists/jobs/job-a/manifest', '/api/print-lists/jobs/job-a/artifacts/double-faced-001', '/api/decks/1/print-jobs/job-a/artifacts/fronts'])('accepts only scoped local manifest/PDF paths: %s', async url => {
     fetch.mockResolvedValue(new Response(JSON.stringify({ error: 'Artifact expired' }), { status: 410 }));
     await expect(downloadPrintArtifact(url)).rejects.toThrow('Artifact expired');
-    expect(fetch).toHaveBeenCalledWith(url, { headers: { Authorization: 'Bearer fixture-user-token' } });
+    if (url.endsWith('/manifest')) expect(fetch).toHaveBeenCalledWith(url, { headers: { Authorization: 'Bearer fixture-user-token' } });
+    else expect(fetch).toHaveBeenCalledWith(`${url}/download`, expect.objectContaining({
+      method: 'POST', headers: expect.objectContaining({ Authorization: 'Bearer fixture-user-token' }),
+    }));
+  });
+
+  it('hands only the scoped attachment address to the browser and never reads a PDF blob', async () => {
+    const url = '/api/decks/1/print-jobs/job-a/artifacts/fronts';
+    const attachment = '/api/print-downloads/b60dea4c-c78b-4557-87cb-03a41d577337';
+    const anchor = { click: vi.fn(), remove: vi.fn() };
+    const appendChild = vi.fn();
+    vi.stubGlobal('document', { createElement: vi.fn(() => anchor), body: { appendChild } });
+    fetch.mockResolvedValue(new Response(JSON.stringify({ url: attachment })));
+    await downloadPrintArtifact(url, 'Deck fronts.pdf');
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/download`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ filename: 'Deck fronts.pdf' }), redirect: 'error' }));
+    expect(anchor).toMatchObject({ href: attachment, download: 'Deck fronts.pdf', rel: 'noreferrer' });
+    expect(appendChild).toHaveBeenCalledWith(anchor);
+    expect(anchor.click).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an out-of-scope attachment address', async () => {
+    fetch.mockResolvedValue(new Response(JSON.stringify({ url: '/api/auth/me' })));
+    await expect(downloadPrintArtifact('/api/print-lists/jobs/job-a/artifacts/fronts')).rejects.toThrow('Invalid PDF download address');
   });
 });
