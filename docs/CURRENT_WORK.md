@@ -1,5 +1,23 @@
 # Current work checkpoint
 
+## Branch consolidation and project review
+
+- Dahle PDF support was already integrated through [PR #20](https://github.com/Cruv/card-list-compare/pull/20)
+  at `2586601` (v2.63.0). The v2.64.0 merge brings the outstanding
+  [ManaSync patches](https://github.com/Cruv/card-list-compare/pull/6) onto that baseline.
+  It preserves exact print receipts and existing publication limits. Only canceled manual
+  items without artwork, operations or pending plans can age out automatically.
+- On 2026-11-18, the v2.64.0 code at `61b69fc` passed 1,419 JavaScript tests, 287 portable
+  companion tests, 12 PDF worker tests, the production build and Compose contract.
+  Both npm audits found zero advisories. Lint passed with five existing React warnings.
+  Chrome covered confirmation retries, the etched comparison warning, Dahle PDF-only
+  controls and public offline navigation. The scoped HTTP pairing with disposable
+  ManaSync verified deck reads, proposal replay and the lost-receipt path.
+  [The review backlog](ROADMAP.md#open--reviewed-2026-11-18) records the open findings.
+- The source review used disposable databases, synthetic artwork and PDFs, and fake
+  provider and printer responses. Physical Dahle feed, trim, punch and duplex acceptance
+  require the separate proof in [the Dahle guide](DAHLE_A4_PUNCH.md#one-proof-before-a-batch).
+
 ## Bulk artwork changes in print review
 
 Collect art choices across several cards and use **Review updated list** once.
