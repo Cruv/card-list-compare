@@ -292,10 +292,23 @@ function activePacket(row, active) {
     ...(artifact.doubleFacedCardCount === undefined ? {} : { doubleFacedCardCount: artifact.doubleFacedCardCount }) };
 }
 
+// The print workspace only needs recipe capability and currently loaded paper.
+// It can refresh this snapshot without reading or expiring station commands.
+export function printStationPaperReadiness() {
+  return {
+    online: online(), mixedPrintSheets: latest?.mixedPrintSheets || false,
+    loadedPaperSize: latest?.loadedPaperSize ?? LEGACY_STATION_PAPER.loadedPaperSize,
+    ...(latest?.loadedPrintPreset ? { loadedPrintPreset: latest.loadedPrintPreset } : {}),
+    supportedRecipeIds: latest?.supportedRecipeIds ?? LEGACY_STATION_PAPER.supportedRecipeIds,
+    duplexVerified: latest?.duplexVerified || false,
+  };
+}
+
 export function printStationStatus(userId) {
   const access = requireControl(userId);
   expireCommands();
-  const live = online();
+  const readiness = printStationPaperReadiness();
+  const live = readiness.online;
   const active = latest?.activeJob ? { ...latest.activeJob } : null;
   if (active) {
     if (active.state === 'awaiting_refeed') active.artifactId = firstBack(active.id, latest);
@@ -323,15 +336,11 @@ export function printStationStatus(userId) {
     delete active.detail;
   }
   return { station: {
-    stationId: STATION, online: live, lastSeenAt: lastSeen === null ? null : new Date(lastSeen).toISOString(),
+    stationId: STATION, ...readiness, lastSeenAt: lastSeen === null ? null : new Date(lastSeen).toISOString(),
     version: latest?.version || null, paused: latest?.paused ?? !!get('SELECT paused FROM print_station_controls WHERE station_id = ?', [STATION])?.paused,
     deferredBacks: latest?.deferredBacks || false,
     printRecovery: latest?.printRecovery || false,
-    mixedPrintSheets: latest?.mixedPrintSheets || false,
-    loadedPaperSize: latest?.loadedPaperSize ?? LEGACY_STATION_PAPER.loadedPaperSize,
-    ...(latest?.loadedPrintPreset ? { loadedPrintPreset: latest.loadedPrintPreset } : {}),
-    supportedRecipeIds: latest?.supportedRecipeIds ?? LEGACY_STATION_PAPER.supportedRecipeIds,
-    queue: latest?.queue || null, recipeVerified: latest?.recipeVerified || false, duplexVerified: latest?.duplexVerified || false,
+    queue: latest?.queue || null, recipeVerified: latest?.recipeVerified || false,
     testPrintingEnabled: latest?.testPrintingEnabled || false,
     recipeFingerprint: latest?.recipeFingerprint || null, activeJob: active,
     health: live ? latest.health : { ok: false, known: false, advisories: [], message: lastSeen === null ? 'Station has not connected since server startup' : 'Station is offline' },

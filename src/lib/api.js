@@ -11,8 +11,7 @@ function getToken() {
   return localStorage.getItem('clc-auth-token');
 }
 
-async function apiFetch(path, options = {}) {
-  const token = getToken();
+async function apiFetch(path, { sessionToken: token = getToken(), ...options } = {}) {
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -76,8 +75,8 @@ export const login = (username, password) =>
 
 export const getMe = () => apiFetch('/auth/me');
 
-export const changePassword = (currentPassword, newPassword) =>
-  apiFetch('/auth/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
+export const changePassword = (currentPassword, newPassword, sessionToken) =>
+  apiFetch('/auth/change-password', { sessionToken, method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) });
 
 export const updateEmail = (email) =>
   apiFetch('/auth/email', { method: 'PUT', body: JSON.stringify({ email }) });
@@ -253,8 +252,8 @@ export const getSharedDeckSnapshot = (shareId, snapshotId) =>
   apiFetch(`/shared-deck/${shareId}/snapshot/${snapshotId}`);
 
 // Sharing
-export const createShare = (beforeText, afterText, title, expiresAt = null) =>
-  apiFetch('/share', { method: 'POST', body: JSON.stringify({ beforeText, afterText, title, expiresAt }) });
+export const createShare = (beforeText, afterText, title, expiresAt = null, sessionToken) =>
+  apiFetch('/share', { sessionToken, method: 'POST', body: JSON.stringify({ beforeText, afterText, title, expiresAt }) });
 
 export const getShare = (id) => apiFetch(`/share/${id}`);
 
@@ -509,7 +508,8 @@ export const savePrintArtToDeck = (deckId, options) =>
 export const createPrintJob = (deckId, options) =>
   apiFetch(`/decks/${deckId}/print-jobs`, { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
 export const getPrintJobs = (deckId, signal) => apiFetch(`/decks/${deckId}/print-jobs`, { signal });
-export const getPrintJobActivity = (deckId, signal) => apiFetch(`/decks/${deckId}/print-jobs/activity`, { signal });
+const printActivityQuery = watch => watch?.length ? `?${new URLSearchParams({ watch: watch.join(',') })}` : '';
+export const getPrintJobActivity = (deckId, signal, watch) => apiFetch(`/decks/${deckId}/print-jobs/activity${printActivityQuery(watch)}`, { signal });
 export const getPrintJob = (deckId, jobId, signal) => apiFetch(`/decks/${deckId}/print-jobs/${jobId}`, { signal });
 export const queuePrintJob = (deckId, jobId) =>
   apiFetch(`/decks/${deckId}/print-jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
@@ -523,7 +523,7 @@ export const previewStandalonePrintJob = options =>
 export const createStandalonePrintJob = options =>
   apiFetch('/print-lists/jobs', { method: 'POST', body: JSON.stringify(options), timeout: 90_000 });
 export const getStandalonePrintJobs = signal => apiFetch('/print-lists/jobs', { signal });
-export const getStandalonePrintJobActivity = signal => apiFetch('/print-lists/jobs/activity', { signal });
+export const getStandalonePrintJobActivity = (signal, watch) => apiFetch(`/print-lists/jobs/activity${printActivityQuery(watch)}`, { signal });
 export const getStandalonePrintJob = (jobId, signal) => apiFetch(`/print-lists/jobs/${jobId}`, { signal });
 export const queueStandalonePrintJob = jobId =>
   apiFetch(`/print-lists/jobs/${jobId}/queue`, { method: 'POST', body: '{}' });
@@ -540,6 +540,7 @@ export async function downloadPrintArtifact(downloadUrl, filename) {
   const token = getToken();
   const manifest = downloadUrl.endsWith('/manifest');
   let href;
+  let reportStatus = false;
   if (manifest) {
     const res = await fetch(downloadUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (!res.ok) {
@@ -549,11 +550,12 @@ export async function downloadPrintArtifact(downloadUrl, filename) {
     href = URL.createObjectURL(await res.blob());
   } else {
     const ticket = await apiFetch(`${downloadUrl.slice(API_BASE.length)}/download`, {
-      method: 'POST', body: JSON.stringify({ filename }), redirect: 'error',
+      sessionToken: token, method: 'POST', body: JSON.stringify({ filename, reportStatus: true }), redirect: 'error',
     });
     if (!/^\/api\/print-downloads\/[a-f0-9-]{36}$/.test(ticket.url)) throw new Error('Invalid PDF download address');
     if (getToken() !== token) throw new Error('Your sign-in changed. Start the PDF download again.');
     href = ticket.url;
+    reportStatus = ticket.reportStatus === true;
   }
   const anchor = document.createElement('a');
   anchor.href = href;
@@ -563,6 +565,22 @@ export async function downloadPrintArtifact(downloadUrl, filename) {
   anchor.click();
   anchor.remove();
   if (manifest) setTimeout(() => URL.revokeObjectURL(href), 30_000);
+  else if (reportStatus) await waitForPrintDownload(href, token);
+}
+
+async function waitForPrintDownload(href, token) {
+  const statusPath = `${href.slice(API_BASE.length)}/status`;
+  const deadline = Date.now() + 65_000;
+  while (Date.now() < deadline) {
+    if (getToken() !== token) throw new Error('Your sign-in changed. Start the PDF download again.');
+    const receipt = await apiFetch(statusPath, { sessionToken: token, redirect: 'error' });
+    if (getToken() !== token) throw new Error('Your sign-in changed. Start the PDF download again.');
+    if (receipt?.state === 'started') return;
+    if (receipt?.state === 'failed' && typeof receipt.error === 'string') throw new Error(receipt.error);
+    if (receipt?.state !== 'pending') break;
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  throw new Error('The PDF download could not be confirmed. Check your browser’s downloads before trying again.');
 }
 
 const printProofPath = paper => `/print-proofs/${encodeURIComponent(paper)}`;

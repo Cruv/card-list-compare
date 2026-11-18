@@ -1,27 +1,29 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getMe } from '../lib/api';
+import { changePassword, getMe } from '../lib/api';
+import { createAuthSession } from '../lib/authSession';
 import { toast } from '../components/Toast';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [session] = useState(() => createAuthSession(localStorage));
   // Only "loading" when there is actually a token to validate — deriving it up
   // front avoids a needless render pass (and a setState inside the effect) for
   // the common signed-out case.
-  const [loading, setLoading] = useState(() => !!localStorage.getItem('clc-auth-token'));
+  const [loading, setLoading] = useState(() => !!session.current());
 
   useEffect(() => {
-    const token = localStorage.getItem('clc-auth-token');
-    if (!token) return;
+    const initial = session.current();
+    if (!initial) return;
     let canceled = false;
 
     getMe()
       .then(data => {
-        if (!canceled && localStorage.getItem('clc-auth-token') === token) setUser(data.user);
+        if (!canceled && session.isCurrent(initial)) setUser(data.user);
       })
       .catch((err) => {
-        if (!canceled && localStorage.getItem('clc-auth-token') === token && err.message?.toLowerCase().includes('suspended')) {
+        if (!canceled && session.isCurrent(initial) && err.message?.toLowerCase().includes('suspended')) {
           toast.error('Your account has been suspended. Please contact an admin.');
         }
       })
@@ -29,26 +31,37 @@ export function AuthProvider({ children }) {
         if (!canceled) setLoading(false);
       });
     return () => { canceled = true; };
-  }, []);
+  }, [session]);
 
   useEffect(() => {
-    const handler = () => setUser(null);
+    const handler = () => { session.forget(); setUser(null); };
     window.addEventListener('auth-expired', handler);
     return () => window.removeEventListener('auth-expired', handler);
-  }, []);
+  }, [session]);
 
   const loginUser = useCallback((token, userData) => {
-    localStorage.setItem('clc-auth-token', token);
+    session.signIn(token);
     setUser(userData);
-  }, []);
+  }, [session]);
 
   const logoutUser = useCallback(() => {
-    localStorage.removeItem('clc-auth-token');
+    session.signOut();
     setUser(null);
-  }, []);
+  }, [session]);
+
+  const changeUserPassword = useCallback(async (currentPassword, newPassword) => {
+    const started = session.current();
+    if (!started) throw new Error('Your sign-in changed. Sign in again to change your password.');
+    const result = await changePassword(currentPassword, newPassword, started.token).catch(error => {
+      if (session.isCurrent(started)) throw error;
+      return null;
+    });
+    return result ? session.rotate(started, result.token) : false;
+  }, [session]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, loginUser, logoutUser }}>
+    <AuthContext.Provider value={{ user, loading, loginUser, logoutUser, changeUserPassword,
+      getSession: session.current, isCurrentSession: session.isCurrent }}>
       {children}
     </AuthContext.Provider>
   );

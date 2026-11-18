@@ -7,13 +7,21 @@ const STATES = new Set(['all', 'preparing', 'ready', 'queued', 'claimed', 'submi
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const number = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000000 ? value : 0;
 
-export function listPrintJobActivity(userId, deckId) {
+export function listPrintJobActivity(userId, deckId, watch) {
+  // Watch only the 50 displayed history rows and a possible older deep link.
+  if (watch !== undefined && (typeof watch !== 'string' || watch.length > 51 * 37)) {
+    throw printError('Invalid batch watch list');
+  }
+  const watchedIds = watch?.split(',') ?? [];
+  if (watchedIds.length > 51 || watchedIds.some(id => !UUID.test(id))) throw printError('Invalid batch watch list');
   const rows = all(`SELECT id, state, updated_at AS updatedAt, COUNT(*) OVER () AS activeCount,
     MAX(state != 'ready') OVER () AS watching FROM print_jobs
     WHERE user_id = ? AND tracked_deck_id IS ? AND state NOT IN ('completed', 'canceled', 'failed', 'expired')
     ORDER BY created_at DESC, id DESC LIMIT 50`, [userId, deckId]);
+  const watchedJobs = watchedIds.length ? all(`SELECT id, state, updated_at AS updatedAt FROM print_jobs
+    WHERE user_id = ? AND tracked_deck_id IS ? AND id IN (${watchedIds.map(() => '?').join(',')})`, [userId, deckId, ...watchedIds]) : [];
   return { activeCount: rows[0]?.activeCount ?? 0, watching: !!rows[0]?.watching,
-    jobs: rows.map(({ id, state, updatedAt }) => ({ id, state, updatedAt })) };
+    jobs: rows.map(({ id, state, updatedAt }) => ({ id, state, updatedAt })), watchedJobs };
 }
 
 export function canCancelHouseholdBatch(row) {

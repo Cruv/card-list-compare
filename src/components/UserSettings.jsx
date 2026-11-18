@@ -4,7 +4,7 @@ import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import CopyButton from './CopyButton';
 import {
-  getMe, changePassword, updateEmail, deleteAccount, resendVerification,
+  getMe, updateEmail, deleteAccount, resendVerification,
   createInviteCode, getMyInvites, deleteInviteCode,
   getMyComparisonShares, updateComparisonShareExpiry, revokeComparisonShare,
 } from '../lib/api';
@@ -13,7 +13,7 @@ import PasswordRequirements from './PasswordRequirements';
 import './UserSettings.css';
 
 export default function UserSettings() {
-  const { user, logoutUser } = useAuth();
+  const { user, logoutUser, changeUserPassword } = useAuth();
   const [confirm, ConfirmDialog] = useConfirm();
 
   // User capabilities
@@ -87,11 +87,7 @@ export default function UserSettings() {
     }
     setPasswordSaving(true);
     try {
-      const data = await changePassword(currentPassword, newPassword);
-      // Update token so current session stays valid after password_changed_at is set
-      if (data.token) {
-        localStorage.setItem('clc-auth-token', data.token);
-      }
+      if (!(await changeUserPassword(currentPassword, newPassword))) return;
       toast.success('Password changed successfully');
       setCurrentPassword('');
       setNewPassword('');

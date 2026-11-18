@@ -8,11 +8,13 @@ const SECTIONS = { main: 'Mainboard', commander: 'Commander', sideboard: 'Sidebo
 export default function DeckImportReview({ review, baseline, label, onApply, onCancel, applyLabel = 'Apply import' }) {
   const heading = useId();
   const [showAll, setShowAll] = useState(false);
-  const { accepted, skipped, text } = review;
-  const { added, removed, quantities, printings } = useMemo(() => {
-    const diff = computeDiff(parse(baseline), parse(text));
+  const { accepted, skipped, text, replacedText } = review;
+  const { commanders, added, removed, quantities, printings } = useMemo(() => {
+    const applied = parse(text);
+    const diff = computeDiff(parse(baseline), applied);
     const sections = [diff.mainboard, diff.sideboard];
     return {
+      commanders: applied.commanders,
       added: sections.reduce((sum, section) => sum + section.cardsIn.length, 0),
       removed: sections.reduce((sum, section) => sum + section.cardsOut.length, 0),
       quantities: sections.reduce((sum, section) => sum + section.quantityChanges.length, 0),
@@ -28,6 +30,11 @@ export default function DeckImportReview({ review, baseline, label, onApply, onC
     {accepted.length > 0 && <p>{added || removed || quantities || printings
       ? `${added} added · ${removed} removed · ${quantities} quantity changes · ${printings} printing changes`
       : 'No changes to card counts or printings.'}</p>}
+    {!!commanders.length && <p>Commanders · {commanders.join(' · ')}</p>}
+    {!!replacedText && <details open>
+      <summary>Replaced draft text</summary>
+      <pre>{replacedText}</pre>
+    </details>}
     {!!visible.length && <details open>
       <summary>Accepted rows</summary>
       <ul>{visible.map(row => <li key={row.line}>

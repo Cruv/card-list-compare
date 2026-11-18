@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
+import { batchDetailRefresh, loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
 import { DAHLE_A4_PRESET, availablePrintPaperChoices, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge, selectAvailablePrintPaper } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
@@ -8,6 +8,24 @@ const plan = () => ({ totalCopies: 8, ordinaryCopies: 1, doubleFacedCopies: 7,
   readyToGenerate: true, missingArtwork: [], cards: [{ quantity: 1 }, { quantity: 7 }],
   resolvedCards: [{ isDFC: false, faces: [face('front')], errors: [] },
     { isDFC: true, faces: [face('front', 'saved-mpc'), face('back', 'saved-mpc')], errors: [] }] });
+
+describe('print workspace batch refresh', () => {
+  it('refreshes every changed row and keeps completed rows outside the active list', () => {
+    const unchanged = { id: 'newest', state: 'preparing', updatedAt: '1' };
+    const stillActive = { id: 'middle', state: 'preparing', updatedAt: '1' };
+    const leftActive = { id: 'older', state: 'submitted', updatedAt: '1' };
+    const jobs = [unchanged, stillActive, leftActive, { id: 'gone', state: 'ready', updatedAt: '1' }];
+    const activity = { jobs: [unchanged, { ...stillActive, updatedAt: '2' }],
+      watchedJobs: [{ ...leftActive, state: 'completed' }] };
+    expect(batchDetailRefresh(jobs, activity)).toEqual({ changed: ['middle', 'older'], removed: ['gone'] });
+  });
+
+  it('loads an unopened newest batch and an older deep link once each', () => {
+    const activity = { jobs: [{ id: 'newest' }], watchedJobs: [] };
+    expect(batchDetailRefresh([], activity, 'older').changed).toEqual(['older', 'newest']);
+    expect(batchDetailRefresh([], activity, 'newest').changed).toEqual(['newest']);
+  });
+});
 
 describe('physical artwork review', () => {
   it('uses saved deck art by default and keeps the chosen art on matching extras and an MPC review', () => {

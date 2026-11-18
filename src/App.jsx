@@ -31,11 +31,11 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.65.0';
+const APP_VERSION = '2.65.1';
 const WHATS_NEW = [
-  'Preview exact printings and skipped rows before importing a deck',
-  'Download a one-sheet paper proof and inspect recovery options in Printer',
-  'Set an expiry or revoke a comparison link you own',
+  'Keep the active sign-in when an older password request finishes',
+  'See current printer readiness and a clear error when a PDF download cannot start',
+  'Keep existing deck text outside a paste and recover your share link in Export',
 ];
 
 function getResetToken() {
@@ -60,7 +60,7 @@ const AUTH_ROUTES = {
 };
 
 export default function App() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, getSession, isCurrentSession } = useAuth();
   const { route, shareId, deckShareId, deckId, initialPrintJobId } = useHashRoute();
   const shareScope = useMemo(() => route === 'share' ? { id: shareId } : null, [route, shareId]);
   const [shareLoad, setShareLoad] = useState(null);
@@ -202,10 +202,12 @@ export default function App() {
   }, [shareScope, showComparison]);
 
   async function handleShare(expiresAt) {
+    const session = user ? getSession() : null;
+    if (user && !session) throw new Error('Your sign-in changed. Sign in again to create a link for this account.');
     const commanders = diffResult?.commanders || [];
     const title = commanders.length > 0 ? commanders.join(' / ') + ' Changelog' : null;
-    const { id } = await createShare(comparedLists.beforeText, comparedLists.afterText, title, expiresAt);
-    return comparisonShareUrl(id);
+    const { id } = await createShare(comparedLists.beforeText, comparedLists.afterText, title, expiresAt, session?.token ?? null);
+    return !session || isCurrentSession(session) ? comparisonShareUrl(id) : null;
   }
 
   // Ctrl+Enter to compare
@@ -309,7 +311,7 @@ export default function App() {
               ['After', comparedLists.afterProblems],
             ].filter(([, problems]) => problems.length).map(([label, problems]) =>
               `${label} (${problems.length} ${problems.length === 1 ? 'line' : 'lines'}, first on line ${problems[0].line})`).join(' and ')}.</p>}
-          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={handleShare} shareOwnerId={user?.id}
+          <ChangelogOutput diffResult={diffResult} cardMap={cardMap} onShare={authLoading ? null : handleShare} shareOwnerId={user?.id}
             afterText={comparedLists.afterText} beforeText={comparedLists.beforeText} />
         </>}
       </ErrorBoundary>

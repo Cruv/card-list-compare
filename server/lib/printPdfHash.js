@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs';
+import { closeSync, constants, createReadStream, fstatSync, lstatSync, openSync, readSync } from 'node:fs';
 import { isMainThread, parentPort, Worker } from 'node:worker_threads';
 
 const fingerprint = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
@@ -7,6 +7,20 @@ const fingerprint = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs
 export function printFileFingerprint(path) {
   const stat = lstatSync(path, { bigint: true });
   return stat.isFile() ? fingerprint(stat) : null;
+}
+
+export function openVerifiedPrintPdf(path, expectedFingerprint) {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(fd, { bigint: true });
+    if (!stat.isFile() || fingerprint(stat) !== expectedFingerprint) {
+      throw Object.assign(new Error('PDF artifact changed before streaming'), { code: 'ESTALE' });
+    }
+    return createReadStream(path, { fd });
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
 }
 
 function hashFile(path, expectedSize) {
