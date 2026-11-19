@@ -32,17 +32,22 @@ class DahlePunchTests(unittest.TestCase):
                 card[f"{face}Source"] = "scryfall"
             self.cards.append(card)
 
-    def render(self, name, cards, *, double_faced=False, mixed=False):
+    def render(self, name, cards, *, double_faced=False, mixed=False, alignment_marks=None):
         directory = self.directory / name
         directory.mkdir()
         packing = {"sheetPacking": "double-faced-first"} if mixed else {}
-        chunk({"directory": str(directory), **self.paper, **packing, "cards": cards, "doubleFaced": double_faced,
+        alignment = {} if alignment_marks is None else {"dahleAlignmentMarks": alignment_marks}
+        chunk({"directory": str(directory), **self.paper, **packing, **alignment, "cards": cards, "doubleFaced": double_faced,
                "registrationMarks": True,
                "printedIdentification": {"version": 1, "requesterName": "Fixture", "batchName": "Dahle test"},
                "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC full or partial"}] +
                ([{"page": 2, "phase": "backs", "label": "CLC full or partial"}] if double_faced else [])})
         result = json.loads((directory / "result.json").read_text())
         self.assertFalse(result["registrationMarks"])
+        if alignment_marks:
+            self.assertIs(result["dahleAlignmentMarks"], True)
+        else:
+            self.assertNotIn("dahleAlignmentMarks", result)
         return directory / "sheet.pdf"
 
     @staticmethod
@@ -50,20 +55,36 @@ class DahlePunchTests(unittest.TestCase):
         return [tuple(round(float(value) / POINTS_PER_MM, 4) for value in operands)
                 for operands, name in page.get_contents().operations if name == operator]
 
-    def check_media_and_ticks(self, page):
+    def check_media_and_ticks(self, page, *, alignment_marks=False):
         self.assertEqual(page.rotation, 0)
         self.assertAlmostEqual(float(page.mediabox.width) / POINTS_PER_MM, 210, places=5)
         self.assertAlmostEqual(float(page.mediabox.height) / POINTS_PER_MM, 297, places=5)
         y_positions = [283.5, 193.5, 103.5, 13.5]
-        self.assertEqual(self.mm_operators(page, b"m"), [(x, y) for y in y_positions for x in (4.5, 203)])
-        self.assertEqual(self.mm_operators(page, b"l"), [(x, y) for y in y_positions for x in (7, 205.5)])
-        self.assertEqual(sum(operator == b"S" for _, operator in page.get_contents().operations), 8)
+        ticks = slice(0, 8) if alignment_marks else slice(None)
+        self.assertEqual(self.mm_operators(page, b"m")[ticks], [(x, y) for y in y_positions for x in (4.5, 203)])
+        self.assertEqual(self.mm_operators(page, b"l")[ticks], [(x, y) for y in y_positions for x in (7, 205.5)])
+        self.assertEqual(sum(operator == b"S" for _, operator in page.get_contents().operations), 10 if alignment_marks else 8)
         label_positions = []
         page.extract_text(visitor_text=lambda text, cm, tm, font, size:
                           label_positions.append((tm, size)) if text.strip() else None)
         self.assertEqual(len(label_positions), 3)
         for position, size in label_positions:
             self.assertGreater((position[5] - size * 0.3) / POINTS_PER_MM, y_positions[0])
+
+    def check_alignment_guides(self, page, occupied_boundaries, *, proof_sheet=False):
+        guide_starts, guide_ends = [], []
+        for bottom, boundaries in zip((193.5, 103.5, 13.5), occupied_boundaries):
+            for x in boundaries:
+                guide_starts.extend(((x, bottom + 6), (x, bottom + 81)))
+                guide_ends.extend(((x, bottom + 9), (x, bottom + 84)))
+        guides = slice(8, -3) if proof_sheet else slice(8, None)
+        self.assertEqual(self.mm_operators(page, b"m")[guides], guide_starts * 2)
+        self.assertEqual(self.mm_operators(page, b"l")[guides], guide_ends * 2)
+        self.assertEqual(self.mm_operators(page, b"w")[1:3], [(0.4,), (0.18,)])
+        self.assertEqual([tuple(values) for values, operator in page.get_contents().operations if operator == b"G"][:3],
+                         [(0,), (1,), (0,)])
+        # Each stroke is centered on a bleed boundary with 1 mm to a finished edge.
+        self.assertGreater(1 - self.mm_operators(page, b"w")[1][0] / 2, 0.75)
 
     def check_image(self, page, slot, color):
         image = page.images[f"/Card{slot + 1}"].image
@@ -128,6 +149,42 @@ class DahlePunchTests(unittest.TestCase):
             self.assertIn(f"{name} | {revision}", text)
             self.assertIn("Dahle row ticks | FRONT", text)
             self.assertIn("50 mm", text)
+
+    def test_alignment_proof_uses_the_same_full_grid_guides_and_reports_enabled(self):
+        proof({**self.paper, "directory": str(self.directory), "registrationMarks": True, "dahleAlignmentMarks": True,
+               "proofRecipe": "household-dahle-a4-punch-v1", "proofRevision": "fixture"})
+        self.assertIs(json.loads((self.directory / "result.json").read_text())["dahleAlignmentMarks"], True)
+        with PdfReader(self.directory / "sheet.pdf", strict=True) as reader:
+            self.assertEqual(len(reader.pages), 1)
+            page = reader.pages[0]
+            self.check_alignment_guides(page, [(7.5, 72.5, 137.5, 202.5)] * 3, proof_sheet=True)
+            self.assertIn("Dahle row ticks + die-cutter alignment marks | FRONT", page.extract_text())
+
+    def test_alignment_guides_track_actual_front_and_mirrored_back_occupancy(self):
+        cards = [{key: value for key, value in card.items() if index >= 5 or not key.startswith("back")}
+                 for index, card in enumerate(self.cards[:7])]
+        options = {"double_faced": True, "mixed": True}
+        omitted = self.render("mixed-omitted", cards, **options)
+        explicit_off = self.render("mixed-off", cards, **options, alignment_marks=False)
+        self.assertEqual(omitted.read_bytes(), explicit_off.read_bytes())
+        self.assertEqual((omitted.parent / "result.json").read_bytes(), (explicit_off.parent / "result.json").read_bytes())
+        marked = self.render("mixed-on", cards, **options, alignment_marks=True)
+        with PdfReader(marked) as reader, PdfReader(omitted) as baseline:
+            front, back = reader.pages
+            self.check_alignment_guides(front, [(7.5, 72.5, 137.5, 202.5)] * 2 + [(7.5, 72.5)])
+            self.check_alignment_guides(back, [(), (7.5, 72.5), (137.5, 202.5)])
+            for page, original in zip(reader.pages, baseline.pages):
+                self.check_media_and_ticks(page, alignment_marks=True)
+                self.check_media_and_ticks(original)
+                for operator in (b"re", b"cm"):
+                    self.assertEqual(self.mm_operators(page, operator), self.mm_operators(original, operator))
+                self.assertEqual([image.data for image in page.images], [image.data for image in original.images])
+                self.assertEqual(page.extract_text(), original.extract_text())
+
+    def test_rejects_nonboolean_or_cross_preset_alignment_marks(self):
+        for request in ({**self.paper, "dahleAlignmentMarks": "true"}, {"paperSize": "letter", "dahleAlignmentMarks": True}):
+            with self.subTest(request=request), self.assertRaisesRegex(ValueError, "Dahle-only"):
+                chunk({"directory": str(self.directory), **request})
 
     def test_mirrors_columns_for_upright_long_edge_backs_and_keeps_single_placement(self):
         cards = [dict(card) for card in self.cards[:5]]

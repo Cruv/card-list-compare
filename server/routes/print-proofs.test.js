@@ -11,12 +11,16 @@ vi.mock('../lib/printGenerator.js', () => ({ describePrintProof: mock.describe, 
 
 import router from './print-proofs.js';
 
-it('requires a session and the exact reviewed recipe before returning a private attachment', async () => {
-  const proof = { key: 'proof-key', recipeId: 'household-dahle-a4-punch-v1', registrationMarks: false, revision: '0123456789abcde' };
+it.each([false, true])('requires a session and the exact reviewed Dahle recipe (alignment marks %s)', async dahleAlignmentMarks => {
+  vi.clearAllMocks();
+  const proof = { key: 'proof-key', recipeId: 'household-dahle-a4-punch-v1', registrationMarks: false, revision: '0123456789abcde',
+    ...(dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}) };
+  const alignment = dahleAlignmentMarks ? 'on' : undefined;
+  const query = dahleAlignmentMarks ? '&dahleAlignmentMarks=on' : '';
   const pdf = Buffer.from('%PDF-1.4\n%%EOF');
   mock.describe.mockReturnValue(proof);
-  mock.download.mockImplementation(async (_paper, _marks, key) => {
-    if (key !== proof.key) throw Object.assign(new Error('This proof recipe changed. Refresh the proof details.'), { status: 409 });
+  mock.download.mockImplementation(async (_paper, _marks, key, requestedAlignment) => {
+    if (key !== proof.key || requestedAlignment !== alignment) throw Object.assign(new Error('This proof recipe changed. Refresh the proof details.'), { status: 409 });
     return { proof, pdf };
   });
   const app = express();
@@ -30,13 +34,13 @@ it('requires a session and the exact reviewed recipe before returning a private 
     expect((await fetch(`${route}/pdf?key=${proof.key}`)).status).toBe(401);
     expect(mock.describe).not.toHaveBeenCalled();
     expect(mock.download).not.toHaveBeenCalled();
-    const described = await fetch(`${route}?marks=off`, options);
+    const described = await fetch(`${route}?marks=off${query}`, options);
     expect(await described.json()).toEqual({ proof });
-    expect(mock.describe).toHaveBeenCalledWith('dahle-a4-punch', 'off');
+    expect(mock.describe).toHaveBeenCalledWith('dahle-a4-punch', 'off', alignment);
     expect((await fetch(`${route}/pdf?key=older`, options)).status).toBe(409);
-    const downloaded = await fetch(`${route}/pdf?marks=off&key=${proof.key}`, options);
+    const downloaded = await fetch(`${route}/pdf?marks=off&key=${proof.key}${query}`, options);
     expect(downloaded.status).toBe(200);
-    expect(downloaded.headers.get('content-disposition')).toBe('attachment; filename="household-dahle-a4-punch-v1-no-marks-0123456789ab-proof.pdf"');
+    expect(downloaded.headers.get('content-disposition')).toBe(`attachment; filename="household-dahle-a4-punch-v1-${dahleAlignmentMarks ? 'die-alignment' : 'no-marks'}-0123456789ab-proof.pdf"`);
     expect(downloaded.headers.get('cache-control')).toContain('private, no-store');
     expect(downloaded.headers.get('x-clc-proof-key')).toBe(proof.key);
     expect(Buffer.from(await downloaded.arrayBuffer())).toEqual(pdf);

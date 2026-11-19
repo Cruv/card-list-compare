@@ -352,7 +352,7 @@ def pdf_coordinates(*values):
     return " ".join(f"{value * POINTS_PER_MM:.6f}" for value in values)
 
 
-def generate_dahle_sheet(cards, output, double_faced):
+def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False):
     page_width, page_height = DAHLE_GEOMETRY["page"]
     trim_width, trim_height = DAHLE_GEOMETRY["trim"]
     columns, rows, bleed = (DAHLE_GEOMETRY[key] for key in ("columns", "rows", "bleed"))
@@ -365,6 +365,7 @@ def generate_dahle_sheet(cards, output, double_faced):
         page = writer.add_blank_page(width=page_width * POINTS_PER_MM, height=page_height * POINTS_PER_MM)
         objects = DictionaryObject()
         commands = []
+        alignment_boundaries = set()
         for slot, card in enumerate(cards):
             path = card.get(f"{face}Path")
             if path is None:
@@ -376,6 +377,8 @@ def generate_dahle_sheet(cards, output, double_faced):
             row, column = divmod(slot, columns)
             if face == "back":
                 column = columns - 1 - column  # A4 portrait, long-edge flip.
+            if alignment_marks:
+                alignment_boundaries.update(((row, column), (row, column + 1)))
             x = side + column * cell_width
             y = page_height - top - (row + 1) * cell_height
             image_x, image_y = x + (cell_width - image_width) / 2, y + (cell_height - image_height) / 2
@@ -390,6 +393,21 @@ def generate_dahle_sheet(cards, output, double_faced):
             for start, end in ((tick_start, tick_end), (page_width - tick_end, page_width - tick_start)):
                 commands.append(f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l S")
         commands.append("Q")
+        if alignment_boundaries:
+            geometry = DAHLE_GEOMETRY["alignmentMarks"]
+            near, far = geometry["stripEdgeOffsets"]
+            paths = []
+            # These boundaries are midway between the finished card edges. The
+            # paired strokes keep the center legible across the feed direction.
+            for row, boundary in sorted(alignment_boundaries):
+                x = side + boundary * cell_width
+                y = page_height - top - (row + 1) * cell_height
+                for start, end in ((near, far), (cell_height - far, cell_height - near)):
+                    paths.append(f"{pdf_coordinates(x, y + start)} m {pdf_coordinates(x, y + end)} l")
+            commands.append("q 0 J")
+            for gray, width in ((1, geometry["outlineWidth"]), (0, geometry["strokeWidth"])):
+                commands.extend((f"{gray} G {pdf_coordinates(width)} w", *paths, "S"))
+            commands.append("Q")
         content = DecodedStreamObject()
         content.set_data(("\n".join(commands) + "\n").encode("ascii"))
         page[NameObject("/Resources")] = DictionaryObject({NameObject("/XObject"): objects})
@@ -466,6 +484,13 @@ def generate_upstream_sheet(request, recipe, output, registration_marks):
     return metadata
 
 
+def dahle_alignment_setting(request, recipe):
+    enabled = request.get("dahleAlignmentMarks", False)
+    if not isinstance(enabled, bool) or (enabled and recipe != DAHLE_A4_PUNCH):
+        raise ValueError("Die-cutter alignment marks are a Dahle-only option")
+    return enabled
+
+
 def chunk(request):
     directory = Path(request["directory"])
     recipe = paper_key(request)
@@ -473,6 +498,7 @@ def chunk(request):
     if not isinstance(requested_marks, bool):
         raise ValueError("Registration marks must be enabled or disabled")
     registration_marks = recipe != DAHLE_A4_PUNCH and requested_marks
+    alignment_marks = dahle_alignment_setting(request, recipe)
     cards = request["cards"]
     if not 1 <= len(cards) <= len(usable_slots(recipe)):
         raise ValueError("Each generator invocation must contain one sheet at most")
@@ -483,13 +509,16 @@ def chunk(request):
         raise ValueError("Sheet faces must match the requested pass and slot order")
     output = directory / "sheet.pdf"
     if recipe == DAHLE_A4_PUNCH:
-        metadata = generate_dahle_sheet(cards, output, double_faced)
+        metadata = generate_dahle_sheet(cards, output, double_faced, alignment_marks)
     else:
         metadata = generate_upstream_sheet(request, recipe, output, registration_marks)
     identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe,
                    refeed_front=double_faced and recipe != DAHLE_A4_PUNCH, proof_scale=request.get("proofScale", False))
     validate_pdf(output, 2 if double_faced else 1, recipe)
-    (directory / "result.json").write_text(json.dumps({"images": metadata, "registrationMarks": registration_marks}))
+    result = {"images": metadata, "registrationMarks": registration_marks}
+    if alignment_marks:
+        result["dahleAlignmentMarks"] = True
+    (directory / "result.json").write_text(json.dumps(result))
 
 
 def merge(request):
@@ -518,6 +547,7 @@ def merge(request):
 
 def proof(request):
     recipe = paper_key(request)
+    alignment_marks = dahle_alignment_setting(request, recipe)
     directory = Path(request["directory"])
     cards = []
     width, height = PORTRAIT_CARD["width"], PORTRAIT_CARD["height"]
@@ -538,6 +568,8 @@ def proof(request):
         cards.append({"id": f"proof-{slot}", "frontPath": str(file), "frontSource": "scryfall"})
     mark_label = "Dahle row ticks" if recipe == DAHLE_A4_PUNCH else (
         "Cameo registration marks" if request["registrationMarks"] else "No registration marks")
+    if alignment_marks:
+        mark_label += " + die-cutter alignment marks"
     identification = {"version": 1, "requesterName": "Paper proof",
                       "batchName": f"{request['proofRecipe']} | {request['proofRevision']}"}
     chunk({**request, "cards": cards, "doubleFaced": False, "proofScale": True, "printedIdentification": identification,
@@ -565,10 +597,12 @@ def smoke_dahle(directory, cards):
     working = directory / DAHLE_A4_PUNCH
     working.mkdir()
     paper = {"paperSize": "a4", "printPreset": DAHLE_A4_PUNCH}
-    chunk({"directory": str(working), **paper, "cards": cards, "doubleFaced": True,
+    chunk({"directory": str(working), **paper, "cards": cards, "doubleFaced": True, "dahleAlignmentMarks": True,
            "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Dahle punch layout"},
            "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"},
                           {"page": 2, "phase": "backs", "label": "CLC runtime check"}]})
+    if json.loads((working / "result.json").read_text()).get("dahleAlignmentMarks") is not True:
+        raise ValueError("Dahle punch layout did not confirm alignment marks")
     reader = PdfReader(working / "sheet.pdf", strict=True)
     for page, face in zip(reader.pages, ("FRONT", "BACK")):
         if len(page.images) != len(cards) or f"| {face}" not in page.extract_text():

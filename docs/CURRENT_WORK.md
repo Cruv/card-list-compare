@@ -1,5 +1,12 @@
 # Current work checkpoint
 
+## Dahle die-cutter alignment marks
+
+- v2.67.0 adds a default-off Dahle option to new batches, alternate layout reviews, and one-sheet proofs. The guide strokes use the 2 mm scrap at card boundaries and stay at least 6 mm inside the long strip edges. See the [geometry and proof steps](DAHLE_A4_PUNCH.md#optional-die-cutter-alignment-marks).
+- Disposable Chrome and the real PDF worker checked new and regenerated batches and separate proof keys. Digital checks covered eight paired copies, a partial row and mirrored backs. Artwork streams, clip and placement transforms, and row-cut ticks matched the unmarked PDFs. The test confirmed preservation of the original batch files, simulated receipts, and confirmation record.
+- Local verification passed 1,547 JavaScript tests, 290 portable companion tests, 17 PDF worker tests, the production build and the deployment contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities.
+- The household stack is outside this change. Physical alignment and guide visibility depend on the actual die and stock.
+
 ## Saved batch layouts and Print setup scroll
 
 - v2.66.0 starts at `6ca35a3`. Alternate layout generation uses the owned batch’s frozen cards, artwork hashes, and paired faces. It creates a separate PDF batch and preserves the source confirmation and print receipts. See [Print workflow](PRINT_WORKFLOW.md#preparing-cards-and-following-batches).

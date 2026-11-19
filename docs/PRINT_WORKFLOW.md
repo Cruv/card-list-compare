@@ -96,6 +96,11 @@ Clear **Include Cameo registration marks** for hand cutting or a die cutter. The
 fronts and backs keep the same card positions, paper size, and thin sheet labels. Leave
 the option on for Cameo Print & Cut.
 
+The Dahle layout offers **Include die-cutter alignment marks**, off by default, in
+Prepare, alternate layout review, and the Dahle one-sheet proof. The guides bracket
+occupied cards in the strip scrap. The existing row-cut ticks still guide the Dahle
+cuts. See [how to check the marked proof](DAHLE_A4_PUNCH.md#one-proof-before-a-batch).
+
 With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
 connected Discord channel, with the requester, saved batch label, card count, queue time
 and batch ID. All mentions are disabled. It confirms CLC accepted the job, even while
@@ -658,7 +663,7 @@ shows PDF transfer progress in its downloads list. Open **One-sheet paper proof*
 to download a synthetic test sheet for a paper layout, including the Dahle punch layout.
 Print at Actual Size, measure the 50 mm line and check the cut frame and bleed. Record
 that check in the browser after inspecting the sheet. The record follows the exact
-recipe, registration setting and generator revision. The Mac uses its own local
+recipe, registration or alignment-mark setting and generator revision. The Mac uses its own local
 physical checks for queue readiness. Physical queue access
 requires a configured `PRINT_STATION_TOKEN` and either administrator status or a user ID in
 `PRINT_ALLOWED_USER_IDS`. The station credential is separate from JWT sessions and grants

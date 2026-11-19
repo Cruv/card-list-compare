@@ -10,10 +10,10 @@ const route = callback => async (req, res) => {
   catch (error) { res.status(error.status || 503).json({ error: error.status ? error.message : 'The paper proof could not be prepared. Try again shortly.' }); }
 };
 
-router.get('/:paper', route((req, res) => res.json({ proof: describePrintProof(req.params.paper, req.query.marks ?? 'on') })));
+router.get('/:paper', route((req, res) => res.json({ proof: describePrintProof(req.params.paper, req.query.marks ?? 'on', req.query.dahleAlignmentMarks) })));
 router.get('/:paper/pdf', route(async (req, res) => {
-  const { proof, pdf } = await downloadPrintProof(req.params.paper, req.query.marks ?? 'on', req.query.key);
-  const marks = proof.registrationMarks ? 'marks' : 'no-marks';
+  const { proof, pdf } = await downloadPrintProof(req.params.paper, req.query.marks ?? 'on', req.query.key, req.query.dahleAlignmentMarks);
+  const marks = proof.dahleAlignmentMarks ? 'die-alignment' : proof.registrationMarks ? 'marks' : 'no-marks';
   res.set({ 'Content-Type': 'application/pdf', 'Content-Length': String(pdf.length),
     'Content-Disposition': `attachment; filename="${proof.recipeId}-${marks}-${proof.revision.slice(0, 12)}-proof.pdf"`,
     'Cache-Control': 'private, no-store, no-transform', 'X-CLC-Proof-Key': proof.key }).send(pdf);

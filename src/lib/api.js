@@ -597,12 +597,19 @@ async function waitForPrintDownload(href, token) {
 }
 
 const printProofPath = paper => `/print-proofs/${encodeURIComponent(paper)}`;
-export const getPrintProof = (paper, marks, signal) =>
-  apiFetch(`${printProofPath(paper)}?marks=${marks ? 'on' : 'off'}`, { signal });
+function printProofQuery({ registrationMarks, dahleAlignmentMarks, key }) {
+  const query = new URLSearchParams({ marks: registrationMarks ? 'on' : 'off' });
+  if (dahleAlignmentMarks === true) query.set('dahleAlignmentMarks', 'on');
+  if (key) query.set('key', key);
+  return query;
+}
+
+export const getPrintProof = (paper, options, signal) =>
+  apiFetch(`${printProofPath(paper)}?${printProofQuery(options)}`, { signal });
 
 export async function downloadPrintProof(paper, proof, signal) {
   const token = getToken();
-  const query = new URLSearchParams({ marks: proof.registrationMarks ? 'on' : 'off', key: proof.key });
+  const query = printProofQuery(proof);
   const response = await fetch(`${API_BASE}${printProofPath(paper)}/pdf?${query}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {}, signal, redirect: 'error',
   });
@@ -616,7 +623,7 @@ export async function downloadPrintProof(paper, proof, signal) {
   const href = URL.createObjectURL(pdf);
   const anchor = document.createElement('a');
   anchor.href = href;
-  const marks = proof.registrationMarks ? 'marks' : 'no-marks';
+  const marks = proof.dahleAlignmentMarks ? 'die-alignment' : proof.registrationMarks ? 'marks' : 'no-marks';
   anchor.download = `${proof.recipeId}-${marks}-${proof.revision.slice(0, 12)}-proof.pdf`;
   document.body.appendChild(anchor);
   anchor.click();

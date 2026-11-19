@@ -70,6 +70,7 @@ beforeEach(async () => {
     mkdirSync(input.outputDir, { recursive: true });
     const image = file => ({ sha256: digest(readFileSync(file)) });
     return { revision: 'fixture', recipe, slots: groups.flatMap(group => group.slotMap),
+      ...(input.dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}),
       images: input.cards.map(card => ({ id: card.id, front: image(card.frontPath), ...(card.backPath ? { back: image(card.backPath) } : {}) })),
       artifacts: groups.map(group => {
       const bytes = Buffer.from(`%PDF-1.4\n${input.batchLabel} ${group.id}\n%%EOF`);
@@ -252,6 +253,32 @@ describe('alternate layout from immutable print receipts', () => {
     expect(await retry.json()).toMatchObject({ job: { id: job.id, state: 'failed' }, isExisting: true });
     expect(rowFor(original.id)).toEqual(before);
     expect(existsSync(join(original.jobPath, 'original.pdf'))).toBe(true);
+  });
+
+  it('binds optional marks to a Dahle alternate and keeps them out of the next unmarked layout', async () => {
+    const original = frozenBatch();
+    const before = rowFor(original.id);
+    const off = await review(original, dahle);
+    const explicitOff = await review(original, { ...dahle, dahleAlignmentMarks: false });
+    expect(explicitOff.plan.planHash).toBe(off.plan.planHash);
+    expect(explicitOff.plan).not.toHaveProperty('dahleAlignmentMarks');
+    const on = { ...dahle, dahleAlignmentMarks: true };
+    const marked = await review(original, on);
+    expect(marked.plan).toMatchObject({ dahleAlignmentMarks: true, recipeId: off.plan.recipeId });
+    expect(marked.plan.planHash).not.toBe(off.plan.planHash);
+    const create = { idempotencyKey: randomUUID(), expectedPlanHash: marked.plan.planHash };
+    expect((await post(original.api, { ...dahle, ...create })).status).toBe(409);
+    const response = await post(original.api, { ...on, ...create });
+    expect(response.status).toBe(202);
+    const { job } = await response.json();
+    expect((await post(original.api, { ...on, ...create })).status).toBe(200);
+    expect((await post(`${original.api}/preview`, { ...letter, dahleAlignmentMarks: true })).status).toBe(400);
+    await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'ready', dahleAlignmentMarks: true, registrationMarks: false });
+    expect(queue.ownedPrintManifest(1, 1, job.id).copies).toEqual(original.manifest.copies);
+    expect(rowFor(original.id)).toEqual(before);
+    const next = await review({ api: `/api/decks/1/print-jobs/${job.id}/alternate-layout` }, letter);
+    expect(next.plan).not.toHaveProperty('dahleAlignmentMarks');
   });
 
   it('fails the alternate batch if the generator reads different valid artwork bytes after staging', async () => {

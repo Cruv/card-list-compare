@@ -51,6 +51,23 @@ stock. [Epson printable areas](https://files.support.epson.com/docid/cpd5/cpd598
 The side ticks show only the four row cuts. The die makes the individual card
 outline and R3 corners. The Dahle establishes strip width and squareness.
 
+## Optional die-cutter alignment marks
+
+Select **Include die-cutter alignment marks** in a Dahle print review, an alternate
+layout review set to Dahle, or the Dahle one-sheet proof. The option starts off.
+Each occupied card has a guide on either side along the feed direction. Center the
+die between the two guides, using the artwork and die window to check the position.
+
+The guides run down the center of the 2 mm scrap between adjacent finished cards.
+The outer guides sit 7.5 mm from the strip ends, within the 8.5 mm end margins.
+Each guide has two 3 mm strokes starting 6 mm in from the long edges, so they
+survive cutting the 90 mm strip. Their 0.40 mm white backing gives the black lines
+contrast on dark artwork and leaves 0.80 mm between the guide and the nominal card
+edge. Allow at most 0.75 mm of combined print registration, feed alignment and skew
+along the strip at each mark. That leaves 0.05 mm of clearance in the digital check.
+Partial strips show guides around occupied slots. Back pages mirror the occupied
+front slots for long-edge duplex and include guides for cards with a printed back.
+
 ## One proof before a batch
 
 On a single full sheet, check that all eight ticks printed, with 90 mm between
@@ -60,6 +77,13 @@ strip advances to all three artwork positions without binding. Punch the three
 positions on the intended stock. Check the frame, corners, whether the strip holds
 together as it advances, and grip at the last card. Check front-to-back alignment
 if applicable. A sheet with clear borders makes any misalignment easier to see.
+
+For the marked proof, also measure the 50 mm scale line before trimming. With the
+lever raised, check that the guide strokes are visible at each feed position in
+your die. Center each card visually and punch all three positions. Inspect both
+sides of the finished cards and the leftover strip. All guide ink should be on
+the scrap. If the opening hides the guides or a cut picks up ink, use the unmarked
+layout and align by the artwork.
 
 ## Layout and hardware evidence
 
