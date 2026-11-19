@@ -255,9 +255,9 @@ async function readImageBody(response, availableBytes) {
   return Buffer.concat(chunks, length);
 }
 
-async function fetchSingleImage(url, availableBytes) {
+async function fetchSingleImage(url, availableBytes, { signal, redirect } = {}) {
   if (!url) throw new Error('No image URL available');
-  return request(url, { headers: { Accept: 'image/png,image/jpeg' } }, async response => {
+  return request(url, { headers: { Accept: 'image/png,image/jpeg' }, redirect }, async response => {
     const contentType = response.headers?.get('content-type')?.split(';')[0].trim().toLowerCase();
     if (!['image/png', 'image/jpeg', 'image/jpg'].includes(contentType)) {
       const error = new Error(`Expected an image response, received ${contentType || 'no Content-Type'}`);
@@ -267,7 +267,16 @@ async function fetchSingleImage(url, availableBytes) {
     const buffer = await readImageBody(response, availableBytes);
     if (!imageFormat(buffer)) throw new Error('Invalid or truncated image data');
     return buffer;
-  });
+  }, signal);
+}
+
+export function fetchFrozenScryfallImage(value, signal) {
+  let url;
+  try { url = new URL(value); }
+  catch { throw new Error('The frozen Scryfall face has no valid image URL'); }
+  if (url.protocol !== 'https:' || !['cards.scryfall.io', 'c1.scryfall.com', 'img.scryfall.com'].includes(url.hostname)
+    || url.port || url.username || url.password) throw new Error('The frozen Scryfall face has no supported image URL');
+  return fetchSingleImage(url.href, MAX_IMAGE_BYTES, { signal, redirect: 'error' });
 }
 
 /**

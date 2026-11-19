@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { crc32 } from 'node:zlib';
+import { createHash } from 'node:crypto';
 
 vi.mock('../db.js', () => ({ get: vi.fn() }));
 const scryfall = vi.hoisted(() => ({ fetchCardImageUrls: vi.fn(), downloadCardImagesWithCache: vi.fn() }));
@@ -10,7 +11,7 @@ const limits = vi.hoisted(() => ({ sourceBytes: 1536 * 1024 * 1024 }));
 vi.mock('./printQueueLimits.js', () => ({ get MAX_PRINT_SOURCE_BYTES() { return limits.sourceBytes; } }));
 vi.mock('./imageValidation.js', async importOriginal => ({ ...(await importOriginal()), MAX_JOB_IMAGE_BYTES: 256 }));
 vi.mock('./scryfallImages.js', async importOriginal => ({ ...(await importOriginal()), ...scryfall }));
-import { preparePrintImages } from './printQueueImages.js';
+import { inspectFrozenPrintArtwork, prepareFrozenPrintImages, preparePrintImages } from './printQueueImages.js';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
 const card = { displayName: 'Malakir Rebirth', quantity: 2, setCode: 'znr', collectorNumber: '111', scryfallId: 'resolved-card', isDFC: true, faceNames: ['Malakir Rebirth', 'Malakir Mire'] };
 let dir;
@@ -172,5 +173,80 @@ describe('immutable print image preparation', () => {
     const { error } = await settle(preparePrintImages(manyArtworkPlan(4), dir));
     expect(error.message).toContain('Source artwork exceeds the 1.5 GiB');
     expect(readdirSync(join(dir, 'images'))).toHaveLength(3);
+  });
+});
+
+describe('frozen artwork for an alternate layout', () => {
+  beforeEach(() => vi.useRealTimers());
+  const digest = value => createHash('sha256').update(value).digest('hex');
+  const originalFront = distinctPng(1), originalBack = distinctPng(2);
+  const id = '8f9aa28a-267a-40d9-a12e-4a0f9b7a15f9';
+  const urls = { front: 'https://cards.scryfall.io/front/fixture.png', back: 'https://cards.scryfall.io/back/fixture.png' };
+  const face = (name, bytes, source = 'scryfall', identifier = id) => ({
+    face: name, sha256: digest(bytes), size: bytes.length, fileName: 'images/' + digest(bytes) + '.png', format: 'png', source, identifier,
+  });
+  function fixture({ saved = true, retained = false, frontSource = 'scryfall' } = {}) {
+    const original = join(dir, 'original'), cache = join(dir, 'retained'), copyDir = join(dir, 'new');
+    mkdirSync(join(original, 'images'), { recursive: true });
+    mkdirSync(cache);
+    const front = face('front', originalFront, frontSource, frontSource === 'saved-mpc' ? 'fixture-pinned-art' : id);
+    const back = face('back', originalBack);
+    if (saved) {
+      writeFileSync(join(original, front.fileName), originalFront);
+      writeFileSync(join(original, back.fileName), originalBack);
+    }
+    if (retained) writeFileSync(join(cache, back.sha256 + '.png'), originalBack);
+    const copies = ['0001', '0002'].map(id => ({ id, scryfallId: front.identifier,
+      displayName: 'Malakir Rebirth', setCode: 'znr', collectorNumber: '111', front, back }));
+    const manifest_json = JSON.stringify({
+      jobId: 'source-fixture', requesterId: 17, copies,
+      plan: { totalCopies: 2, doubleFacedCopies: 2, resolvedCards: [{ scryfallId: id, imageUrls: urls }] },
+    });
+    const row = { id: 'source-fixture', user_id: 17, manifest_json, manifest_sha256: digest(manifest_json) };
+    return { row, original, cache, copyDir, copies };
+  }
+  it('verifies and restages identical ordered pairs without touching the source or provider', async () => {
+    const { row, original, cache, copyDir, copies } = fixture();
+    const preview = await inspectFrozenPrintArtwork(row, original, cache);
+    expect(preview).toEqual({ copies, failures: [] });
+    const progress = vi.fn();
+    const prepared = await prepareFrozenPrintImages(row, original, cache, copyDir, progress, undefined, row.manifest_sha256);
+    expect(prepared.map(({ id, front, back }) => [id, front.sha256, back.sha256])).toEqual(copies.map(({ id, front, back }) => [id, front.sha256, back.sha256]));
+    for (const [face, bytes] of [['front', originalFront], ['back', originalBack]]) {
+      expect(readFileSync(prepared[0][face].path)).toEqual(bytes);
+      expect(readFileSync(join(original, prepared[0][face].fileName))).toEqual(bytes);
+    }
+    expect(readdirSync(join(copyDir, 'images'))).toHaveLength(2);
+    expect(progress).toHaveBeenLastCalledWith({ phase: 'images', downloaded: 4, cached: 4, total: 4 });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('recovers a missing pair from owner-retained bytes and the frozen provider face', async () => {
+    const { row, original, cache, copyDir } = fixture({ saved: false, retained: true });
+    fetch.mockResolvedValue(new Response(originalFront, { headers: { 'Content-Type': 'image/png' } }));
+    const prepared = await prepareFrozenPrintImages(row, original, cache, copyDir);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(urls.front, expect.objectContaining({ redirect: 'error' }));
+    expect(readFileSync(prepared[0].front.path)).toEqual(originalFront);
+    expect(readFileSync(prepared[0].back.path)).toEqual(originalBack);
+    expect(readdirSync(join(original, 'images'))).toEqual([]);
+  });
+  it('rejects different bytes from the exact MPC identifier and reports the affected face', async () => {
+    const { row, original, cache, copyDir, copies } = fixture({ saved: false, retained: true, frontSource: 'saved-mpc' });
+    fetch.mockImplementation(async () => new Response(distinctPng(3).toString('base64')));
+    const value = await inspectFrozenPrintArtwork(row, original, cache);
+    expect(value.failures).toEqual([{ displayName: 'Malakir Rebirth', setCode: 'znr', collectorNumber: '111',
+      face: 'front', quantity: 2, copyIds: copies.map(copy => copy.id), reason: expect.stringContaining('provider returned different artwork bytes') }]);
+    await expect(prepareFrozenPrintImages(row, original, cache, copyDir)).rejects.toThrow('Malakir Rebirth, front');
+    expect(scryfall.fetchCardImageUrls).not.toHaveBeenCalled();
+    expect(readdirSync(join(copyDir, 'images'))).toEqual([copies[0].back.sha256 + '.png']);
+  });
+  it('never accepts truncated original bytes or a manifest changed after review', async () => {
+    const { row, original, cache, copyDir, copies } = fixture({ retained: true });
+    writeFileSync(join(original, copies[0].back.fileName), 'truncated');
+    const preview = await inspectFrozenPrintArtwork(row, original, cache);
+    expect(preview.failures).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(readFileSync(join(original, copies[0].back.fileName), 'utf8')).toBe('truncated');
+    await expect(prepareFrozenPrintImages(row, original, cache, copyDir, undefined, undefined, 'f'.repeat(64))).rejects.toThrow('manifest changed');
+    await expect(inspectFrozenPrintArtwork({ ...row, user_id: 18 }, original, cache)).rejects.toThrow('complete frozen copy');
   });
 });
