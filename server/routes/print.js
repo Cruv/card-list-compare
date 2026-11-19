@@ -8,6 +8,7 @@ import { openVerifiedPrintPdf } from '../lib/printPdfHash.js';
 import {
   printCapabilities, createPrintJob, listPrintJobs, getOwnedPrintJob,
   queuePrintJob, cancelPrintJob, ownedPrintArtifact, ownedPrintManifest, expireOwnedPrintArtifacts,
+  reviewAlternatePrintLayout, createAlternatePrintLayout,
 } from '../lib/printQueue.js';
 import { getPrintGeneratorStatus } from '../lib/printGenerator.js';
 import { listPrintBatches, listPrintJobActivity } from '../lib/printBatchHistory.js';
@@ -189,6 +190,28 @@ const verifyOwnedPdf = lookupDeckId => route(async (req, res, next) => {
   next();
 });
 const sendVerifiedPdf = route((_req, res) => sendPdf(res, res.locals.verifiedPdf));
+const verifyAlternateLayout = lookupDeckId => route(async (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  res.once('close', abort);
+  try {
+    res.locals.alternateLayout = await reviewAlternatePrintLayout(req.user.userId, lookupDeckId(req), req.params.jobId,
+      req.body || {}, controller.signal);
+    if (!controller.signal.aborted) next();
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
+  } finally { res.off('close', abort); }
+});
+const sendAlternateLayout = (req, res) => res.json({ ...res.locals.alternateLayout,
+  capabilities: printCapabilities(req.user.userId), generator: getPrintGeneratorStatus() });
+const prepareAlternateLayout = lookupDeckId => route((req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  const result = createAlternatePrintLayout(req.user.userId, lookupDeckId(req), req.params.jobId, req.body || {});
+  res.status(result.isExisting ? 200 : 202).json(result);
+});
+router.post('/:deckId/print-jobs/:jobId/alternate-layout/preview', verifyAlternateLayout(deckId), requireAuth, sendAlternateLayout);
+router.post('/:deckId/print-jobs/:jobId/alternate-layout', prepareAlternateLayout(deckId));
 router.get('/:deckId/print-jobs/:jobId/artifacts/:artifactId', verifyOwnedPdf(deckId), requireAuth, sendVerifiedPdf);
 router.post('/:deckId/print-jobs/:jobId/artifacts/:artifactId/download', route((req, res) => {
   res.set('Cache-Control', 'private, no-store');
@@ -221,6 +244,8 @@ standalonePrintRouter.delete('/jobs/:jobId/artifacts', route((req, res) => {
 standalonePrintRouter.get('/jobs/:jobId/manifest', route((req, res) => {
   res.set('Cache-Control', 'private, no-store').json(ownedPrintManifest(req.user.userId, null, req.params.jobId));
 }));
+standalonePrintRouter.post('/jobs/:jobId/alternate-layout/preview', verifyAlternateLayout(() => null), requireAuth, sendAlternateLayout);
+standalonePrintRouter.post('/jobs/:jobId/alternate-layout', prepareAlternateLayout(() => null));
 standalonePrintRouter.get('/jobs/:jobId/artifacts/:artifactId', verifyOwnedPdf(() => null), requireAuth, sendVerifiedPdf);
 standalonePrintRouter.post('/jobs/:jobId/artifacts/:artifactId/download', route((req, res) => {
   res.set('Cache-Control', 'private, no-store');

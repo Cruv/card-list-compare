@@ -23,6 +23,8 @@ const TITLES = { main: 'Compare lists', share: 'Shared comparison', library: 'De
 
 function keepFocusedControlVisible(event) {
   const target = event.target, workspace = event.currentTarget;
+  // Pointer presses on static content can focus the skip-link target itself.
+  if (target === workspace) return;
   // Browsers scroll focus into the viewport without accounting for fixed bars.
   // Measure after input-driven layout changes, such as the print review footer.
   requestAnimationFrame(() => {
@@ -43,6 +45,13 @@ function keepFocusedControlVisible(event) {
       ? rect.top - top : rect.bottom - bottom;
     window.scrollBy({ top: delta, behavior: 'auto' });
   });
+}
+
+function skipToWorkspace(event) {
+  event.preventDefault();
+  const workspace = document.getElementById('workspace-main');
+  workspace?.focus({ preventScroll: true });
+  workspace?.scrollIntoView({ block: 'start', behavior: 'auto' });
 }
 
 function navigateFromShell(event, onNavigate) {
@@ -76,7 +85,7 @@ export default function AppShell({ children, route, version, onWhatsNew, onShowF
   }, []);
   const secondary = user?.isAdmin ? [...SECONDARY, { route: 'admin', href: '#admin', label: 'Administration', icon: 'shield' }] : SECONDARY;
   return <div className="workspace-shell">
-    <a className="sr-only sr-only-focusable" href="#workspace-main" onClick={event => { event.preventDefault(); document.getElementById('workspace-main')?.focus(); }}>Skip to content</a>
+    <a className="sr-only sr-only-focusable" href="#workspace-main" onClick={skipToWorkspace}>Skip to content</a>
     <aside className="shell-sidebar"><a href="#" className="shell-brand" aria-label="Card List Compare home" onClick={navigateFromShell}><span className="shell-brand-mark"><Icon name="cards" size={26} /></span><span>Card List<span className="shell-brand-second">Compare</span></span></a><div className="shell-nav-label">Workspace</div><nav aria-label="Main navigation">{PRIMARY.map(item => <NavItem key={item.route} item={item} route={route} />)}</nav><div className="shell-nav-label shell-nav-label--secondary">Manage</div><nav aria-label="Workspace settings">{secondary.map(item => <NavItem key={item.route} item={item} route={route} />)}</nav><div className="shell-sidebar-footer"><NavItem item={HELP} route={route} /><button className="shell-version" onClick={onWhatsNew}>What’s new · v{version}</button></div></aside>
     <div className="shell-workspace"><header className="shell-topbar"><span className="shell-context"><span className="shell-context-brand">CLC<span>/</span></span>{TITLES[route] || 'Compare lists'}</span><AuthBar onShowForgotPassword={onShowForgotPassword} /></header><main id="workspace-main" className={`shell-content shell-content--${route}`} tabIndex={-1} onFocusCapture={keepFocusedControlVisible} onInputCapture={keepFocusedControlVisible}>{['printList', 'printStation'].includes(route) && <nav className="shell-section-nav" aria-label="Print navigation">{PRINT_NAV.map(item => <NavItem key={item.route} item={item} route={route} exact />)}</nav>}{children}</main></div>
     <nav className="shell-mobile-nav" aria-label="Mobile navigation">{PRIMARY.map(item => <NavItem key={item.route} item={item} route={route} compact />)}<button className={`shell-nav-item${[...secondary, HELP].some(item => item.route === route) ? ' is-active' : ''}`} onClick={event => { event.currentTarget.focus(); setMoreOpen(true); }} aria-expanded={moreOpen} aria-haspopup="dialog"><Icon name="more" /><span>More</span></button></nav>

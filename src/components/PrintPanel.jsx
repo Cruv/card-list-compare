@@ -4,9 +4,10 @@ import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, get
 import DeckInput from './DeckInput';
 import PrintPaperProof from './PrintPaperProof';
 import PrintArtPicker from './PrintArtPicker';
+import PrintRegenerationDialog from './PrintRegenerationDialog';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
-import { batchDetailRefresh, loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
+import { batchDetailRefresh, loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printCreationRequestKey, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
 import { CROWNED_A4_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, PRINT_PAPER, availablePrintPaperChoices, isCrownedPrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
@@ -58,11 +59,6 @@ function snapshotLabel(snapshot) {
   const time = snapshot.created_at || snapshot.createdAt;
   const date = time ? new Date(time.endsWith('Z') ? time : `${time}Z`).toLocaleString() : '';
   return `${snapshot.nickname || `Snapshot #${snapshot.id}`} · ${date}`;
-}
-
-function requestId() {
-  // getRandomValues also works on a household HTTP LAN origin without randomUUID.
-  return Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function mergePrintJobs(current, incoming, focusedId) {
@@ -130,6 +126,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [connectionError, setConnectionError] = useState('');
   const [notice, setNotice] = useState('');
   const [startingDownload, setStartingDownload] = useState(null);
+  const [regeneratingJob, setRegeneratingJob] = useState(null);
   const [pendingRequest, setPendingRequest] = useState(storedRequest);
   const [recordingJobId, setRecordingJobId] = useState(null);
   const [recordError, setRecordError] = useState(null);
@@ -503,11 +500,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         const request = standalone ? {
           mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
           excludeBasicLands, additionalCardText, excludedCards, printingOverrides,
-          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan)), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: requestId(),
+          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan)), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
         } : {
           mode, targetSnapshotId: plan.target.id, baselineSnapshotId: plan.source?.id,
           artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, printingOverrides, expectedPlanHash: plan.planHash,
-          ...printPaperRequest(printPaperChoice(plan)), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: requestId(),
+          ...printPaperRequest(printPaperChoice(plan)), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
         };
         // Save before POST: a reload or lost response must recover this exact
         // request instead of creating a second potentially queued batch.
@@ -569,8 +566,16 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     } catch (err) { setError(err.message); }
   }
 
+  function showRegeneratedJob(job, existing) {
+    setJobs(old => mergePrintJobs(old, [job], job.id));
+    setFocusedJobId(job.id);
+    setRegeneratingJob(null);
+    setError('');
+    setNotice(existing ? 'Recovered the saved alternate-layout batch.' : 'Alternate-layout batch created. Your PDFs will appear below.');
+  }
+
   async function recordPrintedProxies(job) {
-    if (busy) return;
+    if (busy || job.alternateLayoutOf) return;
     setBusy(true);
     setRecordError(null);
     try {
@@ -589,8 +594,15 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     const canQueueBatch = capabilities.canQueue && !punchBatch;
     const queueUnavailable = job.state === 'ready' && canQueueBatch ? printPaperUnavailable(job, station) : '';
     const companionWait = mixedPrintCompanionWait(job, station);
+    const sourceBatchId = job.alternateLayoutOf?.id;
+    const confirmationBatchId = job.confirmationJobId || sourceBatchId;
+    const batchLink = (id, label) => <a href={standalone ? `#print-list?batch=${encodeURIComponent(id)}` : `#library/${deckId}?printBatch=${encodeURIComponent(id)}`} onClick={event => {
+      if (!event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) setFocusedJobId(id);
+    }}>{label} {id.slice(0, 8)}</a>;
+    const canConfirm = job.manifestSha256 && !sourceBatchId;
     return <article className="print-panel-card print-batch" key={job.id}>
       <div className="print-panel-heading"><div><h4>{job.deckName || 'Print batch'}</h4><p className="print-panel-meta">{job.totalCopies} cards · {printPaperLabel(job)}{job.registrationMarks === false && ' · No registration marks'} · Batch {job.id.slice(0, 8)}</p></div><span className={`print-panel-status print-batch-status print-batch-status--${job.state}`}>{STATES[job.state] || job.state}</span></div>
+      {sourceBatchId && <p className="print-panel-meta">Alternate layout of {batchLink(sourceBatchId, 'source batch')}. Confirm usable copies on {confirmationBatchId === sourceBatchId ? 'that batch' : batchLink(confirmationBatchId, 'original batch')}.</p>}
       {job.state === 'preparing' && <p>Creating your PDFs{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets ready` : '…'}</p>}
       {job.state === 'ready' && (punchBatch
         ? <p>Download the PDFs and print at Actual Size (100%). <a href="#guide/dahle-punch">Dahle cutting guide</a></p>
@@ -600,14 +612,15 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       {job.proxyStagingError && <p className="print-panel-error" role="alert">Pending proxy review: {job.proxyStagingError}</p>}
       <WaitingPrintPacket job={job} />
       {job.state === 'uncertain' && <p>The Mac needs to reconcile this batch with Epson’s queue. Check <a href="#print-station">Printer</a> before creating another batch.</p>}
-      {job.state === 'completed' && <p>Printing finished according to the spooler. Check the sheets, then confirm the usable copies.</p>}
+      {job.state === 'completed' && <p>Printing finished according to the spooler. Check the sheets, then confirm the usable copies{sourceBatchId && ' on the original batch'}.</p>}
       {job.state === 'canceled' && job.frontsCompleted && job.backsCanceled > 0 && <p>The fronts finished, and remaining backs were canceled. This job did not print every planned face.</p>}
       {job.cancelRequested && <p>Cancellation requested. Follow any paper-clearance instructions in <a href="#print-station">Printer</a>.</p>}
       {queueUnavailable && <p className="print-panel-meta">{queueUnavailable} You can download the PDFs.</p>}
       <div className="print-panel-actions">
         {job.state === 'ready' && canQueueBatch && <button className="btn btn-primary" type="button" disabled={busy || !!queueUnavailable} onClick={() => jobAction(standalone ? queueStandalonePrintJob : queuePrintJob, job)}>Send to Mac</button>}
         {(job.artifacts || []).filter(a => a.downloadUrl).map(artifact => <button className="btn btn-secondary btn-sm" type="button" key={artifact.id} title={artifact.label || undefined} disabled={!!startingDownload} onClick={() => download(artifact, job)}>{startingDownload === artifact.downloadUrl ? 'Starting download…' : `Download ${artifactName(artifact)} PDF${artifact.kind === 'dfc' ? ' · fronts + backs' : ''}`}</button>)}
-        {job.manifestSha256 && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => recordPrintedProxies(job)}>Confirm usable copies</button>}
+        {job.manifestSha256 && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} aria-haspopup="dialog" onClick={() => setRegeneratingJob(job)}>Regenerate with another layout</button>}
+        {canConfirm && <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => recordPrintedProxies(job)}>Confirm usable copies</button>}
       </div>
       {recordError?.jobId === job.id && <p className="print-panel-error" role="alert">{recordError.message}</p>}
       {recordingJobId === job.id && <section className="mana-sync" aria-label={`Printed proxies for batch ${job.id}`}>
@@ -616,7 +629,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       </section>}
       <details className="print-batch-details"><summary>Batch details and options</summary>
         <p className="print-panel-meta">{new Date(job.createdAt).toLocaleString()} · {job.mode === 'adhoc' ? job.comparison?.mode === 'changes' ? 'Compared lists · changes' : 'Independent print list' : job.mode === 'changes' ? `Snapshots #${job.source?.id} → #${job.target?.id}` : `Snapshot #${job.target?.id}`} · {job.artSource === 'saved-mpc' ? job.printingOverrideCount ? 'MPC + selected Scryfall art' : 'Saved MPC artwork' : 'Scryfall artwork'}{job.printingOverrideCount ? ` · ${job.printingOverrideCount} art selections` : ''}</p>
-        {job.manifestSha256 && <ProxyConfirmationStatus items={confirmationItems.filter(item => item.printJobId === job.id)} />}
+        {canConfirm && <ProxyConfirmationStatus items={confirmationItems.filter(item => item.printJobId === job.id)} />}
         <div className="print-panel-actions">
           {canCancelReviewedPrintJob(job) && (['preparing', 'ready', 'queued'].includes(job.state) ? <button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => jobAction(standalone ? cancelStandalonePrintJob : cancelPrintJob, job)}>Cancel batch</button> : <a className="btn btn-secondary btn-sm" href="#print-station">Manage cancellation in Printer</a>)}
           {job.canCancelBacks && <a className="btn btn-secondary btn-sm" href="#print-station">Manage remaining backs</a>}
@@ -764,5 +777,6 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       <a href="#print-station">Open Printer</a>
     </details>
     {selectedArtCard && <PrintArtPicker card={selectedArtCard} currentScryfallId={selectedArtChoice?.scryfallId || printingOverrides.find(item => item.selectionKey === selectedArtCard.selectionKey)?.scryfallId || selectedArtCard.scryfallId} stagedSaveToDeck={selectedArtChoice?.saveToDeck} onChoose={pickArt} onClose={() => setSelectedArtCard(null)} canSaveToDeck={canSaveArtToDeck} disabled={busy || creationPending || newDeckVersionNeedsReview} />}
+    {regeneratingJob && <PrintRegenerationDialog job={regeneratingJob} deckId={deckId} availablePaper={availablePaper} onClose={() => setRegeneratingJob(null)} onCreated={showRegeneratedJob} />}
   </div>;
 }

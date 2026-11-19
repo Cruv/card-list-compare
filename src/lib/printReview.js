@@ -122,6 +122,11 @@ export function printReviewIndexes(plan, options = {}, ownershipRows = []) {
   return filtered.map(card => card.index);
 }
 
+export function printCreationRequestKey() {
+  // getRandomValues also works on a household HTTP LAN origin without randomUUID.
+  return Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
 export function loadPrintCreationIntent(storage, key) {
   try {
     const request = JSON.parse(storage.getItem(key));

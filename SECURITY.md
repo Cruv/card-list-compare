@@ -155,7 +155,10 @@ stale requests receive only that owner's current snapshot and cannot write. Unve
 requests are rejected, including from older open tabs. Network failures and queued local
 edits do not authorize rebasing a draft onto newer choices without explicit review.
 
-PDF plans, jobs, manifests and downloads require the owning user. A PDF download starts
+PDF plans, jobs, manifests and downloads require the owning user. Alternate layout reviews
+and creation bind the source batch, owner and manifest checksum. The worker verifies the
+exact saved artwork bytes before generating a separate PDF batch. Only the source batch
+can publish a usable-copy confirmation plan. A PDF download starts
 with an authenticated request for the exact artifact, then the browser streams the
 attachment with a one-use, 60-second HttpOnly SameSite cookie scoped to the download URL.
 That URL contains an opaque ID. Redemption checks the session, job owner and artifact

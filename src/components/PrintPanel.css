@@ -98,6 +98,21 @@
 .print-batch-status--failed { color: var(--text-destructive); border-color: var(--border-destructive); }
 .print-batch-details { border-top: 1px solid var(--border-color); padding-top: var(--space-sm); }
 .print-batch-details .print-panel-confirmation { margin: var(--space-sm) 0; }
+
+.print-regeneration-dialog.confirm-modal { width: min(560px, calc(100% - 32px)); }
+.print-regeneration-dialog p { color: var(--text-secondary); font-size: var(--fs-sm); line-height: 1.5; }
+.print-regeneration-dialog form { display: grid; gap: var(--space-sm); margin-top: var(--space-md); }
+.print-regeneration-dialog .confirm-modal-actions { margin-top: var(--space-sm); }
+.print-regeneration-dialog .print-panel-error p, .print-regeneration-dialog p.print-panel-error { color: var(--text-destructive); }
+.print-regeneration-dialog .print-panel-error { white-space: normal; }
+.print-regeneration-dialog .print-panel-error button { margin-top: var(--space-xs); }
+.print-regeneration-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-sm); margin: var(--space-xs) 0; }
+.print-regeneration-counts > div { border: 1px solid var(--border-color); border-radius: 8px; padding: var(--space-sm); }
+.print-regeneration-counts dt { font-size: var(--fs-sm); color: var(--text-secondary); }
+.print-regeneration-counts dd { margin: 0; font-weight: 700; }
+.print-regeneration-dialog ul { padding-left: 1.4rem; margin: var(--space-xs) 0; }
+.print-regeneration-cards { font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.print-regeneration-cards > li + li { margin-top: var(--space-xs); }
 .print-history, .print-help { border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-secondary); padding: 14px 18px; }
 .print-help p { font-size: var(--fs-sm); }
 .print-filter-options { border: 1px solid var(--border-color); border-radius: 9px; padding: 6px 12px; }

@@ -80,6 +80,7 @@ function retainImage(userId, jobId, original) {
 export function stagePrintJob(userId, jobId) {
   const job = get('SELECT * FROM print_jobs WHERE id = ? AND user_id = ?', [jobId, userId]);
   if (!job) fail('Print job not found.', 404);
+  if (job.source_job_id) fail('An alternate layout uses the source batch for usable-copy confirmation.', 409);
   const manifest = ownedPrintManifest(userId, job.tracked_deck_id, jobId);
   if (manifest.jobId !== jobId || manifest.requesterId !== userId || !Array.isArray(manifest.copies)
     || !manifest.copies.length || manifest.copies.length > MAX_PRINT_COPIES

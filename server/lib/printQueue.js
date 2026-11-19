@@ -5,13 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync, readdirSync, statSync, realpathSync } from 'node:fs';
 import { get, all, run, runTransaction } from '../db.js';
 import { buildPrintPlan, publicPrintPlan, printError, sha256 } from './printQueuePlan.js';
-import { preparePrintImages } from './printQueueImages.js';
+import { frozenManifest, inspectFrozenPrintArtwork, prepareFrozenPrintImages, preparePrintImages } from './printQueueImages.js';
 import { hashPrintPdf, printFileFingerprint } from './printPdfHash.js';
-import { generatePrintPdfs, getPrintGeneratorStatus, prunePrintGenerator } from './printGenerator.js';
+import { generatePrintPdfs, getPrintGeneratorStatus, PRINT_RECIPES, prunePrintGenerator } from './printGenerator.js';
 import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId, missingCancellationStep } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { DAHLE_A4_PRESET, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
+import { DAHLE_A4_PRESET, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, newPrintPaperSelection, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -35,6 +35,7 @@ const NEVER_EXPIRE = ['preparing', 'queued', 'backs_pending', ...ACTIVE_STATES];
 let workerActive = false;
 let timer;
 let lastClaim = Promise.resolve();
+let activeAlternateReviews = 0;
 const controllers = new Map();
 const now = () => new Date().toISOString();
 const retentionExpiry = () => new Date(Date.now() + PRINT_RETENTION_DAYS * 86400000).toISOString();
@@ -42,6 +43,7 @@ const leaseExpiry = () => new Date(Date.now() + LEASE_MS).toISOString();
 const json = value => JSON.stringify(value);
 const parse = value => JSON.parse(value || 'null');
 const jobDir = id => join(PRINT_JOBS_DIR, id);
+const retainedArtworkDir = userId => join(dataDir, 'manasync-artwork', String(userId));
 
 export function printCapabilities(userId) {
   const token = process.env.PRINT_STATION_TOKEN || '';
@@ -121,6 +123,9 @@ function artifactRecord(row, artifact, station) {
         : `/api/decks/${row.tracked_deck_id}/print-jobs/${row.id}/artifacts/${artifact.id}`,
   };
 }
+function alternateLayoutOf(row, plan) {
+  return row.source_job_id ? { id: row.source_job_id, manifestSha256: plan.sourceManifestSha256 } : undefined;
+}
 export function formatPrintJob(row, station = false) {
   const plan = parse(row.plan_json), manifest = parse(row.manifest_json);
   const publicPlan = publicPrintPlan(plan);
@@ -132,6 +137,7 @@ export function formatPrintJob(row, station = false) {
     source: publicPlan.source, target: publicPlan.target,
     ...(plan.list ? { list: publicPlan.list } : {}),
     ...(plan.comparison ? { comparison: publicPlan.comparison } : {}),
+    ...(row.source_job_id ? { alternateLayoutOf: alternateLayoutOf(row, plan), confirmationJobId: plan.confirmationJobId || row.source_job_id } : {}),
     ...(plan.sheetPacking ? { sheetPacking: plan.sheetPacking, requiresMixedPrintSheets: true } : {}),
     createdAt: row.created_at, updatedAt: row.updated_at, expiresAt: row.expires_at,
     queueOnReady: !!row.queue_requested, error: row.error, proxyStagingError: row.proxy_staging_error || null, progress: parse(row.progress_json),
@@ -148,6 +154,29 @@ export function listPrintJobs(userId, deckId) {
   return all('SELECT * FROM print_jobs WHERE user_id = ? AND tracked_deck_id IS ? ORDER BY created_at DESC, id DESC LIMIT 50', [userId, deckId]).map(row => formatPrintJob(row));
 }
 
+function replayPrintRequest(userId, requestKey, requestHash) {
+  const existing = get('SELECT * FROM print_jobs WHERE user_id = ? AND request_key = ?', [userId, requestKey]);
+  if (!existing) return null;
+  if (existing.request_hash !== requestHash) throw printError('This request key already belongs to a different print request', 409);
+  return { job: formatPrintJob(existing), isExisting: true };
+}
+
+function savePrintRequest(userId, deckId, plan, { requestKey, requestHash, queueOnReady = false, sourceJobId = null }) {
+  const pending = get("SELECT COUNT(*) AS count FROM print_jobs WHERE user_id = ? AND state = 'preparing'", [userId]);
+  if (pending.count >= 2) throw printError('Two PDFs are already being prepared for your account. Retry when one finishes generating.', 429);
+  if (get("SELECT COUNT(*) AS count FROM print_jobs WHERE state = 'preparing'").count >= 10) throw printError('The PDF preparation queue is full', 429);
+  // An alternate-layout request must leave the source and its files untouched.
+  if (!sourceJobId) cleanupPrintArtifacts();
+  if (totalStorage() + PRINT_WORKING_RESERVE_BYTES > STORAGE_MAX_BYTES) throw printError('Print storage lacks the 5 GiB working allowance. Remove or expire completed artifacts before preparing more PDFs.', 507);
+  const id = crypto.randomUUID(), timestamp = now();
+  const requester = get('SELECT username FROM users WHERE id = ?', [userId]);
+  plan.requesterName = (requester?.username || 'Unknown requester').slice(0, 120);
+  runTransaction([{ sql: `INSERT INTO print_jobs (id, user_id, tracked_deck_id, request_key, request_hash, plan_json, queue_requested, created_at, updated_at, source_job_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, params: [id, userId, deckId, requestKey, requestHash, json(plan), queueOnReady ? 1 : 0, timestamp, timestamp, sourceJobId] }]);
+  triggerWorker();
+  return { job: getOwnedPrintJob(userId, deckId, id), isExisting: false };
+}
+
 export async function createPrintJob(userId, deckId, request, assertQueuePaper = () => {}) {
   const requestKey = safeId(request.idempotencyKey, 'idempotencyKey');
   const { paperSize, printPreset } = printPaperSelection(request.paperSize, request.printPreset);
@@ -160,19 +189,13 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
   const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady,
     ...(paperSize === 'letter' ? {} : { paperSize }), ...(printPreset ? { printPreset } : {}),
     ...(registrationMarks ? {} : { registrationMarks }) }));
-  const replay = () => {
-    const existing = get('SELECT * FROM print_jobs WHERE user_id = ? AND request_key = ?', [userId, requestKey]);
-    if (!existing) return null;
-    if (existing.request_hash !== requestHash) throw printError('This request key already belongs to a different print request', 409);
-    return { job: formatPrintJob(existing), isExisting: true };
-  };
-  const existing = replay();
+  const existing = replayPrintRequest(userId, requestKey, requestHash);
   if (existing) return existing;
   // New plans enforce current layouts. Previously accepted requests replay above.
   const plan = await buildPrintPlan(userId, deckId, request);
   // Two concurrent requests can resolve metadata together. Recheck the durable
   // receipt after that await before inserting or consuming pending-job capacity.
-  const concurrent = replay();
+  const concurrent = replayPrintRequest(userId, requestKey, requestHash);
   if (concurrent) return concurrent;
   if (plan.planHash !== request.expectedPlanHash) throw printError('Snapshots or artwork changed after preview. Review a fresh plan.', 409);
   if (!plan.totalCopies) throw printError('This comparison has no copies to print');
@@ -182,21 +205,127 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
     assertCanQueue(userId);
     assertQueuePaper(printJobPaper(plan));
   }
-  const pending = get("SELECT COUNT(*) AS count FROM print_jobs WHERE user_id = ? AND state = 'preparing'", [userId]);
-  if (pending.count >= 2) throw printError('Two PDFs are already being prepared for your account. Retry when one finishes generating.', 429);
-  if (get("SELECT COUNT(*) AS count FROM print_jobs WHERE state = 'preparing'").count >= 10) throw printError('The PDF preparation queue is full', 429);
-  cleanupPrintArtifacts();
-  if (totalStorage() + PRINT_WORKING_RESERVE_BYTES > STORAGE_MAX_BYTES) throw printError('Print storage lacks the 5 GiB working allowance. Remove or expire completed artifacts before preparing more PDFs.', 507);
-  const id = crypto.randomUUID(), timestamp = now();
-  const requester = get('SELECT username FROM users WHERE id = ?', [userId]);
-  plan.requesterName = (requester?.username || 'Unknown requester').slice(0, 120);
   // Sheet decoration is chosen at generation time. Keep the reviewed card plan hash stable.
   if (!registrationMarks) plan.registrationMarks = false;
-  run(`INSERT INTO print_jobs (id, user_id, tracked_deck_id, request_key, request_hash, plan_json, queue_requested, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, userId, deckId, requestKey, requestHash, json(plan), request.queueOnReady ? 1 : 0, timestamp, timestamp]);
-  triggerWorker();
-  return { job: getOwnedPrintJob(userId, deckId, id), isExisting: false };
+  return savePrintRequest(userId, deckId, plan, { requestKey, requestHash, queueOnReady: !!request.queueOnReady });
 }
+
+function alternateLayoutInput(request, creating = false) {
+  const allowed = ['paperSize', 'printPreset', 'registrationMarks', ...(creating ? ['expectedPlanHash', 'idempotencyKey'] : [])];
+  if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).some(key => !allowed.includes(key))) {
+    throw printError('Supply only the alternate paper layout and registration marks');
+  }
+  if (request.paperSize === undefined) throw printError('Select a paper layout for the alternate PDF');
+  const select = creating ? printPaperSelection : newPrintPaperSelection;
+  const selection = select(request.paperSize, request.printPreset);
+  if (request.registrationMarks !== undefined && typeof request.registrationMarks !== 'boolean') throw printError('registrationMarks must be true or false');
+  return { ...selection, registrationMarks: selection.printPreset !== DAHLE_A4_PRESET && request.registrationMarks !== false };
+}
+
+function buildAlternateLayout(source, selection) {
+  const manifest = frozenManifest(source);
+  const { paperSize, printPreset, recipeId, registrationMarks } = selection;
+  const doubleFacedCopies = manifest.copies.filter(copy => copy.back).length;
+  const ordinaryCopies = manifest.copies.length - doubleFacedCopies;
+  const { planHash: _oldHash, paperSize: _oldPaper, printPreset: _oldPreset, registrationMarks: _oldMarks,
+    sheetPacking: _oldPacking, ...frozenCards } = manifest.plan;
+  const planHash = sha256(json({ type: 'alternate-layout', sourceJobId: source.id, sourceManifestSha256: source.manifest_sha256, ...selection }));
+  const plan = { ...frozenCards, paperSize, ...(printPreset ? { printPreset } : {}), registrationMarks,
+    ...(ordinaryCopies && doubleFacedCopies ? { sheetPacking: DOUBLE_FACED_FIRST } : {}),
+    totalCopies: manifest.copies.length, ordinaryCopies, doubleFacedCopies, readyToGenerate: true, targetRecipeId: recipeId,
+    sourceManifestSha256: source.manifest_sha256, confirmationJobId: source.source_job_id
+      ? manifest.plan.confirmationJobId || source.source_job_id : source.id, planHash };
+  const capacity = PRINT_PRESETS[printPreset]?.cardsPerSheet ?? PRINT_RECIPES[paperSize].cardsPerSheet;
+  // Mixed sheets fill unused back-packet positions with ordinary fronts.
+  return { plan, layout: { frontSheets: Math.ceil(plan.totalCopies / capacity), backSheets: Math.ceil(doubleFacedCopies / capacity) } };
+}
+
+const frozenPrintingKey = card => json([card.displayName, card.setCode, card.collectorNumber, card.scryfallId]);
+
+function alternateReviewedCards(copies, sourceCards, failures) {
+  const sourceByPrinting = new Map((Array.isArray(sourceCards) ? sourceCards : []).map(card => [frozenPrintingKey(card), card]));
+  const failuresByCopyFace = new Map(failures.flatMap(result => result.copyIds.map(id => [json([id, result.face]), result.reason])));
+  const byArtwork = new Map();
+  for (const copy of copies) {
+    const printing = frozenPrintingKey(copy);
+    const sides = copy.back ? ['front', 'back'] : ['front'];
+    const key = json([printing, ...sides.map(side => {
+      const image = copy[side];
+      return [image?.source, image?.identifier, image?.sha256, image?.size];
+    })]);
+    let card = byArtwork.get(key);
+    if (!card) {
+      const original = sourceByPrinting.get(printing);
+      const faces = sides.map((face, index) => ({ face,
+        name: original?.faces?.find(value => value.face === face)?.name || original?.faceNames?.[index] || (face === 'front' ? copy.displayName : null),
+        source: copy[face]?.source || null, identifier: copy[face]?.identifier || null, status: 'ready', error: null }));
+      card = { selectionKey: sha256(key), displayName: copy.displayName, setCode: copy.setCode, collectorNumber: copy.collectorNumber,
+        scryfallId: copy.scryfallId, oracleId: copy.oracleId, isDFC: !!copy.back, faces, quantity: 0 };
+      byArtwork.set(key, card);
+    }
+    card.quantity++;
+    for (const face of card.faces) {
+      const error = failuresByCopyFace.get(json([copy.id, face.face]));
+      if (error) Object.assign(face, { status: 'error', error });
+    }
+  }
+  return [...byArtwork.values()];
+}
+
+export async function reviewAlternatePrintLayout(userId, deckId, sourceJobId, request, signal) {
+  const source = ownerJob(userId, deckId, sourceJobId);
+  const { plan, layout } = buildAlternateLayout(source, alternateLayoutInput(request));
+  if (activeAlternateReviews >= 4) throw printError('Other artwork reviews are in progress. Try again shortly.', 429);
+  const timeout = AbortSignal.timeout(90_000);
+  activeAlternateReviews++;
+  try {
+    const { copies, failures } = await inspectFrozenPrintArtwork(source, jobDir(sourceJobId), retainedArtworkDir(userId),
+      signal ? AbortSignal.any([signal, timeout]) : timeout);
+    const current = ownerJob(userId, deckId, sourceJobId);
+    if (current.manifest_sha256 !== source.manifest_sha256 || current.manifest_json !== source.manifest_json) {
+      throw printError('The saved batch manifest changed during review. Open the batch again.', 409);
+    }
+    const artworkFailures = failures.map(({ copyIds: _copyIds, ...failure }) => failure);
+    const reviewed = publicPrintPlan({ ...plan, readyToGenerate: failures.length === 0, missingArtwork: artworkFailures,
+      resolvedCards: alternateReviewedCards(copies, plan.resolvedCards, failures) });
+    if (failures.length) delete reviewed.planHash;
+    return { plan: reviewed,
+      layout, artworkFailures, sourceJobId, sourceManifestSha256: source.manifest_sha256 };
+  } catch (error) {
+    if (timeout.aborted) throw printError('Exact artwork verification took too long. Try reviewing the layout again.', 503);
+    throw error;
+  } finally { activeAlternateReviews--; }
+}
+
+export function createAlternatePrintLayout(userId, deckId, sourceJobId, request) {
+  const source = ownerJob(userId, deckId, sourceJobId);
+  const { recipeId: _recipeId, ...layout } = alternateLayoutInput(request, true);
+  const requestKey = safeId(request.idempotencyKey, 'idempotencyKey');
+  if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Review the alternate layout before preparing its PDF');
+  const requestHash = sha256(json({ type: 'alternate-layout', deckId, sourceJobId, expectedPlanHash: request.expectedPlanHash, ...layout }));
+  const existing = replayPrintRequest(userId, requestKey, requestHash);
+  if (existing) return existing;
+  const { plan } = buildAlternateLayout(source, { ...newPrintPaperSelection(layout.paperSize, layout.printPreset),
+    registrationMarks: layout.registrationMarks });
+  if (plan.planHash !== request.expectedPlanHash) throw printError('The saved batch or requested layout changed. Review the alternate layout again.', 409);
+  return savePrintRequest(userId, deckId, plan, { requestKey, requestHash, sourceJobId });
+}
+
+function assertRenderedArtwork(copies, images) {
+  if (!Array.isArray(images) || images.length !== copies.length) throw printError('The PDF generator did not acknowledge every saved physical card copy', 409);
+  const expected = new Map(copies.map(copy => [copy.id, copy]));
+  for (const image of images) {
+    const saved = expected.get(image?.id);
+    if (!saved) throw printError('The PDF generator reported an unexpected physical card copy', 409);
+    for (const face of ['front', 'back']) {
+      if (!!image[face] !== !!saved[face] || image[face]?.sha256 !== saved[face]?.sha256) {
+        throw printError(`Cannot regenerate PDFs. ${saved.displayName}, ${face}: the staged artwork changed during PDF generation`, 409);
+      }
+    }
+    expected.delete(image.id);
+  }
+}
+
 function triggerWorker(delayMs = 10) {
   if (!timer) { timer = setTimeout(() => { timer = null; void processNextPrintJob(); }, delayMs); timer.unref?.(); }
 }
@@ -240,8 +369,14 @@ export async function processNextPrintJob() {
     if (!status.available) throw printError(status.fallbackReason || 'PDF generator is unavailable. Retry its update before preparing PDFs.', 503);
     if (totalStorage() + PRINT_WORKING_RESERVE_BYTES > STORAGE_MAX_BYTES) throw printError('Print storage is full; PDF preparation requires a 5 GiB working allowance', 507);
     const plan = parse(row.plan_json);
+    if (row.source_job_id && printJobPaper(plan).recipeId !== plan.targetRecipeId) {
+      throw printError('The selected paper recipe changed. Open the source batch and review the layout again.', 409);
+    }
     mkdirSync(jobDir(row.id), { recursive: true });
-    const copies = await preparePrintImages(plan, jobDir(row.id), progress);
+    const copies = row.source_job_id
+      ? await prepareFrozenPrintImages(ownerJob(row.user_id, row.tracked_deck_id, row.source_job_id), jobDir(row.source_job_id),
+        retainedArtworkDir(row.user_id), jobDir(row.id), progress, controller.signal, plan.sourceManifestSha256)
+      : await preparePrintImages(plan, jobDir(row.id), progress);
     assertActive();
     const maxOutputBytes = MAX_PRINT_JOB_BYTES - totalStorage(jobDir(row.id)) - MANIFEST_RESERVE_BYTES;
     if (maxOutputBytes <= 0) throw printError('Source images exceed the print-job storage limit', 507);
@@ -260,6 +395,10 @@ export async function processNextPrintJob() {
       maxOutputBytes, signal: controller.signal, onProgress: progress,
     });
     assertActive();
+    if (row.source_job_id) {
+      if (generated.recipe?.id !== plan.targetRecipeId) throw printError('The PDF generator returned a different paper recipe. Open the source batch and review the layout again.', 409);
+      assertRenderedArtwork(copies, generated.images);
+    }
     if (totalStorage(jobDir(row.id)) > MAX_PRINT_JOB_BYTES) throw printError('Generated job exceeds the 2 GiB storage limit', 507);
     let outputBytes = 0;
     if (!Array.isArray(generated.artifacts) || generated.artifacts.length > MAX_PRINT_ARTIFACTS) throw printError('Generator returned too many artifacts', 500);
@@ -315,6 +454,7 @@ export async function processNextPrintJob() {
     const withoutPath = image => { const { path: _path, ...record } = image; return record; };
     const manifest = {
       version: 1, jobId: row.id, requesterId: row.user_id, createdAt: row.created_at, plan,
+      ...(row.source_job_id ? { alternateLayoutOf: alternateLayoutOf(row, plan) } : {}),
       copies: copies.map(copy => ({ ...copy, front: withoutPath(copy.front), ...(copy.back ? { back: withoutPath(copy.back) } : {}) })),
       generatorRevision: generated.revision, generatorRuntimeVersion: generated.runtimeVersion, recipe: generated.recipe, artifacts, slots: generated.slots,
       images: generated.images || [], generatedAt: now(),
@@ -330,7 +470,7 @@ export async function processNextPrintJob() {
       ? [{ artifactId: artifact.id, phase: 'fronts', state: 'pending' }, { artifactId: artifact.id, phase: 'backs', state: 'pending', requiresRefeed: true, refeedConfirmed: false }]
       : [{ artifactId: artifact.id, phase: 'fronts', state: 'pending' }]);
     const steps = mixed ? deferredStepOrder(pairedSteps) : pairedSteps;
-    const queued = !!row.queue_requested && printCapabilities(row.user_id).canQueue;
+    const queued = !row.source_job_id && !!row.queue_requested && printCapabilities(row.user_id).canQueue;
     assertActive();
     assertPrintStorageCapacity();
     const queuedAt = queued ? now() : null;
@@ -340,7 +480,7 @@ export async function processNextPrintJob() {
       retentionExpiry(), now(),
       row.queue_requested && !queued ? 'PDF ready; household printing authorization is no longer available' : null, row.id] },
     ...(queued ? [queuedPrintNotificationStatement(row, queuedAt)] : [])]);
-    if (get("SELECT name FROM sqlite_master WHERE type='table' AND name='manasync_pending_proxy_plans'")) {
+    if (!row.source_job_id && get("SELECT name FROM sqlite_master WHERE type='table' AND name='manasync_pending_proxy_plans'")) {
       void import('./pendingProxyPlans.js').then(async bridge => {
         await bridge.stagePreparedPrintJob(row.user_id,row.id);
         await bridge.processPendingProxyPlans();

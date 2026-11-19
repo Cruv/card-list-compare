@@ -109,6 +109,29 @@ const confirm = (quantity=1,operationId=randomUUID(),revision=first().pendingPro
 const publish = async () => { await connect(); await plans.processPendingProxyPlans(); return first(); };
 
 describe('native pending proxy plans',() => {
+  it('keeps original confirmations and skips alternate layouts in manual and background staging', async () => {
+    const item = await publish();
+    expect((await confirm(1)).status).toBe('reported');
+    const source = db.get('SELECT * FROM print_jobs WHERE id=?', [jobId]);
+    const original = bridge.listQueue(1);
+    const published = pending.get(item.id);
+    const acquisitions = receipts.size;
+    const alternateId = randomUUID();
+    const manifest = { ...JSON.parse(source.manifest_json), jobId: alternateId };
+    const bytes = JSON.stringify(manifest);
+    db.run(`INSERT INTO print_jobs(id,user_id,tracked_deck_id,source_job_id,request_key,request_hash,plan_json,state,
+      manifest_json,manifest_sha256,created_at,updated_at) VALUES(?,1,1,?,?,'alternate',?,'ready',?,?,'2026-09-10','2026-09-10')`,
+    [alternateId, jobId, randomUUID(), source.plan_json, bytes, hash(bytes)]);
+    expect(() => artwork.stagePrintJob(1, alternateId)).toThrow('uses the source batch');
+    expect(() => artwork.stagePrintJob(2, alternateId)).toThrow('Print job not found');
+    await plans.processPendingProxyPlans();
+    expect(bridge.listQueue(1)).toEqual(original);
+    expect(pending.size).toBe(1);
+    expect(pending.get(item.id)).toEqual(published);
+    expect(receipts.size).toBe(acquisitions);
+    expect(db.get('SELECT proxy_staging_error FROM print_jobs WHERE id=?', [alternateId]).proxy_staging_error).toBeNull();
+  });
+
   it.each(['backs_pending','awaiting_paper_reset'])('retains ManaSync pending plans while native printing is %s',async state => {
     db.run('UPDATE print_jobs SET state=? WHERE id=?',[state,jobId]);
     const item = await publish();

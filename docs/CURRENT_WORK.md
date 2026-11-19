@@ -1,5 +1,12 @@
 # Current work checkpoint
 
+## Saved batch layouts and Print setup scroll
+
+- v2.66.0 starts at `6ca35a3`. Alternate layout generation uses the owned batch’s frozen cards, artwork hashes, and paired faces. It creates a separate PDF batch and preserves the source confirmation and print receipts. See [Print workflow](PRINT_WORKFLOW.md#preparing-cards-and-following-batches).
+- Chrome reproduced the static-content click jump from 3,674 to 58 px on desktop and 5,238 to 53 px on mobile. The fix kept the original positions. The [scroll fixture](../tests/browser/print-setup-scroll.mjs) also checks the layout picker, saving the default, keyboard focus, and intentional navigation.
+- A Chrome run with disposable data and the real PDF worker changed eight paired copies from two US Letter packets to one Dahle A4 packet. It preserved both source artwork hashes, all five source files, six simulated print receipts, parked backs and the original confirmation plan. Household activation and physical printing require separate authorization.
+- Local verification passed 1,538 JavaScript tests, 290 portable companion tests, 14 PDF worker tests, the production build and the deployment contract. Both dependency audits found zero vulnerabilities. Lint reported five existing warnings.
+
 ## v2.65.2 audit follow-up
 
 - v2.65.3 addresses the three findings from `e461625` in one PR. See the [audit follow-up](ROADMAP.md#v2652-audit-follow-up) for reproductions and verification.

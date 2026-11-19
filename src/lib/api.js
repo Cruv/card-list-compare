@@ -532,6 +532,19 @@ export const cancelStandalonePrintJob = jobId =>
 export const expireStandalonePrintArtifacts = jobId =>
   apiFetch(`/print-lists/jobs/${jobId}/artifacts`, { method: 'DELETE' });
 
+const alternatePrintLayoutPath = (deckId, jobId) => {
+  const jobs = deckId == null ? '/print-lists/jobs' : `/decks/${deckId}/print-jobs`;
+  return `${jobs}/${encodeURIComponent(jobId)}/alternate-layout`;
+};
+export const previewAlternatePrintLayout = (deckId, jobId, options, signal, sessionToken) =>
+  apiFetch(`${alternatePrintLayoutPath(deckId, jobId)}/preview`, {
+    method: 'POST', body: JSON.stringify(options), signal, sessionToken, timeout: 90_000,
+  });
+export const createAlternatePrintLayout = (deckId, jobId, options, signal, sessionToken) =>
+  apiFetch(alternatePrintLayoutPath(deckId, jobId), {
+    method: 'POST', body: JSON.stringify(options), signal, sessionToken, timeout: 90_000,
+  });
+
 export async function downloadPrintArtifact(downloadUrl, filename) {
   // URLs come from the authenticated job response, and must stay on this origin.
   if (!/^\/api\/(?:decks\/\d+\/print-jobs|print-lists\/jobs)\/[a-zA-Z0-9-]+\/(?:manifest|artifacts\/[a-zA-Z0-9_-]+)$/.test(downloadUrl)) {

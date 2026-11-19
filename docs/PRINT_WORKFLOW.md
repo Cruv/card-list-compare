@@ -112,6 +112,19 @@ fails if required artwork or a face is missing; it never publishes a partial bat
 Errors and previous batches remain visible after reloading. Downloads include the exact
 batch manifest. **Remove PDFs** releases storage while retaining the batch record.
 
+On a saved batch, choose **Regenerate with another layout** for a tracked deck or a
+standalone list. The new review uses the original quantities, printings and paired artwork.
+Choose the paper preset and registration marks, where supported, then check the front and
+back sheet counts. CLC verifies each face against the original manifest. It can recover
+expired artwork from retained copies or the frozen provider references when the bytes match.
+If a face cannot be recovered, the review identifies the card and blocks PDF generation.
+
+The result has its own batch ID and a link to the source. The source files, receipts, saved
+backs and usable-copy confirmation stay with the source batch. Use **Retry same layout
+request** after an uncertain response to retrieve the same result. To print a compatible
+layout from the Mac, use its separate queue action after the PDFs are ready. Download Dahle
+PDFs and print them from a PDF viewer at Actual Size.
+
 Printing does not advance the paper-deck marker or declare cards assembled. The household
 handles drying, lamination and cutting outside CLC; drying tracking is explicitly excluded.
 
@@ -218,7 +231,7 @@ buying, proxies do not establish original ownership, and unknown lookup results 
 unknown. Shopping requests one original per missing logical card, deduplicated across
 printings. The print list remains
 the user's selection; inventory never silently removes copies or prevents a deliberate
-reprint. Once the immutable PDFs are prepared, CLC automatically sends their planned copies
+reprint. Once the original batch’s immutable PDFs are prepared, CLC sends its planned copies
 and exact front/back artwork to **ManaSync → Proxy binder → Pending prints**. These plans are
 excluded from available inventory. Confirm usable quantities or dismiss failed/cancelled
 copies in ManaSync or CLC's **Confirm usable copies** panel. A partial confirmation leaves
@@ -687,7 +700,9 @@ but requires active physical submissions to be reconciled first.
 User endpoints under `/api/decks/:deckId` include `POST print-plan`, `POST/GET print-jobs`,
 job status, `/queue`, `/cancel`, `/manifest` and `/artifacts/:artifactId`.
 Standalone routes under `/api/print-lists` provide `POST /plan`, `GET/POST /jobs`, and the
-same actions under `/jobs/:jobId`. Standalone requests carry `mode: "adhoc"`, `listName`
+same actions under `/jobs/:jobId`. Both job routes provide `POST /alternate-layout/preview`
+and `POST /alternate-layout` on an owned source batch. Creation binds the review hash and
+request key to the exact source manifest and chosen layout. Standalone requests carry `mode: "adhoc"`, `listName`
 and `cardText`; their frozen `list` stores the name, full text and text hash, while public
 previews omit the full text. Standalone jobs have a null `deckId`, `source` and `target`.
 Comparison-backed standalone requests also carry `comparison: { beforeText, mode }`,

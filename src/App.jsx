@@ -31,11 +31,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.65.3';
+const APP_VERSION = '2.66.0';
 const WHATS_NEW = [
-  'Keep exact card printings when a paste crosses a card line',
-  'Undo the last import even after a rejected paste',
-  'Keep unsaved deck notes when your sign-in refreshes in another tab',
+  'Generate PDFs in a different layout from an existing batch with its exact saved artwork',
+  'Keep Print setup in view while choosing paper or saving your browser default',
 ];
 
 function getResetToken() {
