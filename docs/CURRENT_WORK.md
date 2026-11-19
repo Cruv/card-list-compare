@@ -1,5 +1,10 @@
 # Current work checkpoint
 
+## v2.65.2 audit follow-up
+
+- v2.65.3 addresses the three findings from `e461625` in one PR. See the [audit follow-up](ROADMAP.md#v2652-audit-follow-up) for reproductions and verification.
+- Browser checks use intercepted APIs and disposable state. Household activation and physical acceptance require separate authorization.
+
 ## v2.65.1 audit follow-up
 
 - v2.65.2 fixes the three findings from `569367b`. The [audit follow-up](ROADMAP.md#v2651-audit-follow-up) records the reproductions and verification. Earlier roadmap items remain separate.

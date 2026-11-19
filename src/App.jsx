@@ -31,11 +31,11 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.65.2';
+const APP_VERSION = '2.65.3';
 const WHATS_NEW = [
-  'Keep a card’s saved printing when a pasted finish is rejected',
-  'Keep PDF batch status current while viewing older batches',
-  'Pick up a verified sign-in change from another tab without reloading',
+  'Keep exact card printings when a paste crosses a card line',
+  'Undo the last import even after a rejected paste',
+  'Keep unsaved deck notes when your sign-in refreshes in another tab',
 ];
 
 function getResetToken() {
@@ -60,7 +60,7 @@ const AUTH_ROUTES = {
 };
 
 export default function App() {
-  const { user, loading: authLoading, getSession, isCurrentSession } = useAuth();
+  const { user, loading: authLoading, getSession, isCurrentSession, discardNotesOutsideDeck } = useAuth();
   const { route, shareId, deckShareId, deckId, initialPrintJobId } = useHashRoute();
   const shareScope = useMemo(() => route === 'share' ? { id: shareId } : null, [route, shareId]);
   const [shareLoad, setShareLoad] = useState(null);
@@ -75,6 +75,10 @@ export default function App() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [resetToken, setResetToken] = useState(getResetToken);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+
+  useEffect(() => {
+    discardNotesOutsideDeck(route === 'libraryDeck' ? deckId : null);
+  }, [route, deckId, discardNotesOutsideDeck]);
 
   useEffect(() => {
     const refresh = () => setHandoffRevision(value => value + 1);

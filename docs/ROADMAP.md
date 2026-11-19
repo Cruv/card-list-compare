@@ -139,6 +139,18 @@ All three findings reproduced at [`569367b`](https://github.com/Cruv/card-list-c
 
 Local release verification passed 1,514 JavaScript tests, 290 portable companion tests, the production build and the Compose contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities. The original v2.65.1 Chrome regressions passed again, including native download startup after ticket issuance and the public offline shell.
 
+## v2.65.2 audit follow-up
+
+The three findings below reproduced at [`e461625`](https://github.com/Cruv/card-list-compare/tree/e461625) and were addressed in v2.65.3.
+
+| Reproduced finding | Fix and evidence |
+| --- | --- |
+| An etched clipboard row could merge with an existing foil marker and change the saved printing. | Paste preview checks the clipboard and both boundaries before accepting rows. It preserves the original bytes and explains where to paste when an insertion would alter a partially selected printing. The [Chrome paste fixture](../tests/browser/deck-paste.mjs) checks LF and CRLF, previewed printings and sections, and the exact draft bytes sent to comparison sharing. |
+| Applying a rejected paste overwrote Undo for the previous valid import. | The comparison and library paste editors keep their undo record when Apply leaves the text unchanged. The Chrome paste fixture verifies that Undo restores the exact pre-import draft. |
+| Password rotation in another tab closed the deck page and discarded unsaved notes. | Notes stay available to the same deck owner after session validation. The [two-tab Chrome fixture](../tests/browser/deck-note-auth-tabs.mjs) checks gated controls, saves pinned to the verified bearer, late responses, and draft disposal on sign-out, account changes, or failed validation. |
+
+Local verification passed 1,525 JavaScript tests, 290 portable companion tests, the production build, and the Compose contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities. Chrome covered the three fixes and reran the auth, share, paste, and batch polling regressions.
+
 ## Open — reviewed 2026-09-12
 
 These items were recorded by the 2026-09-12 review; reassess the relevant source before
