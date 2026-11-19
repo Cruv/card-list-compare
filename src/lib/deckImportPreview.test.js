@@ -150,8 +150,81 @@ describe('deck import preview', () => {
     expect(preview.accepted).toMatchObject([{ displayName: 'Sol Ring', isFoil: true }]);
     expect(preview.skipped).toMatchObject([
       { raw: '*E*', reason: 'Unsupported finish (*E*)' },
-      { raw: '1 Opt (ELD) [59]', reason: expect.stringContaining('Would split an existing card printing') },
+      { raw: '1 Opt (ELD) [59]', reason: expect.stringContaining('Would change an existing card printing') },
     ]);
+  });
+
+  it.each(['\n', '\r\n'])('rejects a clipboard finish even when the saved suffix would disguise it (%j)', separator => {
+    const draft = '// Keep this note  \r\n1 Sol Ring (C21) [263] *F*\r\n1 Island\n';
+    const marker = draft.replace(/\r\n/g, '\n').indexOf('*F*');
+    const rejected = '1 Opt (ELD) [59] *E*';
+    const preview = inspectDeckPaste(draft, separator + rejected, marker, marker);
+    expect(preview.text).toBe(draft);
+    expect(preview.replacedText).toBe('');
+    expect(preview.skipped).toEqual([{ line: 3, raw: rejected, reason: 'Unsupported finish (*E*)' }]);
+    expect(preview.accepted.map(row => [row.displayName, row.isFoil])).toEqual([['Sol Ring', true], ['Island', false]]);
+    expect([...parse(preview.text).mainboard.keys()]).toEqual(['sol ring|c21|263|foil', 'island']);
+  });
+
+  it('rejects a standalone unsupported marker joined directly to a saved finish', () => {
+    const draft = '1 Sol Ring (C21) [263] *F*';
+    const marker = draft.indexOf('*F*');
+    const preview = inspectDeckPaste(draft, '*E*', marker, marker);
+    expect(preview.text).toBe(draft);
+    expect(preview.skipped).toEqual([{ line: 1, raw: '*E*', reason: 'Unsupported finish (*E*)' }]);
+    expect(preview.accepted[0]).toMatchObject({ displayName: 'Sol Ring', setCode: 'C21', collectorNumber: '263', isFoil: true });
+  });
+
+  it.each(['\n', '\r\n'])('checks the printed card on either side of a full clipboard row (%j)', separator => {
+    const original = '1 Sol Ring (C21) [263] *F*';
+    const inserted = '1 Opt (ELD) [59]';
+    const trailing = inspectDeckPaste(original, inserted + separator, original.length, original.length);
+    const leading = inspectDeckPaste(original, separator + inserted, 0, 0);
+    for (const preview of [trailing, leading]) {
+      expect(preview.text).toBe(original);
+      expect(preview.replacedText).toBe('');
+      expect(preview.skipped).toMatchObject([{ raw: inserted, reason: expect.stringContaining('Paste at a line boundary') }]);
+      expect([...parse(preview.text).mainboard.keys()]).toEqual(['sol ring|c21|263|foil']);
+    }
+    const atBoundary = inspectDeckPaste(original, inserted + separator, 0, 0);
+    expect(atBoundary.text).toBe(inserted + separator + original);
+    expect(atBoundary.skipped).toEqual([]);
+    expect(atBoundary.accepted.map(row => [row.displayName, row.isFoil])).toEqual([['Opt', false], ['Sol Ring', true]]);
+  });
+
+  it('reports accepted clipboard rows when a rejected finish would still leave a damaged card boundary', () => {
+    const draft = '1 Sol Ring (C21) [263] *F*';
+    const marker = draft.indexOf('*F*');
+    const accepted = '1 Lightning Bolt (M10) [146] *F*';
+    const unsupported = '1 Opt (ELD) [59] *E*';
+    const preview = inspectDeckPaste(draft, `\n${accepted}\n${unsupported}`, marker, marker);
+    expect(preview.text).toBe(draft);
+    expect(preview.skipped).toMatchObject([{ raw: unsupported }, { raw: accepted, reason: expect.stringContaining('Would change an existing card printing') }]);
+    expect(preview.accepted).toMatchObject([{ displayName: 'Sol Ring', isFoil: true }]);
+  });
+
+  it.each([
+    [' Opt', 'Sol', false],
+    ['Mountain', '*F*', false],
+    ['264', '263', true],
+    ['2', '1', true],
+  ])('rejects the fragment %j when it changes a partially pasted printing', (clipboard, marker, select) => {
+    const draft = '1 Sol Ring (C21) [263] *F*';
+    const start = draft.indexOf(marker);
+    const preview = inspectDeckPaste(draft, clipboard, start, select ? start + marker.length : start);
+    expect(preview.skipped).toMatchObject([{ raw: clipboard, reason: expect.stringContaining('select the whole card row') }]);
+    expect(preview.replacedText).toBe('');
+    expect(preview.text).toBe(draft);
+    expect([...parse(preview.text).mainboard.keys()]).toEqual(['sol ring|c21|263|foil']);
+    expect([...parse(preview.text).mainboard.values()][0].quantity).toBe(1);
+  });
+
+  it('applies an inline annotation that preserves the exact parsed printing', () => {
+    const draft = '1 Sol Ring (C21) [263] *F*';
+    const preview = inspectDeckPaste(draft, ' #Ramp', draft.length, draft.length);
+    expect(preview.skipped).toEqual([]);
+    expect(preview.text).toBe(draft + ' #Ramp');
+    expect([...parse(preview.text).mainboard.keys()]).toEqual(['sol ring|c21|263|foil']);
   });
 
   it('keeps existing CSV notes and maybeboard rows byte for byte', () => {

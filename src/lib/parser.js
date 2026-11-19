@@ -324,8 +324,13 @@ export const unsupportedImportFinish = value => typeof value === 'string'
 
 function inspectImportRows(rawText, strictFinish = true) {
   const lines = rawText.split(/\r?\n/);
-  const accepted = [], skipped = [];
-  const skip = (index, reason) => skipped.push({ line: index + 1, raw: lines[index], reason });
+  const accepted = [], skipped = [], rejectedFinishes = [];
+  const skip = (index, reason) => {
+    const row = { line: index + 1, raw: lines[index], reason };
+    skipped.push(row);
+    return row;
+  };
+  const skipFinish = (index, finish) => rejectedFinishes.push(skip(index, `Unsupported finish (${finish})`));
   const add = (index, card, section, sourceSection = section, inlineCommander = false) => accepted.push({ line: index + 1,
     displayName: card.displayName ?? card.name, quantity: card.quantity, setCode: card.setCode,
     collectorNumber: card.collectorNumber, isFoil: card.isFoil, section, sourceSection, inlineCommander });
@@ -338,26 +343,26 @@ function inspectImportRows(rawText, strictFinish = true) {
       const section = cells[columns.sectionIdx]?.toLowerCase();
       const finish = cells[columns.foilIdx];
       if (['maybeboard', 'considering'].includes(section)) { skip(index, 'Maybeboard'); continue; }
-      if (strictFinish && unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
+      if (strictFinish && unsupportedImportFinish(finish)) { skipFinish(index, finish); continue; }
       const row = csvCard(cells, columns);
       if (row) add(index, row.entry, row.sideboard ? 'sideboard' : row.commander ? 'commander' : 'main');
       else skip(index, 'Missing card name or invalid quantity');
     }
-    return { accepted, skipped, lines, csvHeader: header };
+    return { accepted, skipped, rejectedFinishes, lines, csvHeader: header };
   }
 
   for (const { index, section, line } of sectionedLines(lines, ({ index, reason }) => skip(index, reason))) {
     const card = parseLine(line);
     if (strictFinish) {
-      const finish = stripDecorations(line).text.match(/\s(\*[a-z]+\*)\s*$/i)?.[1];
-      if (unsupportedImportFinish(finish)) { skip(index, `Unsupported finish (${finish})`); continue; }
+      const finish = stripDecorations(line).text.match(/(?:^|\s)(\*[a-z]+\*)\s*$/i)?.[1];
+      if (unsupportedImportFinish(finish)) { skipFinish(index, finish); continue; }
     }
     if (!card) { skip(index, 'Invalid card row or quantity'); continue; }
     if (card.isSB && section === 'commander') { skip(index, 'Sideboard card in the commander section'); continue; }
     add(index, card, card.isSB ? 'sideboard' : section, section, card.isCommander);
   }
   skipped.sort((a, b) => a.line - b.line);
-  return { accepted, skipped, lines };
+  return { accepted, skipped, rejectedFinishes, lines };
 }
 
 function previewAppliedRows(rows) {
@@ -399,14 +404,24 @@ function rawTextareaOffset(text, offset) {
   return offset;
 }
 
-function splitsExistingPrinting(draft, prefix, suffix, replacedText, insertion) {
-  if (!insertion.includes('\n') || replacedText.includes('\n')) return false;
-  const before = prefix.slice(prefix.lastIndexOf('\n') + 1);
+function changesBoundaryPrinting(draft, prefix, suffix, replacedText, insertion, appliedRows) {
+  if (!insertion.trim()) return false;
+  const before = prefix.slice(prefix.lastIndexOf('\n') + 1).trim();
   const [after] = suffix.split(/\r?\n/, 1);
-  if (!before.trim() || !after.trim()) return false;
-  const line = prefix.split('\n').length;
-  const row = inspectImportRows(draft, false).accepted.find(card => card.line === line);
-  return Boolean(row && (row.setCode || row.collectorNumber || row.isFoil));
+  if (!before && !after.trim()) return false;
+  const first = prefix.split('\n').length;
+  const originalRows = inspectImportRows(draft, false).accepted;
+  const boundaries = [
+    { remains: before, originalLine: first, appliedLine: first },
+    { remains: after.trim(), originalLine: first + replacedText.split('\n').length - 1, appliedLine: first + insertion.split('\n').length - 1 },
+  ];
+  return boundaries.some(({ remains, originalLine, appliedLine }) => {
+    if (!remains) return false;
+    const original = originalRows.find(card => card.line === originalLine);
+    if (!original || !(original.setCode || original.collectorNumber || original.isFoil)) return false;
+    const applied = appliedRows.find(card => card.line === appliedLine);
+    return !applied || cardIdentityKey(applied) !== cardIdentityKey(original) || applied.quantity !== original.quantity;
+  });
 }
 
 /** Review a textarea paste without writing outside the selected range. */
@@ -418,6 +433,13 @@ export function inspectDeckPaste(draft, pasted, selectionStart, selectionEnd) {
   const pasteEnd = start + pasted.length;
   const candidate = prefix + pasted + suffix;
   const rejected = new Map(inspectImportRows(candidate).skipped.map(row => [row.line, row]));
+  // Check clipboard finishes separately. A draft fragment can otherwise hide an
+  // unsupported marker at a splice boundary, as when *E* runs into *F*.
+  const lineOffset = prefix.split('\n').length - 1;
+  for (const row of inspectImportRows(pasted).rejectedFinishes) {
+    const line = lineOffset + row.line;
+    rejected.set(line, { ...row, line });
+  }
   const skipped = [], removed = [];
   let offset = 0, trimLastSeparator = false;
   const parts = candidate.split(/(\r?\n)/);
@@ -458,16 +480,17 @@ export function inspectDeckPaste(draft, pasted, selectionStart, selectionEnd) {
   kept.push(candidate.slice(keptFrom, pasteEnd));
   const insertion = kept.join('');
   const replacedText = draft.slice(start, end);
-  const splitsPrinting = skipped.length > 0 && splitsExistingPrinting(draft, prefix, suffix, replacedText, insertion);
-  if (splitsPrinting) {
+  const proposed = prefix + insertion + suffix;
+  const proposedRows = inspectImportRows(proposed, false).accepted;
+  const changesPrinting = changesBoundaryPrinting(draft, prefix, suffix, replacedText, insertion, proposedRows);
+  if (changesPrinting) {
     for (const raw of insertion.split(/\r?\n/)) {
-      if (raw.trim()) skipped.push({ raw, reason: 'Would split an existing card printing. Paste at a line boundary or select the whole card row.' });
+      if (raw.trim()) skipped.push({ raw, reason: 'Would change an existing card printing. Paste at a line boundary or select the whole card row.' });
     }
   }
-  const keepDraft = skipped.length > 0 && (!insertion.trim() || splitsPrinting);
-  const text = keepDraft ? draft : prefix + insertion + suffix;
-  return { accepted: previewAppliedRows(inspectImportRows(text, false).accepted), skipped,
-    text, replacedText: keepDraft ? '' : replacedText };
+  const keepDraft = changesPrinting || (skipped.length > 0 && !insertion.trim());
+  return { accepted: previewAppliedRows(keepDraft ? inspectImportRows(draft, false).accepted : proposedRows), skipped,
+    text: keepDraft ? draft : proposed, replacedText: keepDraft ? '' : replacedText };
 }
 
 export function rewriteDeckPrinting(text, selectionKey, printing, options) {

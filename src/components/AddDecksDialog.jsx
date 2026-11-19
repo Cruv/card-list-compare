@@ -138,6 +138,10 @@ function ScopedAddDecksDialog({ userId, onClose, onAdded }) {
       return;
     }
     const fromUrl = draft.tab === 'url';
+    if (!fromUrl && importReview.text === draft.text) {
+      setImportReview(null);
+      return;
+    }
     edit({ tab: 'text', text: importReview.text });
     setUndoImport({ text: draft.text, tab: draft.tab });
     if (fromUrl) setNotice('Add a name and save this list as a manual deck.');

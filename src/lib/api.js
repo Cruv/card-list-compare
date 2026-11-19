@@ -198,8 +198,9 @@ export const updateDeckNotify = (deckId, notifyOnChange) =>
     body: JSON.stringify({ notifyOnChange }),
   });
 
-export const updateDeckNotes = (deckId, notes) =>
+export const updateDeckNotes = (deckId, notes, sessionToken) =>
   apiFetch(`/decks/${deckId}`, {
+    sessionToken,
     method: 'PATCH',
     body: JSON.stringify({ notes }),
   });

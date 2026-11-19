@@ -9,6 +9,7 @@ export function AuthProvider({ children }) {
   const [identity, setIdentity] = useState(null);
   const [session] = useState(() => createAuthSession(localStorage));
   const [loading, setLoading] = useState(() => !!getStoredAuthToken());
+  const [noteDraft, setNoteDraft] = useState(null);
 
   useLayoutEffect(() => installBrowserAuthSession(session), [session]);
 
@@ -31,17 +32,25 @@ export function AuthProvider({ children }) {
       if (session.current()) return;
       setIdentity(null);
       setLoading(!!candidate);
-      if (!candidate) return;
+      if (!candidate) {
+        setNoteDraft(null);
+        return;
+      }
 
       validation = new AbortController();
       const { signal } = validation;
       const current = () => !signal.aborted && session.matches(candidate);
       getMe(candidate.token, signal)
         .then(data => {
-          if (current() && data.user?.id != null) setIdentity({ user: data.user, candidate });
+          if (!current()) return;
+          const verifiedUser = data.user;
+          setNoteDraft(previous => previous?.userId === verifiedUser?.id ? previous : null);
+          if (verifiedUser?.id != null) setIdentity({ user: verifiedUser, candidate });
         })
         .catch(error => {
-          if (current() && error.message?.toLowerCase().includes('suspended')) {
+          if (!current()) return;
+          setNoteDraft(null);
+          if (error.message?.toLowerCase().includes('suspended')) {
             toast.error('Your account has been suspended. Please contact an admin.');
           }
         })
@@ -49,16 +58,22 @@ export function AuthProvider({ children }) {
     }
 
     const onStorage = event => {
-      if (event.storageArea === localStorage && (event.key === AUTH_TOKEN_KEY || event.key === null)) reconcile();
+      if (event.storageArea !== localStorage || (event.key !== AUTH_TOKEN_KEY && event.key !== null)) return;
+      // Read the event as well as storage. Another tab can sign back in before
+      // this tab processes the earlier sign-out notification.
+      if (event.newValue === null) setNoteDraft(null);
+      reconcile();
     };
+    const onExpired = () => { setNoteDraft(null); reconcile(); };
     window.addEventListener('storage', onStorage, { signal: listeners.signal });
-    window.addEventListener('auth-expired', reconcile, { signal: listeners.signal });
+    window.addEventListener('auth-expired', onExpired, { signal: listeners.signal });
     queueMicrotask(reconcile);
     return () => { listeners.abort(); validation?.abort(); };
   }, [session]);
 
   const loginUser = useCallback((token, userData) => {
     session.signIn(token, userData.id);
+    setNoteDraft(null);
     setIdentity({ user: userData });
     setLoading(false);
   }, [session]);
@@ -67,10 +82,24 @@ export function AuthProvider({ children }) {
   const logoutUser = useCallback((started = session.current(user?.id)) => {
     if (!session.isCurrent(started)) return false;
     session.signOut();
+    setNoteDraft(null);
     setIdentity(null);
     setLoading(false);
     return true;
   }, [session, user?.id]);
+
+  const editDeckNotesDraft = useCallback((userId, deckId, text, expected) => {
+    if (!session.current(userId)) return;
+    setNoteDraft(previous => {
+      if (text !== null) return { userId, deckId, text };
+      const sameDeck = previous?.userId === userId && previous.deckId === deckId;
+      return sameDeck && (!expected || previous === expected) ? null : previous;
+    });
+  }, [session]);
+
+  const discardNotesOutsideDeck = useCallback(deckId => {
+    setNoteDraft(previous => previous?.deckId === deckId ? previous : null);
+  }, []);
 
   const changeUserPassword = useCallback(async (currentPassword, newPassword) => {
     const started = session.current(user?.id);
@@ -84,7 +113,8 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider value={{ user, loading, loginUser, logoutUser, changeUserPassword,
-      getSession: session.current, isCurrentSession: session.isCurrent }}>
+      getSession: session.current, isCurrentSession: session.isCurrent,
+      noteDraft: user && noteDraft?.userId === user.id ? noteDraft : null, editDeckNotesDraft, discardNotesOutsideDeck }}>
       {children}
     </AuthContext.Provider>
   );

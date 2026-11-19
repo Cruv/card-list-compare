@@ -37,6 +37,8 @@ Report issues privately to the repository owner.
   is still active. Re-login creates a new browser session even for the same account.
   A bearer changed by another tab is validated against the account endpoint before this
   tab sends it on account requests. While validation is pending, private controls stay gated.
+  An open deck note draft stays in tab memory during that check. The verified owner can
+  resume it on the same deck. Sign-out, account replacement and failed validation discard it.
   Offline, forbidden and temporary server failures preserve the credential for a later
   validated reload. Private routes remain gated until account
   validation succeeds. A completed password reset removes the reset URL and synchronizes

@@ -71,7 +71,7 @@ function filterSection(section, query) {
 
 
 export default function DeckPage({ deckId, initialPrintJobId }) {
-  const { user } = useAuth();
+  const { user, noteDraft, editDeckNotesDraft, getSession, isCurrentSession } = useAuth();
   const { priceDisplayEnabled } = useAppSettings();
   const [confirm, ConfirmDialog] = useConfirm();
 
@@ -95,8 +95,10 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
   const [savingCommander, setSavingCommander] = useState(false);
 
   // Notes editing
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [notesValue, setNotesValue] = useState('');
+  const activeNotesDraft = noteDraft?.deckId === deckId ? noteDraft : null;
+  const editingNotes = !!activeNotesDraft;
+  const notesValue = activeNotesDraft?.text ?? '';
+  const editNotes = text => editDeckNotesDraft(user.id, deckId, text);
   const [savingNotes, setSavingNotes] = useState(false);
 
   // Tags editing
@@ -208,7 +210,6 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
       setWebhookValue(deck.discord_webhook_url || '');
       setPriceAlertValue(deck.price_alert_threshold ?? '');
       setPriceAlertMode(deck.price_alert_mode || 'specific');
-      setNotesValue(deck.notes || '');
     }
   }, [deck]);
 
@@ -331,14 +332,17 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
   }
 
   async function handleSaveNotes() {
+    const started = getSession(user.id);
+    if (!activeNotesDraft || !started) return;
     setSavingNotes(true);
     try {
-      await updateDeckNotes(deckId, notesValue.trim() || null);
+      await updateDeckNotes(deckId, notesValue.trim() || null, started.token);
+      if (!isCurrentSession(started)) return;
       toast.success('Notes saved');
-      setEditingNotes(false);
+      editDeckNotesDraft(user.id, deckId, null, activeNotesDraft);
       await loadDeck();
     } catch (err) {
-      toast.error(err.message);
+      if (isCurrentSession(started)) toast.error(err.message);
     } finally {
       setSavingNotes(false);
     }
@@ -820,7 +824,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
               <div className="deck-page-notes-edit">
                 <textarea
                   value={notesValue}
-                  onChange={e => setNotesValue(e.target.value)}
+                  onChange={e => editNotes(e.target.value)}
                   placeholder="Deck notes..."
                   rows={3}
                   maxLength={2000}
@@ -830,17 +834,17 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
                   <button className="btn btn-primary btn-sm" onClick={handleSaveNotes} disabled={savingNotes} type="button">
                     {savingNotes ? '...' : 'Save'}
                   </button>
-                  <button className="btn btn-secondary btn-sm" onClick={() => { setEditingNotes(false); setNotesValue(deck.notes || ''); }} type="button">Cancel</button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => editNotes(null)} type="button">Cancel</button>
                 </div>
               </div>
             ) : (
               <div
                 className="deck-page-notes-display"
-                onClick={() => { setEditingNotes(true); setNotesValue(deck.notes || ''); }}
+                onClick={() => editNotes(deck.notes || '')}
                 title="Click to edit notes"
                 role="button"
                 tabIndex={0}
-                onKeyDown={e => { if (e.key === 'Enter') { setEditingNotes(true); setNotesValue(deck.notes || ''); } }}
+                onKeyDown={e => { if (e.key === 'Enter') editNotes(deck.notes || ''); }}
               >
                 {deck.notes}
               </div>
@@ -1319,7 +1323,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
             {!deck.notes && !editingNotes && (
               <div className="deck-page-settings-section">
                 <h3>Notes</h3>
-                <button className="btn btn-secondary btn-sm" onClick={() => { setEditingNotes(true); setNotesValue(''); }} type="button">
+                <button className="btn btn-secondary btn-sm" onClick={() => editNotes('')} type="button">
                   Add Notes
                 </button>
               </div>
