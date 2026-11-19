@@ -31,10 +31,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.66.0';
+const APP_VERSION = '2.67.0';
 const WHATS_NEW = [
-  'Generate PDFs in a different layout from an existing batch with its exact saved artwork',
-  'Keep Print setup in view while choosing paper or saving your browser default',
+  'Add optional die-cutter alignment marks to Dahle batches and paper proofs',
 ];
 
 function getResetToken() {

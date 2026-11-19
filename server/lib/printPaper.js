@@ -43,6 +43,12 @@ export function newPrintPaperSelection(paperSize, printPreset) {
   return selection;
 }
 
+export function dahleAlignmentMarksEnabled(printPreset, value = false) {
+  if (typeof value !== 'boolean') throw printError('dahleAlignmentMarks must be true or false');
+  if (value && printPreset !== DAHLE_A4_PRESET) throw printError('Die-cutter alignment marks require the Dahle A4 layout');
+  return value;
+}
+
 export function printJobPaper(plan, manifest) {
   const selection = printPaperSelection(plan.paperSize, plan.printPreset);
   if (selection.printPreset === CROWNED_LANDSCAPE_PRESET && manifest?.recipe?.id === CROWNED_LANDSCAPE_V1_RECIPE) {

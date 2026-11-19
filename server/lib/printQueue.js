@@ -11,7 +11,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, PRINT_RECIPES, prunePrintGe
 import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId, missingCancellationStep } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { DAHLE_A4_PRESET, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, newPrintPaperSelection, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
+import { DAHLE_A4_PRESET, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, dahleAlignmentMarksEnabled, newPrintPaperSelection, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -133,6 +133,7 @@ export function formatPrintJob(row, station = false) {
     id: row.id, state: row.state, mode: plan.mode, deckId: row.tracked_deck_id, deckName: plan.deckName,
     requesterId: row.user_id, totalCopies: plan.totalCopies, artSource: plan.artSource,
     registrationMarks: plan.registrationMarks !== false,
+    ...(plan.dahleAlignmentMarks === true ? { dahleAlignmentMarks: true } : {}),
     printingOverrideCount: (plan.resolvedCards || []).filter(card => card.requestedScryfallId).length,
     source: publicPlan.source, target: publicPlan.target,
     ...(plan.list ? { list: publicPlan.list } : {}),
@@ -184,11 +185,12 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
     throw printError('registrationMarks must be true or false');
   }
   const registrationMarks = printPreset !== DAHLE_A4_PRESET && request.registrationMarks !== false;
+  const dahleAlignmentMarks = dahleAlignmentMarksEnabled(printPreset, request.dahleAlignmentMarks);
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
   const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady,
     ...(paperSize === 'letter' ? {} : { paperSize }), ...(printPreset ? { printPreset } : {}),
-    ...(registrationMarks ? {} : { registrationMarks }) }));
+    ...(registrationMarks ? {} : { registrationMarks }), ...(dahleAlignmentMarks ? { dahleAlignmentMarks } : {}) }));
   const existing = replayPrintRequest(userId, requestKey, requestHash);
   if (existing) return existing;
   // New plans enforce current layouts. Previously accepted requests replay above.
@@ -211,26 +213,29 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
 }
 
 function alternateLayoutInput(request, creating = false) {
-  const allowed = ['paperSize', 'printPreset', 'registrationMarks', ...(creating ? ['expectedPlanHash', 'idempotencyKey'] : [])];
+  const allowed = ['paperSize', 'printPreset', 'registrationMarks', 'dahleAlignmentMarks', ...(creating ? ['expectedPlanHash', 'idempotencyKey'] : [])];
   if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).some(key => !allowed.includes(key))) {
-    throw printError('Supply only the alternate paper layout and registration marks');
+    throw printError('Supply only the alternate paper layout and its marks');
   }
   if (request.paperSize === undefined) throw printError('Select a paper layout for the alternate PDF');
   const select = creating ? printPaperSelection : newPrintPaperSelection;
   const selection = select(request.paperSize, request.printPreset);
   if (request.registrationMarks !== undefined && typeof request.registrationMarks !== 'boolean') throw printError('registrationMarks must be true or false');
-  return { ...selection, registrationMarks: selection.printPreset !== DAHLE_A4_PRESET && request.registrationMarks !== false };
+  const dahleAlignmentMarks = dahleAlignmentMarksEnabled(selection.printPreset, request.dahleAlignmentMarks);
+  return { ...selection, registrationMarks: selection.printPreset !== DAHLE_A4_PRESET && request.registrationMarks !== false,
+    ...(dahleAlignmentMarks ? { dahleAlignmentMarks } : {}) };
 }
 
 function buildAlternateLayout(source, selection) {
   const manifest = frozenManifest(source);
-  const { paperSize, printPreset, recipeId, registrationMarks } = selection;
+  const { paperSize, printPreset, recipeId, registrationMarks, dahleAlignmentMarks } = selection;
   const doubleFacedCopies = manifest.copies.filter(copy => copy.back).length;
   const ordinaryCopies = manifest.copies.length - doubleFacedCopies;
   const { planHash: _oldHash, paperSize: _oldPaper, printPreset: _oldPreset, registrationMarks: _oldMarks,
-    sheetPacking: _oldPacking, ...frozenCards } = manifest.plan;
+    dahleAlignmentMarks: _oldAlignmentMarks, sheetPacking: _oldPacking, ...frozenCards } = manifest.plan;
   const planHash = sha256(json({ type: 'alternate-layout', sourceJobId: source.id, sourceManifestSha256: source.manifest_sha256, ...selection }));
   const plan = { ...frozenCards, paperSize, ...(printPreset ? { printPreset } : {}), registrationMarks,
+    ...(dahleAlignmentMarks ? { dahleAlignmentMarks } : {}),
     ...(ordinaryCopies && doubleFacedCopies ? { sheetPacking: DOUBLE_FACED_FIRST } : {}),
     totalCopies: manifest.copies.length, ordinaryCopies, doubleFacedCopies, readyToGenerate: true, targetRecipeId: recipeId,
     sourceManifestSha256: source.manifest_sha256, confirmationJobId: source.source_job_id
@@ -306,7 +311,7 @@ export function createAlternatePrintLayout(userId, deckId, sourceJobId, request)
   const existing = replayPrintRequest(userId, requestKey, requestHash);
   if (existing) return existing;
   const { plan } = buildAlternateLayout(source, { ...newPrintPaperSelection(layout.paperSize, layout.printPreset),
-    registrationMarks: layout.registrationMarks });
+    registrationMarks: layout.registrationMarks, ...(layout.dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}) });
   if (plan.planHash !== request.expectedPlanHash) throw printError('The saved batch or requested layout changed. Review the alternate layout again.', 409);
   return savePrintRequest(userId, deckId, plan, { requestKey, requestHash, sourceJobId });
 }
@@ -385,6 +390,7 @@ export async function processNextPrintJob() {
       ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
       ...(plan.sheetPacking ? { sheetPacking: plan.sheetPacking } : {}),
       ...(plan.registrationMarks === false ? { registrationMarks: false } : {}),
+      ...(plan.dahleAlignmentMarks === true ? { dahleAlignmentMarks: true } : {}),
       cards: copies.map(copy => ({
         id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}),
         ...(plan.printPreset === DAHLE_A4_PRESET ? { displayName: copy.displayName, frontSource: copy.front.source,
@@ -395,6 +401,9 @@ export async function processNextPrintJob() {
       maxOutputBytes, signal: controller.signal, onProgress: progress,
     });
     assertActive();
+    if ((generated.dahleAlignmentMarks ?? false) !== (plan.dahleAlignmentMarks === true)) {
+      throw printError('The PDF generator did not confirm the requested Dahle alignment marks', 409);
+    }
     if (row.source_job_id) {
       if (generated.recipe?.id !== plan.targetRecipeId) throw printError('The PDF generator returned a different paper recipe. Open the source batch and review the layout again.', 409);
       assertRenderedArtwork(copies, generated.images);
@@ -455,6 +464,7 @@ export async function processNextPrintJob() {
     const manifest = {
       version: 1, jobId: row.id, requesterId: row.user_id, createdAt: row.created_at, plan,
       ...(row.source_job_id ? { alternateLayoutOf: alternateLayoutOf(row, plan) } : {}),
+      ...(plan.dahleAlignmentMarks === true ? { dahleAlignmentMarks: true } : {}),
       copies: copies.map(copy => ({ ...copy, front: withoutPath(copy.front), ...(copy.back ? { back: withoutPath(copy.back) } : {}) })),
       generatorRevision: generated.revision, generatorRuntimeVersion: generated.runtimeVersion, recipe: generated.recipe, artifacts, slots: generated.slots,
       images: generated.images || [], generatedAt: now(),

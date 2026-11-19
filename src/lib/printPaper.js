@@ -50,13 +50,27 @@ export function printPaperChoice(batch) {
   return batch?.paperSize === 'a4' || batch?.recipeId === PRINT_PAPER.a4.recipeId ? 'a4' : 'letter';
 }
 
-export function printPaperRequest(choice) {
+export function validDahleAlignmentMarks(request) {
+  const marks = request.dahleAlignmentMarks;
+  return marks === undefined || marks === false
+    || (marks === true && request.paperSize === 'a4' && request.printPreset === DAHLE_A4_PRESET);
+}
+
+export function printPaperRequest(choice, dahleAlignmentMarks = false) {
   return { paperSize: PRINT_PAPER[choice].paperSize,
-    ...(isA4PrintPreset(choice) ? { printPreset: choice } : {}) };
+    ...(isA4PrintPreset(choice) ? { printPreset: choice } : {}),
+    ...(choice === DAHLE_A4_PRESET && dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}) };
 }
 
 export const printPaperLabel = batch => batch?.recipeId === CROWNED_A4_LANDSCAPE_V1_RECIPE
   ? 'Crowned A4 · Landscape 2×4 (shifted)' : PRINT_PAPER[printPaperChoice(batch)].label;
+
+export function printMarksLabel(batch) {
+  if (printPaperChoice(batch) === DAHLE_A4_PRESET) {
+    return batch.dahleAlignmentMarks ? 'Dahle row ticks and die-cutter alignment marks' : 'Dahle row ticks';
+  }
+  return batch.registrationMarks === false ? 'No registration marks' : 'Cameo registration marks';
+}
 
 export const refeedSameShortEdge = batch => batch?.recipeId === CROWNED_A4_LANDSCAPE_V1_RECIPE
   || printPaperChoice(batch) === CROWNED_A4_PORTRAIT_SIX_PRESET;

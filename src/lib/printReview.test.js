@@ -208,6 +208,16 @@ describe('durable print creation recovery', () => {
     expect(read(request)).not.toHaveProperty('registrationMarks');
     expect(read({ ...request, registrationMarks: 'false' })).toBeNull();
   });
+  it('replays a marked Dahle batch with the original layout, reviewed hash, and request key', () => {
+    const read = value => loadPrintCreationIntent({ getItem: () => JSON.stringify(value) }, 'key');
+    const marked = { ...request, ...printPaperRequest(DAHLE_A4_PRESET, true), registrationMarks: false };
+    expect(read(marked)).toMatchObject(marked);
+    expect(read({ ...marked, dahleAlignmentMarks: false })).not.toHaveProperty('dahleAlignmentMarks');
+    expect(read({ ...marked, dahleAlignmentMarks: 'true' })).toBeNull();
+    expect(read({ ...marked, printPreset: 'crowned-a4' })).toBeNull();
+    expect(printPaperRequest('letter', true)).not.toHaveProperty('dahleAlignmentMarks');
+    expect(printPaperRequest(DAHLE_A4_PRESET)).not.toHaveProperty('dahleAlignmentMarks');
+  });
   it('retains intent when transport or authorization can prevent an accepted receipt from being read', () => {
     for (const error of [new Error('offline'), { status: 401 }, { status: 403 }, { status: 408 }, { status: 429 }, { status: 500 }, { status: 503 }]) {
       expect(rejectedPrintCreation(error)).toBe(false);
@@ -341,6 +351,13 @@ describe('standalone print drafts', () => {
       printingOverrides: [{ selectionKey: 'sol ring', scryfallId: '12345678-1234-1234-1234-123456789abc' }], registrationMarks: false };
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key')).toEqual(value);
     expect(loadStandalonePrintDraft({ getItem: () => JSON.stringify({ ...value, comparison: { mode: 'full', beforeText: null } }) }, 'key')).toBeNull();
+  });
+  it('keeps Dahle alignment in standalone draft recovery and leaves older drafts unmarked', () => {
+    const read = value => loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key');
+    const marked = { ...draft, ...printPaperRequest(DAHLE_A4_PRESET, true) };
+    expect(read(marked)).toEqual(marked);
+    expect(read(draft)).not.toHaveProperty('dahleAlignmentMarks');
+    expect(read({ ...marked, printPreset: 'crowned-a4' })).toBeNull();
   });
   it('preserves the current draft and prior recovery when comparison persistence fails', () => {
     const data = new Map([['draft', JSON.stringify(draft)], ['recovery', '{"older":true}']]);

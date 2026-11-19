@@ -4,5 +4,10 @@
   "bleed": 1,
   "columns": 3,
   "rows": 3,
-  "tick": [4.5, 7]
+  "tick": [4.5, 7],
+  "alignmentMarks": {
+    "stripEdgeOffsets": [6, 9],
+    "outlineWidth": 0.4,
+    "strokeWidth": 0.18
+  }
 }

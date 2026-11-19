@@ -626,6 +626,59 @@ describe('Cameo registration marks', () => {
   });
 });
 
+describe('Dahle die-cutter alignment marks', () => {
+  const paper = { paperSize: 'a4', printPreset: 'dahle-a4-punch' };
+  const recipe = { ...paper, id: 'household-dahle-a4-punch-v1' };
+  const input = { ...paper, mode: 'adhoc', listName: 'Die alignment fixture', cardText: '1 Malakir Rebirth' };
+  const planPath = '/api/print-lists/plan', jobsPath = '/api/print-lists/jobs';
+  const review = options => request(planPath, { method: 'POST', body: { ...input, ...options } });
+  const submit = body => request(jobsPath, { method: 'POST', body: { ...input, ...body } });
+
+  it('keeps the unmarked request identity and freezes the opt-in on a separate Dahle PDF-only job', async () => {
+    const { plan: unmarked } = await (await review()).json();
+    const { plan: explicitOff } = await (await review({ dahleAlignmentMarks: false })).json();
+    expect(explicitOff).toEqual(unmarked);
+    const { plan: marked } = await (await review({ dahleAlignmentMarks: true })).json();
+    expect(marked).toMatchObject({ dahleAlignmentMarks: true, recipeId: unmarked.recipeId });
+    expect(marked.planHash).not.toBe(unmarked.planHash);
+    const legacy = { idempotencyKey: crypto.randomUUID(), expectedPlanHash: unmarked.planHash };
+    const first = await submit(legacy);
+    expect(first.status).toBe(202);
+    const firstJob = (await first.json()).job;
+    expect(firstJob).not.toHaveProperty('dahleAlignmentMarks');
+    const legacyDigest = hash(JSON.stringify({ deckId: null, expectedPlanHash: unmarked.planHash, queueOnReady: false,
+      ...paper, registrationMarks: false }));
+    expect(db.get('SELECT request_hash FROM print_jobs WHERE id = ?', [firstJob.id]).request_hash).toBe(legacyDigest);
+    expect((await submit({ ...legacy, dahleAlignmentMarks: false })).status).toBe(200);
+    expect((await submit({ ...legacy, dahleAlignmentMarks: true })).status).toBe(409);
+    const exact = { idempotencyKey: crypto.randomUUID(), expectedPlanHash: marked.planHash, dahleAlignmentMarks: true };
+    expect((await submit({ ...exact, expectedPlanHash: unmarked.planHash })).status).toBe(409);
+    expect((await submit({ ...exact, queueOnReady: true })).status).toBe(409);
+    const generated = await submit(exact);
+    expect(generated.status).toBe(202);
+    const { job } = await generated.json();
+    expect((await submit(exact)).status).toBe(200);
+    services.generatePrintPdfs.mockImplementation(async options => ({ ...await packetPdfs(options, 9), recipe,
+      ...(options.dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}) }));
+    await queue.processNextPrintJob();
+    await queue.processNextPrintJob();
+    expect(services.generatePrintPdfs.mock.calls.some(([options]) => !Object.hasOwn(options, 'dahleAlignmentMarks'))).toBe(true);
+    expect(services.generatePrintPdfs.mock.calls.some(([options]) => options.dahleAlignmentMarks === true && options.registrationMarks === false)).toBe(true);
+    expect(queue.getOwnedPrintJob(1, null, job.id)).toMatchObject({ state: 'ready', dahleAlignmentMarks: true, registrationMarks: false });
+    expect(queue.ownedPrintManifest(1, null, job.id)).toMatchObject({ dahleAlignmentMarks: true, plan: { dahleAlignmentMarks: true } });
+    expect(queue.ownedPrintManifest(1, null, firstJob.id)).not.toHaveProperty('dahleAlignmentMarks');
+    expect((await request(`${jobsPath}/${job.id}/queue`, { method: 'POST' })).status).toBe(409);
+  });
+
+  it('validates the option before planning or creating a batch', async () => {
+    expect((await review({ dahleAlignmentMarks: 'true' })).status).toBe(400);
+    const crowned = { printPreset: 'crowned-a4', dahleAlignmentMarks: true };
+    expect((await review(crowned)).status).toBe(400);
+    expect((await submit({ ...crowned, idempotencyKey: crypto.randomUUID(), expectedPlanHash: 'a'.repeat(64) })).status).toBe(400);
+    expect(services.fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+});
+
 async function packetPdfs({ cards, outputDir, batchLabel, sheetPacking }, capacity = 7) {
   mkdirSync(outputDir, { recursive: true });
   const fronts = cards.filter(card => !card.backPath), dfcs = cards.filter(card => card.backPath);

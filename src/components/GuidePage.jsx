@@ -152,6 +152,7 @@ function DahlePunch() {
     </ol>
     <h3>Proof one sheet with your equipment</h3>
     <p>Before the first batch, check that both ticks of every pair printed and that adjacent pairs are 90 mm apart. Trim one strip and dry-feed its full length through the punch, then try all three positions using your intended stock. Check the centering, corners and handling of the last card. Check both faces if you print duplex. The 90 mm feed clearance and your stock still need this physical check.</p>
+    <p>Choose <strong>Include die-cutter alignment marks</strong> in the Dahle review or one-sheet proof to add guide lines on either side of each card. Measure the proof’s 50 mm scale line, then feed the cut strip with the lever raised and center the die between the guides. Punch all three positions and check that the guide ink stays on the scrap.</p>
   </div>;
 }
 

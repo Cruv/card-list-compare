@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { createPrintProofs } from './printProof.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
-import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET } from './printPaper.js';
+import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, dahleAlignmentMarksEnabled } from './printPaper.js';
 import crownedPortraitGeometry from './crownedPortraitGeometry.json' with { type: 'json' };
 import dahleA4PunchGeometry from './dahleA4PunchGeometry.json' with { type: 'json' };
 
@@ -133,12 +133,13 @@ export function createPrintGenerator(options = {}) {
     initialize: () => runtime.initialize(), refresh: () => runtime.refresh(), getStatus: () => runtime.getStatus(),
     prune: options => runtime.prune(options),
     describeProof: proofs.describe,
-    downloadProof(paper, marks, key) {
+    downloadProof(paper, marks, key, alignmentMarks) {
       if (generating) throw Object.assign(new Error('The PDF generator is preparing a batch. Try the proof again shortly.'), { status: 429 });
-      return proofs.download(paper, marks, key);
+      return proofs.download(paper, marks, key, alignmentMarks);
     },
     async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES,
-      batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter', printPreset, sheetPacking, registrationMarks = true }) {
+      batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter', printPreset, sheetPacking, registrationMarks = true,
+      dahleAlignmentMarks }) {
       if (typeof registrationMarks !== 'boolean') throw new Error('registrationMarks must be true or false');
       if (typeof paperSize !== 'string' || !Object.hasOwn(PRINT_RECIPES, paperSize)) {
         throw new Error('Paper size must be Letter or A4');
@@ -148,6 +149,7 @@ export function createPrintGenerator(options = {}) {
       }
       const recipe = printPreset ? PRINT_PRESETS[printPreset] : PRINT_RECIPES[paperSize];
       const includeMarks = printPreset !== DAHLE_A4_PRESET && registrationMarks;
+      const includeDahleAlignmentMarks = dahleAlignmentMarksEnabled(printPreset, dahleAlignmentMarks);
       const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
       const plan = planPrintSheets(cards, recipe, sheetPacking);
       const printedIdentification = printPageIdentification({ requesterName, batchName });
@@ -198,11 +200,15 @@ export function createPrintGenerator(options = {}) {
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
               label: sheetLabel, printedIdentification, pageLabels: chunkLabels, ...paper, sheetPacking,
               ...(includeMarks ? {} : { registrationMarks: false }),
+              ...(includeDahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}),
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
             if ((result.registrationMarks ?? true) !== includeMarks) {
               throw new Error('The active PDF generator did not confirm the requested Cameo registration mark setting');
+            }
+            if ((result.dahleAlignmentMarks ?? false) !== includeDahleAlignmentMarks) {
+              throw new Error('The active PDF generator did not confirm the requested Dahle alignment marks');
             }
             images.push(...result.images);
             parts.push(path.join(chunkDirectory, 'sheet.pdf'));
@@ -239,7 +245,8 @@ export function createPrintGenerator(options = {}) {
           await fs.link(path.join(working, `${artifact.id}.pdf`), artifact.path);
           published.push(artifact.path);
         }
-        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe, printedIdentification, artifacts, slots, images };
+        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe, printedIdentification, artifacts, slots, images,
+          ...(includeDahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}) };
       } catch (error) {
         // Any published paths belong to this invocation; existing artifacts were checked before generation.
         for (const filename of published) await fs.rm(filename, { force: true });
@@ -258,13 +265,13 @@ const disabledStatus = () => ({ ...singleton.getStatus(), available: false, upda
 export const initializePrintGenerator = () => process.env.PRINT_ENABLED === 'false' ? Promise.resolve(disabledStatus()) : singleton.initialize();
 export const refreshPrintGenerator = () => process.env.PRINT_ENABLED === 'false' ? Promise.resolve(disabledStatus()) : singleton.refresh();
 export const getPrintGeneratorStatus = () => process.env.PRINT_ENABLED === 'false' ? disabledStatus() : singleton.getStatus();
-export const describePrintProof = (paper, marks) => {
+export const describePrintProof = (paper, marks, alignmentMarks) => {
   if (process.env.PRINT_ENABLED === 'false') throw Object.assign(new Error('PDF generation is disabled'), { status: 503 });
-  return singleton.describeProof(paper, marks);
+  return singleton.describeProof(paper, marks, alignmentMarks);
 };
-export const downloadPrintProof = (paper, marks, key) => {
+export const downloadPrintProof = (paper, marks, key, alignmentMarks) => {
   if (process.env.PRINT_ENABLED === 'false') throw Object.assign(new Error('PDF generation is disabled'), { status: 503 });
-  return singleton.downloadProof(paper, marks, key);
+  return singleton.downloadProof(paper, marks, key, alignmentMarks);
 };
 export const generatePrintPdfs = options => {
   if (process.env.PRINT_ENABLED === 'false') return Promise.reject(new Error('PDF generation is disabled'));

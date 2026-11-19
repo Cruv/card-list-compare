@@ -1,5 +1,5 @@
 import { parse } from './parser';
-import { isA4PrintPreset, isPrintPaperSize, printPaperChoice, PRINT_PAPER } from './printPaper';
+import { isA4PrintPreset, isPrintPaperSize, printPaperChoice, PRINT_PAPER, validDahleAlignmentMarks } from './printPaper';
 import { printCardKey } from './printSelection';
 
 export function batchDetailRefresh(jobs, activity, focusedId) {
@@ -143,7 +143,8 @@ export function loadPrintCreationIntent(storage, key) {
       || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash || '') || !/^[a-f0-9]{48}$/.test(request.idempotencyKey || '')) return null;
     // Old requests predate basic-land filtering. A retry must retain that old
     // behavior rather than adopt the newly checked default.
-    return { ...request, excludeBasicLands: request.excludeBasicLands ?? false };
+    const { dahleAlignmentMarks, ...options } = request;
+    return { ...options, ...(dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}), excludeBasicLands: request.excludeBasicLands ?? false };
   } catch { return null; }
 }
 
@@ -151,6 +152,7 @@ function validSelectionOptions(value) {
   return (value.paperSize === undefined || isPrintPaperSize(value.paperSize))
     && (value.printPreset === undefined || (value.paperSize === 'a4' && isA4PrintPreset(value.printPreset)))
     && (value.registrationMarks === undefined || typeof value.registrationMarks === 'boolean')
+    && validDahleAlignmentMarks(value)
     && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000
@@ -179,6 +181,7 @@ export function loadStandalonePrintDraft(storage, key) {
       excludeBasicLands: value.excludeBasicLands ?? true, additionalCardText: value.additionalCardText ?? '',
       excludedCards: value.excludedCards ?? [], removedCards,
       ...(value.registrationMarks === undefined ? {} : { registrationMarks: value.registrationMarks }),
+      ...(value.dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}),
       ...(value.paperSize ? { paperSize: value.paperSize } : {}),
       ...(value.printPreset ? { printPreset: value.printPreset } : {}),
       ...(value.printingOverrides ? { printingOverrides: value.printingOverrides } : {}),

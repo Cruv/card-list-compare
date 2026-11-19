@@ -27,6 +27,7 @@ const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: 'crown
 const markOn = '7'.repeat(64);
 const markOff = '0'.repeat(64);
 const dahleHash = 'd'.repeat(64);
+const dahleMarkedHash = 'e'.repeat(64);
 const manifestSha256 = 'b'.repeat(64);
 const cards = [{
   selectionKey: 'sol-ring', displayName: 'Sol Ring', quantity: 7, setCode: 'c21', collectorNumber: '263', isDFC: false,
@@ -54,10 +55,11 @@ try {
     let derived;
     let blockArt = !tracked;
     let loseFirstResponse = !tracked;
+    const markedPreview = Promise.withResolvers();
     const page = await browser.newPage({ serviceWorkers: 'block', viewport: tracked ? { width: 1280, height: 900 } : { width: 390, height: 844 } });
     await page.addInitScript(() => localStorage.setItem('clc-auth-token', 'print-layout-fixture'));
     try {
-      await page.route('**/*', route => {
+      await page.route('**/*', async route => {
         const request = route.request();
         const url = new URL(request.url());
         if (url.origin !== origin) return route.abort();
@@ -78,18 +80,19 @@ try {
           previewRequests.push(body);
           const dahle = body.printPreset === 'dahle-a4-punch';
           const portraitSix = body.printPreset === 'crowned-a4-portrait-six';
+          if (body.dahleAlignmentMarks) await markedPreview.promise;
           const failures = blockArt ? [failure] : [];
           return send({
             capabilities, generator, layout: { frontSheets: dahle ? 2 : 3, backSheets: dahle ? 1 : 2 }, artworkFailures: failures,
             sourceJobId: originalId, sourceManifestSha256: manifestSha256,
             plan: { ...body, totalCopies: 15, readyToGenerate: !failures.length, resolvedCards: cards,
-              planHash: dahle ? dahleHash : portraitSix && !body.registrationMarks ? markOff : markOn },
+              planHash: dahle ? body.dahleAlignmentMarks ? dahleMarkedHash : dahleHash : portraitSix && !body.registrationMarks ? markOff : markOn },
           });
         }
         if (url.pathname === `${scope}/${originalId}/alternate-layout`) {
           const body = request.postDataJSON();
           assert.equal(request.headers().authorization, 'Bearer print-layout-fixture');
-          assert.deepEqual(Object.keys(body).sort(), ['expectedPlanHash', 'idempotencyKey', 'paperSize', 'printPreset', 'registrationMarks']);
+          assert.deepEqual(Object.keys(body).sort(), [...(tracked ? [] : ['dahleAlignmentMarks']), 'expectedPlanHash', 'idempotencyKey', 'paperSize', 'printPreset', 'registrationMarks']);
           assert.match(body.idempotencyKey, /^[a-f0-9]{48}$/);
           createRequests.push(body);
           if (derived) return send({ job: derived, isExisting: true });
@@ -118,6 +121,7 @@ try {
       const open = current.getByRole('button', { name: 'Regenerate with another layout' });
       const dialog = page.getByRole('dialog', { name: 'Regenerate with another layout' });
       const paper = dialog.getByRole('combobox', { name: 'Paper and layout' });
+      const dieMarks = dialog.getByRole('checkbox', { name: 'Include die-cutter alignment marks' });
       const counts = dialog.locator('.print-regeneration-counts dd');
       const generate = dialog.getByRole('button', { name: 'Generate PDFs', exact: true });
       await current.getByText('Fronts are printed. Backs are saved for later.', { exact: true }).waitFor();
@@ -139,12 +143,22 @@ try {
         blockArt = false;
         await paper.selectOption('dahle-a4-punch');
         await dialog.getByText(/Dahle uses row ticks/).waitFor();
-        assert.equal(await dialog.getByRole('checkbox').count(), 0);
+        assert.equal(await dieMarks.isChecked(), false);
+        assert.equal(await dialog.getByRole('checkbox', { name: /Cameo/ }).count(), 0);
         await generate.waitFor();
+        await counts.first().waitFor();
+        assert.deepEqual(await counts.allTextContents(), ['15', '2', '1']);
+        assert.equal(previewRequests.at(-1).dahleAlignmentMarks, undefined);
+        await dieMarks.check();
+        await dialog.getByText(/Checking the original artwork and layout/).waitFor();
+        assert.equal(await generate.isDisabled(), true);
+        assert.deepEqual(createRequests, []);
+        markedPreview.resolve();
         await counts.first().waitFor();
         assert.deepEqual(await counts.allTextContents(), ['15', '2', '1']);
       } else {
         await paper.selectOption('crowned-a4-portrait-six');
+        assert.equal(await dieMarks.count(), 0);
         await dialog.getByRole('checkbox', { name: 'Include Cameo registration marks' }).uncheck();
         await counts.first().waitFor();
         assert.deepEqual(await counts.allTextContents(), ['15', '3', '2']);
@@ -158,12 +172,15 @@ try {
       if (!tracked) {
         await dialog.getByRole('alert').getByText(/Network error/).waitFor();
         const originalRequest = structuredClone(createRequests[0]);
-        assert.equal(originalRequest.expectedPlanHash, dahleHash);
+        assert.equal(originalRequest.expectedPlanHash, dahleMarkedHash);
         assert.equal(originalRequest.registrationMarks, false);
+        assert.equal(originalRequest.dahleAlignmentMarks, true);
         await page.reload();
         await open.click();
         assert.equal(await paper.inputValue(), 'dahle-a4-punch');
         assert.equal(await paper.isDisabled(), true);
+        assert.equal(await dieMarks.isChecked(), true);
+        assert.equal(await dieMarks.isDisabled(), true);
         await dialog.getByRole('button', { name: 'Retry same layout request' }).click();
         await current.getByRole('heading', { name: 'Alternate-layout fixture' }).waitFor();
         assert.deepEqual(createRequests, [originalRequest, originalRequest]);
@@ -182,14 +199,15 @@ try {
         await current.getByText('Waiting for the Mac', { exact: true }).waitFor();
         assert.deepEqual(queueRequests, [newId]);
       } else {
+        await current.getByText(/Dahle row ticks and die-cutter alignment marks/).waitFor();
         assert.equal(await current.getByRole('button', { name: 'Send to Mac' }).count(), 0);
       }
       await current.getByRole('link', { name: /source batch/ }).click();
       await current.getByText('Fronts are printed. Backs are saved for later.', { exact: true }).waitFor();
       console.log(tracked
         ? 'Tracked batch retained its paired art and parked backs. Only the explicit fake Send to Mac action queued the new batch.'
-        : 'Mobile standalone review showed the failed back face, Dahle sheet counts and exact paired printings. Reload retried the same PDF-only request.');
-    } finally { await page.close(); }
+        : 'Mobile standalone review showed the failed back face, Dahle sheet counts, and exact paired printings. The marked preview replaced the plain hash, and reload retried the same PDF-only request.');
+    } finally { markedPreview.resolve(); await page.close(); }
   }
 } finally {
   await browser.close();
