@@ -31,9 +31,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.67.1';
+const APP_VERSION = '2.67.2';
 const WHATS_NEW = [
-  'Cut Dahle strips and line up each R3 punch with a single set of PDF guides',
+  'See Dahle strip cuts in bright cyan and line up the R3 punch with wider lime guides',
 ];
 
 function getResetToken() {

@@ -115,11 +115,17 @@ class DahlePunchTests(unittest.TestCase):
         self.assertEqual(arc_starts[:count], arc_starts[count:])
         self.assertEqual(curves[:count], curves[count:])
         widths = self.mm_operators(page, b"w")[:6]
-        self.assertEqual(widths, [(0.44,), (0.28,), (1.20,), (0.84,), (0.50,), (0.32,)])
+        self.assertEqual(widths, [(0.44,), (0.28,), (1.20,), (0.84,), (0.64,), (0.52,)])
         self.assertGreater(1 - widths[0][0] / 2, 0.75)
+        arc_half_width = widths[4][0] / 2
+        strip_half_width = widths[0][0] / 2
         operations = page.get_contents().operations
-        self.assertEqual([tuple(values) for values, op in operations if op == b"G"][:5], [(1,), (0,), (1,), (0,), (0,)])
-        self.assertEqual([tuple(map(float, values)) for values, op in operations if op == b"RG"], [(0.58, 1, 0.06)])
+        stroke_colors = [(op, tuple(map(float, values))) for values, op in operations if op in (b"G", b"RG")]
+        self.assertEqual(stroke_colors[:6], [
+            (b"G", (0,)), (b"RG", (0, 0.9, 1)),  # Continuous strip lines.
+            (b"G", (0,)), (b"RG", (0, 0.9, 1)),  # Thick endpoints in the margins.
+            (b"G", (0,)), (b"RG", (0.58, 1, 0.06)),  # R3 punch guides.
+        ])
         self.assertEqual(sum(op == b"S" for _, op in operations), 9 if proof_sheet else 6)
         corners = [(x, y, horizontal, vertical) for left, bottom in occupied_cells
                    for x, horizontal in ((left + 4, -1), (left + 61, 1))
@@ -127,18 +133,18 @@ class DahlePunchTests(unittest.TestCase):
         for (x, y, horizontal, vertical), start, curve in zip(corners, arc_starts, curves):
             vectors = [((px - x) * horizontal, (py - y) * vertical)
                        for px, py in (start, curve[:2], curve[2:4], curve[4:])]
-            self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 30, places=2)
-            self.assertAlmostEqual(math.degrees(math.atan2(vectors[-1][1], vectors[-1][0])), 60, places=2)
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 32.5, places=2)
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[-1][1], vectors[-1][0])), 57.5, places=2)
             for index in range(21):
                 t = index / 20
                 weights = ((1-t)**3, 3*t*(1-t)**2, 3*t*t*(1-t), t**3)
                 dx, dy = (sum(weight * vector[axis] for weight, vector in zip(weights, vectors)) for axis in range(2))
                 radius = math.hypot(dx, dy)
-                self.assertAlmostEqual(radius, 4.05, places=3)
-                self.assertGreater(radius - 0.25 - 3, 0.75)  # Combined displacement toward the ink.
-                self.assertLess((radius + 0.25) * max(dx, dy) / radius, 4 - 0.22)  # Clear of the strip lines.
+                self.assertAlmostEqual(radius, 4.12, places=3)
+                self.assertGreater(radius - arc_half_width - 3, 0.75)  # Combined displacement toward the ink.
+                self.assertLess((radius + arc_half_width) * max(dx, dy) / radius, 4 - strip_half_width)
                 if t == 0.5:
-                    self.assertGreater(4 - (radius + 0.25) * dy / radius, 0.75)
+                    self.assertGreater(4 - (radius + arc_half_width) * dy / radius, 0.75)
 
     def check_image(self, page, slot, color):
         image = page.images[f"/Card{slot + 1}"].image

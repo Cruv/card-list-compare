@@ -1,5 +1,11 @@
 # Current work checkpoint
 
+## Dahle guide visibility
+
+- v2.67.2 changes the strip lines and margin end marks to cyan with dark outlines and increases the lime R3 stroke from 0.32 to 0.52 mm. The four strip cuts, 63 × 88 mm R3 trim and artwork placement match v2.67.1. See the [guide geometry](DAHLE_A4_PUNCH.md#optional-strip-and-punch-guides).
+- On the same synthetic artwork at 600 dpi, the strip line center contrast against near-black rose from 1.12:1 to 12.16:1. The new arcs contained 44% more solid lime pixels. On that fixture, all solid lime survived clipping 0.75 mm inward from both long edges of each strip.
+- Off and legacy output matched v2.67.1 byte for byte. Browser and PDF worker verification used disposable data, synthetic artwork and fake printer effects. Physical visibility and alignment still need a proof on the intended stock.
+
 ## Dahle strip and R3 punch guides
 
 - v2.67.1 adds four straight guides for cutting 210 × 90 mm strips and rounded guides for centering each R3 punch to new Dahle reviews, regenerated batches, and proofs. Existing requests retain their original strip index marks. See the [guide dimensions and proof steps](DAHLE_A4_PUNCH.md#optional-strip-and-punch-guides).

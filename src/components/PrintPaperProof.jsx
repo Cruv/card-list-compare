@@ -77,7 +77,7 @@ export default function PrintPaperProof({ userId, selectedPaper, selectedMarks, 
       </div>
       <ol>
         <li>Load the selected stock and print one sheet at Actual Size (100%). Measure the 50 mm line before cutting.</li>
-        <li>{dahle ? `Cut 210 × 90 mm strips on the Dahle using the ${dahleCutGuides ? 'horizontal black cut lines' : 'row ticks'}.`
+        <li>{dahle ? `Cut 210 × 90 mm strips on the Dahle using the ${dahleCutGuides ? 'horizontal cyan cut lines' : 'row ticks'}.`
           : marks ? 'Use the matching Cameo cut template and check that all registration marks are readable.'
             : 'Use the cut layout as a guide for manual trimming.'}</li>
         {dahle && <li>Feed each strip into the 63 × 88 mm R3 punch.{dahleCutGuides && ' Center the die opening inside the four lime corner guides and check that the guide ink stays on the scrap.'}</li>}

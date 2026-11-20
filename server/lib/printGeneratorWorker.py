@@ -352,7 +352,11 @@ def pdf_coordinates(*values):
     return " ".join(f"{value * POINTS_PER_MM:.6f}" for value in values)
 
 
-def stroke_dahle_guides(commands, paths, geometry, *, outline="1 G", center="0 G"):
+def stroke_dahle_guides(commands, paths, geometry, *, stroke_rgb=None):
+    outline, center = "1 G", "0 G"
+    if stroke_rgb is not None:
+        outline = "0 G"
+        center = " ".join(str(channel) for channel in stroke_rgb) + " RG"
     commands.append("q 0 J")
     for color, width in ((outline, geometry["outlineWidth"]), (center, geometry["strokeWidth"])):
         commands.extend((f"{color} {pdf_coordinates(width)} w", *paths, "S"))
@@ -366,7 +370,7 @@ def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
     tangent = 4 / 3 * radius * math.tan((end - start) / 4)
     x0, y0 = radius * math.cos(start), radius * math.sin(start)
     x3, y3 = radius * math.cos(end), radius * math.sin(end)
-    # A cubic arc from 30 to 60 degrees, offset parallel to the R3 trim.
+    # A short cubic arc offset parallel to the R3 trim.
     # The endpoints stay inside the strip and the center survives row drift.
     curve = ((x0, y0), (x0 - tangent * math.sin(start), y0 + tangent * math.cos(start)),
              (x3 + tangent * math.sin(end), y3 - tangent * math.cos(end)), (x3, y3))
@@ -423,16 +427,16 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut
             # stay at the same positions on both faces and on partial sheets.
             right = page_width - tick_start
             strip_paths = [f"{pdf_coordinates(tick_start, y)} m {pdf_coordinates(right, y)} l" for y in row_cuts]
-            stroke_dahle_guides(commands, strip_paths, DAHLE_GEOMETRY["stripGuideStroke"])
+            strip = DAHLE_GEOMETRY["stripGuideStroke"]
+            stroke_dahle_guides(commands, strip_paths, strip, stroke_rgb=strip["strokeRgb"])
             endpoints = DAHLE_GEOMETRY["stripGuideEndpoint"]
             endpoint_length = endpoints["length"]
             endpoint_paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l" for y in row_cuts
                               for start, end in ((tick_start, tick_start + endpoint_length), (right - endpoint_length, right))]
-            stroke_dahle_guides(commands, endpoint_paths, endpoints)
+            stroke_dahle_guides(commands, endpoint_paths, endpoints, stroke_rgb=strip["strokeRgb"])
             corners = DAHLE_GEOMETRY["cornerGuides"]
             corner_paths = dahle_corner_paths(corner_cells, cell_width, cell_height, bleed, corners)
-            lime = " ".join(str(channel) for channel in corners["strokeRgb"])
-            stroke_dahle_guides(commands, corner_paths, corners, outline="0 G", center=f"{lime} RG")
+            stroke_dahle_guides(commands, corner_paths, corners, stroke_rgb=corners["strokeRgb"])
         else:
             commands.extend(("q", "0 G", "0.5 w"))
             for y in row_cuts:
