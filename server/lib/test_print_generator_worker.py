@@ -100,23 +100,31 @@ class DahlePunchTests(unittest.TestCase):
         starts = self.mm_operators(page, b"m")[: -3 if proof_sheet else None]
         ends = self.mm_operators(page, b"l")[: -3 if proof_sheet else None]
         curves = self.mm_operators(page, b"c")
-        half = count + 4
-        self.assertEqual(len(starts), 2 * half)
-        self.assertEqual(len(curves), 2 * count)
-        self.assertEqual(starts[:half], starts[half:])
-        self.assertEqual(curves[:count], curves[count:])
         rows = (283.5, 193.5, 103.5, 13.5)
-        self.assertEqual(starts[:4], [(4.5, y) for y in rows])
-        self.assertEqual(ends, [(205.5, y) for y in rows] * 2)
-        widths = self.mm_operators(page, b"w")[:2]
-        self.assertEqual(widths, [(0.30,), (0.16,)])
+        strip_starts, strip_ends = ([(x, y) for y in rows] for x in (4.5, 205.5))
+        endpoint_starts = [(x, y) for y in rows for x in (4.5, 203.1)]
+        endpoint_ends = [(x, y) for y in rows for x in (6.9, 205.5)]
+        line_starts = strip_starts * 2 + endpoint_starts * 2
+        self.assertEqual(starts[:len(line_starts)], line_starts)
+        self.assertEqual(ends, strip_ends * 2 + endpoint_ends * 2)
+        for start, end in zip(starts[8:24], ends[8:24]):
+            self.assertTrue(end[0] < 7.5 or start[0] > 202.5)
+        arc_starts = starts[len(line_starts):]
+        self.assertEqual(len(arc_starts), 2 * count)
+        self.assertEqual(len(curves), 2 * count)
+        self.assertEqual(arc_starts[:count], arc_starts[count:])
+        self.assertEqual(curves[:count], curves[count:])
+        widths = self.mm_operators(page, b"w")[:6]
+        self.assertEqual(widths, [(0.44,), (0.28,), (1.20,), (0.84,), (0.50,), (0.32,)])
         self.assertGreater(1 - widths[0][0] / 2, 0.75)
-        self.assertEqual([tuple(values) for values, op in page.get_contents().operations if op == b"G"][:2], [(1,), (0,)])
-        self.assertEqual(sum(op == b"S" for _, op in page.get_contents().operations), 5 if proof_sheet else 2)
+        operations = page.get_contents().operations
+        self.assertEqual([tuple(values) for values, op in operations if op == b"G"][:5], [(1,), (0,), (1,), (0,), (0,)])
+        self.assertEqual([tuple(map(float, values)) for values, op in operations if op == b"RG"], [(0.58, 1, 0.06)])
+        self.assertEqual(sum(op == b"S" for _, op in operations), 9 if proof_sheet else 6)
         corners = [(x, y, horizontal, vertical) for left, bottom in occupied_cells
                    for x, horizontal in ((left + 4, -1), (left + 61, 1))
                    for y, vertical in ((bottom + 4, -1), (bottom + 86, 1))]
-        for (x, y, horizontal, vertical), start, curve in zip(corners, starts[4:half], curves):
+        for (x, y, horizontal, vertical), start, curve in zip(corners, arc_starts, curves):
             vectors = [((px - x) * horizontal, (py - y) * vertical)
                        for px, py in (start, curve[:2], curve[2:4], curve[4:])]
             self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 30, places=2)
@@ -127,10 +135,10 @@ class DahlePunchTests(unittest.TestCase):
                 dx, dy = (sum(weight * vector[axis] for weight, vector in zip(weights, vectors)) for axis in range(2))
                 radius = math.hypot(dx, dy)
                 self.assertAlmostEqual(radius, 4.05, places=3)
-                self.assertGreater(radius - 0.15 - 3, 0.75)  # Combined displacement toward the ink.
-                self.assertLess((radius + 0.15) * max(dx, dy) / radius, 4 - 0.15)  # Clear of the strip lines.
+                self.assertGreater(radius - 0.25 - 3, 0.75)  # Combined displacement toward the ink.
+                self.assertLess((radius + 0.25) * max(dx, dy) / radius, 4 - 0.22)  # Clear of the strip lines.
                 if t == 0.5:
-                    self.assertGreater(4 - (radius + 0.15) * dy / radius, 1)
+                    self.assertGreater(4 - (radius + 0.25) * dy / radius, 0.75)
 
     def check_image(self, page, slot, color):
         image = page.images[f"/Card{slot + 1}"].image

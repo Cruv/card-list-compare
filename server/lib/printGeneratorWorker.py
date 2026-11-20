@@ -352,10 +352,10 @@ def pdf_coordinates(*values):
     return " ".join(f"{value * POINTS_PER_MM:.6f}" for value in values)
 
 
-def stroke_dahle_guides(commands, paths, geometry):
+def stroke_dahle_guides(commands, paths, geometry, *, outline="1 G", center="0 G"):
     commands.append("q 0 J")
-    for gray, width in ((1, geometry["outlineWidth"]), (0, geometry["strokeWidth"])):
-        commands.extend((f"{gray} G {pdf_coordinates(width)} w", *paths, "S"))
+    for color, width in ((outline, geometry["outlineWidth"]), (center, geometry["strokeWidth"])):
+        commands.extend((f"{color} {pdf_coordinates(width)} w", *paths, "S"))
     commands.append("Q")
 
 
@@ -421,9 +421,18 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut
         if cut_guides:
             # The cutter makes four transverse cuts across the sheet. These
             # stay at the same positions on both faces and on partial sheets.
-            paths = [f"{pdf_coordinates(tick_start, y)} m {pdf_coordinates(page_width - tick_start, y)} l" for y in row_cuts]
-            paths.extend(dahle_corner_paths(corner_cells, cell_width, cell_height, bleed, DAHLE_GEOMETRY["cornerGuides"]))
-            stroke_dahle_guides(commands, paths, DAHLE_GEOMETRY["cutGuideStroke"])
+            right = page_width - tick_start
+            strip_paths = [f"{pdf_coordinates(tick_start, y)} m {pdf_coordinates(right, y)} l" for y in row_cuts]
+            stroke_dahle_guides(commands, strip_paths, DAHLE_GEOMETRY["stripGuideStroke"])
+            endpoints = DAHLE_GEOMETRY["stripGuideEndpoint"]
+            endpoint_length = endpoints["length"]
+            endpoint_paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l" for y in row_cuts
+                              for start, end in ((tick_start, tick_start + endpoint_length), (right - endpoint_length, right))]
+            stroke_dahle_guides(commands, endpoint_paths, endpoints)
+            corners = DAHLE_GEOMETRY["cornerGuides"]
+            corner_paths = dahle_corner_paths(corner_cells, cell_width, cell_height, bleed, corners)
+            lime = " ".join(str(channel) for channel in corners["strokeRgb"])
+            stroke_dahle_guides(commands, corner_paths, corners, outline="0 G", center=f"{lime} RG")
         else:
             commands.extend(("q", "0 G", "0.5 w"))
             for y in row_cuts:

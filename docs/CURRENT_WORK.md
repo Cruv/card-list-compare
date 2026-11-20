@@ -4,7 +4,7 @@
 
 - v2.67.1 adds four straight guides for cutting 210 × 90 mm strips and rounded guides for centering each R3 punch to new Dahle reviews, regenerated batches, and proofs. Existing requests retain their original strip index marks. See the [guide dimensions and proof steps](DAHLE_A4_PUNCH.md#optional-strip-and-punch-guides).
 - The PDF worker tests cover strip boundaries on partial sheets, matching artwork placement, mirrored corner guides and the 0.75 mm combined displacement model. Identical unmarked and legacy fixture inputs produced byte-identical PDFs against v2.67.0.
-- A 600 dpi proof render showed continuous cut lines at 13.5, 103.5, 193.5 and 283.5 mm from the top. The nearest changed pixel centers were 0.846 mm from the straight trim and 0.870 mm from the R3 trim.
+- The one-sheet proof shows four continuous black cut lines with bold end marks at 13.5, 103.5, 193.5 and 283.5 mm from the top. The R3 arcs use a lime center twice as wide as the original draft stroke. Nominal ink clearance is 0.78 mm from the straight trim and 0.80 mm from the R3 trim.
 - Disposable Chrome verified new batches, regenerated PDFs, lost-response retry, per-recipe proof downloads and setup scroll on desktop and mobile. The real worker generated eight paired copies in the new layout. It preserved all five original batch files and six simulated print receipts, and no batch was sent to a printer.
 - Local verification passed 1,554 JavaScript tests, 290 portable companion tests, 20 PDF worker tests, the production build and the deployment contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities.
 - The household stack was outside verification. Guide visibility and physical cut alignment still need the actual die and stock.

@@ -54,21 +54,21 @@ card outline and R3 corners.
 ## Optional strip and punch guides
 
 Select **Include strip cut lines and R3 corner guides** in the Dahle print review,
-alternate layout review or one-sheet proof. The option starts off. Four horizontal
-lines run between the outer ends of the side ticks, spanning 201 mm. Align the
-first with the Dahle blade and use the remaining lines to check the 90 mm stop.
-Keep each strip at the full 210 mm sheet width.
+alternate layout review or one-sheet proof. The option starts off. Four black
+horizontal lines span 201 mm, with thicker end marks in the side margins. Align
+the first line with the Dahle blade and use the remaining lines to check the
+90 mm stop. Keep each strip at the full 210 mm sheet width.
 
-Each occupied card gets four short curved marks, one just outside each corner of
-the 63 × 88 mm cut. With the lever raised, line up the die opening evenly inside
-the four arcs and check the position against the artwork.
+Each occupied card gets four lime arcs with black outlines, one just outside
+each corner of the 63 × 88 mm cut. With the lever raised, line up the die opening
+evenly inside the four arcs and check the position against the artwork.
 
-Each 30° arc shares the center of the finished R3 corner and has a 4.05 mm
-radius. Both guide types use a 0.30 mm white backing around a 0.16 mm dark stroke.
-The closest ink is 0.90 mm outside the curved cut and 0.85 mm outside the straight
-card edge. The digital check allows 0.75 mm of combined displacement at a guide.
-The arc ends are 0.36 mm inside the strip edges. Check the proof on your stock to
-see whether the trimmed strip retains enough of each arc to align the punch.
+Each 30° arc shares the center of the finished R3 corner and has a 4.05 mm radius.
+The 0.32 mm lime stroke has a 0.50 mm black backing. The 0.28 mm horizontal cut
+line has a 0.44 mm white backing. The closest ink is nominally 0.80 mm outside
+the curved cut and 0.78 mm outside the straight card edge. The digital check
+allows 0.75 mm of combined displacement at a guide. Check the proof on your
+stock to see whether the trimmed strip retains enough of each arc to align the punch.
 Partial strips mark occupied slots. Back pages mirror the guides for the printed
 back faces with a long-edge flip. Previously saved requests retain their strip
 index marks. Regenerate a saved batch to add both guides to a new PDF.
