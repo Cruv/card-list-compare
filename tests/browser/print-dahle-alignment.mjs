@@ -71,7 +71,7 @@ try {
         if (url.pathname === planPath) {
           const body = request.postDataJSON();
           planRequests.push(body);
-          const planHash = body.dahleAlignmentMarks ? markedKey : plainKey;
+          const planHash = body.dahleCutGuides ? markedKey : plainKey;
           const plan = { ...body, deckName: 'Fixture cards', cards: [card], resolvedCards: [resolvedCard], ordinaryCopies: 2,
             doubleFacedCopies: 0, totalCopies: 2, readyToGenerate: true, planHash, ...(tracked ? { target: { id: 99 } } : {}) };
           return send({ plan, capabilities, generator });
@@ -81,7 +81,7 @@ try {
           creates.push(body);
           assert.equal(body.expectedPlanHash, markedKey);
           assert.equal(body.printPreset, dahle);
-          assert.equal(body.dahleAlignmentMarks, true);
+          assert.equal(body.dahleCutGuides, true);
           assert.equal(body.registrationMarks, false);
           assert.equal(body.queueOnReady, false);
           if (job) return send({ job, isExisting: true });
@@ -92,7 +92,7 @@ try {
         if (url.pathname === proofPath || url.pathname === `${proofPath}/pdf`) {
           assert.equal(request.headers().authorization, 'Bearer print-alignment-fixture');
           assert.equal(url.searchParams.get('marks'), 'off');
-          const marks = url.searchParams.get('dahleAlignmentMarks');
+          const marks = url.searchParams.get('dahleCutGuides');
           assert.ok(marks === null || marks === 'on');
           const key = marks ? markedKey : plainKey;
           if (url.pathname.endsWith('/pdf')) {
@@ -103,7 +103,7 @@ try {
           proofs.push(marks);
           if (marks) await markedProof.promise;
           return send({ proof: { recipeId, key, ...generator, cardsPerSheet: 9, trim: [63, 88], bleed: { millimeters: 1 },
-            registrationMarks: false, ...(marks ? { dahleAlignmentMarks: true } : {}) } });
+            registrationMarks: false, ...(marks ? { dahleCutGuides: true } : {}) } });
         }
         assert.equal(request.method(), 'GET', `Unexpected write to ${url.pathname}`);
         return send({});
@@ -114,7 +114,7 @@ try {
       await ready.promise;
       const reviewList = page.getByRole('button', { name: 'Review print list', exact: true });
       const review = page.getByRole('region', { name: 'Print list review' });
-      const marks = review.getByRole('checkbox', { name: 'Include die-cutter alignment marks', exact: true });
+      const marks = review.getByRole('checkbox', { name: 'Include strip cut lines and R3 corner guides', exact: true });
       const reviewUpdated = review.getByRole('button', { name: 'Review updated list' });
       const generate = review.getByRole('button', { name: 'Generate PDFs', exact: true });
       if (!tracked) {
@@ -125,31 +125,31 @@ try {
       await marks.waitFor();
       assert.equal(await marks.isChecked(), false);
       assert.equal(await review.getByRole('checkbox', { name: /Cameo registration/ }).count(), 0);
-      assert.equal(planRequests.at(-1).dahleAlignmentMarks, undefined);
+      assert.equal(planRequests.at(-1).dahleCutGuides, undefined);
       await marks.check();
       await reviewUpdated.waitFor();
       assert.equal(await generate.count(), 0);
 
       if (!tracked) {
-        await page.waitForFunction(() => JSON.parse(localStorage.getItem('clc-print-list-draft:41'))?.dahleAlignmentMarks === true);
+        await page.waitForFunction(() => JSON.parse(localStorage.getItem('clc-print-list-draft:41'))?.dahleCutGuides === true);
         await page.reload();
         await reviewList.click();
         await marks.waitFor();
         assert.equal(await marks.isChecked(), true);
       } else await reviewUpdated.click();
-      await review.getByText(/Dahle row ticks and die-cutter alignment marks/).waitFor();
-      assert.equal(planRequests.at(-1).dahleAlignmentMarks, true);
+      await review.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
+      assert.equal(planRequests.at(-1).dahleCutGuides, true);
       assert.equal(await review.getByRole('button', { name: 'Generate & print' }).count(), 0);
       await generate.click();
       if (!tracked) {
         await page.getByRole('alert').getByText(/Network error/).waitFor();
         await page.reload();
         const retry = page.getByRole('region', { name: 'Recover print batch request' });
-        await retry.getByText(/Dahle row ticks and die-cutter alignment marks/).waitFor();
+        await retry.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
         await retry.getByRole('button', { name: 'Retry same batch request' }).click();
       }
       const current = page.getByRole('region', { name: 'Current print batch' });
-      await current.getByText(/Dahle row ticks and die-cutter alignment marks/).waitFor();
+      await current.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
       assert.equal(await current.getByRole('button', { name: 'Send to Mac' }).count(), 0);
       assert.equal(creates.length, tracked ? 1 : 2);
       if (!tracked) assert.deepEqual(creates[0], creates[1]);
@@ -158,7 +158,7 @@ try {
       async function checkProof(page) {
         await page.getByText('One-sheet paper proof', { exact: true }).click();
         const proof = page.locator('.print-paper-proof');
-        const toggle = proof.getByRole('checkbox', { name: 'Include die-cutter alignment marks on the proof' });
+        const toggle = proof.getByRole('checkbox', { name: 'Include strip cut lines and R3 corner guides on the proof' });
         const confirm = proof.getByRole('checkbox', { name: 'I printed and checked this exact recipe' });
         const download = proof.getByRole('button', { name: 'Download one-sheet proof PDF' });
         await proof.getByText(/Dahle row ticks · 63/).waitFor();
@@ -171,12 +171,14 @@ try {
         await proof.getByText('Loading proof recipe…').waitFor();
         assert.equal(await confirm.count(), 0);
         markedProof.resolve();
-        await proof.getByText(/Dahle row ticks and die-cutter alignment marks/).waitFor();
+        await proof.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
+        await proof.getByText('Cut 210 × 90 mm strips on the Dahle using the horizontal cut lines.', { exact: true }).waitFor();
+        await proof.getByText(/Feed each strip into the 63 × 88 mm R3 punch/).waitFor();
         assert.equal(await confirm.isChecked(), false);
         assert.equal(await confirm.isDisabled(), true);
         const downloadingMarked = page.waitForEvent('download');
         await download.click();
-        assert.match((await downloadingMarked).suggestedFilename(), /-die-alignment-/);
+        assert.match((await downloadingMarked).suggestedFilename(), /-dahle-cut-guides-/);
         await confirm.check();
         await toggle.uncheck();
         await proof.getByText(/Dahle row ticks · 63/).waitFor();

@@ -634,47 +634,56 @@ describe('Dahle die-cutter alignment marks', () => {
   const review = options => request(planPath, { method: 'POST', body: { ...input, ...options } });
   const submit = body => request(jobsPath, { method: 'POST', body: { ...input, ...body } });
 
-  it('keeps the unmarked request identity and freezes the opt-in on a separate Dahle PDF-only job', async () => {
+  it.each(['dahleAlignmentMarks', 'dahleCutGuides'])('keeps unmarked request identity and freezes %s on a separate Dahle PDF-only job', async guide => {
     const { plan: unmarked } = await (await review()).json();
-    const { plan: explicitOff } = await (await review({ dahleAlignmentMarks: false })).json();
+    const { plan: explicitOff } = await (await review({ [guide]: false })).json();
     expect(explicitOff).toEqual(unmarked);
-    const { plan: marked } = await (await review({ dahleAlignmentMarks: true })).json();
-    expect(marked).toMatchObject({ dahleAlignmentMarks: true, recipeId: unmarked.recipeId });
+    const { plan: marked } = await (await review({ [guide]: true })).json();
+    const otherGuide = guide === 'dahleCutGuides' ? 'dahleAlignmentMarks' : 'dahleCutGuides';
+    const { plan: otherMarked } = await (await review({ [otherGuide]: true })).json();
+    expect(marked.planHash).not.toBe(otherMarked.planHash);
+    expect(marked).toMatchObject({ [guide]: true, recipeId: unmarked.recipeId });
+    expect(marked).not.toHaveProperty(otherGuide);
     expect(marked.planHash).not.toBe(unmarked.planHash);
     const legacy = { idempotencyKey: crypto.randomUUID(), expectedPlanHash: unmarked.planHash };
     const first = await submit(legacy);
     expect(first.status).toBe(202);
     const firstJob = (await first.json()).job;
-    expect(firstJob).not.toHaveProperty('dahleAlignmentMarks');
+    expect(firstJob).not.toHaveProperty(guide);
     const legacyDigest = hash(JSON.stringify({ deckId: null, expectedPlanHash: unmarked.planHash, queueOnReady: false,
       ...paper, registrationMarks: false }));
     expect(db.get('SELECT request_hash FROM print_jobs WHERE id = ?', [firstJob.id]).request_hash).toBe(legacyDigest);
-    expect((await submit({ ...legacy, dahleAlignmentMarks: false })).status).toBe(200);
-    expect((await submit({ ...legacy, dahleAlignmentMarks: true })).status).toBe(409);
-    const exact = { idempotencyKey: crypto.randomUUID(), expectedPlanHash: marked.planHash, dahleAlignmentMarks: true };
+    expect((await submit({ ...legacy, [guide]: false })).status).toBe(200);
+    expect((await submit({ ...legacy, [guide]: true })).status).toBe(409);
+    const exact = { idempotencyKey: crypto.randomUUID(), expectedPlanHash: marked.planHash, [guide]: true };
     expect((await submit({ ...exact, expectedPlanHash: unmarked.planHash })).status).toBe(409);
     expect((await submit({ ...exact, queueOnReady: true })).status).toBe(409);
     const generated = await submit(exact);
     expect(generated.status).toBe(202);
     const { job } = await generated.json();
     expect((await submit(exact)).status).toBe(200);
+    expect((await submit({ ...exact, [guide]: false, [otherGuide]: true, expectedPlanHash: otherMarked.planHash })).status).toBe(409);
+    const markedDigest = hash(JSON.stringify({ deckId: null, expectedPlanHash: marked.planHash, queueOnReady: false,
+      ...paper, registrationMarks: false, [guide]: true }));
+    expect(db.get('SELECT request_hash FROM print_jobs WHERE id = ?', [job.id]).request_hash).toBe(markedDigest);
     services.generatePrintPdfs.mockImplementation(async options => ({ ...await packetPdfs(options, 9), recipe,
-      ...(options.dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}) }));
+      ...(options[guide] ? { [guide]: true } : {}) }));
     await queue.processNextPrintJob();
     await queue.processNextPrintJob();
-    expect(services.generatePrintPdfs.mock.calls.some(([options]) => !Object.hasOwn(options, 'dahleAlignmentMarks'))).toBe(true);
-    expect(services.generatePrintPdfs.mock.calls.some(([options]) => options.dahleAlignmentMarks === true && options.registrationMarks === false)).toBe(true);
-    expect(queue.getOwnedPrintJob(1, null, job.id)).toMatchObject({ state: 'ready', dahleAlignmentMarks: true, registrationMarks: false });
-    expect(queue.ownedPrintManifest(1, null, job.id)).toMatchObject({ dahleAlignmentMarks: true, plan: { dahleAlignmentMarks: true } });
-    expect(queue.ownedPrintManifest(1, null, firstJob.id)).not.toHaveProperty('dahleAlignmentMarks');
+    expect(services.generatePrintPdfs.mock.calls.some(([options]) => !Object.hasOwn(options, guide))).toBe(true);
+    expect(services.generatePrintPdfs.mock.calls.some(([options]) => options[guide] === true && options.registrationMarks === false)).toBe(true);
+    expect(queue.getOwnedPrintJob(1, null, job.id)).toMatchObject({ state: 'ready', [guide]: true, registrationMarks: false });
+    expect(queue.ownedPrintManifest(1, null, job.id)).toMatchObject({ [guide]: true, plan: { [guide]: true } });
+    expect(queue.ownedPrintManifest(1, null, firstJob.id)).not.toHaveProperty(guide);
     expect((await request(`${jobsPath}/${job.id}/queue`, { method: 'POST' })).status).toBe(409);
   });
 
-  it('validates the option before planning or creating a batch', async () => {
-    expect((await review({ dahleAlignmentMarks: 'true' })).status).toBe(400);
-    const crowned = { printPreset: 'crowned-a4', dahleAlignmentMarks: true };
+  it.each(['dahleAlignmentMarks', 'dahleCutGuides'])('validates %s before planning or creating a batch', async guide => {
+    expect((await review({ [guide]: 'true' })).status).toBe(400);
+    const crowned = { printPreset: 'crowned-a4', [guide]: true };
     expect((await review(crowned)).status).toBe(400);
     expect((await submit({ ...crowned, idempotencyKey: crypto.randomUUID(), expectedPlanHash: 'a'.repeat(64) })).status).toBe(400);
+    expect((await review({ dahleCutGuides: true, dahleAlignmentMarks: true })).status).toBe(400);
     expect(services.fetchCardImageUrls).not.toHaveBeenCalled();
   });
 });

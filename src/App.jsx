@@ -31,9 +31,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.67.0';
+const APP_VERSION = '2.67.1';
 const WHATS_NEW = [
-  'Add optional die-cutter alignment marks to Dahle batches and paper proofs',
+  'Cut Dahle strips and line up each R3 punch with a single set of PDF guides',
 ];
 
 function getResetToken() {

@@ -597,9 +597,10 @@ async function waitForPrintDownload(href, token) {
 }
 
 const printProofPath = paper => `/print-proofs/${encodeURIComponent(paper)}`;
-function printProofQuery({ registrationMarks, dahleAlignmentMarks, key }) {
+function printProofQuery({ registrationMarks, dahleAlignmentMarks, dahleCutGuides, key }) {
   const query = new URLSearchParams({ marks: registrationMarks ? 'on' : 'off' });
   if (dahleAlignmentMarks === true) query.set('dahleAlignmentMarks', 'on');
+  if (dahleCutGuides === true) query.set('dahleCutGuides', 'on');
   if (key) query.set('key', key);
   return query;
 }
@@ -623,7 +624,7 @@ export async function downloadPrintProof(paper, proof, signal) {
   const href = URL.createObjectURL(pdf);
   const anchor = document.createElement('a');
   anchor.href = href;
-  const marks = proof.dahleAlignmentMarks ? 'die-alignment' : proof.registrationMarks ? 'marks' : 'no-marks';
+  const marks = proof.dahleCutGuides ? 'dahle-cut-guides' : proof.dahleAlignmentMarks ? 'die-alignment' : proof.registrationMarks ? 'marks' : 'no-marks';
   anchor.download = `${proof.recipeId}-${marks}-${proof.revision.slice(0, 12)}-proof.pdf`;
   document.body.appendChild(anchor);
   anchor.click();

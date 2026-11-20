@@ -50,16 +50,24 @@ export function printPaperChoice(batch) {
   return batch?.paperSize === 'a4' || batch?.recipeId === PRINT_PAPER.a4.recipeId ? 'a4' : 'letter';
 }
 
-export function validDahleAlignmentMarks(request) {
-  const marks = request.dahleAlignmentMarks;
-  return marks === undefined || marks === false
-    || (marks === true && request.paperSize === 'a4' && request.printPreset === DAHLE_A4_PRESET);
+export function validDahleGuideOptions(request) {
+  const { dahleAlignmentMarks, dahleCutGuides } = request;
+  return [dahleAlignmentMarks, dahleCutGuides].every(value => value === undefined || typeof value === 'boolean')
+    && !(dahleAlignmentMarks && dahleCutGuides)
+    && (!(dahleAlignmentMarks || dahleCutGuides) || (request.paperSize === 'a4' && request.printPreset === DAHLE_A4_PRESET));
 }
 
-export function printPaperRequest(choice, dahleAlignmentMarks = false) {
+export function dahleGuideFields({ dahleAlignmentMarks, dahleCutGuides }) {
+  return {
+    ...(dahleAlignmentMarks === true ? { dahleAlignmentMarks: true } : {}),
+    ...(dahleCutGuides === true ? { dahleCutGuides: true } : {}),
+  };
+}
+
+export function printPaperRequest(choice, guides = {}) {
   return { paperSize: PRINT_PAPER[choice].paperSize,
     ...(isA4PrintPreset(choice) ? { printPreset: choice } : {}),
-    ...(choice === DAHLE_A4_PRESET && dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}) };
+    ...(choice === DAHLE_A4_PRESET ? dahleGuideFields(guides) : {}) };
 }
 
 export const printPaperLabel = batch => batch?.recipeId === CROWNED_A4_LANDSCAPE_V1_RECIPE
@@ -67,7 +75,8 @@ export const printPaperLabel = batch => batch?.recipeId === CROWNED_A4_LANDSCAPE
 
 export function printMarksLabel(batch) {
   if (printPaperChoice(batch) === DAHLE_A4_PRESET) {
-    return batch.dahleAlignmentMarks ? 'Dahle row ticks and die-cutter alignment marks' : 'Dahle row ticks';
+    if (batch.dahleCutGuides) return 'Dahle strip cut lines and R3 corner guides';
+    return batch.dahleAlignmentMarks ? 'Dahle row ticks and strip index marks' : 'Dahle row ticks';
   }
   return batch.registrationMarks === false ? 'No registration marks' : 'Cameo registration marks';
 }

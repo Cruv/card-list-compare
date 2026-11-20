@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { createAlternatePrintLayout, previewAlternatePrintLayout } from '../lib/api';
-import { DAHLE_A4_PRESET, PRINT_PAPER, printPaperChoice, printPaperRequest, validDahleAlignmentMarks } from '../lib/printPaper';
+import { DAHLE_A4_PRESET, PRINT_PAPER, printPaperChoice, printPaperRequest, validDahleGuideOptions } from '../lib/printPaper';
 import { printCreationRequestKey, rejectedPrintCreation } from '../lib/printReview';
 import { useModalLayer } from '../lib/useModalLayer';
 import './ConfirmModal.css';
@@ -11,8 +11,8 @@ function loadRequest(key) {
   try {
     const request = JSON.parse(localStorage.getItem(key));
     if (!request || !/^[a-f0-9]{48}$/.test(request.idempotencyKey) || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)
-      || typeof request.registrationMarks !== 'boolean' || !validDahleAlignmentMarks(request)) return null;
-    const paper = printPaperRequest(printPaperChoice(request), request.dahleAlignmentMarks);
+      || typeof request.registrationMarks !== 'boolean' || !validDahleGuideOptions(request)) return null;
+    const paper = printPaperRequest(printPaperChoice(request), request);
     if (request.paperSize !== paper.paperSize || request.printPreset !== paper.printPreset) return null;
     return { ...paper, registrationMarks: request.registrationMarks, expectedPlanHash: request.expectedPlanHash, idempotencyKey: request.idempotencyKey };
   } catch { return null; }
@@ -32,7 +32,7 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
   const sourcePaper = printPaperChoice(job);
   const [choice, setChoice] = useState(() => pending ? printPaperChoice(pending) : availablePaper.find(paper => paper !== sourcePaper) ?? availablePaper[0]);
   const [marks, setMarks] = useState(pending?.registrationMarks ?? (job.registrationMarks !== false));
-  const [dahleMarks, setDahleMarks] = useState(pending?.dahleAlignmentMarks === true);
+  const [dahleCutGuides, setDahleCutGuides] = useState(pending?.dahleCutGuides === true);
   const [attempt, setAttempt] = useState(0);
   const [review, setReview] = useState(null);
   const [error, setError] = useState('');
@@ -44,8 +44,8 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
   const paper = pending ? printPaperChoice(pending) : choice;
   const dahle = paper === DAHLE_A4_PRESET;
   const registrationMarks = !dahle && marks;
-  const selectedDahleMarks = dahle && (pending ? pending.dahleAlignmentMarks === true : dahleMarks);
-  const options = useMemo(() => ({ ...printPaperRequest(paper, selectedDahleMarks), registrationMarks }), [paper, selectedDahleMarks, registrationMarks]);
+  const selectedDahleCutGuides = dahle && (pending ? pending.dahleCutGuides === true : dahleCutGuides);
+  const options = useMemo(() => ({ ...printPaperRequest(paper, { dahleCutGuides: selectedDahleCutGuides }), registrationMarks }), [paper, selectedDahleCutGuides, registrationMarks]);
   const preview = review?.options === options && review.attempt === attempt ? review : null;
   const data = preview?.data;
   const failures = data?.artworkFailures ?? [];
@@ -61,13 +61,13 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
     const controller = new AbortController();
     const { signal } = controller;
     previewAlternatePrintLayout(deckId, job.id, options, signal, session.token).then(data => {
-      if ((data.plan.dahleAlignmentMarks === true) !== selectedDahleMarks) throw new Error('The artwork review did not match this layout. Check the saved batch again.');
+      if ((data.plan.dahleCutGuides === true) !== selectedDahleCutGuides || data.plan.dahleAlignmentMarks === true) throw new Error('The artwork review did not match this layout. Check the saved batch again.');
       if (!signal.aborted && isCurrentSession(session)) setReview({ options, attempt, data });
     }).catch(error => {
       if (!signal.aborted && isCurrentSession(session)) setReview({ options, attempt, error: error.message });
     });
     return () => controller.abort();
-  }, [deckId, job.id, options, attempt, pending, userId, getSession, isCurrentSession, selectedDahleMarks]);
+  }, [deckId, job.id, options, attempt, pending, userId, getSession, isCurrentSession, selectedDahleCutGuides]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
@@ -140,12 +140,12 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
         </label>
         {dahle
           ? <>
-            <label className="print-panel-check"><input type="checkbox" checked={selectedDahleMarks} disabled={!!pending} onChange={event => { setDahleMarks(event.target.checked); setError(''); }} />Include die-cutter alignment marks</label>
-            <p>Dahle uses row ticks and is printed from the downloaded PDF at Actual Size (100%).</p>
+            <label className="print-panel-check"><input type="checkbox" checked={selectedDahleCutGuides} disabled={!!pending} onChange={event => { setDahleCutGuides(event.target.checked); setError(''); }} />Include strip cut lines and R3 corner guides</label>
+            <p>Print the downloaded PDF at Actual Size (100%). Cut 210 × 90 mm strips on the Dahle, then punch the individual cards.</p>
           </>
           : <label className="print-panel-check"><input type="checkbox" checked={pending?.registrationMarks ?? marks} disabled={!!pending} onChange={event => { setMarks(event.target.checked); setError(''); }} />Include Cameo registration marks</label>}
         {error && <p className="print-panel-error" role="alert">{error}</p>}
-        {pending && !submitting && <p role="status">Retry the saved request to retrieve or finish the same batch.</p>}
+        {pending && !submitting && <p role="status">Retry the saved request to retrieve or finish the same batch.{pending.dahleAlignmentMarks && ' This request uses strip index marks.'}</p>}
         {!pending && !preview && <p role="status">Checking the original artwork and layout…</p>}
         {!pending && preview?.error && <div className="print-panel-error" role="alert">
           <p>{preview.error}</p>

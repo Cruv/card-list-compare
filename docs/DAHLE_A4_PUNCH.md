@@ -31,10 +31,10 @@ stock. [Epson printable areas](https://files.support.epson.com/docid/cpd5/cpd598
 
 1. **Make the reference edge.** Lay the sheet face up with the top of the cards
    toward the blade and a factory long side square against the perpendicular scale
-   bar. Park the magnetic stop clear of the sheet. Align both ticks 13.5 mm from
-   the printed top with the blade. Keep the 283.5 mm sheet body on the bed and
-   discard the narrow piece on the far side of the blade. For several sheets,
-   make all the reference trims before resetting the stop.
+   bar. Park the magnetic stop clear of the sheet. Align the first horizontal guide
+   or pair of ticks, 13.5 mm from the printed top, with the blade. Keep the 283.5 mm
+   sheet body on the bed and discard the narrow piece on the far side of the blade.
+   For several sheets, make all the reference trims before resetting the stop.
 2. **Set 90 mm once.** Rotate the body 180° in its plane, keeping the artwork up.
    Set the parallel stop so its paper-contact face is 90 mm from the blade. With
    a factory long side square against the scale bar, seat the fresh short edge
@@ -48,42 +48,47 @@ stock. [Epson printable areas](https://files.support.epson.com/docid/cpd5/cpd598
    die window. The three cards travel single file. Keep the original end margins
    for handling. Use the die window to center each card manually before punching.
 
-The side ticks show only the four row cuts. The die makes the individual card
-outline and R3 corners. The Dahle establishes strip width and squareness.
+The Dahle establishes strip width and squareness. The die makes the individual
+card outline and R3 corners.
 
-## Optional die-cutter alignment marks
+## Optional strip and punch guides
 
-Select **Include die-cutter alignment marks** in a Dahle print review, an alternate
-layout review set to Dahle, or the Dahle one-sheet proof. The option starts off.
-Each occupied card has a guide on either side along the feed direction. Center the
-die between the two guides, using the artwork and die window to check the position.
+Select **Include strip cut lines and R3 corner guides** in the Dahle print review,
+alternate layout review or one-sheet proof. The option starts off. Four horizontal
+lines run between the outer ends of the side ticks, spanning 201 mm. Align the
+first with the Dahle blade and use the remaining lines to check the 90 mm stop.
+Keep each strip at the full 210 mm sheet width.
 
-The guides run down the center of the 2 mm scrap between adjacent finished cards.
-The outer guides sit 7.5 mm from the strip ends, within the 8.5 mm end margins.
-Each guide has two 3 mm strokes starting 6 mm in from the long edges, so they
-survive cutting the 90 mm strip. Their 0.40 mm white backing gives the black lines
-contrast on dark artwork and leaves 0.80 mm between the guide and the nominal card
-edge. Allow at most 0.75 mm of combined print registration, feed alignment and skew
-along the strip at each mark. That leaves 0.05 mm of clearance in the digital check.
-Partial strips show guides around occupied slots. Back pages mirror the occupied
-front slots for long-edge duplex and include guides for cards with a printed back.
+Each occupied card gets four short curved marks, one just outside each corner of
+the 63 × 88 mm cut. With the lever raised, line up the die opening evenly inside
+the four arcs and check the position against the artwork.
+
+Each 30° arc shares the center of the finished R3 corner and has a 4.05 mm
+radius. Both guide types use a 0.30 mm white backing around a 0.16 mm dark stroke.
+The closest ink is 0.90 mm outside the curved cut and 0.85 mm outside the straight
+card edge. The digital check allows 0.75 mm of combined displacement at a guide.
+The arc ends are 0.36 mm inside the strip edges. Check the proof on your stock to
+see whether the trimmed strip retains enough of each arc to align the punch.
+Partial strips mark occupied slots. Back pages mirror the guides for the printed
+back faces with a long-edge flip. Previously saved requests retain their strip
+index marks. Regenerate a saved batch to add both guides to a new PDF.
 
 ## One proof before a batch
 
-On a single full sheet, check that all eight ticks printed, with 90 mm between
-adjacent pairs and 270 mm between the outer pairs. Check the first trim at 13.5 mm
-and measure the cut strips at 90 mm. With the lever raised, check that one 210 × 90 mm
+On a single full sheet, check that all four cut lines or pairs of ticks printed,
+with 90 mm between adjacent guides and 270 mm between the outer guides. Check the
+first trim at 13.5 mm and measure the cut strips at 90 mm. With the lever raised, check that one 210 × 90 mm
 strip advances to all three artwork positions without binding. Punch the three
 positions on the intended stock. Check the frame, corners, whether the strip holds
 together as it advances, and grip at the last card. Check front-to-back alignment
 if applicable. A sheet with clear borders makes any misalignment easier to see.
 
 For the marked proof, also measure the 50 mm scale line before trimming. With the
-lever raised, check that the guide strokes are visible at each feed position in
-your die. Center each card visually and punch all three positions. Inspect both
-sides of the finished cards and the leftover strip. All guide ink should be on
-the scrap. If the opening hides the guides or a cut picks up ink, use the unmarked
-layout and align by the artwork.
+lever raised, check that the rounded arcs are visible at each feed position. Center
+the die opening inside the arcs and punch all three positions. Check the finished
+corners, both faces of a duplex card, and the leftover strip. All guide ink should
+be on the scrap. If the opening hides the guides or a cut picks up ink, use the
+unmarked layout and align by the artwork.
 
 ## Layout and hardware evidence
 
@@ -122,8 +127,8 @@ edge with four straight cuts.
 
 The PDF uses fixed positions on every page. A partial page fills the same slots
 from the upper left, following CLC’s usual copy and packet order. Fronts and backs use the same row positions, with the back
-columns reversed for a portrait long-edge flip. Blank slots stay blank. Batch
-labels and row ticks stay in the margins, and Cameo registration marks are disabled.
+columns reversed for a portrait long-edge flip. Blank slots contain no artwork or
+corner guides. Batch labels stay in the margins, and Cameo registration marks are disabled.
 
 CLC maps the source’s finished artwork to the 63 × 88 mm trim area. Scryfall
 sources use the full card image with their small raster aspect tolerances. CLC
