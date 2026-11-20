@@ -172,7 +172,7 @@ try {
         assert.equal(await confirm.count(), 0);
         markedProof.resolve();
         await proof.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
-        await proof.getByText('Cut 210 × 90 mm strips on the Dahle using the horizontal black cut lines.', { exact: true }).waitFor();
+        await proof.getByText('Cut 210 × 90 mm strips on the Dahle using the horizontal cyan cut lines.', { exact: true }).waitFor();
         await proof.getByText(/Feed each strip into the 63 × 88 mm R3 punch.*four lime corner guides/).waitFor();
         assert.equal(await confirm.isChecked(), false);
         assert.equal(await confirm.isDisabled(), true);

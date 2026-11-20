@@ -98,7 +98,7 @@ the option on for Cameo Print & Cut.
 
 The Dahle layout offers **Include strip cut lines and R3 corner guides**, off by
 default, in Prepare, alternate layout review, and the Dahle one-sheet proof. Use
-the four black horizontal lines to cut 210 × 90 mm strips on the Dahle. Then use
+the four cyan horizontal lines to cut 210 × 90 mm strips on the Dahle. Then use
 the lime arcs to center the R3 punch at each card. See [how to check the marked proof](DAHLE_A4_PUNCH.md#one-proof-before-a-batch).
 
 With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
