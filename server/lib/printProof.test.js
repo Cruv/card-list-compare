@@ -14,7 +14,8 @@ function fixture() {
     const request = JSON.parse(await fs.readFile(input, 'utf8'));
     requests.push(request);
     await fs.writeFile(path.join(request.directory, 'sheet.pdf'), bytes);
-    await fs.writeFile(path.join(request.directory, 'result.json'), request.dahleAlignmentMarks ? '{"dahleAlignmentMarks":true}' : '{}');
+    await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({
+      ...(request.dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}), ...(request.dahleCutGuides ? { dahleCutGuides: true } : {}) }));
   });
   return { generator: createPrintGenerator({ runtime, run }), version, run, release, bytes, requests };
 }
@@ -90,5 +91,35 @@ describe('exact paper proof recipe', () => {
     });
     await expect(generator.downloadProof(dahle, 'off', unmarked.key)).rejects.toThrow('did not confirm the requested Dahle alignment marks');
     await expect(generator.downloadProof(dahle, 'off', unmarked.key)).resolves.toEqual({ proof: unmarked, pdf: bytes });
+  });
+
+  it('binds strip cuts and R3 punch guides to a distinct Dahle proof while preserving archived proof keys', async () => {
+    const { generator, run, requests, bytes } = fixture();
+    const dahle = 'dahle-a4-punch';
+    const plain = generator.describeProof(dahle, 'off');
+    const legacy = generator.describeProof(dahle, 'off', 'on');
+    const guided = generator.describeProof(dahle, 'off', undefined, 'on');
+    expect(plain.key).toBe('10ed2f45fb620d9a486e1b320f96d50177595a22dc5de2b64af2ca14831aea4c');
+    expect(legacy.key).toBe('c80b1c57a938f7a3590aefbf7bb3c79ece827fb490cd37149559bed00995c2f5');
+    expect(generator.describeProof(dahle, 'off', 'on', 'off')).toEqual(legacy);
+    expect(generator.describeProof(dahle, 'off', 'off', 'off')).toEqual(plain);
+    expect(guided).toMatchObject({ recipeId: legacy.recipeId, registrationMarks: false, dahleCutGuides: true });
+    expect(guided).not.toHaveProperty('dahleAlignmentMarks');
+    expect(new Set([plain.key, legacy.key, guided.key]).size).toBe(3);
+    expect(() => generator.describeProof('letter', 'off', 'off', 'on')).toThrow('require the Dahle A4 layout');
+    expect(() => generator.describeProof(dahle, 'off', 'on', 'on')).toThrow('Choose one Dahle guide style');
+    expect(() => generator.describeProof(dahle, 'off', 'off', 'true')).toThrow('whether to include Dahle cut guides');
+    await expect(generator.downloadProof(dahle, 'off', legacy.key, undefined, 'on')).rejects.toMatchObject({ status: 409 });
+    await expect(generator.downloadProof(dahle, 'off', guided.key, 'on')).rejects.toMatchObject({ status: 409 });
+    const render = run.getMockImplementation();
+    run.mockImplementationOnce(async (...args) => {
+      await render(...args);
+      await fs.writeFile(path.join(requests.at(-1).directory, 'result.json'), '{"dahleCornerGuides":true}');
+    });
+    await expect(generator.downloadProof(dahle, 'off', guided.key, 'off', 'on')).rejects.toThrow('did not confirm the requested Dahle cut guides');
+    await expect(generator.downloadProof(dahle, 'off', guided.key, 'off', 'on')).resolves.toEqual({ proof: guided, pdf: bytes });
+    expect(requests.at(-1)).toMatchObject({ registrationMarks: false, dahleCutGuides: true });
+    expect(requests.at(-1)).not.toHaveProperty('dahleAlignmentMarks');
+    await expect(generator.downloadProof(dahle, 'off', legacy.key, 'on')).resolves.toEqual({ proof: legacy, pdf: bytes });
   });
 });

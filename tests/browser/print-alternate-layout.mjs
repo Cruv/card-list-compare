@@ -80,19 +80,19 @@ try {
           previewRequests.push(body);
           const dahle = body.printPreset === 'dahle-a4-punch';
           const portraitSix = body.printPreset === 'crowned-a4-portrait-six';
-          if (body.dahleAlignmentMarks) await markedPreview.promise;
+          if (body.dahleCutGuides) await markedPreview.promise;
           const failures = blockArt ? [failure] : [];
           return send({
             capabilities, generator, layout: { frontSheets: dahle ? 2 : 3, backSheets: dahle ? 1 : 2 }, artworkFailures: failures,
             sourceJobId: originalId, sourceManifestSha256: manifestSha256,
             plan: { ...body, totalCopies: 15, readyToGenerate: !failures.length, resolvedCards: cards,
-              planHash: dahle ? body.dahleAlignmentMarks ? dahleMarkedHash : dahleHash : portraitSix && !body.registrationMarks ? markOff : markOn },
+              planHash: dahle ? body.dahleCutGuides ? dahleMarkedHash : dahleHash : portraitSix && !body.registrationMarks ? markOff : markOn },
           });
         }
         if (url.pathname === `${scope}/${originalId}/alternate-layout`) {
           const body = request.postDataJSON();
           assert.equal(request.headers().authorization, 'Bearer print-layout-fixture');
-          assert.deepEqual(Object.keys(body).sort(), [...(tracked ? [] : ['dahleAlignmentMarks']), 'expectedPlanHash', 'idempotencyKey', 'paperSize', 'printPreset', 'registrationMarks']);
+          assert.deepEqual(Object.keys(body).sort(), [...(tracked ? [] : ['dahleCutGuides']), 'expectedPlanHash', 'idempotencyKey', 'paperSize', 'printPreset', 'registrationMarks']);
           assert.match(body.idempotencyKey, /^[a-f0-9]{48}$/);
           createRequests.push(body);
           if (derived) return send({ job: derived, isExisting: true });
@@ -121,7 +121,7 @@ try {
       const open = current.getByRole('button', { name: 'Regenerate with another layout' });
       const dialog = page.getByRole('dialog', { name: 'Regenerate with another layout' });
       const paper = dialog.getByRole('combobox', { name: 'Paper and layout' });
-      const dieMarks = dialog.getByRole('checkbox', { name: 'Include die-cutter alignment marks' });
+      const dieMarks = dialog.getByRole('checkbox', { name: 'Include strip cut lines and R3 corner guides' });
       const counts = dialog.locator('.print-regeneration-counts dd');
       const generate = dialog.getByRole('button', { name: 'Generate PDFs', exact: true });
       await current.getByText('Fronts are printed. Backs are saved for later.', { exact: true }).waitFor();
@@ -142,13 +142,13 @@ try {
         assert.deepEqual(queueRequests, []);
         blockArt = false;
         await paper.selectOption('dahle-a4-punch');
-        await dialog.getByText(/Dahle uses row ticks/).waitFor();
+        await dialog.getByText(/Cut 210 × 90 mm strips on the Dahle/).waitFor();
         assert.equal(await dieMarks.isChecked(), false);
         assert.equal(await dialog.getByRole('checkbox', { name: /Cameo/ }).count(), 0);
         await generate.waitFor();
         await counts.first().waitFor();
         assert.deepEqual(await counts.allTextContents(), ['15', '2', '1']);
-        assert.equal(previewRequests.at(-1).dahleAlignmentMarks, undefined);
+        assert.equal(previewRequests.at(-1).dahleCutGuides, undefined);
         await dieMarks.check();
         await dialog.getByText(/Checking the original artwork and layout/).waitFor();
         assert.equal(await generate.isDisabled(), true);
@@ -174,7 +174,7 @@ try {
         const originalRequest = structuredClone(createRequests[0]);
         assert.equal(originalRequest.expectedPlanHash, dahleMarkedHash);
         assert.equal(originalRequest.registrationMarks, false);
-        assert.equal(originalRequest.dahleAlignmentMarks, true);
+        assert.equal(originalRequest.dahleCutGuides, true);
         await page.reload();
         await open.click();
         assert.equal(await paper.inputValue(), 'dahle-a4-punch');
@@ -199,7 +199,7 @@ try {
         await current.getByText('Waiting for the Mac', { exact: true }).waitFor();
         assert.deepEqual(queueRequests, [newId]);
       } else {
-        await current.getByText(/Dahle row ticks and die-cutter alignment marks/).waitFor();
+        await current.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
         assert.equal(await current.getByRole('button', { name: 'Send to Mac' }).count(), 0);
       }
       await current.getByRole('link', { name: /source batch/ }).click();

@@ -352,13 +352,41 @@ def pdf_coordinates(*values):
     return " ".join(f"{value * POINTS_PER_MM:.6f}" for value in values)
 
 
-def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False):
+def stroke_dahle_guides(commands, paths, geometry, *, outline="1 G", center="0 G"):
+    commands.append("q 0 J")
+    for color, width in ((outline, geometry["outlineWidth"]), (center, geometry["strokeWidth"])):
+        commands.extend((f"{color} {pdf_coordinates(width)} w", *paths, "S"))
+    commands.append("Q")
+
+
+def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
+    inset = bleed + geometry["trimRadius"]
+    radius = geometry["trimRadius"] + geometry["offset"]
+    start, end = (math.radians(angle) for angle in geometry["angles"])
+    tangent = 4 / 3 * radius * math.tan((end - start) / 4)
+    x0, y0 = radius * math.cos(start), radius * math.sin(start)
+    x3, y3 = radius * math.cos(end), radius * math.sin(end)
+    # A cubic arc from 30 to 60 degrees, offset parallel to the R3 trim.
+    # The endpoints stay inside the strip and the center survives row drift.
+    curve = ((x0, y0), (x0 - tangent * math.sin(start), y0 + tangent * math.cos(start)),
+             (x3 + tangent * math.sin(end), y3 - tangent * math.cos(end)), (x3, y3))
+    paths = []
+    for left, bottom in cells:
+        for x, sign_x in ((left + inset, -1), (left + cell_width - inset, 1)):
+            for y, sign_y in ((bottom + inset, -1), (bottom + cell_height - inset, 1)):
+                p0, p1, p2, p3 = [(x + sign_x * dx, y + sign_y * dy) for dx, dy in curve]
+                paths.append(f"{pdf_coordinates(*p0)} m {pdf_coordinates(*p1, *p2, *p3)} c")
+    return paths
+
+
+def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut_guides=False):
     page_width, page_height = DAHLE_GEOMETRY["page"]
     trim_width, trim_height = DAHLE_GEOMETRY["trim"]
     columns, rows, bleed = (DAHLE_GEOMETRY[key] for key in ("columns", "rows", "bleed"))
     cell_width, cell_height = trim_width + 2 * bleed, trim_height + 2 * bleed
     side, top = (page_width - columns * cell_width) / 2, (page_height - rows * cell_height) / 2
     tick_start, tick_end = DAHLE_GEOMETRY["tick"]
+    row_cuts = [page_height - top - boundary * cell_height for boundary in range(rows + 1)]
     metadata = [{"id": card["id"]} for card in cards]
     writer = PdfWriter()
     for face in ("front", "back") if double_faced else ("front",):
@@ -366,6 +394,7 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False):
         objects = DictionaryObject()
         commands = []
         alignment_boundaries = set()
+        corner_cells = []
         for slot, card in enumerate(cards):
             path = card.get(f"{face}Path")
             if path is None:
@@ -381,18 +410,35 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False):
                 alignment_boundaries.update(((row, column), (row, column + 1)))
             x = side + column * cell_width
             y = page_height - top - (row + 1) * cell_height
+            if cut_guides:
+                corner_cells.append((x, y))
             image_x, image_y = x + (cell_width - image_width) / 2, y + (cell_height - image_height) / 2
             name = f"/Card{slot + 1}"
             objects[NameObject(name)] = writer._add_object(artwork)
             commands.extend(("q", f"{pdf_coordinates(x, y, cell_width, cell_height)} re W n",
                              f"{pdf_coordinates(image_width)} 0 0 {pdf_coordinates(image_height, image_x, image_y)} cm",
                              f"{name} Do", "Q"))
-        commands.extend(("q", "0 G", "0.5 w"))
-        for boundary in range(rows + 1):
-            y = page_height - top - boundary * cell_height
-            for start, end in ((tick_start, tick_end), (page_width - tick_end, page_width - tick_start)):
-                commands.append(f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l S")
-        commands.append("Q")
+        if cut_guides:
+            # The cutter makes four transverse cuts across the sheet. These
+            # stay at the same positions on both faces and on partial sheets.
+            right = page_width - tick_start
+            strip_paths = [f"{pdf_coordinates(tick_start, y)} m {pdf_coordinates(right, y)} l" for y in row_cuts]
+            stroke_dahle_guides(commands, strip_paths, DAHLE_GEOMETRY["stripGuideStroke"])
+            endpoints = DAHLE_GEOMETRY["stripGuideEndpoint"]
+            endpoint_length = endpoints["length"]
+            endpoint_paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l" for y in row_cuts
+                              for start, end in ((tick_start, tick_start + endpoint_length), (right - endpoint_length, right))]
+            stroke_dahle_guides(commands, endpoint_paths, endpoints)
+            corners = DAHLE_GEOMETRY["cornerGuides"]
+            corner_paths = dahle_corner_paths(corner_cells, cell_width, cell_height, bleed, corners)
+            lime = " ".join(str(channel) for channel in corners["strokeRgb"])
+            stroke_dahle_guides(commands, corner_paths, corners, outline="0 G", center=f"{lime} RG")
+        else:
+            commands.extend(("q", "0 G", "0.5 w"))
+            for y in row_cuts:
+                for start, end in ((tick_start, tick_end), (page_width - tick_end, page_width - tick_start)):
+                    commands.append(f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l S")
+            commands.append("Q")
         if alignment_boundaries:
             geometry = DAHLE_GEOMETRY["alignmentMarks"]
             near, far = geometry["stripEdgeOffsets"]
@@ -404,10 +450,7 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False):
                 y = page_height - top - (row + 1) * cell_height
                 for start, end in ((near, far), (cell_height - far, cell_height - near)):
                     paths.append(f"{pdf_coordinates(x, y + start)} m {pdf_coordinates(x, y + end)} l")
-            commands.append("q 0 J")
-            for gray, width in ((1, geometry["outlineWidth"]), (0, geometry["strokeWidth"])):
-                commands.extend((f"{gray} G {pdf_coordinates(width)} w", *paths, "S"))
-            commands.append("Q")
+            stroke_dahle_guides(commands, paths, geometry)
         content = DecodedStreamObject()
         content.set_data(("\n".join(commands) + "\n").encode("ascii"))
         page[NameObject("/Resources")] = DictionaryObject({NameObject("/XObject"): objects})
@@ -484,11 +527,16 @@ def generate_upstream_sheet(request, recipe, output, registration_marks):
     return metadata
 
 
-def dahle_alignment_setting(request, recipe):
-    enabled = request.get("dahleAlignmentMarks", False)
-    if not isinstance(enabled, bool) or (enabled and recipe != DAHLE_A4_PUNCH):
+def dahle_guide_settings(request, recipe):
+    alignment_marks = request.get("dahleAlignmentMarks", False)
+    cut_guides = request.get("dahleCutGuides", False)
+    if not isinstance(alignment_marks, bool) or (alignment_marks and recipe != DAHLE_A4_PUNCH):
         raise ValueError("Die-cutter alignment marks are a Dahle-only option")
-    return enabled
+    if not isinstance(cut_guides, bool) or (cut_guides and recipe != DAHLE_A4_PUNCH):
+        raise ValueError("Strip cut lines and R3 corner guides are a Dahle-only option")
+    if alignment_marks and cut_guides:
+        raise ValueError("Choose either Dahle alignment marks or Dahle cut guides")
+    return alignment_marks, cut_guides
 
 
 def chunk(request):
@@ -498,7 +546,7 @@ def chunk(request):
     if not isinstance(requested_marks, bool):
         raise ValueError("Registration marks must be enabled or disabled")
     registration_marks = recipe != DAHLE_A4_PUNCH and requested_marks
-    alignment_marks = dahle_alignment_setting(request, recipe)
+    alignment_marks, cut_guides = dahle_guide_settings(request, recipe)
     cards = request["cards"]
     if not 1 <= len(cards) <= len(usable_slots(recipe)):
         raise ValueError("Each generator invocation must contain one sheet at most")
@@ -509,7 +557,7 @@ def chunk(request):
         raise ValueError("Sheet faces must match the requested pass and slot order")
     output = directory / "sheet.pdf"
     if recipe == DAHLE_A4_PUNCH:
-        metadata = generate_dahle_sheet(cards, output, double_faced, alignment_marks)
+        metadata = generate_dahle_sheet(cards, output, double_faced, alignment_marks, cut_guides)
     else:
         metadata = generate_upstream_sheet(request, recipe, output, registration_marks)
     identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe,
@@ -518,6 +566,8 @@ def chunk(request):
     result = {"images": metadata, "registrationMarks": registration_marks}
     if alignment_marks:
         result["dahleAlignmentMarks"] = True
+    if cut_guides:
+        result["dahleCutGuides"] = True
     (directory / "result.json").write_text(json.dumps(result))
 
 
@@ -547,7 +597,7 @@ def merge(request):
 
 def proof(request):
     recipe = paper_key(request)
-    alignment_marks = dahle_alignment_setting(request, recipe)
+    alignment_marks, cut_guides = dahle_guide_settings(request, recipe)
     directory = Path(request["directory"])
     cards = []
     width, height = PORTRAIT_CARD["width"], PORTRAIT_CARD["height"]
@@ -570,6 +620,8 @@ def proof(request):
         "Cameo registration marks" if request["registrationMarks"] else "No registration marks")
     if alignment_marks:
         mark_label += " + die-cutter alignment marks"
+    if cut_guides:
+        mark_label = "Dahle strip cut lines + R3 corner guides"
     identification = {"version": 1, "requesterName": "Paper proof",
                       "batchName": f"{request['proofRecipe']} | {request['proofRevision']}"}
     chunk({**request, "cards": cards, "doubleFaced": False, "proofScale": True, "printedIdentification": identification,
@@ -597,12 +649,12 @@ def smoke_dahle(directory, cards):
     working = directory / DAHLE_A4_PUNCH
     working.mkdir()
     paper = {"paperSize": "a4", "printPreset": DAHLE_A4_PUNCH}
-    chunk({"directory": str(working), **paper, "cards": cards, "doubleFaced": True, "dahleAlignmentMarks": True,
+    chunk({"directory": str(working), **paper, "cards": cards, "doubleFaced": True, "dahleCutGuides": True,
            "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Dahle punch layout"},
            "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"},
                           {"page": 2, "phase": "backs", "label": "CLC runtime check"}]})
-    if json.loads((working / "result.json").read_text()).get("dahleAlignmentMarks") is not True:
-        raise ValueError("Dahle punch layout did not confirm alignment marks")
+    if json.loads((working / "result.json").read_text()).get("dahleCutGuides") is not True:
+        raise ValueError("Dahle punch layout did not confirm cut guides")
     reader = PdfReader(working / "sheet.pdf", strict=True)
     for page, face in zip(reader.pages, ("FRONT", "BACK")):
         if len(page.images) != len(cards) or f"| {face}" not in page.extract_text():

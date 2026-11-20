@@ -362,6 +362,7 @@ describe('PDF adapter publication', () => {
       if (args[1] === 'chunk') {
         expect(request.registrationMarks).toBe(false);
         expect(request).not.toHaveProperty('dahleAlignmentMarks');
+        expect(request).not.toHaveProperty('dahleCutGuides');
         expect(request.cards.every(card => card.frontSource === 'scryfall')).toBe(true);
         chunkSizes.push(request.cards.length);
         await fs.writeFile(path.join(request.directory, 'sheet.pdf'), request.label);
@@ -378,31 +379,33 @@ describe('PDF adapter publication', () => {
     expect(chunkSizes).toEqual([9, 2]);
     expect(result.recipe).toMatchObject({ cardWidthMm: 63, cardHeightMm: 88, bleedMm: 1, registration: 0 });
     expect(result).not.toHaveProperty('dahleAlignmentMarks');
+    expect(result).not.toHaveProperty('dahleCutGuides');
     expect(result.slots.slice(-2).map(({ slot, sheet }) => [slot, sheet])).toEqual([[0, 2], [1, 2]]);
   });
 
-  it('requires each Dahle chunk to acknowledge the requested die-cutter marks before publishing', async () => {
+  it.each([['dahleAlignmentMarks', 'alignment marks'], ['dahleCutGuides', 'cut guides']])('requires each Dahle chunk to acknowledge %s before publishing', async (guide, name) => {
     const directory = await temp();
     const runtime = { capture: () => ({ directory: '/runtime', revision: 'fixed' }) };
-    const options = { outputDir: directory, paperSize: 'a4', printPreset: 'dahle-a4-punch', dahleAlignmentMarks: true,
+    const options = { outputDir: directory, paperSize: 'a4', printPreset: 'dahle-a4-punch', [guide]: true,
       cards: [{ id: 'two-faces', frontPath: '/front', backPath: '/back' }] };
     let acknowledges = false;
     const run = async (_command, args) => {
       const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
       if (args[1] === 'chunk') {
-        expect(request).toMatchObject({ doubleFaced: true, registrationMarks: false, dahleAlignmentMarks: true });
+        expect(request).toMatchObject({ doubleFaced: true, registrationMarks: false, [guide]: true });
         await fs.writeFile(path.join(request.directory, 'sheet.pdf'), 'fixture');
         await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({ images: [], registrationMarks: false,
-          ...(acknowledges ? { dahleAlignmentMarks: true } : {}) }));
+          ...(acknowledges ? { [guide]: true } : guide === 'dahleCutGuides' ? { dahleCornerGuides: true } : {}) }));
       } else await fs.writeFile(request.output, 'merged');
     };
     const generator = createPrintGenerator({ runtime, run });
-    await expect(generator.generate(options)).rejects.toThrow('did not confirm the requested Dahle alignment marks');
+    await expect(generator.generate(options)).rejects.toThrow(`did not confirm the requested Dahle ${name}`);
     expect(await fs.readdir(directory)).toEqual([]);
     await expect(generator.generate({ ...options, printPreset: 'crowned-a4' })).rejects.toThrow('require the Dahle A4 layout');
+    await expect(generator.generate({ ...options, dahleAlignmentMarks: true, dahleCutGuides: true })).rejects.toThrow('Choose one Dahle guide style');
     acknowledges = true;
     const result = await generator.generate(options);
-    expect(result).toMatchObject({ dahleAlignmentMarks: true, recipe: { id: 'household-dahle-a4-punch-v1' },
+    expect(result).toMatchObject({ [guide]: true, recipe: { id: 'household-dahle-a4-punch-v1' },
       artifacts: [{ id: 'double-faced-001', pageCount: 2 }] });
   });
 

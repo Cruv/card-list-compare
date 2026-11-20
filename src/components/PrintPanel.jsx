@@ -95,7 +95,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const savedPaper = storedRequest?.paperSize ? storedRequest : storedDraft;
   const [paperOverride, setPaperOverride] = useState(savedPaper?.paperSize ? newPrintPaperChoice(printPaperChoice(savedPaper)) : null);
   const [registrationMarks, setRegistrationMarks] = useState(() => (storedRequest ?? storedDraft)?.registrationMarks ?? true);
-  const [dahleAlignmentMarks, setDahleAlignmentMarks] = useState(() => (storedRequest ?? storedDraft)?.dahleAlignmentMarks === true);
+  const [dahleCutGuides, setDahleCutGuides] = useState(() => (storedRequest ?? storedDraft)?.dahleCutGuides === true);
   const [includeSideboard, setIncludeSideboard] = useState(standalone ? storedRequest?.includeSideboard ?? storedDraft?.includeSideboard ?? false : false);
   const [replacePrintings, setReplacePrintings] = useState(storedRequest?.replacePrintings ?? storedDraft?.replacePrintings ?? false);
   const [excludeBasicLands, setExcludeBasicLands] = useState(storedRequest ? storedRequest.excludeBasicLands ?? false : storedDraft?.excludeBasicLands ?? true);
@@ -144,11 +144,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const paperPreset = PRINT_PAPER[selectedPaper];
   const manualPunch = selectedPaper === DAHLE_A4_PRESET;
   const selectedRegistrationMarks = !manualPunch && (pendingRequest ? pendingRequest.registrationMarks ?? true : registrationMarks);
-  const selectedDahleMarks = manualPunch && (pendingRequest ? pendingRequest.dahleAlignmentMarks === true : dahleAlignmentMarks);
-  const draftPaper = paperOverride ?? (dahleAlignmentMarks && defaultPaper === DAHLE_A4_PRESET ? defaultPaper : null);
+  const selectedDahleCutGuides = manualPunch && (pendingRequest ? pendingRequest.dahleCutGuides === true : dahleCutGuides);
+  const draftPaper = paperOverride ?? (dahleCutGuides && defaultPaper === DAHLE_A4_PRESET ? defaultPaper : null);
   const canQueueSelectedPaper = capabilities.canQueue && !manualPunch;
   const needsReview = reviewDirty || !!pendingArt.length || (!!plan
-    && (selectedPaper !== printPaperChoice(plan) || selectedDahleMarks !== (plan.dahleAlignmentMarks === true)));
+    && (selectedPaper !== printPaperChoice(plan) || selectedDahleCutGuides !== (plan.dahleCutGuides === true)));
   const deckArtChoices = pendingArt.filter(choice => choice.saveToDeck);
   const unavailableArtChoices = deckArtChoices.filter(choice => choice.unavailable);
   const selectedArtChoice = pendingArt.find(choice => choice.selectionKey === selectedArtCard?.selectionKey);
@@ -178,25 +178,25 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   useEffect(() => {
     if (!standalone) return;
     try {
-      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(draftPaper ? printPaperRequest(draftPaper, dahleAlignmentMarks) : {}) }));
+      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(draftPaper ? printPaperRequest(draftPaper, { dahleCutGuides }) : {}) }));
       setDraftError('');
       if (autoComparison && !autoConsumedRef.current) {
         autoConsumedRef.current = true;
         onComparisonConsumed?.(autoComparison.id);
       }
     } catch { setDraftError('This browser could not save your draft. Keep a copy of your card list before leaving this page.'); }
-  }, [standalone, draftStorageKey, listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, draftPaper, dahleAlignmentMarks, autoComparison, onComparisonConsumed]);
+  }, [standalone, draftStorageKey, listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, draftPaper, dahleCutGuides, autoComparison, onComparisonConsumed]);
 
   function switchDraft(draft, comparisonId) {
     if (requestRef.current || busy) return;
     const nextPaper = draft.paperSize ? newPrintPaperChoice(printPaperChoice(draft)) : null;
-    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(draftPaper ? printPaperRequest(draftPaper, dahleAlignmentMarks) : {}) };
+    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(draftPaper ? printPaperRequest(draftPaper, { dahleCutGuides }) : {}) };
     const next = { listName: draft.listName || '', cardText: draft.cardText || '', comparison: draft.comparison || null,
       replacePrintings: draft.replacePrintings ?? false, includeSideboard: draft.includeSideboard ?? false,
       excludeBasicLands: draft.excludeBasicLands ?? true, additionalCardText: draft.additionalCardText || '',
       excludedCards: draft.excludedCards || [], removedCards: draft.removedCards || [], printingOverrides: draft.printingOverrides || [],
       registrationMarks: draft.registrationMarks ?? registrationMarks,
-      ...(nextPaper ? printPaperRequest(nextPaper, draft.dahleAlignmentMarks) : {}) };
+      ...(nextPaper ? printPaperRequest(nextPaper, { dahleCutGuides: draft.dahleCutGuides }) : {}) };
     try { saveStandaloneDraftReplacement(localStorage, draftStorageKey, recoveryStorageKey, current, next); }
     catch { setError('The browser could not save both drafts. Your current draft and compared lists are unchanged. Free browser storage and try again.'); return; }
     setPreviousDraft(current);
@@ -206,7 +206,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     setExcludeBasicLands(draft.excludeBasicLands ?? true); setAdditionalCardText(draft.additionalCardText || '');
     setExcludedCards(draft.excludedCards || []); setRemovedCards(draft.removedCards || []);
     setPaperOverride(nextPaper); setRegistrationMarks(next.registrationMarks);
-    setDahleAlignmentMarks(next.dahleAlignmentMarks === true);
+    setDahleCutGuides(next.dahleCutGuides === true);
     setPrintingOverrides(draft.printingOverrides || []); setPendingArt([]); setSelectedArtCard(null);
     setPlan(null); setEditingSource(true); setActiveView('prepare'); setFocusedJobId(null); setError(''); setNotice('');
     if (comparisonId) { setHandledComparisonId(comparisonId); onComparisonConsumed?.(comparisonId); }
@@ -446,15 +446,15 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       }
       const data = standalone ? await previewStandalonePrintJob({
         mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
-        excludeBasicLands, additionalCardText, excludedCards: nextExcludedCards, printingOverrides: nextOverrides, ...printPaperRequest(selectedPaper, selectedDahleMarks),
+        excludeBasicLands, additionalCardText, excludedCards: nextExcludedCards, printingOverrides: nextOverrides, ...printPaperRequest(selectedPaper, { dahleCutGuides: selectedDahleCutGuides }),
       }) : await previewPrintPlan(deckId, {
         mode, targetSnapshotId,
         baselineSnapshotId: mode === 'changes' ? Number(baseline) : undefined,
         artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText,
-        excludedCards: nextExcludedCards, printingOverrides: nextOverrides, ...printPaperRequest(selectedPaper, selectedDahleMarks),
+        excludedCards: nextExcludedCards, printingOverrides: nextOverrides, ...printPaperRequest(selectedPaper, { dahleCutGuides: selectedDahleCutGuides }),
       });
       if (revision !== revisionRef.current) return;
-      if ((data.plan.dahleAlignmentMarks === true) !== selectedDahleMarks) throw new Error('The reviewed marks did not match this layout. Review the print list again.');
+      if ((data.plan.dahleCutGuides === true) !== selectedDahleCutGuides || data.plan.dahleAlignmentMarks === true) throw new Error('The reviewed marks did not match this layout. Review the print list again.');
       setPlan(data.plan);
       if (deckArtConflict) {
         const included = new Set([...data.plan.cards, ...(data.plan.removedCards || []), ...(data.plan.excludedBasicLands || [])]
@@ -506,11 +506,11 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         const request = standalone ? {
           mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
           excludeBasicLands, additionalCardText, excludedCards, printingOverrides,
-          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan), plan.dahleAlignmentMarks), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
+          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan), plan), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
         } : {
           mode, targetSnapshotId: plan.target.id, baselineSnapshotId: plan.source?.id,
           artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, printingOverrides, expectedPlanHash: plan.planHash,
-          ...printPaperRequest(printPaperChoice(plan), plan.dahleAlignmentMarks), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
+          ...printPaperRequest(printPaperChoice(plan), plan), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
         };
         // Save before POST: a reload or lost response must recover this exact
         // request instead of creating a second potentially queued batch.
@@ -524,7 +524,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       setJobs(old => mergePrintJobs(old, [data.job], data.job.id));
       setPlan(null);
       setPaperOverride(null);
-      setDahleAlignmentMarks(false);
+      setDahleCutGuides(false);
       setEditingSource(false);
       setFocusedJobId(data.job.id);
       setActiveView('batches');
@@ -681,7 +681,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
     <div className="print-prepare-view" hidden={activeView !== 'prepare'}>
     {!!activity.activeCount && <div className="print-active-summary"><span>{activity.activeCount} active {activity.activeCount === 1 ? 'batch' : 'batches'} · {STATES[activeJob.state] || activeJob.state}</span><button type="button" className="print-text-button" onClick={() => setActiveView('batches')}>View batches</button></div>}
-    <PrintPaperProof userId={user.id} selectedPaper={selectedPaper} selectedMarks={selectedRegistrationMarks} selectedDahleMarks={selectedDahleMarks} generator={generator} />
+    <PrintPaperProof userId={user.id} selectedPaper={selectedPaper} selectedMarks={selectedRegistrationMarks} selectedDahleCutGuides={selectedDahleCutGuides} generator={generator} />
     {editingSource && !creationPending && <form className="print-panel-card print-source" onSubmit={preview}>
       <h3>Choose cards</h3>
       {standalone ? <fieldset className="print-list-inputs" disabled={busy || creationPending}>
@@ -746,7 +746,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
           <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
         </>}
         {manualPunch
-          ? <label className="print-panel-check"><input type="checkbox" checked={selectedDahleMarks} disabled={busy || creationPending} onChange={event => change(setDahleAlignmentMarks, event.target.checked, true)} />Include die-cutter alignment marks</label>
+          ? <label className="print-panel-check"><input type="checkbox" checked={selectedDahleCutGuides} disabled={busy || creationPending} onChange={event => change(setDahleCutGuides, event.target.checked, true)} />Include strip cut lines and R3 corner guides</label>
           : <label className="print-panel-check"><input type="checkbox" checked={selectedRegistrationMarks} disabled={busy || creationPending} onChange={event => setRegistrationMarks(event.target.checked)} />Include Cameo registration marks</label>}
       </div>
       {manualPunch && <p className="print-panel-meta">63 × 88 mm finished cards · 1 mm bleed per edge · 210 × 90 mm row strips. Print the PDFs at 100% and proof one sheet with your punch. <a href="#guide/dahle-punch">Dahle cutting guide</a></p>}

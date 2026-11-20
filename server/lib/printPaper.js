@@ -43,10 +43,14 @@ export function newPrintPaperSelection(paperSize, printPreset) {
   return selection;
 }
 
-export function dahleAlignmentMarksEnabled(printPreset, value = false) {
-  if (typeof value !== 'boolean') throw printError('dahleAlignmentMarks must be true or false');
-  if (value && printPreset !== DAHLE_A4_PRESET) throw printError('Die-cutter alignment marks require the Dahle A4 layout');
-  return value;
+// Alignment marks preserve the saved strip indexing strokes. Cut guides add
+// horizontal strip cut lines and R3 corner guides together.
+export function dahleGuideOptions(printPreset, { dahleAlignmentMarks = false, dahleCutGuides = false } = {}) {
+  if (typeof dahleAlignmentMarks !== 'boolean') throw printError('dahleAlignmentMarks must be true or false');
+  if (typeof dahleCutGuides !== 'boolean') throw printError('dahleCutGuides must be true or false');
+  if ((dahleAlignmentMarks || dahleCutGuides) && printPreset !== DAHLE_A4_PRESET) throw printError('Die-cutter guides require the Dahle A4 layout');
+  if (dahleAlignmentMarks && dahleCutGuides) throw printError('Choose one Dahle guide style');
+  return { ...(dahleAlignmentMarks ? { dahleAlignmentMarks } : {}), ...(dahleCutGuides ? { dahleCutGuides } : {}) };
 }
 
 export function printJobPaper(plan, manifest) {

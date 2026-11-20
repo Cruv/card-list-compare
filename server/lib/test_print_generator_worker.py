@@ -1,6 +1,7 @@
 """Margin-label regressions; run with the same pypdf/Pillow runtime as the worker."""
 import hashlib
 import json
+import math
 from pathlib import Path
 import tempfile
 import unittest
@@ -32,12 +33,13 @@ class DahlePunchTests(unittest.TestCase):
                 card[f"{face}Source"] = "scryfall"
             self.cards.append(card)
 
-    def render(self, name, cards, *, double_faced=False, mixed=False, alignment_marks=None):
+    def render(self, name, cards, *, double_faced=False, mixed=False, alignment_marks=None, cut_guides=None):
         directory = self.directory / name
         directory.mkdir()
         packing = {"sheetPacking": "double-faced-first"} if mixed else {}
         alignment = {} if alignment_marks is None else {"dahleAlignmentMarks": alignment_marks}
-        chunk({"directory": str(directory), **self.paper, **packing, **alignment, "cards": cards, "doubleFaced": double_faced,
+        guides = {} if cut_guides is None else {"dahleCutGuides": cut_guides}
+        chunk({"directory": str(directory), **self.paper, **packing, **alignment, **guides, "cards": cards, "doubleFaced": double_faced,
                "registrationMarks": True,
                "printedIdentification": {"version": 1, "requesterName": "Fixture", "batchName": "Dahle test"},
                "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC full or partial"}] +
@@ -48,6 +50,10 @@ class DahlePunchTests(unittest.TestCase):
             self.assertIs(result["dahleAlignmentMarks"], True)
         else:
             self.assertNotIn("dahleAlignmentMarks", result)
+        if cut_guides:
+            self.assertIs(result["dahleCutGuides"], True)
+        else:
+            self.assertNotIn("dahleCutGuides", result)
         return directory / "sheet.pdf"
 
     @staticmethod
@@ -55,21 +61,24 @@ class DahlePunchTests(unittest.TestCase):
         return [tuple(round(float(value) / POINTS_PER_MM, 4) for value in operands)
                 for operands, name in page.get_contents().operations if name == operator]
 
-    def check_media_and_ticks(self, page, *, alignment_marks=False):
+    def check_media_and_labels(self, page):
         self.assertEqual(page.rotation, 0)
         self.assertAlmostEqual(float(page.mediabox.width) / POINTS_PER_MM, 210, places=5)
         self.assertAlmostEqual(float(page.mediabox.height) / POINTS_PER_MM, 297, places=5)
-        y_positions = [283.5, 193.5, 103.5, 13.5]
-        ticks = slice(0, 8) if alignment_marks else slice(None)
-        self.assertEqual(self.mm_operators(page, b"m")[ticks], [(x, y) for y in y_positions for x in (4.5, 203)])
-        self.assertEqual(self.mm_operators(page, b"l")[ticks], [(x, y) for y in y_positions for x in (7, 205.5)])
-        self.assertEqual(sum(operator == b"S" for _, operator in page.get_contents().operations), 10 if alignment_marks else 8)
         label_positions = []
         page.extract_text(visitor_text=lambda text, cm, tm, font, size:
                           label_positions.append((tm, size)) if text.strip() else None)
         self.assertEqual(len(label_positions), 3)
         for position, size in label_positions:
-            self.assertGreater((position[5] - size * 0.3) / POINTS_PER_MM, y_positions[0])
+            self.assertGreater((position[5] - size * 0.3) / POINTS_PER_MM, 283.5)
+
+    def check_media_and_ticks(self, page, *, alignment_marks=False):
+        self.check_media_and_labels(page)
+        y_positions = [283.5, 193.5, 103.5, 13.5]
+        ticks = slice(0, 8) if alignment_marks else slice(None)
+        self.assertEqual(self.mm_operators(page, b"m")[ticks], [(x, y) for y in y_positions for x in (4.5, 203)])
+        self.assertEqual(self.mm_operators(page, b"l")[ticks], [(x, y) for y in y_positions for x in (7, 205.5)])
+        self.assertEqual(sum(operator == b"S" for _, operator in page.get_contents().operations), 10 if alignment_marks else 8)
 
     def check_alignment_guides(self, page, occupied_boundaries, *, proof_sheet=False):
         guide_starts, guide_ends = [], []
@@ -85,6 +94,51 @@ class DahlePunchTests(unittest.TestCase):
                          [(0,), (1,), (0,)])
         # Each stroke is centered on a bleed boundary with 1 mm to a finished edge.
         self.assertGreater(1 - self.mm_operators(page, b"w")[1][0] / 2, 0.75)
+
+    def check_cut_guides(self, page, occupied_cells, *, proof_sheet=False):
+        count = 4 * len(occupied_cells)
+        starts = self.mm_operators(page, b"m")[: -3 if proof_sheet else None]
+        ends = self.mm_operators(page, b"l")[: -3 if proof_sheet else None]
+        curves = self.mm_operators(page, b"c")
+        rows = (283.5, 193.5, 103.5, 13.5)
+        strip_starts, strip_ends = ([(x, y) for y in rows] for x in (4.5, 205.5))
+        endpoint_starts = [(x, y) for y in rows for x in (4.5, 203.1)]
+        endpoint_ends = [(x, y) for y in rows for x in (6.9, 205.5)]
+        line_starts = strip_starts * 2 + endpoint_starts * 2
+        self.assertEqual(starts[:len(line_starts)], line_starts)
+        self.assertEqual(ends, strip_ends * 2 + endpoint_ends * 2)
+        for start, end in zip(starts[8:24], ends[8:24]):
+            self.assertTrue(end[0] < 7.5 or start[0] > 202.5)
+        arc_starts = starts[len(line_starts):]
+        self.assertEqual(len(arc_starts), 2 * count)
+        self.assertEqual(len(curves), 2 * count)
+        self.assertEqual(arc_starts[:count], arc_starts[count:])
+        self.assertEqual(curves[:count], curves[count:])
+        widths = self.mm_operators(page, b"w")[:6]
+        self.assertEqual(widths, [(0.44,), (0.28,), (1.20,), (0.84,), (0.50,), (0.32,)])
+        self.assertGreater(1 - widths[0][0] / 2, 0.75)
+        operations = page.get_contents().operations
+        self.assertEqual([tuple(values) for values, op in operations if op == b"G"][:5], [(1,), (0,), (1,), (0,), (0,)])
+        self.assertEqual([tuple(map(float, values)) for values, op in operations if op == b"RG"], [(0.58, 1, 0.06)])
+        self.assertEqual(sum(op == b"S" for _, op in operations), 9 if proof_sheet else 6)
+        corners = [(x, y, horizontal, vertical) for left, bottom in occupied_cells
+                   for x, horizontal in ((left + 4, -1), (left + 61, 1))
+                   for y, vertical in ((bottom + 4, -1), (bottom + 86, 1))]
+        for (x, y, horizontal, vertical), start, curve in zip(corners, arc_starts, curves):
+            vectors = [((px - x) * horizontal, (py - y) * vertical)
+                       for px, py in (start, curve[:2], curve[2:4], curve[4:])]
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 30, places=2)
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[-1][1], vectors[-1][0])), 60, places=2)
+            for index in range(21):
+                t = index / 20
+                weights = ((1-t)**3, 3*t*(1-t)**2, 3*t*t*(1-t), t**3)
+                dx, dy = (sum(weight * vector[axis] for weight, vector in zip(weights, vectors)) for axis in range(2))
+                radius = math.hypot(dx, dy)
+                self.assertAlmostEqual(radius, 4.05, places=3)
+                self.assertGreater(radius - 0.25 - 3, 0.75)  # Combined displacement toward the ink.
+                self.assertLess((radius + 0.25) * max(dx, dy) / radius, 4 - 0.22)  # Clear of the strip lines.
+                if t == 0.5:
+                    self.assertGreater(4 - (radius + 0.25) * dy / radius, 0.75)
 
     def check_image(self, page, slot, color):
         image = page.images[f"/Card{slot + 1}"].image
@@ -160,6 +214,41 @@ class DahlePunchTests(unittest.TestCase):
             self.check_alignment_guides(page, [(7.5, 72.5, 137.5, 202.5)] * 3, proof_sheet=True)
             self.assertIn("Dahle row ticks + die-cutter alignment marks | FRONT", page.extract_text())
 
+    def test_cut_guide_proof_uses_strip_lines_all_corners_and_distinct_page_label(self):
+        proof({**self.paper, "directory": str(self.directory), "registrationMarks": True, "dahleCutGuides": True,
+               "proofRecipe": "household-dahle-a4-punch-v1", "proofRevision": "fixture"})
+        result = json.loads((self.directory / "result.json").read_text())
+        self.assertIs(result["dahleCutGuides"], True)
+        self.assertNotIn("dahleAlignmentMarks", result)
+        self.assertFalse(result["registrationMarks"])
+        cells = [(x, y) for y in (193.5, 103.5, 13.5) for x in (7.5, 72.5, 137.5)]
+        with PdfReader(self.directory / "sheet.pdf", strict=True) as reader:
+            self.assertEqual(len(reader.pages), 1)
+            page = reader.pages[0]
+            self.check_cut_guides(page, cells, proof_sheet=True)
+            self.assertIn("Dahle strip cut lines + R3 corner guides | FRONT", page.extract_text())
+            self.assertIn("50 mm", page.extract_text())
+
+    def test_cut_guides_keep_strip_lines_and_mark_only_occupied_corners_on_both_faces(self):
+        cards = [{key: value for key, value in card.items() if index >= 5 or not key.startswith("back")}
+                 for index, card in enumerate(self.cards[:7])]
+        options = {"double_faced": True, "mixed": True}
+        unchecked = self.render("no-guide-option", cards, **options)
+        disabled = self.render("cut-guide-off", cards, **options, cut_guides=False)
+        self.assertEqual(unchecked.read_bytes(), disabled.read_bytes())
+        marked = self.render("cut-guide-on", cards, **options, cut_guides=True)
+        with PdfReader(marked) as reader, PdfReader(unchecked) as baseline:
+            first, back = reader.pages
+            front_cells = [(x, y) for y in (193.5, 103.5) for x in (7.5, 72.5, 137.5)] + [(7.5, 13.5)]
+            self.check_cut_guides(first, front_cells)
+            self.check_cut_guides(back, [(7.5, 103.5), (137.5, 13.5)])
+            for page, original in zip(reader.pages, baseline.pages):
+                self.check_media_and_labels(page)
+                for operator in (b"re", b"cm"):
+                    self.assertEqual(self.mm_operators(page, operator), self.mm_operators(original, operator))
+                self.assertEqual([image.data for image in page.images], [image.data for image in original.images])
+                self.assertEqual(page.extract_text(), original.extract_text())
+
     def test_alignment_guides_track_actual_front_and_mirrored_back_occupancy(self):
         cards = [{key: value for key, value in card.items() if index >= 5 or not key.startswith("back")}
                  for index, card in enumerate(self.cards[:7])]
@@ -184,6 +273,14 @@ class DahlePunchTests(unittest.TestCase):
     def test_rejects_nonboolean_or_cross_preset_alignment_marks(self):
         for request in ({**self.paper, "dahleAlignmentMarks": "true"}, {"paperSize": "letter", "dahleAlignmentMarks": True}):
             with self.subTest(request=request), self.assertRaisesRegex(ValueError, "Dahle-only"):
+                chunk({"directory": str(self.directory), **request})
+
+    def test_rejects_bad_cut_guide_and_combined_settings(self):
+        requests = (({**self.paper, "dahleCutGuides": 1}, "Dahle-only"),
+                    ({"paperSize": "letter", "dahleCutGuides": True}, "Dahle-only"),
+                    ({**self.paper, "dahleCutGuides": True, "dahleAlignmentMarks": True}, "Choose either"))
+        for request, error in requests:
+            with self.subTest(request=request), self.assertRaisesRegex(ValueError, error):
                 chunk({"directory": str(self.directory), **request})
 
     def test_mirrors_columns_for_upright_long_edge_backs_and_keeps_single_placement(self):

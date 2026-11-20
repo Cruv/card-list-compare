@@ -1,8 +1,17 @@
 # Current work checkpoint
 
+## Dahle strip and R3 punch guides
+
+- v2.67.1 adds four straight guides for cutting 210 × 90 mm strips and rounded guides for centering each R3 punch to new Dahle reviews, regenerated batches, and proofs. Existing requests retain their original strip index marks. See the [guide dimensions and proof steps](DAHLE_A4_PUNCH.md#optional-strip-and-punch-guides).
+- The PDF worker tests cover strip boundaries on partial sheets, matching artwork placement, mirrored corner guides and the 0.75 mm combined displacement model. Identical unmarked and legacy fixture inputs produced byte-identical PDFs against v2.67.0.
+- The one-sheet proof shows four continuous black cut lines with bold end marks at 13.5, 103.5, 193.5 and 283.5 mm from the top. The R3 arcs use a lime center twice as wide as the original draft stroke. Nominal ink clearance is 0.78 mm from the straight trim and 0.80 mm from the R3 trim.
+- Disposable Chrome verified new batches, regenerated PDFs, lost-response retry, per-recipe proof downloads and setup scroll on desktop and mobile. The real worker generated eight paired copies in the new layout. It preserved all five original batch files and six simulated print receipts, and no batch was sent to a printer.
+- Local verification passed 1,554 JavaScript tests, 290 portable companion tests, 20 PDF worker tests, the production build and the deployment contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities.
+- The household stack was outside verification. Guide visibility and physical cut alignment still need the actual die and stock.
+
 ## Dahle die-cutter alignment marks
 
-- v2.67.0 adds a default-off Dahle option to new batches, alternate layout reviews, and one-sheet proofs. The guide strokes use the 2 mm scrap at card boundaries and stay at least 6 mm inside the long strip edges. See the [geometry and proof steps](DAHLE_A4_PUNCH.md#optional-die-cutter-alignment-marks).
+- v2.67.0 adds a default-off Dahle option to new batches, alternate layout reviews, and one-sheet proofs. Its strip index marks use the 2 mm scrap at card boundaries and stay at least 6 mm inside the long strip edges.
 - Disposable Chrome and the real PDF worker checked new and regenerated batches and separate proof keys. Digital checks covered eight paired copies, a partial row and mirrored backs. Artwork streams, clip and placement transforms, and row-cut ticks matched the unmarked PDFs. The test confirmed preservation of the original batch files, simulated receipts, and confirmation record.
 - Local verification passed 1,547 JavaScript tests, 290 portable companion tests, 17 PDF worker tests, the production build and the deployment contract. Lint reported five existing warnings. Both dependency audits found zero vulnerabilities.
 - The household stack is outside this change. Physical alignment and guide visibility depend on the actual die and stock.

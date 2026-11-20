@@ -9,5 +9,22 @@
     "stripEdgeOffsets": [6, 9],
     "outlineWidth": 0.4,
     "strokeWidth": 0.18
+  },
+  "cornerGuides": {
+    "trimRadius": 3,
+    "offset": 1.05,
+    "angles": [30, 60],
+    "outlineWidth": 0.5,
+    "strokeWidth": 0.32,
+    "strokeRgb": [0.58, 1, 0.06]
+  },
+  "stripGuideStroke": {
+    "outlineWidth": 0.44,
+    "strokeWidth": 0.28
+  },
+  "stripGuideEndpoint": {
+    "length": 2.4,
+    "outlineWidth": 1.2,
+    "strokeWidth": 0.84
   }
 }

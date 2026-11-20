@@ -96,10 +96,10 @@ Clear **Include Cameo registration marks** for hand cutting or a die cutter. The
 fronts and backs keep the same card positions, paper size, and thin sheet labels. Leave
 the option on for Cameo Print & Cut.
 
-The Dahle layout offers **Include die-cutter alignment marks**, off by default, in
-Prepare, alternate layout review, and the Dahle one-sheet proof. The guides bracket
-occupied cards in the strip scrap. The existing row-cut ticks still guide the Dahle
-cuts. See [how to check the marked proof](DAHLE_A4_PUNCH.md#one-proof-before-a-batch).
+The Dahle layout offers **Include strip cut lines and R3 corner guides**, off by
+default, in Prepare, alternate layout review, and the Dahle one-sheet proof. Use
+the four black horizontal lines to cut 210 × 90 mm strips on the Dahle. Then use
+the lime arcs to center the R3 punch at each card. See [how to check the marked proof](DAHLE_A4_PUNCH.md#one-proof-before-a-batch).
 
 With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
 connected Discord channel, with the requester, saved batch label, card count, queue time
