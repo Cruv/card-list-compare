@@ -2,6 +2,7 @@
 
 ## Explicit paste review and US Letter Dahle
 
+- v2.68.3 repairs narrow dark edges in Dahle Scryfall artwork that needs synthetic bleed. Newly generated batch pages show the paper size and generation date in the printed identification. Letter Dahle keeps its labels in the side margin.
 - v2.68.2 uses 0.28 mm lime strip lines and 0.40 mm lime R3 arcs on A4 and Letter. The cut positions, corner clearance and 63 × 88 mm artwork scale carry forward from v2.68.1.
 - v2.68.1 extends guided strip cuts to 3.2 mm from both paper sides. Each line keeps one width through the artwork and side margins. Marked Letter identification fits between the cuts in the side margin. Synthetic bleed skips the outermost source pixels when reflecting the artwork, avoiding a doubled edge line at the cut.
 - v2.68.0 starts from `cf2063b`. Compare and standalone Print preserve native paste focus, caret and undo. The import report opens with **Review import**. The Library paste dialog and the URL and file imports retain their review steps.

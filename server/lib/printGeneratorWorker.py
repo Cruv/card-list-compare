@@ -1,4 +1,5 @@
 """Generate approved Silhouette sheets and CLC's metric manual-punch sheets."""
+from datetime import date
 import hashlib
 import io
 import json
@@ -191,6 +192,16 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
     dahle = recipe in DAHLE_PAPER
     dahle_letter = recipe == DAHLE_LETTER_PUNCH
     marked_letter = dahle_letter and cut_guides
+    generation_details = ""
+    if "generatedDate" in identification:
+        generated_date = identification["generatedDate"]
+        try:
+            if date.fromisoformat(generated_date).isoformat() != generated_date:
+                raise ValueError("Noncanonical date")
+        except (TypeError, ValueError) as error:
+            raise ValueError("Page generation date must be YYYY-MM-DD") from error
+        paper = "US Letter" if recipe == "letter" or dahle_letter else "A4"
+        generation_details = f" | {paper} | Generated {generated_date}"
     temporary = filename.with_suffix(".identified.pdf")
     with open(filename, "rb") as source:
         reader = PdfReader(source, strict=True)
@@ -233,18 +244,18 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
                 # Each rotated line occupies one strip so the full-width cut
                 # guides stay continuous through the side margins.
                 strip_height = (DAHLE_GEOMETRY["trim"][1] + 2 * DAHLE_GEOMETRY["bleed"]) * POINTS_PER_MM
-                rows = ((top / 2 + strip_height, requester), (top / 2, batch), (top / 2 - strip_height, packet))
+                rows = ((top / 2 + strip_height, requester + generation_details), (top / 2, batch), (top / 2 - strip_height, packet))
             elif dahle_letter:
                 # The 3.2 mm top and bottom margins hold cut lines. Put the
                 # labels in the left 8.95 mm margin, inside the printable area.
-                rows = ((5.35, f"{requester}  |  {batch}"), (8.03, packet))
+                rows = ((5.35, f"{requester}  |  {batch}"), (8.03, packet + generation_details))
             elif dahle:
                 # Keep all three labels above the first strip's 12 mm cut line.
-                rows = ((15, requester), (22.5, batch), (30, packet))
+                rows = ((15, requester + generation_details), (22.5, batch), (30, packet))
             elif portrait:
-                rows = ((18, requester), (27, batch), (36, packet))
+                rows = ((18, requester + generation_details), (27, batch), (36, packet))
             else:
-                rows = ((34, f"{requester}  |  {batch}"), (41, packet))
+                rows = ((34, f"{requester}  |  {batch}"), (41, packet + generation_details))
             inset = 66
             # Courier's advance is 0.6 em. Allow room for the final glyph and for
             # rounding without shortening the packet or the manual refeed message.
@@ -328,7 +339,7 @@ def dahle_source_bleed(size, source):
 
 def opaque_artwork(image):
     if "A" not in image.getbands() and "transparency" not in image.info:
-        return image.convert("RGB")
+        return image.convert("RGB"), None
     rgba = image.convert("RGBA")
     rgb = Image.new("RGB", image.size, "white")
     alpha = rgba.getchannel("A")
@@ -351,7 +362,50 @@ def opaque_artwork(image):
             rgb.paste(rgb.getpixel((left, y)), (0, y, left, y + 1))
         if right < image.width:
             rgb.paste(rgb.getpixel((right - 1, y)), (right, y, image.width, y + 1))
-    return rgb
+    return rgb, alpha
+
+
+def color_luminance(color):
+    red, green, blue = color
+    return (54 * red + 183 * green + 19 * blue) / 256
+
+
+def repair_scan_fringe(image, opacity):
+    """Repair a dark outer pixel only where its color tracks the artwork just inside the edge."""
+    width, height = image.size
+    sides = (
+        (height, (((0, y), (1, y), (2, y)) for y in range(1, height - 1))),
+        (height, (((width - 1, y), (width - 2, y), (width - 3, y)) for y in range(1, height - 1))),
+        (width, (((x, 0), (x, 1), (x, 2)) for x in range(1, width - 1))),
+        (width, (((x, height - 1), (x, height - 2), (x, height - 3)) for x in range(1, width - 1))),
+    )
+    pixels = image.load()
+    alpha = opacity.load() if opacity is not None else None
+    corrections = []
+    for length, positions in sides:
+        candidates = []
+        for edge_at, near_at, far_at in positions:
+            if alpha is not None and any(alpha[point] != 255 for point in (edge_at, near_at, far_at)):
+                continue
+            edge, near, far = pixels[edge_at], pixels[near_at], pixels[far_at]
+            edge_light, near_light, far_light = map(color_luminance, (edge, near, far))
+            if not 0.15 * near_light < edge_light <= 0.8 * near_light or edge_light + 10 > min(near_light, far_light):
+                continue
+            if max(abs(a - b) for a, b in zip(near, far)) > 45:
+                continue
+            shade = edge_light / near_light
+            if max(abs(a - b * shade) for a, b in zip(edge, near)) <= 16:
+                candidates.append((edge_at, near, edge_light))
+        if len(candidates) * 5 < length:
+            continue
+        # A one-pixel genuine frame can be dark too. Require substantial
+        # brightness variation along the edge so flat outlines stay intact.
+        levels = sorted(light for _, _, light in candidates)
+        tenth = len(levels) // 10
+        if levels[-1 - tenth] - levels[tenth] >= 12:
+            corrections.extend(candidates)
+    for point, color, _ in corrections:
+        pixels[point] = color
 
 
 def mirror_artwork_edges(image, pad):
@@ -374,7 +428,7 @@ def dahle_face(path, source, output_bleed):
     with Image.open(io.BytesIO(data)) as image:
         metadata = image_metadata(image, data)
         source_bleed = dahle_source_bleed(image.size, source)
-        artwork = opaque_artwork(image)
+        artwork, opacity = opaque_artwork(image)
     metadata["sourceBleedMm"] = source_bleed
     trim_width, trim_height = DAHLE_GEOMETRY["trim"]
     # A single scale anchors the center and protects proportions when source
@@ -382,6 +436,10 @@ def dahle_face(path, source, output_bleed):
     mm_per_pixel = max((trim_width + 2 * source_bleed) / artwork.width,
                        (trim_height + 2 * source_bleed) / artwork.height)
     if output_bleed > source_bleed:
+        # A provider scan can have a one-pixel fringe. Preserve saved artwork
+        # and low-resolution scans, where a single pixel covers more paper.
+        if source == "scryfall" and source_bleed == 0 and mm_per_pixel <= 0.15:
+            repair_scan_fringe(artwork, opacity)
         artwork = mirror_artwork_edges(artwork, math.ceil((output_bleed - source_bleed) / mm_per_pixel))
     width_mm, height_mm = artwork.width * mm_per_pixel, artwork.height * mm_per_pixel
     artwork.thumbnail((math.ceil(width_mm * 600 / 25.4), math.ceil(height_mm * 600 / 25.4)), Image.Resampling.LANCZOS)

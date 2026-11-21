@@ -31,9 +31,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.68.2';
+const APP_VERSION = '2.68.3';
 const WHATS_NEW = [
-  'Line up Dahle strip cuts and the R3 punch with thinner lime guides',
+  'Reduce thin dark scan edges on Dahle prints',
+  'Find the paper size and generation date on newly generated print sheets',
 ];
 
 function getResetToken() {
