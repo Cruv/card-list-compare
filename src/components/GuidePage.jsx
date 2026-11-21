@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DAHLE_A4_LAYOUT } from '../lib/printPaper';
 import './GuidePage.css';
 
 const SECTIONS = [
@@ -138,20 +139,22 @@ function Printing() {
 }
 
 function DahlePunch() {
+  const { bleedMm, stripSize, stripWidthMm, topMarginMm } = DAHLE_A4_LAYOUT;
   return <div className="guide-section">
     <h2>Cut with the Dahle 550 and R3 punch</h2>
-    <p>In the print review, choose <strong>A4 3×3 · Dahle 550 + 63×88 R3 Punch</strong> under <strong>Paper and layout</strong>. Choose <strong>Save as default</strong> to reuse it in this browser. The preset makes a portrait A4 PDF with nine 63 × 88 mm slots, 1 mm bleed on every edge and side ticks for three 210 × 90 mm row strips.</p>
+    <p>In the print review, choose <strong>A4 3×3 · Dahle 550 + 63×88 R3 Punch</strong> under <strong>Paper and layout</strong>. Choose <strong>Save as default</strong> to reuse it in this browser. New PDFs have nine 63 × 88 mm cards with {bleedMm} mm bleed on every edge, {2 * bleedMm} mm between finished cards, and three {stripSize} row strips.</p>
     <h3>Print at 100%</h3>
     <p>Download the PDFs and print on A4 using <strong>Actual Size (100%)</strong> in bordered mode. Turn off Fit to Page and borderless enlargement. For double-faced cards, use a portrait long-edge flip and finish both sides before trimming.</p>
     <h3>Trim four times</h3>
+    <p>Earlier Dahle PDFs may have 90 mm strips. Measure between the cut lines or row ticks on your PDF to set the stop.</p>
     <ol className="guide-steps">
-      <li>Place the sheet face up, with the top of the printed cards toward the blade and a factory long edge against the Dahle’s perpendicular scale bar. Leave the stop clear. Align the first horizontal guide or pair of ticks, 13.5 mm below the top, with the blade. Keep the sheet on the bed and discard the narrow offcut.</li>
-      <li>Rotate the sheet 180° in its plane. Set the factory stop to <strong>90 mm from the blade</strong>. Put the fresh short edge against the stop, with a factory long edge square against the scale bar. Cut and keep the row between the stop and the blade.</li>
-      <li>Move the remaining sheet back onto the bed without rotating it. Put its new cut edge against the same 90 mm stop. Repeat twice, keeping the next two rows. Discard the final 13.5 mm offcut.</li>
-      <li>Turn each row strip 90° so a 90 mm end enters the punch first and the cards advance single file. Keep both end margins for handling. Center each card in the die window before pulling the lever.</li>
+      <li>Place the sheet face up, with the top of the printed cards toward the blade and a factory long edge against the Dahle’s perpendicular scale bar. Leave the stop clear. Align the first horizontal guide or pair of ticks, {topMarginMm} mm below the top on a new PDF, with the blade. Keep the sheet on the bed and discard the narrow offcut.</li>
+      <li>Rotate the sheet 180° in its plane. For new PDFs, set the factory stop to <strong>{stripWidthMm} mm from the blade</strong>. Put the fresh short edge against the stop, with a factory long edge square against the scale bar. Cut and keep the row between the stop and the blade.</li>
+      <li>Move the remaining sheet back onto the bed without rotating it. Put its new cut edge against the same stop. Repeat twice, keeping the next two rows. Discard the final offcut.</li>
+      <li>Turn each row strip 90° so the short end enters the punch first and the cards advance single file. Keep both end margins for handling. Center each card in the die window before pulling the lever.</li>
     </ol>
     <h3>Proof one sheet with your equipment</h3>
-    <p>Before the first batch, check that all four strip boundaries printed and are spaced 90 mm apart. Trim one strip and dry-feed its full length through the punch, then try all three positions using your intended stock. Check the centering, corners and handling of the last card. Check both faces if you print duplex.</p>
+    <p>Before the first wider batch, check that all four strip boundaries printed and are spaced {stripWidthMm} mm apart. Trim one strip and dry-feed its full length through the punch, then try all three positions using your intended stock. Check the centering, corners and handling of the last card. Check both faces if you print duplex.</p>
     <p>Choose <strong>Include strip cut lines and R3 corner guides</strong> in the Dahle review or one-sheet proof. Measure the 50 mm scale line, then trim the strips along the cyan horizontal guides. Feed a strip front side up with the lever raised. Look straight down at the framed card. Nudge the strip to see the lime peek into the opening, then line up the card until all four guides disappear under the die. On the first cut, check that all guide ink stayed on the scrap and the card is centered on both faces.</p>
   </div>;
 }

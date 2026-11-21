@@ -142,7 +142,7 @@ try {
         assert.deepEqual(queueRequests, []);
         blockArt = false;
         await paper.selectOption('dahle-a4-punch');
-        await dialog.getByText(/Cut 210 × 90 mm strips on the Dahle/).waitFor();
+        await dialog.getByText(/Cut 210 × 91 mm strips on the Dahle/).waitFor();
         assert.equal(await dieMarks.isChecked(), false);
         assert.equal(await dialog.getByRole('checkbox', { name: /Cameo/ }).count(), 0);
         await generate.waitFor();
@@ -181,6 +181,7 @@ try {
         assert.equal(await paper.isDisabled(), true);
         assert.equal(await dieMarks.isChecked(), true);
         assert.equal(await dieMarks.isDisabled(), true);
+        await dialog.getByText(/Cut the strips on the Dahle using the guides on your PDF/).waitFor();
         await dialog.getByRole('button', { name: 'Retry same layout request' }).click();
         await current.getByRole('heading', { name: 'Alternate-layout fixture' }).waitFor();
         assert.deepEqual(createRequests, [originalRequest, originalRequest]);

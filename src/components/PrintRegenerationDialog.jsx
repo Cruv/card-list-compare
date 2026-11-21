@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { createAlternatePrintLayout, previewAlternatePrintLayout } from '../lib/api';
-import { DAHLE_A4_PRESET, PRINT_PAPER, printPaperChoice, printPaperRequest, validDahleGuideOptions } from '../lib/printPaper';
+import { DAHLE_A4_LAYOUT, DAHLE_A4_PRESET, PRINT_PAPER, printPaperChoice, printPaperRequest, validDahleGuideOptions } from '../lib/printPaper';
 import { printCreationRequestKey, rejectedPrintCreation } from '../lib/printReview';
 import { useModalLayer } from '../lib/useModalLayer';
 import './ConfirmModal.css';
@@ -141,7 +141,9 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
         {dahle
           ? <>
             <label className="print-panel-check"><input type="checkbox" checked={selectedDahleCutGuides} disabled={!!pending} onChange={event => { setDahleCutGuides(event.target.checked); setError(''); }} />Include strip cut lines and R3 corner guides</label>
-            <p>Print the downloaded PDF at Actual Size (100%). Cut 210 × 90 mm strips on the Dahle, then punch the individual cards.</p>
+            <p>Print the downloaded PDF at Actual Size (100%). {pending
+              ? 'Cut the strips on the Dahle using the guides on your PDF.'
+              : `Cut ${DAHLE_A4_LAYOUT.stripSize} strips on the Dahle, then punch the individual cards.`}</p>
           </>
           : <label className="print-panel-check"><input type="checkbox" checked={pending?.registrationMarks ?? marks} disabled={!!pending} onChange={event => { setMarks(event.target.checked); setError(''); }} />Include Cameo registration marks</label>}
         {error && <p className="print-panel-error" role="alert">{error}</p>}

@@ -14,6 +14,12 @@ from printGeneratorWorker import CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, POINTS_PER_M
 
 
 class DahlePunchTests(unittest.TestCase):
+    bleed = 1.5
+    cell_width, cell_height = 66, 91
+    cell_lefts = (6, 72, 138)
+    cell_bottoms = (194, 103, 12)
+    row_cuts = (285, 194, 103, 12)
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -61,54 +67,56 @@ class DahlePunchTests(unittest.TestCase):
         return [tuple(round(float(value) / POINTS_PER_MM, 4) for value in operands)
                 for operands, name in page.get_contents().operations if name == operator]
 
-    def check_media_and_labels(self, page):
+    def check_media_and_labels(self, page, *, proof_sheet=False):
         self.assertEqual(page.rotation, 0)
         self.assertAlmostEqual(float(page.mediabox.width) / POINTS_PER_MM, 210, places=5)
         self.assertAlmostEqual(float(page.mediabox.height) / POINTS_PER_MM, 297, places=5)
         label_positions = []
         page.extract_text(visitor_text=lambda text, cm, tm, font, size:
                           label_positions.append((tm, size)) if text.strip() else None)
-        self.assertEqual(len(label_positions), 3)
-        for position, size in label_positions:
-            self.assertGreater((position[5] - size * 0.3) / POINTS_PER_MM, 283.5)
+        self.assertEqual(len(label_positions), 4 if proof_sheet else 3)
+        for position, size in label_positions[:3]:
+            self.assertGreater((position[5] - size * 0.3) / POINTS_PER_MM, self.row_cuts[0] + 0.22)
+        if proof_sheet:
+            position, size = label_positions[-1]
+            self.assertLess((position[5] + size * 0.8) / POINTS_PER_MM, self.row_cuts[-1] - 0.22)
 
     def check_media_and_ticks(self, page, *, alignment_marks=False):
         self.check_media_and_labels(page)
-        y_positions = [283.5, 193.5, 103.5, 13.5]
         ticks = slice(0, 8) if alignment_marks else slice(None)
-        self.assertEqual(self.mm_operators(page, b"m")[ticks], [(x, y) for y in y_positions for x in (4.5, 203)])
-        self.assertEqual(self.mm_operators(page, b"l")[ticks], [(x, y) for y in y_positions for x in (7, 205.5)])
+        self.assertEqual(self.mm_operators(page, b"m")[ticks], [(x, y) for y in self.row_cuts for x in (4.5, 204.2)])
+        self.assertEqual(self.mm_operators(page, b"l")[ticks], [(x, y) for y in self.row_cuts for x in (5.8, 205.5)])
         self.assertEqual(sum(operator == b"S" for _, operator in page.get_contents().operations), 10 if alignment_marks else 8)
 
     def check_alignment_guides(self, page, occupied_boundaries, *, proof_sheet=False):
         guide_starts, guide_ends = [], []
-        for bottom, boundaries in zip((193.5, 103.5, 13.5), occupied_boundaries):
+        for bottom, boundaries in zip(self.cell_bottoms, occupied_boundaries):
             for x in boundaries:
-                guide_starts.extend(((x, bottom + 6), (x, bottom + 81)))
-                guide_ends.extend(((x, bottom + 9), (x, bottom + 84)))
+                guide_starts.extend(((x, bottom + 6), (x, bottom + 82)))
+                guide_ends.extend(((x, bottom + 9), (x, bottom + 85)))
         guides = slice(8, -3) if proof_sheet else slice(8, None)
         self.assertEqual(self.mm_operators(page, b"m")[guides], guide_starts * 2)
         self.assertEqual(self.mm_operators(page, b"l")[guides], guide_ends * 2)
         self.assertEqual(self.mm_operators(page, b"w")[1:3], [(0.4,), (0.18,)])
         self.assertEqual([tuple(values) for values, operator in page.get_contents().operations if operator == b"G"][:3],
                          [(0,), (1,), (0,)])
-        # Each stroke is centered on a bleed boundary with 1 mm to a finished edge.
-        self.assertGreater(1 - self.mm_operators(page, b"w")[1][0] / 2, 0.75)
+        # The stroke is centered in the 3 mm gutter between finished cards.
+        self.assertGreater(self.bleed - self.mm_operators(page, b"w")[1][0] / 2, 1.25)
 
     def check_cut_guides(self, page, occupied_cells, *, proof_sheet=False):
         count = 4 * len(occupied_cells)
         starts = self.mm_operators(page, b"m")[: -3 if proof_sheet else None]
         ends = self.mm_operators(page, b"l")[: -3 if proof_sheet else None]
         curves = self.mm_operators(page, b"c")
-        rows = (283.5, 193.5, 103.5, 13.5)
+        rows = self.row_cuts
         strip_starts, strip_ends = ([(x, y) for y in rows] for x in (4.5, 205.5))
-        endpoint_starts = [(x, y) for y in rows for x in (4.5, 203.1)]
-        endpoint_ends = [(x, y) for y in rows for x in (6.9, 205.5)]
+        endpoint_starts = [(x, y) for y in rows for x in (4.5, 204.2)]
+        endpoint_ends = [(x, y) for y in rows for x in (5.8, 205.5)]
         line_starts = strip_starts * 2 + endpoint_starts * 2
         self.assertEqual(starts[:len(line_starts)], line_starts)
         self.assertEqual(ends, strip_ends * 2 + endpoint_ends * 2)
         for start, end in zip(starts[8:24], ends[8:24]):
-            self.assertTrue(end[0] < 7.5 or start[0] > 202.5)
+            self.assertTrue(end[0] < 6 or start[0] > 204)
         arc_starts = starts[len(line_starts):]
         self.assertEqual(len(arc_starts), 2 * count)
         self.assertEqual(len(curves), 2 * count)
@@ -127,16 +135,17 @@ class DahlePunchTests(unittest.TestCase):
         self.assertEqual(stroke_colors[:len(colors)], colors)
         self.assertEqual(sum(op == b"S" for _, op in operations), len(widths) + (3 if proof_sheet else 0))
         strip_half_width = widths[0][0] / 2
-        self.assertGreater(1 - strip_half_width, 0.75)
+        self.assertAlmostEqual(self.bleed - strip_half_width, 1.28)
         if not occupied_cells:
             self.assertNotIn((b"RG", (0.58, 1, 0.06)), stroke_colors)
             return
 
         arc_half_width = widths[4][0] / 2
         lime_half_width = widths[5][0] / 2
+        corner_inset = self.bleed + 3
         corners = [(x, y, horizontal, vertical) for left, bottom in occupied_cells
-                   for x, horizontal in ((left + 4, -1), (left + 61, 1))
-                   for y, vertical in ((bottom + 4, -1), (bottom + 86, 1))]
+                   for x, horizontal in ((left + corner_inset, -1), (left + self.cell_width - corner_inset, 1))
+                   for y, vertical in ((bottom + corner_inset, -1), (bottom + self.cell_height - corner_inset, 1))]
         lime_points = []
         for arc_index, ((x, y, horizontal, vertical), start, curve) in enumerate(zip(corners, arc_starts, curves)):
             vectors = [((px - x) * horizontal, (py - y) * vertical)
@@ -149,10 +158,10 @@ class DahlePunchTests(unittest.TestCase):
                 dx, dy = (sum(weight * vector[axis] for weight, vector in zip(weights, vectors)) for axis in range(2))
                 radius = math.hypot(dx, dy)
                 self.assertAlmostEqual(radius - arc_half_width - 3, 0.10, places=3)
-                self.assertLess((radius + arc_half_width) * max(dx, dy) / radius, 4 - strip_half_width)
+                self.assertLess((radius + arc_half_width) * max(dx, dy) / radius, corner_inset - strip_half_width)
                 # Test just inside the lime stroke, away from the antialiased edge.
                 lime_scale = (radius - lime_half_width + 0.03) / radius
-                self.assertGreater(4 - dy * lime_scale, 0.75)  # Both ends survive the modeled strip trim.
+                self.assertGreater(corner_inset - dy * lime_scale, 1.25)  # Both ends survive the modeled strip trim.
                 if arc_index < 4:
                     lime_points.append((horizontal * (28.5 + dx * lime_scale), vertical * (41 + dy * lime_scale)))
         self.check_punch_window(lime_points)
@@ -187,12 +196,13 @@ class DahlePunchTests(unittest.TestCase):
         with PdfReader(output) as reader:
             for index, page in enumerate(reader.pages):
                 self.check_media_and_ticks(page)
-                positions = [(x, y, 65, 90) for y in (193.5, 103.5, 13.5) for x in (7.5, 72.5, 137.5)]
+                positions = [(x, y, self.cell_width, self.cell_height) for y in self.cell_bottoms for x in self.cell_lefts]
                 occupied = 9 if index == 0 else 4
                 self.assertEqual(self.mm_operators(page, b"re"), positions[:occupied])
                 self.assertEqual(sum(operator == b"W" for _, operator in page.get_contents().operations), occupied)
                 transforms = self.mm_operators(page, b"cm")
-                self.assertEqual(transforms, [(65, 0, 0, 90, x, y) for x, y, _, _ in positions[:occupied]])
+                # Fixture pixels are 0.2 mm wide. Mirror 1.6 mm, center the original trim, and clip at 1.5 mm.
+                self.assertEqual(transforms, [(66.2, 0, 0, 91.2, x - 0.1, y - 0.1) for x, y, _, _ in positions[:occupied]])
                 for slot in range(occupied):
                     self.check_image(page, slot, self.front_colors[slot])
 
@@ -224,11 +234,12 @@ class DahlePunchTests(unittest.TestCase):
         with PdfReader(self.directory / "sheet.pdf", strict=True) as reader:
             self.assertEqual(len(reader.pages), 1)
             page = reader.pages[0]
+            self.check_media_and_labels(page, proof_sheet=True)
             self.assertEqual(len(page.images), 9)
             boxes = self.mm_operators(page, b"re")
-            self.assertEqual(boxes, [(x, y, 65, 90) for y in (193.5, 103.5, 13.5) for x in (7.5, 72.5, 137.5)])
+            self.assertEqual(boxes, [(x, y, self.cell_width, self.cell_height) for y in self.cell_bottoms for x in self.cell_lefts])
             positions = self.mm_operators(page, b"m")
-            self.assertEqual(positions[:8], [(x, y) for y in (283.5, 193.5, 103.5, 13.5) for x in (4.5, 203)])
+            self.assertEqual(positions[:8], [(x, y) for y in self.row_cuts for x in (4.5, 204.2)])
             scale_start = next(x for x, y in positions if y == 6)
             scale_end = next(x for x, y in self.mm_operators(page, b"l") if y == 6)
             self.assertAlmostEqual(scale_end - scale_start, 50, places=4)
@@ -244,7 +255,7 @@ class DahlePunchTests(unittest.TestCase):
         with PdfReader(self.directory / "sheet.pdf", strict=True) as reader:
             self.assertEqual(len(reader.pages), 1)
             page = reader.pages[0]
-            self.check_alignment_guides(page, [(7.5, 72.5, 137.5, 202.5)] * 3, proof_sheet=True)
+            self.check_alignment_guides(page, [(6, 72, 138, 204)] * 3, proof_sheet=True)
             self.assertIn("Dahle row ticks + die-cutter alignment marks | FRONT", page.extract_text())
 
     def test_cut_guide_proof_uses_strip_lines_all_corners_and_distinct_page_label(self):
@@ -254,10 +265,11 @@ class DahlePunchTests(unittest.TestCase):
         self.assertIs(result["dahleCutGuides"], True)
         self.assertNotIn("dahleAlignmentMarks", result)
         self.assertFalse(result["registrationMarks"])
-        cells = [(x, y) for y in (193.5, 103.5, 13.5) for x in (7.5, 72.5, 137.5)]
+        cells = [(x, y) for y in self.cell_bottoms for x in self.cell_lefts]
         with PdfReader(self.directory / "sheet.pdf", strict=True) as reader:
             self.assertEqual(len(reader.pages), 1)
             page = reader.pages[0]
+            self.check_media_and_labels(page, proof_sheet=True)
             self.check_cut_guides(page, cells, proof_sheet=True)
             self.assertIn("Dahle strip cut lines + R3 corner guides | FRONT", page.extract_text())
             self.assertIn("50 mm", page.extract_text())
@@ -272,7 +284,7 @@ class DahlePunchTests(unittest.TestCase):
         marked = self.render("cut-guide-on", cards, **options, cut_guides=True)
         with PdfReader(marked) as reader, PdfReader(unchecked) as baseline:
             first, back = reader.pages
-            front_cells = [(x, y) for y in (193.5, 103.5) for x in (7.5, 72.5, 137.5)] + [(7.5, 13.5)]
+            front_cells = [(x, y) for y in self.cell_bottoms[:2] for x in self.cell_lefts] + [(6, 12)]
             self.check_cut_guides(first, front_cells)
             self.check_cut_guides(back, [])
             for page, original in zip(reader.pages, baseline.pages):
@@ -293,8 +305,8 @@ class DahlePunchTests(unittest.TestCase):
         marked = self.render("mixed-on", cards, **options, alignment_marks=True)
         with PdfReader(marked) as reader, PdfReader(omitted) as baseline:
             front, back = reader.pages
-            self.check_alignment_guides(front, [(7.5, 72.5, 137.5, 202.5)] * 2 + [(7.5, 72.5)])
-            self.check_alignment_guides(back, [(), (7.5, 72.5), (137.5, 202.5)])
+            self.check_alignment_guides(front, [(6, 72, 138, 204)] * 2 + [(6, 72)])
+            self.check_alignment_guides(back, [(), (6, 72), (138, 204)])
             for page, original in zip(reader.pages, baseline.pages):
                 self.check_media_and_ticks(page, alignment_marks=True)
                 self.check_media_and_ticks(original)
@@ -327,8 +339,8 @@ class DahlePunchTests(unittest.TestCase):
             self.assertIn("Prepared by: Fixture", first.extract_text())
             self.assertNotIn("REFEED FOR BACK", first.extract_text())
             self.assertNotIn("REFEED FOR BACK", back.extract_text())
-            self.assertEqual(self.mm_operators(back, b"re"), [(72.5, 193.5, 65, 90), (7.5, 193.5, 65, 90),
-                                                             (137.5, 103.5, 65, 90), (72.5, 103.5, 65, 90)])
+            self.assertEqual(self.mm_operators(back, b"re"), [(72, 194, 66, 91), (6, 194, 66, 91),
+                                                             (138, 103, 66, 91), (72, 103, 66, 91)])
             self.assertEqual(len(back.images), 4)
             for slot in range(1, 5):
                 self.check_image(back, slot, self.back_colors[slot])
@@ -338,7 +350,7 @@ class DahlePunchTests(unittest.TestCase):
         artwork = Image.new("RGB", (1387, 1887), "magenta")
         ImageDraw.Draw(artwork).rectangle((64, 64, 1323, 1823), fill="navy")
         artwork.save(path)
-        for output_bleed in (0, 1, 2):
+        for output_bleed in (0, 1, 1.5, 2):
             _, metadata, (width, height) = dahle_face(path, "saved-mpc", output_bleed)
             self.assertEqual(metadata["sourceBleedMm"], 3.175)
             self.assertAlmostEqual(width, 69.35)
@@ -346,13 +358,13 @@ class DahlePunchTests(unittest.TestCase):
         cards = [{"id": "mpc", "frontPath": str(path), "frontSource": "saved-mpc"}]
         with PdfReader(self.render("mpc", cards)) as reader:
             page = reader.pages[0]
-            self.assertEqual(self.mm_operators(page, b"re"), [(7.5, 193.5, 65, 90)])
-            self.assertEqual(self.mm_operators(page, b"cm"), [(69.35, 0, 0, 94.35, 5.325, 191.325)])
+            self.assertEqual(self.mm_operators(page, b"re"), [(6, 194, 66, 91)])
+            self.assertEqual(self.mm_operators(page, b"cm"), [(69.35, 0, 0, 94.35, 4.325, 192.325)])
             width, _, _, height, x, y = self.mm_operators(page, b"cm")[0]
             self.assertAlmostEqual(width - 2 * 3.175, 63)
             self.assertAlmostEqual(height - 2 * 3.175, 88)
-            self.assertAlmostEqual(x + 3.175, 8.5)
-            self.assertAlmostEqual(y + 3.175, 194.5)
+            self.assertAlmostEqual(x + 3.175, 7.5)
+            self.assertAlmostEqual(y + 3.175, 195.5)
         Image.new("RGB", (300, 400), "red").save(path)
         with self.assertRaisesRegex(ValueError, "no recognized 63 × 88 mm trim geometry"):
             dahle_face(path, "saved-mpc", 1)
@@ -362,7 +374,7 @@ class DahlePunchTests(unittest.TestCase):
         artwork = Image.new("RGBA", (315, 440), (0, 0, 0, 0))
         ImageDraw.Draw(artwork).rounded_rectangle((0, 0, 314, 439), radius=25, fill="navy")
         artwork.save(path)
-        for output_bleed, expected in ((0, (63, 88)), (1, (65, 90)), (2, (67, 92))):
+        for output_bleed, expected in ((0, (63, 88)), (1, (65, 90)), (1.5, (66.2, 91.2)), (2, (67, 92))):
             _, metadata, dimensions = dahle_face(path, "scryfall", output_bleed)
             self.assertEqual(metadata["sourceBleedMm"], 0)
             self.assertEqual(dimensions, expected)

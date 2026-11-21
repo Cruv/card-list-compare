@@ -1,8 +1,20 @@
+import dahleA4PunchGeometry from '../../server/lib/dahleA4PunchGeometry.json' with { type: 'json' };
+
 export const CROWNED_A4_PRESET = 'crowned-a4';
 export const CROWNED_A4_PORTRAIT_SIX_PRESET = 'crowned-a4-portrait-six';
 export const CROWNED_A4_LANDSCAPE_PRESET = 'crowned-a4-landscape';
 export const CROWNED_A4_LANDSCAPE_V1_RECIPE = 'household-crowned-a4-landscape-v1';
 export const DAHLE_A4_PRESET = 'dahle-a4-punch';
+
+const { bleed, page, rows, trim } = dahleA4PunchGeometry;
+const dahleStripWidth = trim[1] + 2 * bleed;
+export const DAHLE_A4_LAYOUT = Object.freeze({
+  bleedMm: bleed,
+  stripLengthMm: page[0],
+  stripWidthMm: dahleStripWidth,
+  stripSize: `${page[0]} × ${dahleStripWidth} mm`,
+  topMarginMm: (page[1] - rows * dahleStripWidth) / 2,
+});
 
 const A4_PORTRAIT_PRESETS = [CROWNED_A4_PRESET, CROWNED_A4_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET];
 

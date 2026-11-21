@@ -8,7 +8,7 @@ import PrintRegenerationDialog from './PrintRegenerationDialog';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
 import { batchDetailRefresh, loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printCreationRequestKey, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
-import { CROWNED_A4_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, PRINT_PAPER, availablePrintPaperChoices, isCrownedPrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printMarksLabel, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
+import { CROWNED_A4_PORTRAIT_SIX_PRESET, DAHLE_A4_LAYOUT, DAHLE_A4_PRESET, PRINT_PAPER, availablePrintPaperChoices, isCrownedPrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printMarksLabel, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -749,7 +749,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
           ? <label className="print-panel-check"><input type="checkbox" checked={selectedDahleCutGuides} disabled={busy || creationPending} onChange={event => change(setDahleCutGuides, event.target.checked, true)} />Include strip cut lines and R3 corner guides</label>
           : <label className="print-panel-check"><input type="checkbox" checked={selectedRegistrationMarks} disabled={busy || creationPending} onChange={event => setRegistrationMarks(event.target.checked)} />Include Cameo registration marks</label>}
       </div>
-      {manualPunch && <p className="print-panel-meta">63 × 88 mm finished cards · 1 mm bleed per edge · 210 × 90 mm row strips. Print the PDFs at 100% and proof one sheet with your punch. <a href="#guide/dahle-punch">Dahle cutting guide</a></p>}
+      {manualPunch && !creationPending && <p className="print-panel-meta">63 × 88 mm finished cards · {DAHLE_A4_LAYOUT.bleedMm} mm bleed per edge · {DAHLE_A4_LAYOUT.stripSize} row strips. Print the PDFs at 100% and proof one sheet with your punch. <a href="#guide/dahle-punch">Dahle cutting guide</a></p>}
       {selectedPaper === CROWNED_A4_PORTRAIT_SIX_PRESET && <p className="print-panel-meta">Prints six cards in the top two rows, leaving the bottom row free of cards.{selectedRegistrationMarks && <> Get the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</>}</p>}
       {isCrownedPrintPreset(selectedPaper) && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
@@ -777,7 +777,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     </section>
 
     <details className="print-help" aria-label="PDF generator status"><summary>{generator?.available ? 'PDF setup' : generator?.updating ? 'Preparing the PDF generator…' : 'PDF generator unavailable'}</summary>
-      <p>{generator?.available ? manualPunch ? 'Dahle 550 strip cuts · 1 mm output bleed · 9 cards per sheet.' : `Silhouette Card Maker ${generator.revision?.slice(0, 8)} · ${paperPreset.template} · 600 PPI · 1 mm crop · ${paperPreset.cardsPerSheet} cards per sheet.` : 'CLC needs a working Silhouette Card Maker installation. Check the server setup or restart to retry the update.'}</p>
+      <p>{generator?.available ? manualPunch ? `Dahle 550 strip cuts · ${DAHLE_A4_LAYOUT.bleedMm} mm output bleed · 9 cards per sheet.` : `Silhouette Card Maker ${generator.revision?.slice(0, 8)} · ${paperPreset.template} · 600 PPI · 1 mm crop · ${paperPreset.cardsPerSheet} cards per sheet.` : 'CLC needs a working Silhouette Card Maker installation. Check the server setup or restart to retry the update.'}</p>
       {generator?.fallbackReason && <p>{generator.fallbackReason}</p>}
       <p>{manualPunch ? 'Open an artwork thumbnail to enlarge it. Use the exported PDF to check the actual printed layout.' : 'Open an artwork thumbnail to enlarge it; the PDF applies the household crop. Double-sided packets are handled in Printer.'}</p>
 

@@ -31,9 +31,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.67.3';
+const APP_VERSION = '2.67.4';
 const WHATS_NEW = [
-  'Center a card in the Dahle layout by sliding it until all four lime guides hide under the R3 die',
+  'Get more room to align each card in the Dahle layout with 1.5 mm of bleed and wider 91 mm strips',
 ];
 
 function getResetToken() {
