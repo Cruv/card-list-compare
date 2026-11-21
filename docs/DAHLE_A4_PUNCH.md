@@ -59,19 +59,20 @@ horizontal lines with dark outlines span 201 mm, with thicker end marks in the
 side margins. Align the first line with the Dahle blade and use the remaining
 lines to check the 90 mm stop. Keep each strip at the full 210 mm sheet width.
 
-Each occupied card gets four lime arcs with black outlines, one just outside
-each corner of the 63 × 88 mm cut. With the lever raised, line up the die opening
-evenly inside the four arcs and check the position against the artwork.
+Each occupied front gets four lime arcs with dark outlines, one just outside
+each corner of the 63 × 88 mm cut. With the lever raised, frame one card in the
+opening and look straight down. Slide the strip until all four lime guides hide
+under the die. Lime visible through the opening gives you an edge to adjust.
+Punch guides appear on the face you look at while aligning. Cyan strip lines
+appear on both faces.
 
-Each 25° arc shares the center of the finished R3 corner and has a 4.12 mm radius.
-The 0.52 mm lime stroke has a 0.64 mm dark outline. The 0.28 mm cyan cut line has
-a 0.44 mm dark outline. The closest ink is nominally 0.80 mm outside
-the curved cut and 0.78 mm outside the straight card edge. The digital check
-allows 0.75 mm of combined displacement at a guide. Check the proof on your
-stock to see whether the trimmed strip retains enough of each arc to align the punch.
-Partial strips mark occupied slots. Back pages mirror the guides for the printed
-back faces with a long-edge flip. Previously saved requests retain their strip
-index marks. Regenerate a saved batch to add both guides to a new PDF.
+Each 50° arc shares the center of the finished R3 corner and has a 3.42 mm radius.
+The 0.52 mm lime stroke has a 0.64 mm dark outline. On the nominal geometry,
+the lime starts 0.16 mm outside the cut and the dark outline starts 0.10 mm
+outside it. This gives the alignment cue a small clearance. How soon lime peeks
+through on your die depends on its opening, viewing angle and print scale.
+The cyan line has 0.78 mm nominal clearance from the straight card edge.
+Saved PDFs keep their original marks. Regenerate a saved batch for the current guides.
 
 ## One proof before a batch
 
@@ -83,12 +84,13 @@ positions on the intended stock. Check the frame, corners, whether the strip hol
 together as it advances, and grip at the last card. Check front-to-back alignment
 if applicable. A sheet with clear borders makes any misalignment easier to see.
 
-For the marked proof, also measure the 50 mm scale line before trimming. With the
-lever raised, check that the rounded arcs are visible at each feed position. Center
-the die opening inside the arcs and punch all three positions. Check the finished
-corners, both faces of a duplex card, and the leftover strip. All guide ink should
-be on the scrap. If the opening hides the guides or a cut picks up ink, use the
-unmarked layout and align by the artwork.
+For the marked proof, measure the 50 mm scale line before trimming. With the
+lever raised and one front framed, gently nudge the strip in each direction it
+can travel. Check that lime peeks into the opening and disappears again at
+center. Make a test cut and check whether the finished corners and both faces
+line up with the printed frame. All guide ink should be on the scrap. If the
+cue fails on your setup or a cut picks up ink, align by the artwork on the
+unmarked layout.
 
 ## Layout and hardware evidence
 

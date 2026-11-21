@@ -1,5 +1,11 @@
 # Current work checkpoint
 
+## R3 die-window alignment
+
+- v2.67.3 puts the lime arcs close enough to the finished outline for the die to hide them when centered. They print on fronts, where the operator looks through the opening. Cyan strip lines print on both faces. See the [procedure and clearances](DAHLE_A4_PUNCH.md#optional-strip-and-punch-guides).
+- In a 2,400 dpi render with a nominal 63 × 88 mm R3 aperture, centered cards hid all lime. A 0.35 mm shift exposed lime in each of eight directions, including after a modeled 0.75 mm inward trim at both long strip edges. The v2.67.2 marks stayed hidden under the same shifts. The real die and stock still need their first proof.
+- Worker checks kept unmarked and legacy PDF bytes, front and back artwork streams, and cyan cut positions. Disposable Chrome verified the proof and batch reviews. The real worker regenerated eight paired copies while preserving the original files and simulated receipts.
+
 ## Dahle guide visibility
 
 - v2.67.2 changes the strip lines and margin end marks to cyan with dark outlines and increases the lime R3 stroke from 0.32 to 0.52 mm. The four strip cuts, 63 × 88 mm R3 trim and artwork placement match v2.67.1. See the [guide geometry](DAHLE_A4_PUNCH.md#optional-strip-and-punch-guides).

@@ -31,9 +31,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.67.2';
+const APP_VERSION = '2.67.3';
 const WHATS_NEW = [
-  'See Dahle strip cuts in bright cyan and line up the R3 punch with wider lime guides',
+  'Center a card in the Dahle layout by sliding it until all four lime guides hide under the R3 die',
 ];
 
 function getResetToken() {

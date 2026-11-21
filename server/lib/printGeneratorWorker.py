@@ -370,8 +370,7 @@ def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
     tangent = 4 / 3 * radius * math.tan((end - start) / 4)
     x0, y0 = radius * math.cos(start), radius * math.sin(start)
     x3, y3 = radius * math.cos(end), radius * math.sin(end)
-    # A short cubic arc offset parallel to the R3 trim.
-    # The endpoints stay inside the strip and the center survives row drift.
+    # Fit the arc just beyond the R3 opening so a centered die hides the ink.
     curve = ((x0, y0), (x0 - tangent * math.sin(start), y0 + tangent * math.cos(start)),
              (x3 + tangent * math.sin(end), y3 - tangent * math.cos(end)), (x3, y3))
     paths = []
@@ -414,7 +413,7 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut
                 alignment_boundaries.update(((row, column), (row, column + 1)))
             x = side + column * cell_width
             y = page_height - top - (row + 1) * cell_height
-            if cut_guides:
+            if cut_guides and face == "front":
                 corner_cells.append((x, y))
             image_x, image_y = x + (cell_width - image_width) / 2, y + (cell_height - image_height) / 2
             name = f"/Card{slot + 1}"
@@ -434,9 +433,12 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut
             endpoint_paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l" for y in row_cuts
                               for start, end in ((tick_start, tick_start + endpoint_length), (right - endpoint_length, right))]
             stroke_dahle_guides(commands, endpoint_paths, endpoints, stroke_rgb=strip["strokeRgb"])
-            corners = DAHLE_GEOMETRY["cornerGuides"]
-            corner_paths = dahle_corner_paths(corner_cells, cell_width, cell_height, bleed, corners)
-            stroke_dahle_guides(commands, corner_paths, corners, stroke_rgb=corners["strokeRgb"])
+            # The punch is aligned from the front. Near-cut ink on the back
+            # could enter the finished card if the two passes are offset.
+            if corner_cells:
+                corners = DAHLE_GEOMETRY["cornerGuides"]
+                corner_paths = dahle_corner_paths(corner_cells, cell_width, cell_height, bleed, corners)
+                stroke_dahle_guides(commands, corner_paths, corners, stroke_rgb=corners["strokeRgb"])
         else:
             commands.extend(("q", "0 G", "0.5 w"))
             for y in row_cuts:

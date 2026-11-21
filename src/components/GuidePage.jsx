@@ -152,7 +152,7 @@ function DahlePunch() {
     </ol>
     <h3>Proof one sheet with your equipment</h3>
     <p>Before the first batch, check that all four strip boundaries printed and are spaced 90 mm apart. Trim one strip and dry-feed its full length through the punch, then try all three positions using your intended stock. Check the centering, corners and handling of the last card. Check both faces if you print duplex.</p>
-    <p>Choose <strong>Include strip cut lines and R3 corner guides</strong> in the Dahle review or one-sheet proof. Measure the 50 mm scale line, then trim the strips along the cyan horizontal guides. Feed each strip with the lever raised and center the die opening inside the four lime arcs. Check that the guide ink stays on the scrap.</p>
+    <p>Choose <strong>Include strip cut lines and R3 corner guides</strong> in the Dahle review or one-sheet proof. Measure the 50 mm scale line, then trim the strips along the cyan horizontal guides. Feed a strip front side up with the lever raised. Look straight down at the framed card. Nudge the strip to see the lime peek into the opening, then line up the card until all four guides disappear under the die. On the first cut, check that all guide ink stayed on the scrap and the card is centered on both faces.</p>
   </div>;
 }
 
