@@ -5,7 +5,7 @@ import { useConfirm } from './ConfirmModal';
 import { toast } from './Toast';
 import {
   getTrackedDeck, untrackDeck, refreshDeck,
-  getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot,
+  getDeckSnapshots, deleteSnapshot as apiDeleteSnapshot, renameSnapshot, restoreSnapshot,
   getDeckChangelog, updateDeckCommanders, updateDeckNotify,
   lockSnapshot, unlockSnapshot, setPaperSnapshot, clearPaperSnapshot,
   getDeckTimeline, getSnapshot,
@@ -108,6 +108,8 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
   // Snapshot editing
   const [editingNickname, setEditingNickname] = useState(null);
   const [nicknameValue, setNicknameValue] = useState('');
+  const [restoringVersion, setRestoringVersion] = useState(false);
+  const historyHeading = useRef(null);
 
   // Compare mode
   const [compareA, setCompareA] = useState('');
@@ -373,6 +375,31 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
   }
 
   // Snapshot actions
+  async function handleRestoreSnapshot(snapshotId) {
+    const expectedLatestSnapshotId = snapshots[0].id;
+    const confirmed = await confirm({
+      title: 'Restore this version?',
+      message: 'Save a copy of this version as the current digital deck.',
+      confirmLabel: 'Restore as latest',
+    });
+    if (!confirmed) return;
+    setRestoringVersion(true);
+    try {
+      const { changed } = await restoreSnapshot(deckId, snapshotId, expectedLatestSnapshotId);
+      toast.success(changed ? 'Version restored as latest' : 'This version is already current');
+      await afterDeckChanged();
+      historyHeading.current?.focus();
+    } catch (err) {
+      toast.error(err.message);
+      if (err.status === 409 || err.status === 404) {
+        await afterDeckChanged();
+        historyHeading.current?.focus();
+      }
+    } finally {
+      setRestoringVersion(false);
+    }
+  }
+
   async function handleDeleteSnapshot(snapshotId) {
     const confirmed = await confirm({
       title: 'Delete version?',
@@ -949,7 +976,7 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
               </div>
             )}
 
-            <div className="deck-history-heading"><h2>Version history</h2><p>Browse earlier cards or mark the version you have on paper.</p></div>{timelineLoading && <p role="status">Loading version changes…</p>}
+            <div className="deck-history-heading"><h2 ref={historyHeading} tabIndex={-1}>Version history</h2><p>Browse earlier cards or mark the version you have on paper.</p></div>{timelineLoading && <p role="status">Loading version changes…</p>}
             {snapshotsLoading ? (
               <Skeleton lines={5} />
             ) : snapshots.length === 0 ? (
@@ -990,6 +1017,10 @@ export default function DeckPage({ deckId, initialPrintJobId }) {
                       <button className="btn btn-secondary btn-sm" type="button" onClick={event => { event.currentTarget.focus(); inspectVersion(snap, index); }}>View version</button>
                       <ActionMenu label="Options" ariaLabel={`Options for ${snap.nickname || formatDateTime(snap.created_at)}`}>
 
+                      {index > 0 && <button className="deck-page-snap-icon-btn" type="button" disabled={restoringVersion}
+                        onClick={event => { event.currentTarget.focus(); void handleRestoreSnapshot(snap.id); }}>
+                        <Icon name="refresh" size={17} />Restore as latest
+                      </button>}
                       <button
                         className="deck-page-snap-icon-btn"
                         onClick={() => handleToggleLock(snap.id, !!snap.locked)}

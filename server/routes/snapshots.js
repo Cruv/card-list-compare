@@ -1,11 +1,13 @@
 import { Router } from 'express';
-import { all, get, run } from '../db.js';
+import { all, get, run, transaction } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { requireIntParam, requireMaxLength } from '../middleware/validate.js';
 import { parse } from '../../src/lib/parser.js';
+import { COMMANDER_HEADER, COMMENT_PREFIX } from '../../src/lib/constants.js';
 import { computeDiff } from '../../src/lib/differ.js';
 import { enrichDeckText } from '../lib/enrichDeckText.js';
 import { pruneSnapshots } from '../lib/pruneSnapshots.js';
+import { latestSnapshot } from '../lib/structuredSnapshots.js';
 
 const router = Router();
 
@@ -100,6 +102,39 @@ router.get('/:deckId/snapshots/:snapshotId', (req, res) => {
   }
 
   res.json({ snapshot });
+});
+
+router.post('/:deckId/snapshots/:snapshotId/restore', (req, res) => {
+  const deck = verifyDeckOwnership(req, res);
+  if (!deck) return;
+  const snapshotId = requireIntParam(req, res, 'snapshotId');
+  if (snapshotId === null) return;
+
+  const { expectedLatestSnapshotId } = req.body || {};
+  if (!Number.isSafeInteger(expectedLatestSnapshotId) || expectedLatestSnapshotId < 1 || Object.keys(req.body).length !== 1) {
+    return res.status(400).json({ error: 'A valid latest version is required to restore a version.' });
+  }
+
+  const snapshot = get('SELECT deck_text FROM deck_snapshots WHERE id = ? AND tracked_deck_id = ?', [snapshotId, deck.id]);
+  if (!snapshot) return res.status(404).json({ error: 'Snapshot not found' });
+  const latest = latestSnapshot(deck.id);
+  if (latest.deck_text === snapshot.deck_text) return res.json({ snapshotId: latest.id, changed: false });
+  if (latest.id !== expectedLatestSnapshotId) {
+    return res.status(409).json({ error: 'The latest version changed. Review it before restoring an older version.' });
+  }
+
+  const restoredId = transaction(() => {
+    const result = run('INSERT INTO deck_snapshots (tracked_deck_id, deck_text, nickname) VALUES (?, ?, ?)',
+      [deck.id, snapshot.deck_text, 'Restored version']);
+    const commanders = parse(snapshot.deck_text).commanders;
+    const hasCommanderHeading = snapshot.deck_text.split(/\r?\n/).some(line => COMMANDER_HEADER.test(line.replace(COMMENT_PREFIX, '')));
+    if (commanders.length || hasCommanderHeading || parse(latest.deck_text).commanders.length) {
+      run('UPDATE tracked_decks SET commanders = ? WHERE id = ?', [JSON.stringify(commanders), deck.id]);
+    }
+    pruneSnapshots(deck.id);
+    return result.lastInsertRowid;
+  });
+  res.status(201).json({ snapshotId: restoredId, changed: true });
 });
 
 router.delete('/:deckId/snapshots/:snapshotId', (req, res) => {

@@ -164,11 +164,12 @@ Source claims are included in the immutable operation payload. Replays return th
 original receipt, even if the owner later edits the deck.
 
 If an Archidekt source first arrived as a manual deck, tracking that source through
-CLC later promotes the same deck ID to its selected Archidekt owner. Existing
-snapshots, current text, notes, and paper marker remain intact. Its first upstream
-observation goes through the ordinary source review: a different list with no
-acknowledged baseline is staged for review. Repeated tracking reuses the same
-deck; ambiguous existing duplicates are rejected before any metadata changes.
+CLC later promotes the same deck ID to its selected Archidekt owner. The first
+successful refresh saves a changed Archidekt lineup as the latest snapshot. The
+update carries forward saved printings for retained copies and uses source printings
+for newly added copies. The original list stays in version history, with
+notes and the paper marker preserved. Repeated tracking reuses the same deck.
+Ambiguous existing duplicates are rejected before any metadata changes.
 
 ## Delivering a proposal
 
@@ -280,25 +281,28 @@ another snapshot. The new snapshot's `origin` identifies `source: "manasync"`,
 the `proposalId`, and the submission `operationId`, so polling can acknowledge
 the delivered draft without echoing it back.
 
-Accepted or revised text becomes one digital snapshot. An unchanged Archidekt
-refresh preserves that version. If Archidekt later changes while the current
-deck differs from the last reviewed source, its new list waits for an owner
-decision in the source review panel. The proposal receipt still identifies
-its own resulting snapshot. Proposal decisions do not acquire,
-move, print, or remove inventory. Update the paper marker separately after
-making the corresponding physical deck changes.
+Accepted or revised text becomes one digital snapshot. A refresh of the same Archidekt
+lineup preserves that version. A later lineup change saves a new latest snapshot, and the
+proposal receipt still identifies the version it created. Use version history
+to compare the two or restore the proposal list. Update the paper marker separately
+after making the corresponding physical deck changes. Proposal decisions only
+affect the digital deck.
 
-## Reconciling Archidekt changes
+<a id="reconciling-archidekt-changes"></a>
 
-The deck page shows source status above its normal snapshot views. **Local edits
-protected** means the current digital deck differs from the reviewed source;
-**Archidekt changes need review** means a new source version is waiting. Library
-badges expose the same distinction. Review the previous source, current CLC deck,
-and latest source; keep the current deck, use the source, or save a reviewed merge.
-Keeping acknowledges that source version without creating a digital snapshot.
-Unchanged subsequent fetches do not reopen that review. Source-only decks can
-continue updating automatically. A legacy deck without a known source baseline
-requires review before a different fetched list can replace its current deck.
+## Reconciling provider changes
+
+**Source updates** shows the last check and the status of the linked list.
+CLC automatically saves a new version when Archidekt changes the cards, quantities
+or deck sections. Printings saved for retained copies carry forward. When the
+Archidekt lineup stays the same, CLC keeps the current digital version.
+
+When Moxfield or DeckCheck changes and the current version differs from its source
+baseline, CLC stages the change for review. An unknown baseline also requires
+review when the fetched and saved lists differ. Compare the previous source,
+current CLC deck, and latest source, then keep the current deck, use the source,
+or save a reviewed merge. Keeping acknowledges the source version without creating
+a digital snapshot and clears the review for subsequent checks of the same list.
 
 `GET /api/decks/:deckId/source-sync` requires an owner login session and returns
 `status`, `revision`, `baseText`, `sourceText`, `currentText`, `currentSnapshotId`,
@@ -313,7 +317,7 @@ resulting state plus `resultSnapshotId` and `replayed`. A different source or
 current digital snapshot rejects a stale decision. The browser preserves the
 exact decision before sending so a lost response can be recovered after reload;
 an acknowledged review updates the baseline atomically with its result/receipt.
-Integration tokens cannot make these decisions, and no review writes to Archidekt.
+Review decisions require an owner login session and apply to the CLC digital deck.
 
 ## Local checks
 

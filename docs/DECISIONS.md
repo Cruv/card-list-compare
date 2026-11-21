@@ -422,12 +422,14 @@ Canonical provider identities now connect tracked Archidekt decks and explicitly
 manual Moxfield, DeckCheck, or Archidekt decks across the bridge. Creation reuses one existing
 source deck without changing its name, history, or paper marker. Ambiguous legacy duplicates
 stop for review; source identities never authorize an overwrite or infer card ownership.
-Native Archidekt tracking also reuses an explicitly linked manual deck, promoting its
-provider metadata and owner in place. Initial fetched content passes through D11's unknown
-baseline review, preserving the current digital deck, paper marker, and all history.
+Native Archidekt tracking also reuses an explicitly linked manual deck and promotes its
+provider metadata and owner in place. The first successful refresh follows D11 and applies
+the Archidekt lineup while carrying forward the printings for retained copies. The original
+list is available in version history under regular retention rules, and the paper marker
+stays pinned to its snapshot.
 The explicit `decks:create` grant also permits native provider tracking from
 TapTogether through ManaSync. Identity and intent commit before network work;
-Archidekt, Moxfield and DeckCheck share source review and scheduled refresh.
+Archidekt, Moxfield and DeckCheck share scheduled refresh and provider status.
 Provider failures have a per-deck status while retaining the last good snapshot.
 Explicit etched finishes remain unavailable until the text/identity contract
 can preserve them; they are never silently mapped to ordinary foil.
@@ -456,26 +458,34 @@ operations keep their original payload and receipt identity for reconciliation.
 
 ## D11 — Separate provider history from the current digital deck
 
-**Decision.** Keep a durable reviewed provider baseline and the latest observed source
-separate from digital snapshots. An unchanged source never replaces local CLC or accepted
-ManaSync edits. A changed source advances the current deck automatically only when it still
-matches the reviewed baseline. Otherwise the source is staged for an owner review: keep the
-current deck, use the source, or commit explicitly merged text. Archidekt, Moxfield and
-DeckCheck refreshes use the shared coordinator. Older decks with an unknown baseline are
-handled conservatively. This began with the Archidekt incident below and now covers all
-tracked providers; the historical incident is not a provider-specific restriction.
+**Decision (revised 2026-11-21).** Archidekt is authoritative for card additions, removals,
+quantities and deck sections in tracked Archidekt decks. A successful refresh saves a changed
+lineup as latest, including the first difference on legacy decks and previously staged
+Archidekt lineup changes. The update carries forward saved printings and artwork for retained
+copies and uses source printings for newly added copies. An unchanged lineup preserves the
+current digital snapshot, including CLC edits, accepted ManaSync edits and restores of earlier
+lists. Version history keeps the previous list under regular retention rules. Restoring an older
+snapshot appends its list as a new digital version and keeps the source baseline and paper marker.
+This supersedes the previous Archidekt rule that staged a changed source when the prior baseline
+was unknown or local work differed.
 
-**Why.** Comparing Archidekt only with the newest digital snapshot treated an accepted local
-edit as a source change, then undid that edit on refresh. A separate baseline distinguishes
-new upstream changes from intentional local differences and survives snapshot pruning.
+Moxfield and DeckCheck continue to stage differing sources for owner review when the
+baseline is unknown or the current deck differs from it. The owner can keep the current
+deck, use the source, or save a merged list.
 
-**Cost.** Each tracked deck stores baseline/candidate text plus a revision. Review decisions
-pin both that revision and the current digital snapshot; operation receipts allow exact retry
-after a lost response. Source reviews do not write to providers, set paper markers, or change
-ManaSync holdings. The source panel explains the distinction and exposes the three texts.
+**Why.** A durable source baseline distinguishes a new provider version from a local edit
+or restore. The baseline survives snapshot pruning, so rechecking the same source keeps
+the current version. Archidekt changes appear promptly, with the previous list available
+through version history.
+
+**Cost.** Each tracked deck stores baseline and observed source text plus a revision.
+When review applies, decisions pin the source revision and current digital snapshot, and
+operation receipts support exact retries. Source checks and reviews only affect CLC’s
+digital deck and tracking state. Paper markers and ManaSync holdings use their own actions.
 
 **Where.** `server/lib/sourceSync.js`, `server/routes/sourceSync.js`,
-`src/components/SourceSyncReview.jsx`, and `src/lib/sourceSync.js`.
+`server/routes/snapshots.js`, `src/components/SourceSyncReview.jsx`, and
+`src/lib/sourceSync.js`.
 The real two-server bridge harness also checks refresh after accepted ManaSync changes.
 
 
@@ -485,8 +495,8 @@ The real two-server bridge harness also checks refresh after accepted ManaSync c
 organization decisions. Preserve capabilities and durable recovery, rather than retaining
 every old tab. Main navigation is **Compare / Decks / Print**. Print has New print list
 and Printer destinations. A deck has **Cards / Changes / Print / Settings**. Cards includes
-insights; Changes combines the comparison and version history, Archidekt review and
-ManaSync proposals. Source status becomes a compact attention link outside that view.
+insights. Changes combines comparisons, version history, provider status and ManaSync
+proposals. Source reviews and proposals that need action have a compact attention link.
 
 Library **Add decks** shows untracked decks and accepts a pasted list or link to start
 tracking. Before/After inputs belong only in Compare. Its saved-version picker is read-only;

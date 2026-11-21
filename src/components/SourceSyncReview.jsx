@@ -52,6 +52,7 @@ function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, on
   const [reload, setReload] = useState(0);
   const storageKey = sourceReviewKey(userId, deckId);
   const providerName = { archidekt: 'Archidekt', moxfield: 'Moxfield', deckcheck: 'DeckCheck' }[state?.sourceProvider || sourceProvider] || 'Archidekt';
+  const archidekt = providerName === 'Archidekt';
   useEffect(() => { onAttentionChange?.(!!(state?.pending || work?.operation || work?.dirty || error)); }, [state?.pending, work?.operation, work?.dirty, error, onAttentionChange]);
   function replace(value) { workRef.current = value; setWork(value); }
 
@@ -157,13 +158,19 @@ function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, on
   const stale = ready && sourceReviewStale(basis, state);
   const locked = busy || !!work?.operation;
   const resultText = work?.action === 'source' ? basis?.sourceText : work?.action === 'merge' ? work.mergedText : basis?.currentText;
+  const statusDescription = state?.status === 'pending_review'
+    ? archidekt ? 'Use Check for updates to apply the latest Archidekt lineup and carry forward your saved printings.' : `${providerName} has a different list waiting for review. Your current CLC deck, including accepted ManaSync edits, is preserved.`
+    : archidekt ? 'When the Archidekt lineup changes, CLC saves a new version with your printings for retained cards.'
+      : state?.status === 'local_changes' ? `Your current digital deck includes local changes. Refresh checks ${providerName} while keeping these edits protected.`
+        : state?.status === 'synced' ? `The current digital deck matches the last checked ${providerName} list.`
+          : `Use Check for updates to check the ${providerName} source. Your saved digital deck stays available.`;
 
   return <section className={`source-sync-review source-sync-review--${state?.status || 'unknown'}`} aria-label={`${providerName} source review`}>
     <div className="source-sync-heading">
       <div><span className="source-sync-eyebrow">Source status</span><h2>{sourceStatusLabel(ready ? state?.status : 'unknown').replaceAll('Archidekt', providerName)}</h2></div>
       <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => { setLoading(true); setReload(value => value + 1); }}>Reload review</button>
     </div>
-    <p>{state?.status === 'pending_review' ? `${providerName} has a different list waiting for review. Your current CLC deck, including accepted ManaSync edits, is preserved.` : state?.status === 'local_changes' ? `Your current digital deck includes local changes. Refresh checks ${providerName} while keeping these edits protected.` : state?.status === 'synced' ? `The current digital deck matches the last checked ${providerName} list.` : `Use Check for updates to check the ${providerName} source. Your saved digital deck stays available.`} Decisions here never change the deck on {providerName}.</p>
+    <p>{statusDescription}</p>
     {state?.sourceTracking?.status === 'awaiting_source' && <p role="status" className="source-sync-warning">{state.sourceTracking.message}</p>}
     {state?.checkedAt && <p className="source-sync-checked">Last source check: {new Date(state.checkedAt).toLocaleString()}</p>}
     {loading && <p role="status">Loading source status…</p>}
