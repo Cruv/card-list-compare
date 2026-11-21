@@ -82,7 +82,7 @@ export default function PrintPaperProof({ userId, selectedPaper, selectedMarks, 
             : 'Use the cut layout as a guide for manual trimming.'}</li>
         {dahle && <li>Feed each strip into the 63 × 88 mm R3 punch.{dahleCutGuides && ' With a card framed in the opening, nudge the strip until you see the lime guides peek through. Center the card until all four disappear under the die.'}</li>}
         <li>Measure a cut card at 63 × 88 mm. Check that its dark frame is complete and that no white slivers show along the cut edges.</li>
-        {dahleCutGuides && <li>Check that the guide ink stayed on the scrap and the cut fits the printed frame on both faces.</li>}
+        {dahleCutGuides && <li>Check that the guide ink stayed on the scrap.</li>}
       </ol>
       <p className="print-panel-meta"><a href={dahle ? '#guide/dahle-punch' : '#guide/printing'}>{dahle ? 'Dahle cutting guide' : 'Printing and cutting guide'}</a></p>
       {!current && <p role="status">Loading proof recipe…</p>}
