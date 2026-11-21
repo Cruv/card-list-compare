@@ -114,37 +114,64 @@ class DahlePunchTests(unittest.TestCase):
         self.assertEqual(len(curves), 2 * count)
         self.assertEqual(arc_starts[:count], arc_starts[count:])
         self.assertEqual(curves[:count], curves[count:])
-        widths = self.mm_operators(page, b"w")[:6]
-        self.assertEqual(widths, [(0.44,), (0.28,), (1.20,), (0.84,), (0.64,), (0.52,)])
-        self.assertGreater(1 - widths[0][0] / 2, 0.75)
-        arc_half_width = widths[4][0] / 2
-        strip_half_width = widths[0][0] / 2
         operations = page.get_contents().operations
         stroke_colors = [(op, tuple(map(float, values))) for values, op in operations if op in (b"G", b"RG")]
-        self.assertEqual(stroke_colors[:6], [
-            (b"G", (0,)), (b"RG", (0, 0.9, 1)),  # Continuous strip lines.
-            (b"G", (0,)), (b"RG", (0, 0.9, 1)),  # Thick endpoints in the margins.
-            (b"G", (0,)), (b"RG", (0.58, 1, 0.06)),  # R3 punch guides.
-        ])
-        self.assertEqual(sum(op == b"S" for _, op in operations), 9 if proof_sheet else 6)
+        gray = (b"G", (0,))
+        cyan = (b"RG", (0, 0.9, 1))
+        widths = [(0.44,), (0.28,), (1.20,), (0.84,)]
+        colors = [gray, cyan, gray, cyan]
+        if occupied_cells:
+            widths.extend([(0.64,), (0.52,)])
+            colors.extend([gray, (b"RG", (0.58, 1, 0.06))])
+        self.assertEqual(self.mm_operators(page, b"w")[:len(widths)], widths)
+        self.assertEqual(stroke_colors[:len(colors)], colors)
+        self.assertEqual(sum(op == b"S" for _, op in operations), len(widths) + (3 if proof_sheet else 0))
+        strip_half_width = widths[0][0] / 2
+        self.assertGreater(1 - strip_half_width, 0.75)
+        if not occupied_cells:
+            self.assertNotIn((b"RG", (0.58, 1, 0.06)), stroke_colors)
+            return
+
+        arc_half_width = widths[4][0] / 2
+        lime_half_width = widths[5][0] / 2
         corners = [(x, y, horizontal, vertical) for left, bottom in occupied_cells
                    for x, horizontal in ((left + 4, -1), (left + 61, 1))
                    for y, vertical in ((bottom + 4, -1), (bottom + 86, 1))]
-        for (x, y, horizontal, vertical), start, curve in zip(corners, arc_starts, curves):
+        lime_points = []
+        for arc_index, ((x, y, horizontal, vertical), start, curve) in enumerate(zip(corners, arc_starts, curves)):
             vectors = [((px - x) * horizontal, (py - y) * vertical)
                        for px, py in (start, curve[:2], curve[2:4], curve[4:])]
-            self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 32.5, places=2)
-            self.assertAlmostEqual(math.degrees(math.atan2(vectors[-1][1], vectors[-1][0])), 57.5, places=2)
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 20, places=2)
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[-1][1], vectors[-1][0])), 70, places=2)
             for index in range(21):
                 t = index / 20
                 weights = ((1-t)**3, 3*t*(1-t)**2, 3*t*t*(1-t), t**3)
                 dx, dy = (sum(weight * vector[axis] for weight, vector in zip(weights, vectors)) for axis in range(2))
                 radius = math.hypot(dx, dy)
-                self.assertAlmostEqual(radius, 4.12, places=3)
-                self.assertGreater(radius - arc_half_width - 3, 0.75)  # Combined displacement toward the ink.
+                self.assertAlmostEqual(radius - arc_half_width - 3, 0.10, places=3)
                 self.assertLess((radius + arc_half_width) * max(dx, dy) / radius, 4 - strip_half_width)
-                if t == 0.5:
-                    self.assertGreater(4 - (radius + arc_half_width) * dy / radius, 0.75)
+                # Test just inside the lime stroke, away from the antialiased edge.
+                lime_scale = (radius - lime_half_width + 0.03) / radius
+                self.assertGreater(4 - dy * lime_scale, 0.75)  # Both ends survive the modeled strip trim.
+                if arc_index < 4:
+                    lime_points.append((horizontal * (28.5 + dx * lime_scale), vertical * (41 + dy * lime_scale)))
+        self.check_punch_window(lime_points)
+
+    def check_punch_window(self, lime_points):
+        def distance(x, y):
+            # Rounded 63 × 88 mm window centered at the origin, R3 at each corner.
+            x, y = abs(x) - 28.5, abs(y) - 41
+            return math.hypot(max(x, 0), max(y, 0)) + min(max(x, y), 0) - 3
+
+        self.assertGreater(min(distance(x, y) for x, y in lime_points), 0)
+        for degrees in range(0, 360, 5):
+            angle = math.radians(degrees)
+            dx, dy = 0.35 * math.cos(angle), 0.35 * math.sin(angle)
+            self.assertLess(min(distance(x - dx, y - dy) for x, y in lime_points), -0.1)
+        for degrees in (-0.75, 0.75):
+            angle = math.radians(degrees)
+            cos, sin = math.cos(angle), math.sin(angle)
+            self.assertLess(min(distance(x * cos + y * sin, -x * sin + y * cos) for x, y in lime_points), 0)
 
     def check_image(self, page, slot, color):
         image = page.images[f"/Card{slot + 1}"].image
@@ -235,7 +262,7 @@ class DahlePunchTests(unittest.TestCase):
             self.assertIn("Dahle strip cut lines + R3 corner guides | FRONT", page.extract_text())
             self.assertIn("50 mm", page.extract_text())
 
-    def test_cut_guides_keep_strip_lines_and_mark_only_occupied_corners_on_both_faces(self):
+    def test_cut_guides_keep_strip_lines_on_both_faces_and_mark_only_occupied_front_corners(self):
         cards = [{key: value for key, value in card.items() if index >= 5 or not key.startswith("back")}
                  for index, card in enumerate(self.cards[:7])]
         options = {"double_faced": True, "mixed": True}
@@ -247,7 +274,7 @@ class DahlePunchTests(unittest.TestCase):
             first, back = reader.pages
             front_cells = [(x, y) for y in (193.5, 103.5) for x in (7.5, 72.5, 137.5)] + [(7.5, 13.5)]
             self.check_cut_guides(first, front_cells)
-            self.check_cut_guides(back, [(7.5, 103.5), (137.5, 13.5)])
+            self.check_cut_guides(back, [])
             for page, original in zip(reader.pages, baseline.pages):
                 self.check_media_and_labels(page)
                 for operator in (b"re", b"cm"):

@@ -12,8 +12,8 @@
   },
   "cornerGuides": {
     "trimRadius": 3,
-    "offset": 1.12,
-    "angles": [32.5, 57.5],
+    "offset": 0.42,
+    "angles": [20, 70],
     "outlineWidth": 0.64,
     "strokeWidth": 0.52,
     "strokeRgb": [0.58, 1, 0.06]

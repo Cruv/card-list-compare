@@ -173,7 +173,8 @@ try {
         markedProof.resolve();
         await proof.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
         await proof.getByText('Cut 210 × 90 mm strips on the Dahle using the horizontal cyan cut lines.', { exact: true }).waitFor();
-        await proof.getByText(/Feed each strip into the 63 × 88 mm R3 punch.*four lime corner guides/).waitFor();
+        await proof.getByText(/Feed each strip into the 63 × 88 mm R3 punch.*all four disappear under the die/).waitFor();
+        await proof.getByText('Check that the guide ink stayed on the scrap.', { exact: true }).waitFor();
         assert.equal(await confirm.isChecked(), false);
         assert.equal(await confirm.isDisabled(), true);
         const downloadingMarked = page.waitForEvent('download');
