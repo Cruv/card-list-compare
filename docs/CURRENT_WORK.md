@@ -1,5 +1,11 @@
 # Current work checkpoint
 
+## Dahle foil color
+
+- v2.69.0 starts from `f9d2aaf`. Both Dahle paper sizes offer Rainbow foil and Surge foil in new and regenerated PDFs. The selected color adjustment is tied to the reviewed request and printed on the sheet. It applies to front artwork at the existing trim and bleed dimensions.
+- The profiles are starting points. Compare one Standard sheet and one adjusted sheet on the same foil stock with matching printer settings. The intended physical color on Rainbow and Surge stock still needs a proof. See the [foil stock procedure](DAHLE_A4_PUNCH.md#foil-stock).
+- On November 20, 2026, the release passed 1,583 JavaScript tests, 32 PDF worker tests, 290 portable companion tests, the production build, deployment contract and both dependency audits. Lint reported five existing warnings. Disposable Chrome checked the review and exact-request recovery paths. The real worker activated in a fresh environment with cached upstream dependencies, then generated paired PDFs for both layouts with the expected front colors, back images and cut geometry.
+
 ## Explicit paste review and US Letter Dahle
 
 - v2.68.3 repairs narrow dark edges in Dahle Scryfall artwork that needs synthetic bleed. Newly generated batch pages show the paper size and generation date in the printed identification. Letter Dahle keeps its labels in the side margin.

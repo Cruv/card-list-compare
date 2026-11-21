@@ -1,5 +1,5 @@
 import { parse } from './parser';
-import { dahleGuideFields, isPrintPaperSize, matchesPrintPreset, printPaperChoice, PRINT_PAPER, validDahleGuideOptions } from './printPaper';
+import { dahleGuideFields, isDahlePrintPreset, isFoilProfile, isPrintPaperSize, matchesPrintPreset, printPaperChoice, PRINT_PAPER, validDahleGuideOptions } from './printPaper';
 import { printCardKey } from './printSelection';
 
 export function batchDetailRefresh(jobs, activity, focusedId) {
@@ -153,6 +153,7 @@ function validSelectionOptions(value) {
     && (value.printPreset === undefined || matchesPrintPreset(value.printPreset, value.paperSize))
     && (value.registrationMarks === undefined || typeof value.registrationMarks === 'boolean')
     && validDahleGuideOptions(value)
+    && (value.foilProfile === undefined || (isFoilProfile(value.foilProfile) && isDahlePrintPreset(value.printPreset) && value.queueOnReady !== true))
     && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')
     && (value.additionalCardText === undefined || (typeof value.additionalCardText === 'string' && value.additionalCardText.length <= 100000))
     && (value.excludedCards === undefined || (Array.isArray(value.excludedCards) && value.excludedCards.length <= 1000
@@ -182,6 +183,7 @@ export function loadStandalonePrintDraft(storage, key) {
       excludedCards: value.excludedCards ?? [], removedCards,
       ...(value.registrationMarks === undefined ? {} : { registrationMarks: value.registrationMarks }),
       ...dahleGuideFields(value),
+      ...(value.foilProfile === undefined ? {} : { foilProfile: value.foilProfile }),
       ...(value.paperSize ? { paperSize: value.paperSize } : {}),
       ...(value.printPreset ? { printPreset: value.printPreset } : {}),
       ...(value.printingOverrides ? { printingOverrides: value.printingOverrides } : {}),

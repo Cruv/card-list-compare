@@ -64,6 +64,10 @@ warnings.simplefilter("error", Image.DecompressionBombWarning)
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 POINTS_PER_MM = 72 / 25.4
 MPC_SOURCE_BLEED_MM = 25.4 / 8
+FOIL_PROFILES = {
+    "rainbow-v1": ("Rainbow foil", 16, 1.16),
+    "surge-v1": ("Surge foil", 10, 1.12),
+}
 
 
 def paper_key(request):
@@ -181,7 +185,8 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
         reader.close()
 
 
-def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False, proof_scale=False, cut_guides=False):
+def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False, proof_scale=False,
+                   cut_guides=False, foil_profile=None):
     """Add vector identification in the sheet's printable margins."""
     values = [identification.get("requesterName"), identification.get("batchName")]
     if identification.get("version") != 1 or any(not isinstance(value, str) or not value
@@ -202,6 +207,8 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             raise ValueError("Page generation date must be YYYY-MM-DD") from error
         paper = "US Letter" if recipe == "letter" or dahle_letter else "A4"
         generation_details = f" | {paper} | Generated {generated_date}"
+    if foil_profile is not None:
+        generation_details += f" | {FOIL_PROFILES[foil_profile][0]}"
     temporary = filename.with_suffix(".identified.pdf")
     with open(filename, "rb") as source:
         reader = PdfReader(source, strict=True)
@@ -423,7 +430,33 @@ def mirror_artwork_edges(image, pad):
     return padded
 
 
-def dahle_face(path, source, output_bleed):
+def compensate_foil(artwork, profile):
+    """Lift RGB midtones and chroma before the printer's own color transform."""
+    import numpy as np
+
+    _, lift, chroma_gain = FOIL_PROFILES[profile]
+    weights = np.asarray((54, 183, 19), dtype=np.float32) / 256
+    corrected = Image.new("RGB", artwork.size)
+    # Process bounded row blocks so a full-sized image does not need multiple
+    # whole-image float buffers in addition to the original and output pixels.
+    for top in range(0, artwork.height, 256):
+        bottom = min(top + 256, artwork.height)
+        rgb = np.asarray(artwork.crop((0, top, artwork.width, bottom)), dtype=np.float32)
+        luma = rgb @ weights
+        level = luma / 255
+        lifted = luma + 4 * lift * level * (1 - level)
+        color = rgb - luma[..., None]
+        # Bound the shared chroma gain using both ends of the RGB range. This
+        # keeps neutrals neutral and avoids clipping individual color channels.
+        light_room = (255 - lifted) / np.maximum(color.max(axis=2), 1e-6)
+        dark_room = lifted / np.maximum(-color.min(axis=2), 1e-6)
+        gain = np.minimum(chroma_gain, np.minimum(light_room, dark_room))
+        result = np.rint(lifted[..., None] + color * gain[..., None]).clip(0, 255).astype("uint8")
+        corrected.paste(Image.fromarray(result), (0, top))
+    return corrected
+
+
+def dahle_face(path, source, output_bleed, *, foil_profile=None):
     data = verified_image(path)
     with Image.open(io.BytesIO(data)) as image:
         metadata = image_metadata(image, data)
@@ -435,12 +468,15 @@ def dahle_face(path, source, output_bleed):
     # dimensions are rounded to whole pixels. Output bleed only sets the clip.
     mm_per_pixel = max((trim_width + 2 * source_bleed) / artwork.width,
                        (trim_height + 2 * source_bleed) / artwork.height)
-    if output_bleed > source_bleed:
-        # A provider scan can have a one-pixel fringe. Preserve saved artwork
-        # and low-resolution scans, where a single pixel covers more paper.
-        if source == "scryfall" and source_bleed == 0 and mm_per_pixel <= 0.15:
-            repair_scan_fringe(artwork, opacity)
-        artwork = mirror_artwork_edges(artwork, math.ceil((output_bleed - source_bleed) / mm_per_pixel))
+    extra_bleed = output_bleed - source_bleed
+    # A provider scan can have a one-pixel fringe. Preserve saved artwork
+    # and low-resolution scans, where a single pixel covers more paper.
+    if extra_bleed > 0 and source == "scryfall" and source_bleed == 0 and mm_per_pixel <= 0.15:
+        repair_scan_fringe(artwork, opacity)
+    if foil_profile is not None:
+        artwork = compensate_foil(artwork, foil_profile)
+    if extra_bleed > 0:
+        artwork = mirror_artwork_edges(artwork, math.ceil(extra_bleed / mm_per_pixel))
     width_mm, height_mm = artwork.width * mm_per_pixel, artwork.height * mm_per_pixel
     artwork.thumbnail((math.ceil(width_mm * 600 / 25.4), math.ceil(height_mm * 600 / 25.4)), Image.Resampling.LANCZOS)
     encoded = io.BytesIO()
@@ -503,7 +539,7 @@ def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
     return paths
 
 
-def generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks=False, cut_guides=False):
+def generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks=False, cut_guides=False, *, foil_profile=None):
     page_width, page_height = DAHLE_PAPER[recipe][1]
     trim_width, trim_height = DAHLE_GEOMETRY["trim"]
     columns, rows, bleed = (DAHLE_GEOMETRY[key] for key in ("columns", "rows", "bleed"))
@@ -518,6 +554,7 @@ def generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks=Fa
     metadata = [{"id": card["id"]} for card in cards]
     writer = PdfWriter()
     for face in ("front", "back") if double_faced else ("front",):
+        face_profile = foil_profile if face == "front" else None
         page = writer.add_blank_page(width=page_width * POINTS_PER_MM, height=page_height * POINTS_PER_MM)
         objects = DictionaryObject()
         commands = []
@@ -528,7 +565,8 @@ def generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks=Fa
             if path is None:
                 continue
             try:
-                artwork, metadata[slot][face], (image_width, image_height) = dahle_face(path, card.get(f"{face}Source"), bleed)
+                artwork, metadata[slot][face], (image_width, image_height) = dahle_face(
+                    path, card.get(f"{face}Source"), bleed, foil_profile=face_profile)
             except ValueError as error:
                 raise ValueError(f"Dahle artwork for {card.get('displayName') or card['id']} ({face}): {error}") from None
             row, column = divmod(slot, columns)
@@ -667,6 +705,9 @@ def chunk(request):
     directory = Path(request["directory"])
     recipe = paper_key(request)
     dahle = recipe in DAHLE_PAPER
+    foil_profile = request.get("foilProfile")
+    if "foilProfile" in request and (not dahle or not isinstance(foil_profile, str) or foil_profile not in FOIL_PROFILES):
+        raise ValueError("Choose a supported Dahle foil profile")
     requested_marks = request.get("registrationMarks", True)
     if not isinstance(requested_marks, bool):
         raise ValueError("Registration marks must be enabled or disabled")
@@ -682,17 +723,21 @@ def chunk(request):
         raise ValueError("Sheet faces must match the requested pass and slot order")
     output = directory / "sheet.pdf"
     if dahle:
-        metadata = generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks, cut_guides)
+        metadata = generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks, cut_guides,
+                                        foil_profile=foil_profile)
     else:
         metadata = generate_upstream_sheet(request, recipe, output, registration_marks)
     identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe,
-                   refeed_front=double_faced and not dahle, proof_scale=request.get("proofScale", False), cut_guides=cut_guides)
+                   refeed_front=double_faced and not dahle, proof_scale=request.get("proofScale", False),
+                   cut_guides=cut_guides, foil_profile=foil_profile)
     validate_pdf(output, 2 if double_faced else 1, recipe)
     result = {"images": metadata, "registrationMarks": registration_marks}
     if alignment_marks:
         result["dahleAlignmentMarks"] = True
     if cut_guides:
         result["dahleCutGuides"] = True
+    if foil_profile is not None:
+        result["foilProfile"] = foil_profile
     (directory / "result.json").write_text(json.dumps(result))
 
 
@@ -776,16 +821,25 @@ def smoke_dahle(directory, cards, recipe):
     working = directory / recipe
     working.mkdir()
     paper = {"paperSize": DAHLE_PAPER[recipe][0], "printPreset": recipe}
+    foil_profile = "rainbow-v1" if recipe == DAHLE_A4_PUNCH else "surge-v1"
+    foil_label = FOIL_PROFILES[foil_profile][0]
     chunk({"directory": str(working), **paper, "cards": cards, "doubleFaced": True, "dahleCutGuides": True,
+           "foilProfile": foil_profile,
            "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Dahle punch layout"},
            "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"},
                           {"page": 2, "phase": "backs", "label": "CLC runtime check"}]})
-    if json.loads((working / "result.json").read_text()).get("dahleCutGuides") is not True:
+    result = json.loads((working / "result.json").read_text())
+    if result.get("dahleCutGuides") is not True:
         raise ValueError("Dahle punch layout did not confirm cut guides")
+    if result.get("foilProfile") != foil_profile:
+        raise ValueError(f"Dahle punch layout did not confirm {foil_label}")
     reader = PdfReader(working / "sheet.pdf", strict=True)
     for page, face in zip(reader.pages, ("FRONT", "BACK")):
-        if len(page.images) != len(cards) or f"| {face}" not in page.extract_text():
+        label = page.extract_text()
+        if len(page.images) != len(cards) or f"| {face}" not in label:
             raise ValueError(f"Dahle punch layout did not generate all {face} card images")
+        if foil_label not in label:
+            raise ValueError(f"Dahle punch layout did not label {foil_label} on {face}")
     reader.close()
     merge({"inputs": [str(working / "sheet.pdf")], "output": str(working / "merged.pdf"), **paper, "pageCount": 2})
 

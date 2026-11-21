@@ -31,10 +31,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.68.3';
+const APP_VERSION = '2.69.0';
 const WHATS_NEW = [
-  'Reduce thin dark scan edges on Dahle prints',
-  'Find the paper size and generation date on newly generated print sheets',
+  'Lift front artwork colors for Rainbow foil and Surge foil in Dahle PDFs',
 ];
 
 function getResetToken() {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { cancelHouseholdPrintJob, cancelPrintJobBacks, getPrintBatches } from '../lib/api';
-import { printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
+import { foilProfileLabel, printPaperLabel, printPaperUnavailable } from '../lib/printPaper';
 import { mixedPrintCompanionWait } from '../lib/printReview';
 import ConfirmModal from './ConfirmModal';
 import Icon from './Icon';
@@ -41,6 +41,7 @@ function queueDetail(job) {
 
 function BatchRow({ job, station, scope, fresh, busy, onCancel }) {
   const detail = mixedPrintCompanionWait(job, station) || queueDetail(job);
+  const foilLabel = foilProfileLabel(job.foilProfile);
   const paperUnavailable = job.state === 'queued' && station?.online && printPaperUnavailable(job, station);
   const href = job.canOpen ? (job.deckId == null
     ? `#print-list?batch=${encodeURIComponent(job.id)}`
@@ -48,7 +49,7 @@ function BatchRow({ job, station, scope, fresh, busy, onCancel }) {
   return <li className="batch-list-row">
     <div className="batch-list-identity">
       <strong>{job.deckName || 'Card batch'}</strong>
-      <p>{job.totalCopies} {job.totalCopies === 1 ? 'copy' : 'copies'} · {printPaperLabel(job)} · {job.sourceKind === 'deck' ? 'Deck' : 'Print list'}{scope === 'all' && job.requesterName ? ` · ${job.requesterName}` : ''}</p>
+      <p>{job.totalCopies} {job.totalCopies === 1 ? 'copy' : 'copies'} · {printPaperLabel(job)}{foilLabel && ` · ${foilLabel}`} · {job.sourceKind === 'deck' ? 'Deck' : 'Print list'}{scope === 'all' && job.requesterName ? ` · ${job.requesterName}` : ''}</p>
       <time dateTime={job.createdAt}>{timestamp(job.createdAt)}</time>
       <details className="batch-list-details"><summary>Batch ID</summary><code>{job.id}</code></details>
     </div>

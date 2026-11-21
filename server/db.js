@@ -610,6 +610,14 @@ export async function initDb() {
   for (const column of ['workflow', 'back_request_json', 'cancel_requested', 'cancel_request_id', 'source_job_id']) {
     if (!all('PRAGMA table_info(print_jobs)').some(item => item.name === column)) db.run(`ALTER TABLE print_jobs ADD COLUMN ${column} TEXT`);
   }
+  // A rolled-back server may resume preparation with a worker that ignores foil color.
+  db.run(`CREATE TRIGGER IF NOT EXISTS print_jobs_confirm_foil_profile
+    BEFORE UPDATE OF manifest_json ON print_jobs
+    WHEN json_extract(OLD.plan_json, '$.foilProfile') IS NOT NULL
+      AND json_extract(NEW.manifest_json, '$.foilProfile') IS NOT json_extract(OLD.plan_json, '$.foilProfile')
+    BEGIN
+      SELECT RAISE(ABORT, 'The PDF generator did not confirm the requested foil color profile');
+    END`);
   db.run(`CREATE TABLE IF NOT EXISTS print_job_events (
     job_id TEXT NOT NULL, event_id TEXT NOT NULL, request_hash TEXT NOT NULL,
     event_json TEXT NOT NULL, created_at TEXT NOT NULL,

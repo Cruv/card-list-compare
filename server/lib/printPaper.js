@@ -8,6 +8,7 @@ export const CROWNED_LANDSCAPE_V1_RECIPE = 'household-crowned-a4-landscape-v1';
 export const DAHLE_A4_PRESET = 'dahle-a4-punch';
 export const DAHLE_LETTER_PRESET = 'dahle-letter-punch';
 export const isDahlePrintPreset = value => value === DAHLE_A4_PRESET || value === DAHLE_LETTER_PRESET;
+export const FOIL_PROFILES = Object.freeze(['rainbow-v1', 'surge-v1']);
 export const PRINT_PRESETS = Object.freeze({
   [CROWNED_PRESET]: Object.freeze({ paperSize: 'a4', recipeId: 'household-crowned-a4-v2', cardsPerSheet: 9, label: 'Crowned A4 · Portrait 3×3' }),
   [CROWNED_PORTRAIT_SIX_PRESET]: Object.freeze({ paperSize: 'a4', recipeId: 'household-crowned-a4-portrait-six-v1', cardsPerSheet: 6, label: 'Crowned A4 · Portrait 3×2' }),
@@ -54,6 +55,13 @@ export function dahleGuideOptions(printPreset, { dahleAlignmentMarks = false, da
   if ((dahleAlignmentMarks || dahleCutGuides) && !isDahlePrintPreset(printPreset)) throw printError('Die-cutter guides require a Dahle layout');
   if (dahleAlignmentMarks && dahleCutGuides) throw printError('Choose one Dahle guide style');
   return { ...(dahleAlignmentMarks ? { dahleAlignmentMarks } : {}), ...(dahleCutGuides ? { dahleCutGuides } : {}) };
+}
+
+export function foilProfileOptions(printPreset, { foilProfile } = {}) {
+  if (foilProfile === undefined) return {};
+  if (!FOIL_PROFILES.includes(foilProfile)) throw printError('Choose a supported foil color profile');
+  if (!isDahlePrintPreset(printPreset)) throw printError('Foil color profiles require a Dahle layout');
+  return { foilProfile };
 }
 
 export function printJobPaper(plan, manifest) {

@@ -20,7 +20,8 @@ await once(server, 'listening');
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const capabilities = { canQueue: true, stationConfigured: true, paperSizes: ['letter'],
-  printPresets: ['crowned-a4', 'crowned-a4-portrait-six', 'dahle-a4-punch', 'dahle-letter-punch'] };
+  printPresets: ['crowned-a4', 'crowned-a4-portrait-six', 'dahle-a4-punch', 'dahle-letter-punch'],
+  foilProfiles: ['rainbow-v1', 'surge-v1'] };
 const generator = { available: true, updating: false, revision: 'fixture' };
 const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: 'crowned-a4-portrait-six',
   supportedRecipeIds: ['household-letter-v6', 'household-crowned-a4-portrait-six-v1'] };
@@ -28,6 +29,7 @@ const markOn = '7'.repeat(64);
 const markOff = '0'.repeat(64);
 const dahleHash = 'd'.repeat(64);
 const dahleMarkedHash = 'e'.repeat(64);
+const dahleFoilHash = 'f'.repeat(64);
 const manifestSha256 = 'b'.repeat(64);
 const cards = [{
   selectionKey: 'sol-ring', displayName: 'Sol Ring', quantity: 7, setCode: 'c21', collectorNumber: '263', isDFC: false,
@@ -53,6 +55,7 @@ try {
     const createRequests = [];
     const queueRequests = [];
     let derived;
+    let offeredFoilProfiles = capabilities.foilProfiles;
     let blockArt = !tracked;
     let loseFirstResponse = !tracked;
     const markedPreview = Promise.withResolvers();
@@ -71,7 +74,8 @@ try {
         if (url.pathname === '/api/decks/12/snapshots') return send({ snapshots: [] });
         if (url.pathname === '/api/manasync/print-queue') return send({ items: [] });
         if (url.pathname === `${scope}/activity`) return send({
-          activeCount: jobs.length, jobs, watchedJobs: jobs, watching: false, capabilities, generator, station,
+          activeCount: jobs.length, jobs, watchedJobs: jobs, watching: false,
+          capabilities: { ...capabilities, foilProfiles: offeredFoilProfiles }, generator, station,
         });
         if (url.pathname === scope && request.method() === 'GET') return send({ jobs, capabilities, generator });
         if (url.pathname === `${scope}/${originalId}/alternate-layout/preview`) {
@@ -86,13 +90,15 @@ try {
             capabilities, generator, layout: { frontSheets: dahle ? 2 : 3, backSheets: dahle ? 1 : 2 }, artworkFailures: failures,
             sourceJobId: originalId, sourceManifestSha256: manifestSha256,
             plan: { ...body, totalCopies: 15, readyToGenerate: !failures.length, resolvedCards: cards,
-              planHash: dahle ? body.dahleCutGuides ? dahleMarkedHash : dahleHash : portraitSix && !body.registrationMarks ? markOff : markOn },
+              planHash: dahle ? [body.foilProfile && dahleFoilHash, body.dahleCutGuides && dahleMarkedHash, dahleHash].find(Boolean)
+                : portraitSix && !body.registrationMarks ? markOff : markOn },
           });
         }
         if (url.pathname === `${scope}/${originalId}/alternate-layout`) {
           const body = request.postDataJSON();
           assert.equal(request.headers().authorization, 'Bearer print-layout-fixture');
-          assert.deepEqual(Object.keys(body).sort(), [...(tracked ? [] : ['dahleCutGuides']), 'expectedPlanHash', 'idempotencyKey', 'paperSize', 'printPreset', 'registrationMarks']);
+          const optionalKeys = tracked ? [] : ['dahleCutGuides', 'foilProfile'];
+          assert.deepEqual(Object.keys(body).sort(), [...optionalKeys, 'expectedPlanHash', 'idempotencyKey', 'paperSize', 'printPreset', 'registrationMarks'].sort());
           assert.match(body.idempotencyKey, /^[a-f0-9]{48}$/);
           createRequests.push(body);
           if (derived) return send({ job: derived, isExisting: true });
@@ -122,6 +128,7 @@ try {
       const dialog = page.getByRole('dialog', { name: 'Regenerate with another layout' });
       const paper = dialog.getByRole('combobox', { name: 'Paper and layout' });
       const dieMarks = dialog.getByRole('checkbox', { name: 'Include strip cut lines and R3 corner guides' });
+      const foil = dialog.getByRole('combobox', { name: 'Artwork color', exact: true });
       const counts = dialog.locator('.print-regeneration-counts dd');
       const generate = dialog.getByRole('button', { name: 'Generate PDFs', exact: true });
       await current.getByText('Fronts are printed. Backs are saved for later.', { exact: true }).waitFor();
@@ -138,6 +145,7 @@ try {
         await dialog.getByRole('alert').getByText(/Delver of Secrets .* · Back\./).waitFor();
         await dialog.getByText(failure.reason).waitFor();
         assert.equal(await generate.isDisabled(), true);
+        assert.equal(await foil.count(), 0);
         assert.deepEqual(createRequests, []);
         assert.deepEqual(queueRequests, []);
         blockArt = false;
@@ -149,16 +157,20 @@ try {
         await counts.first().waitFor();
         assert.deepEqual(await counts.allTextContents(), ['15', '2', '1']);
         assert.equal(previewRequests.at(-1).dahleCutGuides, undefined);
+        assert.equal(await foil.inputValue(), '');
         await dieMarks.check();
         await dialog.getByText(/Checking the original artwork and layout/).waitFor();
+        await foil.selectOption('surge-v1');
         assert.equal(await generate.isDisabled(), true);
         assert.deepEqual(createRequests, []);
         markedPreview.resolve();
         await counts.first().waitFor();
         assert.deepEqual(await counts.allTextContents(), ['15', '2', '1']);
+        assert.equal(previewRequests.at(-1).foilProfile, 'surge-v1');
       } else {
         await paper.selectOption('crowned-a4-portrait-six');
         assert.equal(await dieMarks.count(), 0);
+        assert.equal(await foil.count(), 0);
         await dialog.getByRole('checkbox', { name: 'Include Cameo registration marks' }).uncheck();
         await counts.first().waitFor();
         assert.deepEqual(await counts.allTextContents(), ['15', '3', '2']);
@@ -172,16 +184,20 @@ try {
       if (!tracked) {
         await dialog.getByRole('alert').getByText(/Network error/).waitFor();
         const originalRequest = structuredClone(createRequests[0]);
-        assert.equal(originalRequest.expectedPlanHash, dahleMarkedHash);
+        assert.equal(originalRequest.expectedPlanHash, dahleFoilHash);
         assert.equal(originalRequest.paperSize, 'letter');
         assert.equal(originalRequest.registrationMarks, false);
         assert.equal(originalRequest.dahleCutGuides, true);
+        assert.equal(originalRequest.foilProfile, 'surge-v1');
+        offeredFoilProfiles = [];
         await page.reload();
         await open.click();
         assert.equal(await paper.inputValue(), 'dahle-letter-punch');
         assert.equal(await paper.isDisabled(), true);
         assert.equal(await dieMarks.isChecked(), true);
         assert.equal(await dieMarks.isDisabled(), true);
+        assert.equal(await foil.inputValue(), 'surge-v1');
+        assert.equal(await foil.isDisabled(), true);
         await dialog.getByText(/Cut the strips on the Dahle using the guides on your PDF/).waitFor();
         await dialog.getByRole('button', { name: 'Retry same layout request' }).click();
         await current.getByRole('heading', { name: 'Alternate-layout fixture' }).waitFor();
@@ -202,13 +218,14 @@ try {
         assert.deepEqual(queueRequests, [newId]);
       } else {
         await current.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
+        await current.getByText(/Surge foil/).waitFor();
         assert.equal(await current.getByRole('button', { name: 'Send to Mac' }).count(), 0);
       }
       await current.getByRole('link', { name: /source batch/ }).click();
       await current.getByText('Fronts are printed. Backs are saved for later.', { exact: true }).waitFor();
       console.log(tracked
         ? 'Tracked batch retained its paired art and parked backs. Only the explicit fake Send to Mac action queued the new batch.'
-        : 'Mobile standalone review showed the failed back face, Dahle sheet counts, and exact paired printings. The marked preview replaced the plain hash, and reload retried the same PDF-only request.');
+        : 'Mobile standalone review showed the failed back face, Dahle sheet counts, and exact paired printings. The Surge foil preview replaced the plain hash, and reload retried the same PDF-only request.');
     } finally { markedPreview.resolve(); await page.close(); }
   }
 } finally {

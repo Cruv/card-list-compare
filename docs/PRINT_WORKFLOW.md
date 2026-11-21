@@ -103,6 +103,11 @@ the four thin lime guides to cut 91 mm strips at the full sheet width. With the 
 of a card framed in the R3 die, slide it until all four lime arcs disappear under the
 metal. Check this cue on a proof with your die. [Marked proof instructions](DAHLE_A4_PUNCH.md#one-proof-before-a-batch)
 
+For foil stock, choose **Rainbow foil** or **Surge foil** under **Artwork color**
+in a Dahle review. The choice adjusts front artwork and is printed on the batch
+label. Each PDF uses the selected paper geometry. Compare a test sheet with
+the Standard artwork on the same stock. [Foil stock proof](DAHLE_A4_PUNCH.md#foil-stock)
+
 With companion 2.56.0+, entering the print queue also posts **Print job queued** to the
 connected Discord channel, with the requester, saved batch label, card count, queue time
 and batch ID. All mentions are disabled. It confirms CLC accepted the job, even while

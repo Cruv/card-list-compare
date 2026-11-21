@@ -21,11 +21,13 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const a4Preset = 'dahle-a4-punch';
 const letterPreset = 'dahle-letter-punch';
-const capabilities = { canQueue: true, stationConfigured: true, paperSizes: ['letter'], printPresets: ['crowned-a4', a4Preset, letterPreset] };
+const capabilities = { canQueue: true, stationConfigured: true, paperSizes: ['letter'], printPresets: ['crowned-a4', a4Preset, letterPreset],
+  foilProfiles: ['rainbow-v1', 'surge-v1'] };
 const generator = { available: true, revision: 'fixture-revision', adapterHash: 'fixture-adapter' };
 const plainKey = '1'.repeat(64);
 const markedKey = '2'.repeat(64);
 const legacyKey = '3'.repeat(64);
+const foilKey = '4'.repeat(64);
 const card = { selectionKey: 'sol-ring', displayName: 'Sol Ring', quantity: 2, baseQuantity: 2, setCode: 'c21', collectorNumber: '263' };
 const frozenText = '2 Sol Ring (C21) [263]';
 const resolvedCard = { ...card, isDFC: false, errors: [], faces: [{ face: 'front', status: 'ready', identifier: 'sol-ring-art' }] };
@@ -47,6 +49,8 @@ try {
     const creates = [];
     const markedProof = Promise.withResolvers();
     const ready = Promise.withResolvers();
+    let activityDelay;
+    let offeredFoilProfiles = capabilities.foilProfiles;
     let job;
     let legacyProof = false;
     await page.addInitScript(defaultPreset => {
@@ -66,30 +70,33 @@ try {
         if (url.pathname === '/api/decks/12/snapshots/99') return send({ snapshot });
         if (url.pathname === '/api/scryfall/cards/collection') return send({ data: [], not_found: [] });
         if (url.pathname === '/api/manasync/print-queue') return send({ items: [] });
+        const currentCapabilities = { ...capabilities, foilProfiles: offeredFoilProfiles };
         if (url.pathname === `${scope}/activity`) {
           ready.resolve();
+          if (activityDelay) await activityDelay.promise;
           return send({ activeCount: job ? 1 : 0, jobs: job ? [job] : [], watchedJobs: job ? [job] : [],
-            watching: false, capabilities, generator, station: { online: true, loadedPaperSize: 'letter' } });
+            watching: false, capabilities: currentCapabilities, generator, station: { online: true, loadedPaperSize: 'letter' } });
         }
-        if (url.pathname === scope && request.method() === 'GET') return send({ jobs: job ? [job] : [], capabilities, generator });
+        if (url.pathname === scope && request.method() === 'GET') return send({ jobs: job ? [job] : [], capabilities: currentCapabilities, generator });
         if (url.pathname === `${scope}/${jobId}` && request.method() === 'GET') return send({ job });
         if (url.pathname === planPath) {
           const body = request.postDataJSON();
           assert.equal(body.paperSize, paperSize);
           assert.equal(body.printPreset, dahle);
           planRequests.push(body);
-          const planHash = body.dahleCutGuides ? markedKey : plainKey;
+          const planHash = body.foilProfile ? foilKey : body.dahleCutGuides ? markedKey : plainKey;
           const plan = { ...body, deckName: 'Fixture cards', cards: [card], resolvedCards: [resolvedCard], ordinaryCopies: 2,
             doubleFacedCopies: 0, totalCopies: 2, readyToGenerate: true, planHash, ...(tracked ? { target: { id: 99 } } : {}) };
-          return send({ plan, capabilities, generator });
+          return send({ plan, capabilities: currentCapabilities, generator });
         }
         if (url.pathname === scope && request.method() === 'POST') {
           const body = request.postDataJSON();
           creates.push(body);
-          assert.equal(body.expectedPlanHash, markedKey);
+          assert.equal(body.expectedPlanHash, tracked ? markedKey : foilKey);
           assert.equal(body.printPreset, dahle);
           assert.equal(body.paperSize, paperSize);
           assert.equal(body.dahleCutGuides, true);
+          assert.equal(body.foilProfile, tracked ? undefined : 'rainbow-v1');
           assert.equal(body.registrationMarks, false);
           assert.equal(body.queueOnReady, false);
           if (job) return send({ job, isExisting: true });
@@ -101,6 +108,7 @@ try {
         if (url.pathname.startsWith(proofPath) && [a4Preset, letterPreset].includes(preset)) {
           assert.equal(request.headers().authorization, 'Bearer print-alignment-fixture');
           assert.equal(url.searchParams.get('marks'), 'off');
+          assert.equal(url.searchParams.has('foilProfile'), false);
           const marks = url.searchParams.get('dahleCutGuides');
           assert.ok(marks === null || marks === 'on');
           const key = legacyProof && preset === a4Preset ? legacyKey : marks ? markedKey : plainKey;
@@ -124,6 +132,7 @@ try {
       const reviewList = page.getByRole('button', { name: 'Review print list', exact: true });
       const review = page.getByRole('region', { name: 'Print list review' });
       const marks = review.getByRole('checkbox', { name: 'Include strip cut lines and R3 corner guides', exact: true });
+      const foil = review.getByRole('combobox', { name: 'Artwork color', exact: true });
       const reviewUpdated = review.getByRole('button', { name: 'Review updated list' });
       const generate = review.getByRole('button', { name: 'Generate PDFs', exact: true });
       if (!tracked) {
@@ -134,6 +143,8 @@ try {
       await marks.waitFor();
       await review.getByText(`63 × 88 mm finished cards · 1.5 mm bleed per edge · ${stripSize} row strips.`, { exact: false }).waitFor();
       assert.equal(await marks.isChecked(), false);
+      assert.equal(await foil.inputValue(), '');
+      assert.equal(planRequests.at(-1).foilProfile, undefined);
       assert.equal(await review.getByRole('checkbox', { name: /Cameo registration/ }).count(), 0);
       assert.equal(planRequests.at(-1).dahleCutGuides, undefined);
       await marks.check();
@@ -141,29 +152,42 @@ try {
       assert.equal(await generate.count(), 0);
 
       if (!tracked) {
-        await page.waitForFunction(() => JSON.parse(localStorage.getItem('clc-print-list-draft:41'))?.dahleCutGuides === true);
+        await reviewUpdated.click();
+        await generate.waitFor();
+        await foil.selectOption('rainbow-v1');
+        await reviewUpdated.waitFor();
+        assert.equal(await generate.count(), 0);
+        await page.waitForFunction(() => {
+          const draft = JSON.parse(localStorage.getItem('clc-print-list-draft:41'));
+          return draft?.dahleCutGuides && draft?.foilProfile === 'rainbow-v1';
+        });
         await page.reload();
         await reviewList.click();
         await marks.waitFor();
         assert.equal(await marks.isChecked(), true);
+        assert.equal(await foil.inputValue(), 'rainbow-v1');
       } else await reviewUpdated.click();
       await review.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
       assert.equal(planRequests.at(-1).dahleCutGuides, true);
+      assert.equal(planRequests.at(-1).foilProfile, tracked ? undefined : 'rainbow-v1');
       assert.equal(await review.getByRole('button', { name: 'Generate & print' }).count(), 0);
       await generate.click();
       if (!tracked) {
         await page.getByRole('alert').getByText(/Network error/).waitFor();
+        offeredFoilProfiles = [];
         await page.reload();
         const retry = page.getByRole('region', { name: 'Recover print batch request' });
         await retry.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
+        await retry.getByText(/Rainbow foil/).waitFor();
         await retry.getByRole('button', { name: 'Retry same batch request' }).click();
       }
       const current = page.getByRole('region', { name: 'Current print batch' });
       await current.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
+      if (!tracked) await current.getByText(/Rainbow foil/).waitFor();
       assert.equal(await current.getByRole('button', { name: 'Send to Mac' }).count(), 0);
       assert.equal(creates.length, tracked ? 1 : 2);
       if (!tracked) assert.deepEqual(creates[0], creates[1]);
-      console.log(`${tracked ? 'Tracked' : 'Standalone'} Chrome: a marked Dahle review generated PDFs only with its new hash.${tracked ? '' : ' The draft and exact lost-response request survived reloads.'}`);
+      console.log(`${tracked ? 'Tracked' : 'Standalone'} Chrome: a marked Dahle review generated PDFs only with its new hash.${tracked ? '' : ' The Rainbow foil draft and exact lost-response request survived reloads.'}`);
 
       await page.goto(`${origin}/#guide/dahle-punch`);
       await page.getByText('91 mm from the blade', { exact: true }).waitFor();
@@ -179,6 +203,30 @@ try {
         await proof.getByText('Cut 210 × 90 mm strips on the Dahle using the row ticks.', { exact: true }).waitFor();
         assert.equal(await proof.getByRole('checkbox', { name: 'I printed and checked this exact recipe' }).isChecked(), false);
         console.log('Chrome used the returned 1 mm bleed to show the exact 90 mm cutting instructions for an older proof.');
+
+        await page.evaluate(({ paperSize, dahle, cardText }) => {
+          const key = 'clc-print-list-draft:41';
+          const draft = JSON.parse(localStorage.getItem(key));
+          localStorage.setItem(key, JSON.stringify({ ...draft, cardText, paperSize, printPreset: dahle, foilProfile: 'rainbow-v1' }));
+        }, { paperSize, dahle, cardText: frozenText });
+        activityDelay = Promise.withResolvers();
+        const previousReviews = planRequests.length;
+        const draftFoil = page.getByRole('region', { name: 'Draft artwork color' });
+        try {
+          await page.reload();
+          await draftFoil.getByText('Checking support for Rainbow foil…', { exact: true }).waitFor();
+          assert.equal(await reviewList.isDisabled(), true);
+          assert.equal(planRequests.length, previousReviews);
+        } finally { activityDelay.resolve(); }
+        await draftFoil.getByText('Rainbow foil is unavailable for this draft.', { exact: true }).waitFor();
+        assert.equal(await reviewList.isDisabled(), true);
+        await draftFoil.getByRole('button', { name: 'Use Standard color' }).click();
+        await reviewList.click();
+        await generate.waitFor();
+        assert.equal(await foil.count(), 0);
+        assert.equal(planRequests.at(-1).foilProfile, undefined);
+        assert.equal(planRequests.length, previousReviews + 1);
+        console.log('Chrome waited for capabilities before reviewing a saved foil draft and let it recover as Standard after a downgrade.');
       }
 
       async function checkProof(page) {

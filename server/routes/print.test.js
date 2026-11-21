@@ -659,6 +659,7 @@ describe.each(dahleLayouts)('%s Dahle die-cutter alignment marks', (paperSize, p
     expect(first.status).toBe(202);
     const firstJob = (await first.json()).job;
     expect(firstJob).not.toHaveProperty(guide);
+    expect(firstJob).not.toHaveProperty('foilProfile');
     const legacyDigest = hash(JSON.stringify({ deckId: null, expectedPlanHash: unmarked.planHash, queueOnReady: false,
       ...requestPaper, registrationMarks: false }));
     expect(db.get('SELECT request_hash FROM print_jobs WHERE id = ?', [firstJob.id]).request_hash).toBe(legacyDigest);
@@ -684,6 +685,7 @@ describe.each(dahleLayouts)('%s Dahle die-cutter alignment marks', (paperSize, p
     expect(queue.getOwnedPrintJob(1, null, job.id)).toMatchObject({ state: 'ready', [guide]: true, registrationMarks: false });
     expect(queue.ownedPrintManifest(1, null, job.id)).toMatchObject({ [guide]: true, plan: { [guide]: true } });
     expect(queue.ownedPrintManifest(1, null, firstJob.id)).not.toHaveProperty(guide);
+    expect(queue.ownedPrintManifest(1, null, firstJob.id)).not.toHaveProperty('foilProfile');
     expect((await request(`${jobsPath}/${job.id}/queue`, { method: 'POST' })).status).toBe(409);
   });
 
@@ -694,6 +696,100 @@ describe.each(dahleLayouts)('%s Dahle die-cutter alignment marks', (paperSize, p
     expect((await submit({ ...crowned, idempotencyKey: crypto.randomUUID(), expectedPlanHash: 'a'.repeat(64) })).status).toBe(400);
     expect((await review({ dahleCutGuides: true, dahleAlignmentMarks: true })).status).toBe(400);
     expect(services.fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+
+  it('binds the chosen foil profile to review, replay, and the PDF-only batch', async () => {
+    const standard = await review();
+    expect(standard.status).toBe(200);
+    const { plan, capabilities } = await standard.json();
+    expect(capabilities.foilProfiles).toEqual(['rainbow-v1', 'surge-v1']);
+    expect(plan).not.toHaveProperty('foilProfile');
+    const foilProfile = paperSize === 'a4' ? 'rainbow-v1' : 'surge-v1';
+    const otherProfile = foilProfile === 'rainbow-v1' ? 'surge-v1' : 'rainbow-v1';
+    const selected = await review({ foilProfile });
+    const alternate = await review({ foilProfile: otherProfile });
+    expect(selected.status).toBe(200);
+    expect(alternate.status).toBe(200);
+    const { plan: foilPlan } = await selected.json();
+    const { plan: otherPlan } = await alternate.json();
+    expect(foilPlan).toMatchObject({ foilProfile, recipeId: plan.recipeId });
+    expect(otherPlan).toMatchObject({ foilProfile: otherProfile, recipeId: plan.recipeId });
+    expect(new Set([plan.planHash, foilPlan.planHash, otherPlan.planHash]).size).toBe(3);
+
+    const exact = { foilProfile, expectedPlanHash: foilPlan.planHash, idempotencyKey: crypto.randomUUID() };
+    expect((await submit({ ...exact, expectedPlanHash: plan.planHash })).status).toBe(409);
+    expect((await submit({ ...exact, queueOnReady: true })).status).toBe(409);
+    const created = await submit(exact);
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    expect(job).toMatchObject({ foilProfile, queueOnReady: false });
+    const replay = await submit(exact);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ job: { id: job.id, foilProfile }, isExisting: true });
+    expect((await submit({ ...exact, foilProfile: otherProfile, expectedPlanHash: otherPlan.planHash })).status).toBe(409);
+    const retained = db.get('SELECT request_hash, plan_json FROM print_jobs WHERE id = ?', [job.id]);
+    expect(retained.request_hash).toBe(hash(JSON.stringify({ deckId: null, expectedPlanHash: foilPlan.planHash, queueOnReady: false,
+      ...requestPaper, registrationMarks: false, foilProfile })));
+    expect(JSON.parse(retained.plan_json)).toMatchObject({ foilProfile });
+
+    services.generatePrintPdfs.mockImplementationOnce(async options => ({
+      ...await packetPdfs(options, 9), recipe, foilProfile: options.foilProfile,
+    }));
+    await queue.processNextPrintJob();
+    expect(services.generatePrintPdfs.mock.lastCall[0]).toMatchObject({ foilProfile });
+    expect(queue.getOwnedPrintJob(1, null, job.id)).toMatchObject({ state: 'ready', foilProfile, queueOnReady: false });
+    expect(queue.ownedPrintManifest(1, null, job.id)).toMatchObject({ foilProfile, plan: { foilProfile } });
+    expect((await request(`${jobsPath}/${job.id}/queue`, { method: 'POST' })).status).toBe(409);
+  });
+
+  it('rejects unknown foil profiles and foil processing on a standard layout before resolving artwork', async () => {
+    expect((await review({ foilProfile: 'rainbow' })).status).toBe(400);
+    const unsupported = { paperSize, printPreset: paperSize === 'a4' ? 'crowned-a4' : undefined, foilProfile: 'rainbow-v1' };
+    expect((await review(unsupported)).status).toBe(400);
+    expect((await submit({ ...unsupported, idempotencyKey: crypto.randomUUID(), expectedPlanHash: 'a'.repeat(64) })).status).toBe(400);
+    expect(services.fetchCardImageUrls).not.toHaveBeenCalled();
+  });
+
+  it('withholds the batch when the generator fails to acknowledge the foil profile', async () => {
+    const foilProfile = 'rainbow-v1';
+    const { plan } = await (await review({ foilProfile })).json();
+    const created = await submit({ foilProfile, expectedPlanHash: plan.planHash, idempotencyKey: crypto.randomUUID() });
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    services.generatePrintPdfs.mockImplementationOnce(async options => ({ ...await packetPdfs(options, 9), recipe }));
+    await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, null, job.id)).toMatchObject({
+      state: 'failed', artifacts: [], foilProfile, error: 'The PDF generator did not confirm the requested foil color profile',
+    });
+  });
+
+  it('keeps a pending foil request recoverable when an older server tries to publish a standard PDF', async () => {
+    const foilProfile = 'surge-v1';
+    const { plan } = await (await review({ foilProfile })).json();
+    const created = await submit({ foilProfile, expectedPlanHash: plan.planHash, idempotencyKey: crypto.randomUUID() });
+    expect(created.status).toBe(202);
+    const { job } = await created.json();
+    const retainedRow = () => db.get('SELECT state, plan_json, manifest_json, manifest_sha256 FROM print_jobs WHERE id = ?', [job.id]);
+    const preparing = retainedRow();
+    const databasePath = join(dir, 'db.sqlite');
+    const durableBefore = readFileSync(databasePath);
+    expect(preparing).toMatchObject({ state: 'preparing', manifest_json: null, manifest_sha256: null });
+    // The previous server keeps the requested color in its frozen plan but does
+    // not confirm a rendered color at the top level of its manifest.
+    const oldManifest = JSON.stringify({ version: 1, jobId: job.id, plan: JSON.parse(preparing.plan_json), recipe });
+    expect(() => db.runTransaction([{
+      sql: "UPDATE print_jobs SET state = 'ready', manifest_json = ?, manifest_sha256 = ? WHERE id = ? AND state = 'preparing'",
+      params: [oldManifest, hash(oldManifest), job.id],
+    }])).toThrow(/foil/i);
+    expect(retainedRow()).toEqual(preparing);
+    expect(readFileSync(databasePath).equals(durableBefore)).toBe(true);
+
+    services.generatePrintPdfs.mockImplementationOnce(async options => ({
+      ...await packetPdfs(options, 9), recipe, foilProfile: options.foilProfile,
+    }));
+    await queue.processNextPrintJob();
+    expect(queue.getOwnedPrintJob(1, null, job.id)).toMatchObject({ state: 'ready', foilProfile });
+    expect(queue.ownedPrintManifest(1, null, job.id)).toMatchObject({ foilProfile, plan: { foilProfile } });
   });
 
   it('rejects the preset with the other stock before resolving artwork', async () => {

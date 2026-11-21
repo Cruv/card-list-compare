@@ -11,7 +11,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, PRINT_RECIPES, prunePrintGe
 import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId, missingCancellationStep } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, dahleGuideOptions, isDahlePrintPreset, newPrintPaperSelection, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
+import { FOIL_PROFILES, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, dahleGuideOptions, foilProfileOptions, isDahlePrintPreset, newPrintPaperSelection, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -53,7 +53,7 @@ export function printCapabilities(userId) {
   return {
     stationConfigured, canQueue: !!(stationConfigured && user && !user.suspended && (user.is_admin || allowed.includes(userId))),
     recipeId: PRINT_PAPER_RECIPES.letter, paperSizes: NEW_PRINT_PAPER_SIZES,
-    printPresets: NEW_PRINT_PRESETS, retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
+    printPresets: NEW_PRINT_PRESETS, foilProfiles: FOIL_PROFILES, retentionDays: PRINT_RETENTION_DAYS, maxCopies: 250,
   };
 }
 export function requireStationToken(token) {
@@ -135,6 +135,7 @@ export function formatPrintJob(row, station = false) {
     registrationMarks: plan.registrationMarks !== false,
     ...(plan.dahleAlignmentMarks === true ? { dahleAlignmentMarks: true } : {}),
     ...(plan.dahleCutGuides === true ? { dahleCutGuides: true } : {}),
+    ...(plan.foilProfile ? { foilProfile: plan.foilProfile } : {}),
     printingOverrideCount: (plan.resolvedCards || []).filter(card => card.requestedScryfallId).length,
     source: publicPlan.source, target: publicPlan.target,
     ...(plan.list ? { list: publicPlan.list } : {}),
@@ -187,11 +188,12 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
   }
   const registrationMarks = !isDahlePrintPreset(printPreset) && request.registrationMarks !== false;
   const guides = dahleGuideOptions(printPreset, request);
+  const color = foilProfileOptions(printPreset, request);
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
   const requestHash = sha256(json({ deckId, expectedPlanHash: request.expectedPlanHash, queueOnReady: !!request.queueOnReady,
     ...(paperSize === 'letter' ? {} : { paperSize }), ...(printPreset ? { printPreset } : {}),
-    ...(registrationMarks ? {} : { registrationMarks }), ...guides }));
+    ...(registrationMarks ? {} : { registrationMarks }), ...guides, ...color }));
   const existing = replayPrintRequest(userId, requestKey, requestHash);
   if (existing) return existing;
   // New plans enforce current layouts. Previously accepted requests replay above.
@@ -214,10 +216,10 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
 }
 
 function alternateLayoutInput(request, creating = false) {
-  const allowed = ['paperSize', 'printPreset', 'registrationMarks', 'dahleAlignmentMarks', 'dahleCutGuides',
+  const allowed = ['paperSize', 'printPreset', 'registrationMarks', 'dahleAlignmentMarks', 'dahleCutGuides', 'foilProfile',
     ...(creating ? ['expectedPlanHash', 'idempotencyKey'] : [])];
   if (!request || typeof request !== 'object' || Array.isArray(request) || Object.keys(request).some(key => !allowed.includes(key))) {
-    throw printError('Supply only the alternate paper layout and its marks');
+    throw printError('Supply only the alternate layout, guide and color settings');
   }
   if (request.paperSize === undefined) throw printError('Select a paper layout for the alternate PDF');
   const select = creating ? printPaperSelection : newPrintPaperSelection;
@@ -225,19 +227,19 @@ function alternateLayoutInput(request, creating = false) {
   if (request.registrationMarks !== undefined && typeof request.registrationMarks !== 'boolean') throw printError('registrationMarks must be true or false');
   const guides = dahleGuideOptions(selection.printPreset, request);
   return { ...selection, registrationMarks: !isDahlePrintPreset(selection.printPreset) && request.registrationMarks !== false,
-    ...guides };
+    ...guides, ...foilProfileOptions(selection.printPreset, request) };
 }
 
 function buildAlternateLayout(source, selection) {
   const manifest = frozenManifest(source);
-  const { paperSize, printPreset, recipeId, registrationMarks } = selection;
+  const { paperSize, printPreset, recipeId, ...printOptions } = selection;
   const doubleFacedCopies = manifest.copies.filter(copy => copy.back).length;
   const ordinaryCopies = manifest.copies.length - doubleFacedCopies;
   const { planHash: _oldHash, paperSize: _oldPaper, printPreset: _oldPreset, registrationMarks: _oldMarks,
-    dahleAlignmentMarks: _oldAlignmentMarks, dahleCutGuides: _oldCutGuides, sheetPacking: _oldPacking, ...frozenCards } = manifest.plan;
+    dahleAlignmentMarks: _oldAlignmentMarks, dahleCutGuides: _oldCutGuides, foilProfile: _oldFoilProfile,
+    sheetPacking: _oldPacking, ...frozenCards } = manifest.plan;
   const planHash = sha256(json({ type: 'alternate-layout', sourceJobId: source.id, sourceManifestSha256: source.manifest_sha256, ...selection }));
-  const plan = { ...frozenCards, paperSize, ...(printPreset ? { printPreset } : {}), registrationMarks,
-    ...dahleGuideOptions(printPreset, selection),
+  const plan = { ...frozenCards, paperSize, ...(printPreset ? { printPreset } : {}), ...printOptions,
     ...(ordinaryCopies && doubleFacedCopies ? { sheetPacking: DOUBLE_FACED_FIRST } : {}),
     totalCopies: manifest.copies.length, ordinaryCopies, doubleFacedCopies, readyToGenerate: true, targetRecipeId: recipeId,
     sourceManifestSha256: source.manifest_sha256, confirmationJobId: source.source_job_id
@@ -312,8 +314,8 @@ export function createAlternatePrintLayout(userId, deckId, sourceJobId, request)
   const requestHash = sha256(json({ type: 'alternate-layout', deckId, sourceJobId, expectedPlanHash: request.expectedPlanHash, ...layout }));
   const existing = replayPrintRequest(userId, requestKey, requestHash);
   if (existing) return existing;
-  const { plan } = buildAlternateLayout(source, { ...newPrintPaperSelection(layout.paperSize, layout.printPreset),
-    registrationMarks: layout.registrationMarks, ...dahleGuideOptions(layout.printPreset, layout) });
+  const selection = newPrintPaperSelection(layout.paperSize, layout.printPreset);
+  const { plan } = buildAlternateLayout(source, { ...selection, ...layout });
   if (plan.planHash !== request.expectedPlanHash) throw printError('The saved batch or requested layout changed. Review the alternate layout again.', 409);
   return savePrintRequest(userId, deckId, plan, { requestKey, requestHash, sourceJobId });
 }
@@ -377,6 +379,7 @@ export async function processNextPrintJob() {
     if (totalStorage() + PRINT_WORKING_RESERVE_BYTES > STORAGE_MAX_BYTES) throw printError('Print storage is full; PDF preparation requires a 5 GiB working allowance', 507);
     const plan = parse(row.plan_json);
     const guides = dahleGuideOptions(plan.printPreset, plan);
+    const color = foilProfileOptions(plan.printPreset, plan);
     if (row.source_job_id && printJobPaper(plan).recipeId !== plan.targetRecipeId) {
       throw printError('The selected paper recipe changed. Open the source batch and review the layout again.', 409);
     }
@@ -393,7 +396,7 @@ export async function processNextPrintJob() {
       ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
       ...(plan.sheetPacking ? { sheetPacking: plan.sheetPacking } : {}),
       ...(plan.registrationMarks === false ? { registrationMarks: false } : {}),
-      ...guides,
+      ...guides, ...color,
       cards: copies.map(copy => ({
         id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}),
         ...(isDahlePrintPreset(plan.printPreset) ? { displayName: copy.displayName, frontSource: copy.front.source,
@@ -409,6 +412,9 @@ export async function processNextPrintJob() {
     }
     if ((generated.dahleCutGuides ?? false) !== (guides.dahleCutGuides === true)) {
       throw printError('The PDF generator did not confirm the requested Dahle cut guides', 409);
+    }
+    if (generated.foilProfile !== color.foilProfile) {
+      throw printError('The PDF generator did not confirm the requested foil color profile', 409);
     }
     if (row.source_job_id) {
       if (generated.recipe?.id !== plan.targetRecipeId) throw printError('The PDF generator returned a different paper recipe. Open the source batch and review the layout again.', 409);
@@ -470,7 +476,7 @@ export async function processNextPrintJob() {
     const manifest = {
       version: 1, jobId: row.id, requesterId: row.user_id, createdAt: row.created_at, plan,
       ...(row.source_job_id ? { alternateLayoutOf: alternateLayoutOf(row, plan) } : {}),
-      ...guides,
+      ...guides, ...color,
       copies: copies.map(copy => ({ ...copy, front: withoutPath(copy.front), ...(copy.back ? { back: withoutPath(copy.back) } : {}) })),
       generatorRevision: generated.revision, generatorRuntimeVersion: generated.runtimeVersion, recipe: generated.recipe, artifacts, slots: generated.slots,
       images: generated.images || [], generatedAt: now(),
