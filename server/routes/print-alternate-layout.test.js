@@ -24,6 +24,7 @@ const stationToken = 'disposable-print-station-credential-1234';
 const letter = { paperSize: 'letter' };
 const crowned = { paperSize: 'a4', printPreset: 'crowned-a4-portrait-six', registrationMarks: false };
 const dahle = { paperSize: 'a4', printPreset: 'dahle-a4-punch', registrationMarks: true };
+const dahleLetter = { paperSize: 'letter', printPreset: 'dahle-letter-punch', registrationMarks: true };
 const digest = value => createHash('sha256').update(value).digest('hex');
 let directory, db, queue, listener, origin;
 
@@ -63,9 +64,13 @@ beforeEach(async () => {
   fixtures.liveArtwork.mockRejectedValue(new Error('Alternate jobs must not use the current artwork path'));
   fixtures.lookup.mockResolvedValue([]);
   fixtures.recover.mockRejectedValue(new Error('Synthetic provider has no more bytes'));
+  const recipes = {
+    [dahle.printPreset]: generator.DAHLE_A4_RECIPE,
+    [dahleLetter.printPreset]: generator.DAHLE_LETTER_RECIPE,
+    [crowned.printPreset]: generator.CROWNED_A4_PORTRAIT_SIX_RECIPE,
+  };
   fixtures.render.mockImplementation(async input => {
-    const recipe = input.printPreset === dahle.printPreset ? generator.DAHLE_A4_RECIPE
-      : input.printPreset === crowned.printPreset ? generator.CROWNED_A4_PORTRAIT_SIX_RECIPE : generator.PRINT_RECIPE;
+    const recipe = recipes[input.printPreset] ?? generator.PRINT_RECIPE;
     const groups = generator.planPrintSheets(input.cards, recipe, input.sheetPacking);
     mkdirSync(input.outputDir, { recursive: true });
     const image = file => ({ sha256: digest(readFileSync(file)) });
@@ -257,46 +262,55 @@ describe('alternate layout from immutable print receipts', () => {
     expect(existsSync(join(original.jobPath, 'original.pdf'))).toBe(true);
   });
 
-  it('regenerates a saved 1 mm Dahle batch with wider bleed and preserves the original PDF', async () => {
+  it.each([
+    { layout: dahle, recipeId: 'household-dahle-a4-punch-v1' },
+    { layout: dahleLetter, recipeId: 'household-dahle-letter-punch-v1' },
+  ])('regenerates a saved 1 mm Dahle batch on $layout.paperSize and preserves the original PDF', async ({ layout, recipeId }) => {
     const recipe = { id: 'household-dahle-a4-punch-v1', paperSize: dahle.paperSize, printPreset: dahle.printPreset, bleedMm: 1 };
     const original = frozenBatch({ state: 'ready', recipe });
     db.run('UPDATE print_jobs SET expires_at = NULL WHERE id = ?', [original.id]);
-    const before = rowFor(original.id);
+    const before = rowFor(original.id), events = eventsFor(original.id);
     const saved = queue.getOwnedPrintJob(1, 1, original.id);
-    const read = await review(original, dahle);
-    const response = await post(original.api, { ...dahle, expectedPlanHash: read.plan.planHash, idempotencyKey: randomUUID() });
+    const read = await review(original, layout);
+    expect(read).toMatchObject({ layout: { frontSheets: 1, backSheets: 1 }, plan: { recipeId, registrationMarks: false } });
+    const response = await post(original.api, { ...layout, expectedPlanHash: read.plan.planHash, idempotencyKey: randomUUID() });
     expect(response.status).toBe(202);
     const { job } = await response.json();
     await queue.processNextPrintJob();
     const current = queue.ownedPrintManifest(1, 1, job.id);
-    expect(current.recipe).toMatchObject({ ...recipe, bleedMm: 1.5 });
+    expect(current.recipe).toMatchObject({ id: recipeId, paperSize: layout.paperSize, printPreset: layout.printPreset, bleedMm: 1.5 });
     expect(current.copies).toEqual(original.manifest.copies);
     expect(rowFor(original.id)).toEqual(before);
+    expect(eventsFor(original.id)).toEqual(events);
     expect(queue.ownedPrintManifest(1, 1, original.id)).toEqual(original.manifest);
     const download = await fetch(origin + saved.artifacts[0].downloadUrl, { headers: { Authorization: 'Bearer owner-1' } });
     expect(download.status).toBe(200);
     expect(Buffer.from(await download.arrayBuffer())).toEqual(original.originalPdf);
   });
 
-  it.each(['dahleAlignmentMarks', 'dahleCutGuides'])('binds %s to a Dahle alternate and keeps it out of the next unmarked layout', async guide => {
+  it.each([
+    { layout: dahle, guide: 'dahleAlignmentMarks' },
+    { layout: dahle, guide: 'dahleCutGuides' },
+    { layout: dahleLetter, guide: 'dahleCutGuides' },
+  ])('binds $guide to a $layout.paperSize Dahle alternate and keeps it out of the next unmarked layout', async ({ layout, guide }) => {
     const original = frozenBatch();
     const before = rowFor(original.id);
-    const off = await review(original, dahle);
-    const explicitOff = await review(original, { ...dahle, [guide]: false });
+    const off = await review(original, layout);
+    const explicitOff = await review(original, { ...layout, [guide]: false });
     expect(explicitOff.plan.planHash).toBe(off.plan.planHash);
     expect(explicitOff.plan).not.toHaveProperty(guide);
-    const on = { ...dahle, [guide]: true };
+    const on = { ...layout, [guide]: true };
     const marked = await review(original, on);
     expect(marked.plan).toMatchObject({ [guide]: true, recipeId: off.plan.recipeId });
     expect(marked.plan.planHash).not.toBe(off.plan.planHash);
     const create = { idempotencyKey: randomUUID(), expectedPlanHash: marked.plan.planHash };
-    expect((await post(original.api, { ...dahle, ...create })).status).toBe(409);
+    expect((await post(original.api, { ...layout, ...create })).status).toBe(409);
     const response = await post(original.api, { ...on, ...create });
     expect(response.status).toBe(202);
     const { job } = await response.json();
     expect((await post(original.api, { ...on, ...create })).status).toBe(200);
     expect((await post(`${original.api}/preview`, { ...letter, [guide]: true })).status).toBe(400);
-    expect((await post(`${original.api}/preview`, { ...dahle, dahleAlignmentMarks: true, dahleCutGuides: true })).status).toBe(400);
+    expect((await post(`${original.api}/preview`, { ...layout, dahleAlignmentMarks: true, dahleCutGuides: true })).status).toBe(400);
     await queue.processNextPrintJob();
     expect(queue.getOwnedPrintJob(1, 1, job.id)).toMatchObject({ state: 'ready', [guide]: true, registrationMarks: false });
     expect(queue.ownedPrintManifest(1, 1, job.id).copies).toEqual(original.manifest.copies);

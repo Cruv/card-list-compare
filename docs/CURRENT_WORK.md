@@ -1,5 +1,11 @@
 # Current work checkpoint
 
+## Explicit paste review and US Letter Dahle
+
+- v2.68.0 starts from `cf2063b`. Compare and standalone Print preserve native paste focus, caret and undo. The import report opens with **Review import**. The Library paste dialog and the URL and file imports retain their review steps.
+- Both Dahle presets offer bolder lime strip and R3 guides. The new PDF-only Letter preset fits nine 63 × 88 mm cards at 1.5 mm bleed per edge, with 215.9 × 91 mm strips, side labels and a vertical proof scale. Use the [Letter cut positions](DAHLE_A4_PUNCH.md#layout-and-hardware-evidence) and check the guide visibility on the intended stock before a batch.
+- On November 20, 2026, local checks passed on Node 22 and the pinned Python worker runtime. They covered 1,568 JavaScript tests, 23 PDF worker tests, 290 portable companion tests, the production build, deployment contract and both dependency audits. Lint reported five existing warnings. Disposable Chrome checked paste, new batches, paper proofs and saved-batch regeneration. The real worker smoke covered both Dahle presets; physical proof remains pending.
+
 ## Wider Dahle bleed
 
 - v2.67.4 gives new and regenerated Dahle PDFs and paper proofs 1.5 mm of bleed per edge. A4 still fits nine 63 × 88 mm R3 cards, with 3 mm between finished outlines and four cuts for 210 × 91 mm row strips. Earlier PDFs use the geometry printed on their sheets. See the [cutting measurements](DAHLE_A4_PUNCH.md#layout-and-hardware-evidence).

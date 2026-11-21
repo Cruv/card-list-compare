@@ -31,9 +31,11 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.67.4';
+const APP_VERSION = '2.68.0';
 const WHATS_NEW = [
-  'Get more room to align each card in the Dahle layout with 1.5 mm of bleed and wider 91 mm strips',
+  'Paste and keep editing your list, then choose Review import when you’re ready',
+  'Spot the Dahle strip cuts and R3 corners with bolder lime guides',
+  'Fit nine cards on US Letter using the new Dahle 550 + R3 punch preset',
 ];
 
 function getResetToken() {

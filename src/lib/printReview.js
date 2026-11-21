@@ -1,5 +1,5 @@
 import { parse } from './parser';
-import { dahleGuideFields, isA4PrintPreset, isPrintPaperSize, printPaperChoice, PRINT_PAPER, validDahleGuideOptions } from './printPaper';
+import { dahleGuideFields, isPrintPaperSize, matchesPrintPreset, printPaperChoice, PRINT_PAPER, validDahleGuideOptions } from './printPaper';
 import { printCardKey } from './printSelection';
 
 export function batchDetailRefresh(jobs, activity, focusedId) {
@@ -150,7 +150,7 @@ export function loadPrintCreationIntent(storage, key) {
 
 function validSelectionOptions(value) {
   return (value.paperSize === undefined || isPrintPaperSize(value.paperSize))
-    && (value.printPreset === undefined || (value.paperSize === 'a4' && isA4PrintPreset(value.printPreset)))
+    && (value.printPreset === undefined || matchesPrintPreset(value.printPreset, value.paperSize))
     && (value.registrationMarks === undefined || typeof value.registrationMarks === 'boolean')
     && validDahleGuideOptions(value)
     && (value.excludeBasicLands === undefined || typeof value.excludeBasicLands === 'boolean')

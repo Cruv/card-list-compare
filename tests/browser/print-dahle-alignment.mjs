@@ -19,10 +19,10 @@ server.listen(0, '127.0.0.1');
 await once(server, 'listening');
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
-const capabilities = { canQueue: true, stationConfigured: true, paperSizes: ['letter'], printPresets: ['crowned-a4', 'dahle-a4-punch'] };
+const a4Preset = 'dahle-a4-punch';
+const letterPreset = 'dahle-letter-punch';
+const capabilities = { canQueue: true, stationConfigured: true, paperSizes: ['letter'], printPresets: ['crowned-a4', a4Preset, letterPreset] };
 const generator = { available: true, revision: 'fixture-revision', adapterHash: 'fixture-adapter' };
-const dahle = 'dahle-a4-punch';
-const recipeId = 'household-dahle-a4-punch-v1';
 const plainKey = '1'.repeat(64);
 const markedKey = '2'.repeat(64);
 const legacyKey = '3'.repeat(64);
@@ -30,10 +30,13 @@ const card = { selectionKey: 'sol-ring', displayName: 'Sol Ring', quantity: 2, b
 const frozenText = '2 Sol Ring (C21) [263]';
 const resolvedCard = { ...card, isDFC: false, errors: [], faces: [{ face: 'front', status: 'ready', identifier: 'sol-ring-art' }] };
 const snapshot = { id: 99, created_at: '2026-11-19T02:00:00Z', deck_text: frozenText };
-const proofPath = `/api/print-proofs/${dahle}`;
+const proofPath = '/api/print-proofs/';
 
 try {
   for (const tracked of [false, true]) {
+    const dahle = tracked ? a4Preset : letterPreset;
+    const paperSize = tracked ? 'a4' : 'letter';
+    const stripSize = `${tracked ? 210 : 215.9} × 91 mm`;
     const scope = tracked ? '/api/decks/12/print-jobs' : '/api/print-lists/jobs';
     const planPath = tracked ? '/api/decks/12/print-plan' : '/api/print-lists/plan';
     const jobId = tracked ? '22222222-4444-4444-8444-444444444444' : '11111111-4444-4444-8444-444444444444';
@@ -46,10 +49,10 @@ try {
     const ready = Promise.withResolvers();
     let job;
     let legacyProof = false;
-    await page.addInitScript(() => {
+    await page.addInitScript(defaultPreset => {
       localStorage.setItem('clc-auth-token', 'print-alignment-fixture');
-      localStorage.setItem('clc-print-paper-default:41', 'dahle-a4-punch');
-    });
+      localStorage.setItem('clc-print-paper-default:41', defaultPreset);
+    }, dahle);
     try {
       await page.route('**/*', async route => {
         const request = route.request();
@@ -72,6 +75,8 @@ try {
         if (url.pathname === `${scope}/${jobId}` && request.method() === 'GET') return send({ job });
         if (url.pathname === planPath) {
           const body = request.postDataJSON();
+          assert.equal(body.paperSize, paperSize);
+          assert.equal(body.printPreset, dahle);
           planRequests.push(body);
           const planHash = body.dahleCutGuides ? markedKey : plainKey;
           const plan = { ...body, deckName: 'Fixture cards', cards: [card], resolvedCards: [resolvedCard], ordinaryCopies: 2,
@@ -83,6 +88,7 @@ try {
           creates.push(body);
           assert.equal(body.expectedPlanHash, markedKey);
           assert.equal(body.printPreset, dahle);
+          assert.equal(body.paperSize, paperSize);
           assert.equal(body.dahleCutGuides, true);
           assert.equal(body.registrationMarks, false);
           assert.equal(body.queueOnReady, false);
@@ -91,12 +97,13 @@ try {
             totalCopies: 2, artifacts: [], manifestSha256: 'a'.repeat(64), createdAt: '2026-11-19T03:00:00Z', updatedAt: '2026-11-19T03:01:00Z' };
           return tracked ? send({ job }, 202) : route.abort('failed');
         }
-        if (url.pathname === proofPath || url.pathname === `${proofPath}/pdf`) {
+        const preset = url.pathname.slice(proofPath.length).split('/')[0];
+        if (url.pathname.startsWith(proofPath) && [a4Preset, letterPreset].includes(preset)) {
           assert.equal(request.headers().authorization, 'Bearer print-alignment-fixture');
           assert.equal(url.searchParams.get('marks'), 'off');
           const marks = url.searchParams.get('dahleCutGuides');
           assert.ok(marks === null || marks === 'on');
-          const key = legacyProof ? legacyKey : marks ? markedKey : plainKey;
+          const key = legacyProof && preset === a4Preset ? legacyKey : marks ? markedKey : plainKey;
           if (url.pathname.endsWith('/pdf')) {
             assert.equal(url.searchParams.get('key'), key);
             proofDownloads.push(marks);
@@ -104,7 +111,7 @@ try {
           }
           proofs.push(marks);
           if (marks) await markedProof.promise;
-          return send({ proof: { recipeId, key, ...generator, cardsPerSheet: 9, trim: [63, 88], bleed: { millimeters: legacyProof ? 1 : 1.5 },
+          return send({ proof: { recipeId: `household-${preset}-v1`, key, ...generator, cardsPerSheet: 9, trim: [63, 88], bleed: { millimeters: key === legacyKey ? 1 : 1.5 },
             registrationMarks: false, ...(marks ? { dahleCutGuides: true } : {}) } });
         }
         assert.equal(request.method(), 'GET', `Unexpected write to ${url.pathname}`);
@@ -125,7 +132,7 @@ try {
       }
       await reviewList.click();
       await marks.waitFor();
-      await review.getByText(/63 × 88 mm finished cards · 1\.5 mm bleed per edge · 210 × 91 mm row strips/).waitFor();
+      await review.getByText(`63 × 88 mm finished cards · 1.5 mm bleed per edge · ${stripSize} row strips.`, { exact: false }).waitFor();
       assert.equal(await marks.isChecked(), false);
       assert.equal(await review.getByRole('checkbox', { name: /Cameo registration/ }).count(), 0);
       assert.equal(planRequests.at(-1).dahleCutGuides, undefined);
@@ -160,13 +167,14 @@ try {
 
       await page.goto(`${origin}/#guide/dahle-punch`);
       await page.getByText('91 mm from the blade', { exact: true }).waitFor();
-      await page.getByText(/1\.5 mm bleed on every edge, 3 mm between finished cards, and three 210 × 91 mm row strips/).waitFor();
+      await page.getByText(/210 × 91 mm on A4 or 215\.9 × 91 mm on Letter/).waitFor();
       await page.getByText(/Earlier Dahle PDFs may have 90 mm strips/).waitFor();
       if (!tracked) {
         legacyProof = true;
         await page.goto(`${origin}/#print-list`);
         await page.getByText('One-sheet paper proof', { exact: true }).click();
         const proof = page.locator('.print-paper-proof');
+        await proof.getByRole('combobox', { name: 'Proof paper and layout' }).selectOption(a4Preset);
         await proof.getByRole('checkbox', { name: 'Include strip cut lines and R3 corner guides on the proof' }).uncheck();
         await proof.getByText('Cut 210 × 90 mm strips on the Dahle using the row ticks.', { exact: true }).waitFor();
         assert.equal(await proof.getByRole('checkbox', { name: 'I printed and checked this exact recipe' }).isChecked(), false);
@@ -180,7 +188,7 @@ try {
         const confirm = proof.getByRole('checkbox', { name: 'I printed and checked this exact recipe' });
         const download = proof.getByRole('button', { name: 'Download one-sheet proof PDF' });
         await proof.getByText(/Dahle row ticks · 63 × 88 mm trim · 1\.5 mm bleed per edge/).waitFor();
-        await proof.getByText('Cut 210 × 91 mm strips on the Dahle using the row ticks.', { exact: true }).waitFor();
+        await proof.getByText(`Cut ${stripSize} strips on the Dahle using the row ticks.`, { exact: true }).waitFor();
         assert.equal(await toggle.isChecked(), false);
         const downloadingPlain = page.waitForEvent('download');
         await download.click();
@@ -191,7 +199,8 @@ try {
         assert.equal(await confirm.count(), 0);
         markedProof.resolve();
         await proof.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
-        await proof.getByText('Cut 210 × 91 mm strips on the Dahle using the horizontal cyan cut lines.', { exact: true }).waitFor();
+        await proof.getByText(`Cut ${stripSize} strips on the Dahle using the horizontal lime cut lines.`, { exact: true }).waitFor();
+        await proof.getByText(/outer lime guide closest to the edge of the paper/).waitFor();
         await proof.getByText(/Feed each strip into the 63 × 88 mm R3 punch.*all four disappear under the die/).waitFor();
         await proof.getByText('Check that the guide ink stayed on the scrap.', { exact: true }).waitFor();
         assert.equal(await confirm.isChecked(), false);

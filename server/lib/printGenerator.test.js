@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE, CROWNED_A4_PORTRAIT_SIX_RECIPE, DAHLE_A4_RECIPE } from './printGenerator.js';
+import { createPrintGenerator, planPrintSheets, printPageIdentification, PRINT_RECIPE, PRINT_RECIPES, CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE, CROWNED_A4_PORTRAIT_SIX_RECIPE, DAHLE_A4_RECIPE, DAHLE_LETTER_RECIPE } from './printGenerator.js';
 import { headlessRequirements, PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
@@ -50,7 +50,7 @@ describe('physical PDF sheet planning', () => {
     expect(groups.map(group => group.id)).toEqual([...groups.map(group => group.id)].sort((a, b) => a === 'fronts' ? -1 : b === 'fronts' ? 1 : a.localeCompare(b)));
     expect(new Set(groups.flatMap(group => group.slotMap.map(slot => slot.cardId))).size).toBe(250);
   });
-  it.each(Object.values(PRINT_RECIPES).concat(CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE, CROWNED_A4_PORTRAIT_SIX_RECIPE, DAHLE_A4_RECIPE))('builds full sheets and preserves each face slot with $id', recipe => {
+  it.each(Object.values(PRINT_RECIPES).concat(CROWNED_A4_RECIPE, CROWNED_A4_LANDSCAPE_RECIPE, CROWNED_A4_PORTRAIT_SIX_RECIPE, DAHLE_A4_RECIPE, DAHLE_LETTER_RECIPE))('builds full sheets and preserves each face slot with $id', recipe => {
     const capacity = recipe.cardsPerSheet;
     const ordinary = Array.from({ length: capacity + 2 }, (_, i) => ({ id: `single-${i}`, frontPath: '/a' }));
     const double = Array.from({ length: capacity + 1 }, (_, i) => ({ id: `double-${i}`, frontPath: '/a', backPath: '/b' }));
@@ -347,18 +347,24 @@ describe('PDF adapter publication', () => {
     expect(onProgress).toHaveBeenCalledExactlyOnceWith({ phase: 'generating', completedSheets: 1, totalSheets: 1 });
   });
 
-  it.each([['letter', 'crowned-a4'], ['letter', 'crowned-a4-landscape'], ['letter', 'crowned-a4-portrait-six'], ['letter', 'dahle-a4-punch'], ['a4', 'custom']])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {
+  it.each([
+    ['letter', 'crowned-a4'], ['letter', 'crowned-a4-landscape'], ['letter', 'crowned-a4-portrait-six'],
+    ['letter', 'dahle-a4-punch'], ['a4', 'dahle-letter-punch'], ['a4', 'custom'],
+  ])('rejects unsupported preset/stock pair %s %s before capturing a runtime', async (paperSize, printPreset) => {
     const capture = vi.fn();
-    await expect(createPrintGenerator({ runtime: { capture } }).generate({ paperSize, printPreset })).rejects.toThrow('requires A4');
+    await expect(createPrintGenerator({ runtime: { capture } }).generate({ paperSize, printPreset })).rejects.toThrow('supported print preset');
     expect(capture).not.toHaveBeenCalled();
   });
 
-  it('writes nine Dahle slots per sheet with no Cameo marks even if requested', async () => {
+  it.each([
+    ['a4', 'dahle-a4-punch', 'household-dahle-a4-punch-v1', 210 * 72 / 25.4, 297 * 72 / 25.4],
+    ['letter', 'dahle-letter-punch', 'household-dahle-letter-punch-v1', 612, 792],
+  ])('writes nine Dahle slots on %s stock with the exact portrait geometry and no Cameo marks', async (paperSize, printPreset, id, width, height) => {
     const directory = await temp(), chunkSizes = [];
     const runtime = { capture: () => ({ directory: '/runtime', revision: 'fixed' }) };
     const run = async (_command, args) => {
       const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
-      expect(request).toMatchObject({ paperSize: 'a4', printPreset: 'dahle-a4-punch' });
+      expect(request).toMatchObject({ paperSize, printPreset });
       if (args[1] === 'chunk') {
         expect(request.registrationMarks).toBe(false);
         expect(request).not.toHaveProperty('dahleAlignmentMarks');
@@ -374,10 +380,12 @@ describe('PDF adapter publication', () => {
     };
     const cards = Array.from({ length: 11 }, (_, index) => ({ id: String(index), frontPath: '/a', frontSource: 'scryfall' }));
     const result = await createPrintGenerator({ runtime, run }).generate({
-      cards, outputDir: directory, paperSize: 'a4', printPreset: 'dahle-a4-punch', registrationMarks: true,
+      cards, outputDir: directory, paperSize, printPreset, registrationMarks: true,
     });
     expect(chunkSizes).toEqual([9, 2]);
-    expect(result.recipe).toMatchObject({ cardWidthMm: 63, cardHeightMm: 88, bleedMm: 1.5, registration: 0 });
+    expect(result.recipe).toMatchObject({ id, paperSize, printPreset, orientation: 'portrait', cardWidthMm: 63, cardHeightMm: 88, bleedMm: 1.5, registration: 0 });
+    expect(result.recipe.pageWidthPoints).toBeCloseTo(width, 8);
+    expect(result.recipe.pageHeightPoints).toBeCloseTo(height, 8);
     expect(result).not.toHaveProperty('dahleAlignmentMarks');
     expect(result).not.toHaveProperty('dahleCutGuides');
     expect(result.slots.slice(-2).map(({ slot, sheet }) => [slot, sheet])).toEqual([[0, 2], [1, 2]]);
@@ -401,7 +409,7 @@ describe('PDF adapter publication', () => {
     const generator = createPrintGenerator({ runtime, run });
     await expect(generator.generate(options)).rejects.toThrow(`did not confirm the requested Dahle ${name}`);
     expect(await fs.readdir(directory)).toEqual([]);
-    await expect(generator.generate({ ...options, printPreset: 'crowned-a4' })).rejects.toThrow('require the Dahle A4 layout');
+    await expect(generator.generate({ ...options, printPreset: 'crowned-a4' })).rejects.toThrow('require a Dahle layout');
     await expect(generator.generate({ ...options, dahleAlignmentMarks: true, dahleCutGuides: true })).rejects.toThrow('Choose one Dahle guide style');
     acknowledges = true;
     const result = await generator.generate(options);

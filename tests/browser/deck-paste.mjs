@@ -5,6 +5,7 @@ import { extname, join } from 'node:path';
 const { chromium } = await import(process.env.CLC_PLAYWRIGHT_MODULE || 'playwright');
 
 const dist = process.argv[2];
+const baselineRun = process.argv.includes('--baseline');
 const server = createServer(async (request, response) => {
   try {
     const pathname = new URL(request.url, 'http://localhost').pathname;
@@ -27,40 +28,129 @@ const original = '// Keep this annotation  \r\nCommander\r\n1 Atraxa (2XM) [190]
 const inTextarea = text => text.replace(/\r\n/g, '\n');
 
 async function paste(input, marker, clipboard, { after = false, replace = false } = {}) {
-  await input.evaluate((textarea, { marker, clipboard, after, replace }) => {
+  return input.evaluate((textarea, { marker, clipboard, after, replace }) => {
     const at = textarea.value.indexOf(marker);
     if (at < 0) throw new Error('Paste marker missing: ' + marker);
     const start = after ? at + marker.length : at;
-    textarea.setSelectionRange(start, replace ? start + marker.length : start);
+    const end = replace ? start + marker.length : start;
+    textarea.focus();
+    textarea.setSelectionRange(start, end);
     const data = new DataTransfer();
     data.setData('text/plain', clipboard);
-    textarea.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+    const allowed = textarea.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+    // Use the browser's editing command for the default action of a synthetic
+    // paste event. This exercises the native caret and undo without touching the OS clipboard.
+    const insertion = clipboard.replace(/\r\n?/g, '\n');
+    const draft = textarea.value.slice(0, start) + insertion + textarea.value.slice(end);
+    if (allowed && !document.execCommand('insertText', false, insertion)) throw new Error('Browser did not insert pasted text');
+    return { allowed, draft, caret: start + insertion.length };
   }, { marker, clipboard, after, replace });
 }
 
 try {
-  for (const lineBreak of ['\n', '\r\n']) {
-    for (const [label, clipboard] of [
-      ['exposed left edge', '*E*' + lineBreak],
-      ['hidden right edge', lineBreak + etched],
-      ['accepted card stranded inside foil', '*E*' + lineBreak + counterspell + lineBreak],
-      ['rejected finish replacement', '*E*' + lineBreak],
-      ['invalid row merged into foil', lineBreak + '0 '],
-    ]) {
-      await compareDraft(label, clipboard, lineBreak);
+  await printDraftPaste();
+  if (!baselineRun) {
+    for (const lineBreak of ['\n', '\r\n']) {
+      for (const [label, clipboard] of [
+        ['exposed left edge', '*E*' + lineBreak],
+        ['hidden right edge', lineBreak + etched],
+        ['accepted card stranded inside foil', '*E*' + lineBreak + counterspell + lineBreak],
+        ['rejected finish replacement', '*E*' + lineBreak],
+        ['invalid row merged into foil', lineBreak + '0 '],
+      ]) {
+        await compareDraft(label, clipboard, lineBreak);
+      }
     }
-  }
 
-  await compareDraft('rejected edge leaves a suffix fragment', ' Island\n' + etched, '\n');
-  await compareDraft('rejected edge leaves a prefix fragment', etched + '\nIsland ', '\n');
-  // A rejected boundary row can be removed while a complete row still applies.
-  await compareDraft('rejected row at the end of an intact card', ' *E*\r\n' + counterspell, '\r\n');
-  // Selecting a complete printing intentionally replaces it while retaining surrounding text.
-  await compareDraft('replace a whole card', counterspell + '\n' + etched, '\n');
-  await libraryUndo();
+    await compareDraft('rejected edge leaves a suffix fragment', ' Island\n' + etched, '\n');
+    await compareDraft('rejected edge leaves a prefix fragment', etched + '\nIsland ', '\n');
+    // A rejected boundary row can be removed while a complete row still applies.
+    await compareDraft('rejected row at the end of an intact card', ' *E*\r\n' + counterspell, '\r\n');
+    // Selecting a complete printing intentionally replaces it while retaining surrounding text.
+    await compareDraft('replace a whole card', counterspell + '\n' + etched, '\n');
+    await libraryUndo();
+  }
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
+}
+
+async function printDraftPaste() {
+  const page = await browser.newPage({ serviceWorkers: 'block', viewport: { width: 390, height: 844 } });
+  const initial = foil + '\n1 Plains';
+  const clipboard = '\nSideboard\n1 Negate (M20) [69]\n0 Invalid';
+  const expected = initial + '\nSideboard\n1 Negate (M20) [69]';
+  try {
+    await page.addInitScript(() => localStorage.setItem('clc-auth-token', 'fixture'));
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      if (url.origin !== origin) return route.abort();
+      if (url.pathname === '/api/auth/me') return route.fulfill({ json: { user: { id: 41, username: 'Fixture' } } });
+      if (url.pathname === '/api/print-lists/jobs/activity') return route.fulfill({ json: {
+        activeCount: 0, jobs: [], watchedJobs: [], watching: false,
+        capabilities: { stationConfigured: false, printPresets: [] }, generator: { available: true },
+      } });
+      if (url.pathname === '/api/archidekt/decks/42/') return route.fulfill({ json: {
+        cards: [{ quantity: 2, card: { oracleCard: { name: 'Forest' } } }],
+      } });
+      if (url.pathname.startsWith('/api/')) return route.fulfill({ json: {} });
+      return route.continue();
+    });
+    await page.goto(origin + '/#print-list');
+    const input = page.getByRole('textbox', { name: 'Cards to print' });
+    const preview = page.getByRole('region', { name: 'Preview cards to print import' });
+    await input.fill(initial);
+    const scrollY = await page.evaluate(() => window.scrollY);
+    const first = await paste(input, '1 Plains', clipboard, { after: true });
+    if (baselineRun) {
+      assert.equal(first.allowed, false);
+      assert.equal(await input.inputValue(), initial);
+      await preview.waitFor();
+      console.log('Chrome baseline: the Print textarea intercepted the paste and opened the review');
+      return;
+    }
+    assert.equal(first.allowed, true);
+    assert.equal(await input.inputValue(), first.draft);
+    assert.deepEqual(await input.evaluate(el => ({ focused: el === document.activeElement, start: el.selectionStart, end: el.selectionEnd })),
+      { focused: true, start: first.caret, end: first.caret });
+    assert.equal(await page.evaluate(() => window.scrollY), scrollY);
+    assert.equal(await preview.count(), 0);
+    await input.press('ControlOrMeta+z');
+    assert.equal(await input.inputValue(), initial);
+
+    await paste(input, '1 Plains', clipboard, { after: true });
+    const review = page.getByRole('button', { name: 'Review import' });
+    await review.click();
+    await preview.getByText('Sideboard · M20 · #69 · Nonfoil', { exact: true }).waitFor();
+    await preview.getByText('Mainboard · C21 · #263 · Foil', { exact: true }).waitFor();
+    await preview.getByText('0 Invalid', { exact: true }).waitFor();
+    await preview.getByRole('button', { name: 'Cancel' }).click();
+    assert.equal(await input.inputValue(), first.draft);
+    await review.click();
+    await preview.getByRole('button', { name: 'Apply import' }).click();
+    assert.equal(await input.inputValue(), expected);
+    await page.getByRole('button', { name: 'Undo import' }).click();
+    assert.equal(await input.inputValue(), initial);
+
+    await paste(input, '1 Plains', clipboard, { after: true });
+    for (let i = 0; i < '0 Invalid'.length; i++) await input.press('Backspace');
+    await review.click();
+    await preview.getByText('3 accepted rows · 3 copies · 0 skipped').waitFor();
+    assert.equal(await input.inputValue(), expected + '\n');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+    await preview.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.locator('.deck-input input[type="file"]').setInputFiles({ name: 'cards.txt', mimeType: 'text/plain', buffer: Buffer.from('1 Island') });
+    await preview.getByText('1× Island', { exact: true }).waitFor();
+    await preview.getByRole('button', { name: 'Cancel' }).click();
+    const urlPaste = await paste(input, '1 Plains', 'https://archidekt.com/decks/42', { replace: true });
+    assert.equal(urlPaste.allowed, false);
+    await page.getByRole('region', { name: 'Preview cards to print import from Archidekt' }).getByText('2× Forest', { exact: true }).waitFor();
+    assert.equal(await input.inputValue(), expected + '\n');
+    console.log('Chrome paste: Print draft focus, scroll, native undo, explicit review, editing, and file and URL imports');
+  } finally {
+    await page.close();
+  }
 }
 
 async function compareDraft(label, clipboard, lineBreak) {
@@ -90,9 +180,14 @@ async function compareDraft(label, clipboard, lineBreak) {
     const preview = page.getByRole('region', { name: 'Preview before import' });
     const undo = page.getByRole('button', { name: 'Undo import' });
     await before.waitFor();
-    await paste(before, changed || suffixFragment || prefixFragment ? foil : '*F*', clipboard, {
+    const reviewImport = page.locator('.deck-input').filter({ has: before }).getByRole('button', { name: 'Review import' });
+    const edit = await paste(before, changed || suffixFragment || prefixFragment ? foil : '*F*', clipboard, {
       after: safeAppend || suffixFragment, replace: safeReplace || label === 'rejected finish replacement',
     });
+    assert.equal(edit.allowed, true);
+    assert.equal(await preview.count(), 0);
+    assert.equal(await before.inputValue(), edit.draft, label);
+    await reviewImport.click();
     await preview.getByText('Skipped rows', { exact: true }).waitFor();
     if (!label.includes('invalid row')) await preview.getByText(/Unsupported finish \(\*E\*\)/).first().waitFor();
     if (label.includes('stranded') || suffixFragment || prefixFragment) await preview.getByText(/Paste at a line boundary/).waitFor();
@@ -104,7 +199,7 @@ async function compareDraft(label, clipboard, lineBreak) {
       await preview.getByText('Commanders · Atraxa').waitFor();
     }
     if (safeReplace) await preview.getByText('Replaced draft text').waitFor();
-    assert.equal(await before.inputValue(), inTextarea(baseline), label);
+    assert.equal(await before.inputValue(), edit.draft, label);
     await preview.getByRole('button', { name: 'Apply import' }).click();
     assert.equal(await before.inputValue(), inTextarea(expected), label);
     await postComparison(page);
@@ -113,12 +208,14 @@ async function compareDraft(label, clipboard, lineBreak) {
 
     if (safeAppend) {
       await paste(before, '*F*', lineBreak + etched);
+      await reviewImport.click();
       await preview.getByText(/Unsupported finish \(\*E\*\)/).first().waitFor();
       await preview.getByRole('button', { name: 'Apply import' }).click();
       await postComparison(page, '1 Mountain');
       assert.equal(posts.at(-1), expected, 'The rejected paste leaves every byte in place');
       // Even a valid replacement that produces identical bytes leaves the previous Undo.
       await paste(before, foil, foil, { replace: true });
+      await reviewImport.click();
       await preview.getByText('No changes to card counts or printings.').waitFor();
       await preview.getByRole('button', { name: 'Apply import' }).click();
     }

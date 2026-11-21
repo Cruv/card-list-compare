@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { createAlternatePrintLayout, previewAlternatePrintLayout } from '../lib/api';
-import { DAHLE_A4_LAYOUT, DAHLE_A4_PRESET, PRINT_PAPER, printPaperChoice, printPaperRequest, validDahleGuideOptions } from '../lib/printPaper';
+import { PRINT_PAPER, printPaperChoice, printPaperRequest, validDahleGuideOptions } from '../lib/printPaper';
 import { printCreationRequestKey, rejectedPrintCreation } from '../lib/printReview';
 import { useModalLayer } from '../lib/useModalLayer';
 import './ConfirmModal.css';
@@ -42,7 +42,8 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
   const paperRef = useRef(null);
   const heading = useId();
   const paper = pending ? printPaperChoice(pending) : choice;
-  const dahle = paper === DAHLE_A4_PRESET;
+  const punchLayout = PRINT_PAPER[paper].punchLayout;
+  const dahle = !!punchLayout;
   const registrationMarks = !dahle && marks;
   const selectedDahleCutGuides = dahle && (pending ? pending.dahleCutGuides === true : dahleCutGuides);
   const options = useMemo(() => ({ ...printPaperRequest(paper, { dahleCutGuides: selectedDahleCutGuides }), registrationMarks }), [paper, selectedDahleCutGuides, registrationMarks]);
@@ -143,7 +144,7 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
             <label className="print-panel-check"><input type="checkbox" checked={selectedDahleCutGuides} disabled={!!pending} onChange={event => { setDahleCutGuides(event.target.checked); setError(''); }} />Include strip cut lines and R3 corner guides</label>
             <p>Print the downloaded PDF at Actual Size (100%). {pending
               ? 'Cut the strips on the Dahle using the guides on your PDF.'
-              : `Cut ${DAHLE_A4_LAYOUT.stripSize} strips on the Dahle, then punch the individual cards.`}</p>
+              : `Cut ${punchLayout.stripSize} strips on the Dahle, then punch the individual cards.`}</p>
           </>
           : <label className="print-panel-check"><input type="checkbox" checked={pending?.registrationMarks ?? marks} disabled={!!pending} onChange={event => { setMarks(event.target.checked); setError(''); }} />Include Cameo registration marks</label>}
         {error && <p className="print-panel-error" role="alert">{error}</p>}

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { createPrintProofs } from './printProof.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
-import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, dahleGuideOptions } from './printPaper.js';
+import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, DAHLE_LETTER_PRESET, dahleGuideOptions, isDahlePrintPreset } from './printPaper.js';
 import crownedPortraitGeometry from './crownedPortraitGeometry.json' with { type: 'json' };
 import dahleA4PunchGeometry from './dahleA4PunchGeometry.json' with { type: 'json' };
 
@@ -52,11 +52,18 @@ export const DAHLE_A4_RECIPE = Object.freeze({
   pageWidthPoints: dahleA4PunchGeometry.page[0] * 72 / 25.4, pageHeightPoints: dahleA4PunchGeometry.page[1] * 72 / 25.4,
   colorSpace: 'DeviceRGB', embeddedIcc: false, colorNormalized: false,
 });
+export const DAHLE_LETTER_RECIPE = Object.freeze({
+  ...DAHLE_A4_RECIPE, id: PAPER_PRESETS[DAHLE_LETTER_PRESET].recipeId, template: DAHLE_LETTER_PRESET,
+  paperSize: 'letter', printPreset: DAHLE_LETTER_PRESET,
+  pageWidthPoints: dahleA4PunchGeometry.letterPage[0] * 72 / 25.4,
+  pageHeightPoints: dahleA4PunchGeometry.letterPage[1] * 72 / 25.4,
+});
 const PRINT_PRESETS = Object.freeze({
   [CROWNED_A4_RECIPE.printPreset]: CROWNED_A4_RECIPE,
   [CROWNED_A4_LANDSCAPE_RECIPE.printPreset]: CROWNED_A4_LANDSCAPE_RECIPE,
   [CROWNED_A4_PORTRAIT_SIX_RECIPE.printPreset]: CROWNED_A4_PORTRAIT_SIX_RECIPE,
   [DAHLE_A4_PRESET]: DAHLE_A4_RECIPE,
+  [DAHLE_LETTER_PRESET]: DAHLE_LETTER_RECIPE,
 });
 const MAX_PDF_BYTES = 1024 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 2 * MAX_PDF_BYTES;
@@ -144,11 +151,11 @@ export function createPrintGenerator(options = {}) {
       if (typeof paperSize !== 'string' || !Object.hasOwn(PRINT_RECIPES, paperSize)) {
         throw new Error('Paper size must be Letter or A4');
       }
-      if (printPreset !== undefined && (typeof printPreset !== 'string' || !Object.hasOwn(PRINT_PRESETS, printPreset) || paperSize !== 'a4')) {
-        throw new Error('A supported print preset requires A4 paper');
+      if (printPreset !== undefined && (typeof printPreset !== 'string' || !Object.hasOwn(PRINT_PRESETS, printPreset) || PRINT_PRESETS[printPreset].paperSize !== paperSize)) {
+        throw new Error('A supported print preset is required for this paper size');
       }
       const recipe = printPreset ? PRINT_PRESETS[printPreset] : PRINT_RECIPES[paperSize];
-      const includeMarks = printPreset !== DAHLE_A4_PRESET && registrationMarks;
+      const includeMarks = !isDahlePrintPreset(printPreset) && registrationMarks;
       const guides = dahleGuideOptions(printPreset, { dahleAlignmentMarks, dahleCutGuides });
       const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
       const plan = planPrintSheets(cards, recipe, sheetPacking);

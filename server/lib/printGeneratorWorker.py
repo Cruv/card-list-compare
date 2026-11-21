@@ -18,10 +18,15 @@ CROWNED_LANDSCAPE = "crowned-a4-landscape"
 CROWNED_PORTRAIT = "crowned-a4"
 CROWNED_PORTRAIT_SIX = "crowned-a4-portrait-six"
 DAHLE_A4_PUNCH = "dahle-a4-punch"
+DAHLE_LETTER_PUNCH = "dahle-letter-punch"
 PORTRAIT_PRESETS = {CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX}
 CROWNED_LANDSCAPE_GEOMETRY = json.loads(Path(__file__).with_name("crownedLandscapeGeometry.json").read_text())
 CROWNED_PORTRAIT_GEOMETRY = json.loads(Path(__file__).with_name("crownedPortraitGeometry.json").read_text())
 DAHLE_GEOMETRY = json.loads(Path(__file__).with_name("dahleA4PunchGeometry.json").read_text())
+DAHLE_PAPER = {
+    DAHLE_A4_PUNCH: ("a4", DAHLE_GEOMETRY["page"]),
+    DAHLE_LETTER_PUNCH: ("letter", DAHLE_GEOMETRY["letterPage"]),
+}
 PORTRAIT_CARD = CROWNED_PORTRAIT_GEOMETRY["cardPixels"]
 PORTRAIT_MARKS = CROWNED_PORTRAIT_GEOMETRY["registrationMillimeters"]
 
@@ -65,7 +70,9 @@ def paper_key(request):
     preset = request.get("printPreset")
     if preset is None and size in ("letter", "a4"):
         return size
-    if preset in (CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX, CROWNED_LANDSCAPE, DAHLE_A4_PUNCH) and size == "a4":
+    if preset in (CROWNED_PORTRAIT, CROWNED_PORTRAIT_SIX, CROWNED_LANDSCAPE) and size == "a4":
+        return preset
+    if isinstance(preset, str) and preset in DAHLE_PAPER and size == DAHLE_PAPER[preset][0]:
         return preset
     raise ValueError("Unsupported paper size and print preset")
 
@@ -138,10 +145,11 @@ def image_copy(source, destination):
 
 
 def validate_pdf(filename, count, recipe, *, upstream=False):
-    dahle = recipe == DAHLE_A4_PUNCH
+    dahle = recipe in DAHLE_PAPER
     if dahle:
-        media_box = [0, 0, *(value * POINTS_PER_MM for value in DAHLE_GEOMETRY["page"])]
-        description = "portrait A4 punch"
+        size, page = DAHLE_PAPER[recipe]
+        media_box = [0, 0, *(value * POINTS_PER_MM for value in page)]
+        description = f"portrait {'A4' if size == 'a4' else 'Letter'} punch"
     else:
         paper = APPROVED_PAPER[recipe]
         width, height = paper["raster_pixels"]
@@ -173,13 +181,15 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
 
 
 def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False, proof_scale=False):
-    """Add vector identification between the registration marks and above the artwork."""
+    """Add vector identification in the sheet's printable margins."""
     values = [identification.get("requesterName"), identification.get("batchName")]
     if identification.get("version") != 1 or any(not isinstance(value, str) or not value
             or any(ord(char) < 32 or ord(char) > 126 for char in value) for value in values):
         raise ValueError("Page identification must use bounded printable text")
     if len(values[0]) > 48 or len(values[1]) > 96:
         raise ValueError("Page identification exceeds the approved margin")
+    dahle = recipe in DAHLE_PAPER
+    dahle_letter = recipe == DAHLE_LETTER_PUNCH
     temporary = filename.with_suffix(".identified.pdf")
     with open(filename, "rb") as source:
         reader = PdfReader(source, strict=True)
@@ -199,7 +209,7 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             packet = f"{label} | {'FRONT' if item['phase'] == 'fronts' else 'BACK'}"
             if refeed_front and item["phase"] == "fronts":
                 packet += " | REFEED FOR BACK"
-            requester_label = "Prepared by" if recipe == DAHLE_A4_PUNCH else "Queued by"
+            requester_label = "Prepared by" if dahle else "Queued by"
             requester = values[0] if proof_scale else f"{requester_label}: {values[0]}"
             batch = f"{'Recipe' if proof_scale else 'Batch'}: {values[1]}"
             resources = DictionaryObject(page["/Resources"])
@@ -218,7 +228,11 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             top = float(page.mediabox.top)
             # Portrait has more room above the first row. The landscape marks
             # start farther down, leaving space for two lines below their top edge.
-            if recipe == DAHLE_A4_PUNCH:
+            if dahle_letter:
+                # The 3.2 mm top and bottom margins hold cut lines. Put the
+                # labels in the left 8.95 mm margin, inside the printable area.
+                rows = ((5.35, f"{requester}  |  {batch}"), (8.03, packet))
+            elif dahle:
                 # Keep all three labels above the first strip's 12 mm cut line.
                 rows = ((15, requester), (22.5, batch), (30, packet))
             elif portrait:
@@ -228,23 +242,38 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             inset = 66
             # Courier's advance is 0.6 em. Allow room for the final glyph and for
             # rounding without shortening the packet or the manual refeed message.
-            room = float(page.mediabox.width) - 2 * inset - 1
+            room = (top if dahle_letter else float(page.mediabox.width)) - 2 * inset - 1
+            max_size = 6.8 if dahle_letter else 8 if portrait or dahle else 7
             commands = ["q", "0 g", "BT"]
             for offset, text in rows:
-                size = min(8 if portrait or recipe == DAHLE_A4_PUNCH else 7, room / (0.6 * len(text)))
-                commands.extend((f"/CLCPageIdentity {size:.3f} Tf", f"1 0 0 1 {inset} {top - offset:g} Tm",
+                size = min(max_size, room / (0.6 * len(text)))
+                if dahle_letter:
+                    begin = (top - 0.6 * len(text) * size) / 2
+                    matrix = f"0 1 -1 0 {pdf_coordinates(offset)} {begin:g}"
+                else:
+                    matrix = f"1 0 0 1 {inset} {top - offset:g}"
+                commands.extend((f"/CLCPageIdentity {size:.3f} Tf", f"{matrix} Tm",
                                  f"<{text.encode('ascii').hex()}> Tj"))
             commands.extend(("ET", "Q"))
             if proof_scale:
                 scale_width = 50 * POINTS_PER_MM
-                left = (float(page.mediabox.width) - scale_width) / 2
-                right = left + scale_width
-                y = 6 * POINTS_PER_MM
-                label_at = (left + right) / 2 - 11
-                commands.extend(("q 0 G 0.5 w", f"{left:.6f} {y:g} m {right:.6f} {y:g} l S",
-                                 f"{left:.6f} {y-2:g} m {left:.6f} {y+2:g} l S",
-                                 f"{right:.6f} {y-2:g} m {right:.6f} {y+2:g} l S",
-                                 f"BT /CLCPageIdentity 7 Tf 1 0 0 1 {label_at:g} {y+4:g} Tm (50 mm) Tj ET Q"))
+                page_width = float(page.mediabox.width)
+                if dahle_letter:
+                    start, end = (top - scale_width) / 2, (top + scale_width) / 2
+                    x = page_width - 5.15 * POINTS_PER_MM
+                    commands.extend(("q 0 G 0.5 w", f"{x:.6f} {start:.6f} m {x:.6f} {end:.6f} l S",
+                                     f"{x-2:.6f} {start:.6f} m {x+2:.6f} {start:.6f} l S",
+                                     f"{x-2:.6f} {end:.6f} m {x+2:.6f} {end:.6f} l S",
+                                     f"BT /CLCPageIdentity 7 Tf 0 1 -1 0 {x-4:g} {top / 2 - 11:g} Tm (50 mm) Tj ET Q"))
+                else:
+                    left = (page_width - scale_width) / 2
+                    right = left + scale_width
+                    y = 6 * POINTS_PER_MM
+                    label_at = (left + right) / 2 - 11
+                    commands.extend(("q 0 G 0.5 w", f"{left:.6f} {y:g} m {right:.6f} {y:g} l S",
+                                     f"{left:.6f} {y-2:g} m {left:.6f} {y+2:g} l S",
+                                     f"{right:.6f} {y-2:g} m {right:.6f} {y+2:g} l S",
+                                     f"BT /CLCPageIdentity 7 Tf 1 0 0 1 {label_at:g} {y+4:g} Tm (50 mm) Tj ET Q"))
             overlay = DecodedStreamObject()
             overlay.set_data(("\n" + "\n".join(commands) + "\n").encode("ascii"))
             contents = page.raw_get("/Contents")
@@ -257,7 +286,7 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
 
 
 def usable_slots(recipe):
-    if recipe == DAHLE_A4_PUNCH:
+    if recipe in DAHLE_PAPER:
         return list(range(DAHLE_GEOMETRY["columns"] * DAHLE_GEOMETRY["rows"]))
     paper = APPROVED_PAPER[recipe]
     return [slot for slot in range(len(paper["x"]) * len(paper["y"])) if slot not in SKIPPED_SLOTS.get(recipe, ())]
@@ -364,6 +393,28 @@ def stroke_dahle_guides(commands, paths, geometry, *, stroke_rgb=None):
     commands.append("Q")
 
 
+def dahle_strip_guides(commands, row_cuts, left, right, *, letter):
+    # Every cut has the same position on both faces and on partial sheets.
+    line = DAHLE_GEOMETRY["stripGuideStroke"]
+    outer_line = DAHLE_GEOMETRY["letterOuterStripGuideStroke"]
+    endpoints = DAHLE_GEOMETRY["stripGuideEndpoint"]
+    lime = DAHLE_GEOMETRY["cutGuideRgb"]
+    length = endpoints["length"]
+    inner_cuts = row_cuts[1:-1] if letter else row_cuts
+    for spans, geometry, outer in ((((left, right),), line, outer_line),
+                                   (((left, left + length), (right - length, right)), endpoints, endpoints)):
+        paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l"
+                 for y in inner_cuts for start, end in spans]
+        stroke_dahle_guides(commands, paths, geometry, stroke_rgb=lime)
+        if letter:
+            # The outside edge of the dark outline locates these two cuts. All
+            # ink stays inside the 3.2 mm cut so the edge survives bordered printing.
+            half_width = outer["outlineWidth"] / 2
+            paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l"
+                     for y in (row_cuts[0] - half_width, row_cuts[-1] + half_width) for start, end in spans]
+            stroke_dahle_guides(commands, paths, outer, stroke_rgb=lime)
+
+
 def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
     inset = bleed + geometry["trimRadius"]
     radius = geometry["trimRadius"] + geometry["offset"]
@@ -383,13 +434,17 @@ def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
     return paths
 
 
-def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut_guides=False):
-    page_width, page_height = DAHLE_GEOMETRY["page"]
+def generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks=False, cut_guides=False):
+    page_width, page_height = DAHLE_PAPER[recipe][1]
     trim_width, trim_height = DAHLE_GEOMETRY["trim"]
     columns, rows, bleed = (DAHLE_GEOMETRY[key] for key in ("columns", "rows", "bleed"))
     cell_width, cell_height = trim_width + 2 * bleed, trim_height + 2 * bleed
     side, top = (page_width - columns * cell_width) / 2, (page_height - rows * cell_height) / 2
     tick_start, tick_end = DAHLE_GEOMETRY["tick"]
+    letter = recipe == DAHLE_LETTER_PUNCH
+    if letter:
+        # Start the guides at the grid, clear of the two side-margin labels.
+        tick_start, tick_end = side, side + tick_end - tick_start
     row_cuts = [page_height - top - boundary * cell_height for boundary in range(rows + 1)]
     metadata = [{"id": card["id"]} for card in cards]
     writer = PdfWriter()
@@ -409,7 +464,7 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut
                 raise ValueError(f"Dahle artwork for {card.get('displayName') or card['id']} ({face}): {error}") from None
             row, column = divmod(slot, columns)
             if face == "back":
-                column = columns - 1 - column  # A4 portrait, long-edge flip.
+                column = columns - 1 - column  # Portrait, long-edge flip.
             if alignment_marks:
                 alignment_boundaries.update(((row, column), (row, column + 1)))
             x = side + column * cell_width
@@ -423,29 +478,22 @@ def generate_dahle_sheet(cards, output, double_faced, alignment_marks=False, cut
                              f"{pdf_coordinates(image_width)} 0 0 {pdf_coordinates(image_height, image_x, image_y)} cm",
                              f"{name} Do", "Q"))
         if cut_guides:
-            # The cutter makes four transverse cuts across the sheet. These
-            # stay at the same positions on both faces and on partial sheets.
-            right = page_width - tick_start
-            strip_paths = [f"{pdf_coordinates(tick_start, y)} m {pdf_coordinates(right, y)} l" for y in row_cuts]
-            strip = DAHLE_GEOMETRY["stripGuideStroke"]
-            stroke_dahle_guides(commands, strip_paths, strip, stroke_rgb=strip["strokeRgb"])
-            endpoints = DAHLE_GEOMETRY["stripGuideEndpoint"]
-            endpoint_length = endpoints["length"]
-            endpoint_paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l" for y in row_cuts
-                              for start, end in ((tick_start, tick_start + endpoint_length), (right - endpoint_length, right))]
-            stroke_dahle_guides(commands, endpoint_paths, endpoints, stroke_rgb=strip["strokeRgb"])
+            dahle_strip_guides(commands, row_cuts, tick_start, page_width - tick_start, letter=letter)
             # The punch is aligned from the front. Near-cut ink on the back
             # could enter the finished card if the two passes are offset.
             if corner_cells:
                 corners = DAHLE_GEOMETRY["cornerGuides"]
                 corner_paths = dahle_corner_paths(corner_cells, cell_width, cell_height, bleed, corners)
-                stroke_dahle_guides(commands, corner_paths, corners, stroke_rgb=corners["strokeRgb"])
+                stroke_dahle_guides(commands, corner_paths, corners, stroke_rgb=DAHLE_GEOMETRY["cutGuideRgb"])
         else:
-            commands.extend(("q", "0 G", "0.5 w"))
-            for y in row_cuts:
-                for start, end in ((tick_start, tick_end), (page_width - tick_end, page_width - tick_start)):
-                    commands.append(f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l S")
-            commands.append("Q")
+            tick_spans = ((tick_start, tick_end), (page_width - tick_end, page_width - tick_start))
+            paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l" for y in row_cuts for start, end in tick_spans]
+            if letter:
+                # These ticks touch the artwork bleed. The white halo keeps the
+                # black center legible on dark cards without crossing 3 mm.
+                stroke_dahle_guides(commands, paths, DAHLE_GEOMETRY["letterRowTick"])
+            else:
+                commands.extend(("q", "0 G", "0.5 w", *(f"{path} S" for path in paths), "Q"))
         if alignment_boundaries:
             geometry = DAHLE_GEOMETRY["alignmentMarks"]
             near, far = geometry["stripEdgeOffsets"]
@@ -537,9 +585,9 @@ def generate_upstream_sheet(request, recipe, output, registration_marks):
 def dahle_guide_settings(request, recipe):
     alignment_marks = request.get("dahleAlignmentMarks", False)
     cut_guides = request.get("dahleCutGuides", False)
-    if not isinstance(alignment_marks, bool) or (alignment_marks and recipe != DAHLE_A4_PUNCH):
+    if not isinstance(alignment_marks, bool) or (alignment_marks and recipe not in DAHLE_PAPER):
         raise ValueError("Die-cutter alignment marks are a Dahle-only option")
-    if not isinstance(cut_guides, bool) or (cut_guides and recipe != DAHLE_A4_PUNCH):
+    if not isinstance(cut_guides, bool) or (cut_guides and recipe not in DAHLE_PAPER):
         raise ValueError("Strip cut lines and R3 corner guides are a Dahle-only option")
     if alignment_marks and cut_guides:
         raise ValueError("Choose either Dahle alignment marks or Dahle cut guides")
@@ -549,10 +597,11 @@ def dahle_guide_settings(request, recipe):
 def chunk(request):
     directory = Path(request["directory"])
     recipe = paper_key(request)
+    dahle = recipe in DAHLE_PAPER
     requested_marks = request.get("registrationMarks", True)
     if not isinstance(requested_marks, bool):
         raise ValueError("Registration marks must be enabled or disabled")
-    registration_marks = recipe != DAHLE_A4_PUNCH and requested_marks
+    registration_marks = not dahle and requested_marks
     alignment_marks, cut_guides = dahle_guide_settings(request, recipe)
     cards = request["cards"]
     if not 1 <= len(cards) <= len(usable_slots(recipe)):
@@ -563,12 +612,12 @@ def chunk(request):
     if double_faced != any(sides) or (mixed and sides != sorted(sides)) or (not mixed and double_faced != all(sides)):
         raise ValueError("Sheet faces must match the requested pass and slot order")
     output = directory / "sheet.pdf"
-    if recipe == DAHLE_A4_PUNCH:
-        metadata = generate_dahle_sheet(cards, output, double_faced, alignment_marks, cut_guides)
+    if dahle:
+        metadata = generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks, cut_guides)
     else:
         metadata = generate_upstream_sheet(request, recipe, output, registration_marks)
     identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe,
-                   refeed_front=double_faced and recipe != DAHLE_A4_PUNCH, proof_scale=request.get("proofScale", False))
+                   refeed_front=double_faced and not dahle, proof_scale=request.get("proofScale", False))
     validate_pdf(output, 2 if double_faced else 1, recipe)
     result = {"images": metadata, "registrationMarks": registration_marks}
     if alignment_marks:
@@ -580,8 +629,9 @@ def chunk(request):
 
 def merge(request):
     recipe = paper_key(request)
-    if recipe == DAHLE_A4_PUNCH:
-        title, creator = "CLC A4 3x3 - Dahle 550 + 63x88 R3 Punch", "CLC"
+    if recipe in DAHLE_PAPER:
+        size = "A4" if recipe == DAHLE_A4_PUNCH else "US Letter"
+        title, creator = f"CLC {size} 3x3 - Dahle 550 + 63x88 R3 Punch", "CLC"
     else:
         title = f"CLC household-{recipe}-v{APPROVED_PAPER[recipe]['version']}"
         creator = "CLC / Silhouette Card Maker"
@@ -623,7 +673,7 @@ def proof(request):
                 marks.text((width / 2, y), text, font=font, fill="#12384a", anchor="mm")
             artwork.save(file)
         cards.append({"id": f"proof-{slot}", "frontPath": str(file), "frontSource": "scryfall"})
-    mark_label = "Dahle row ticks" if recipe == DAHLE_A4_PUNCH else (
+    mark_label = "Dahle row ticks" if recipe in DAHLE_PAPER else (
         "Cameo registration marks" if request["registrationMarks"] else "No registration marks")
     if alignment_marks:
         mark_label += " + die-cutter alignment marks"
@@ -649,13 +699,14 @@ def smoke(source, directory):
         cards.append({"id": str(index), "frontPath": paths[0], "backPath": paths[1]})
     for recipe in APPROVED_PAPER:
         smoke_paper(source, directory, cards[:len(usable_slots(recipe))], recipe)
-    smoke_dahle(directory, cards)
+    for recipe in DAHLE_PAPER:
+        smoke_dahle(directory, cards[:len(usable_slots(recipe))], recipe)
 
 
-def smoke_dahle(directory, cards):
-    working = directory / DAHLE_A4_PUNCH
+def smoke_dahle(directory, cards, recipe):
+    working = directory / recipe
     working.mkdir()
-    paper = {"paperSize": "a4", "printPreset": DAHLE_A4_PUNCH}
+    paper = {"paperSize": DAHLE_PAPER[recipe][0], "printPreset": recipe}
     chunk({"directory": str(working), **paper, "cards": cards, "doubleFaced": True, "dahleCutGuides": True,
            "printedIdentification": {"version": 1, "requesterName": "CLC runtime check", "batchName": "Dahle punch layout"},
            "pageLabels": [{"page": 1, "phase": "fronts", "label": "CLC runtime check"},

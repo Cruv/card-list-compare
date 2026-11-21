@@ -20,7 +20,7 @@ await once(server, 'listening');
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const capabilities = { canQueue: true, stationConfigured: true, paperSizes: ['letter'],
-  printPresets: ['crowned-a4', 'crowned-a4-portrait-six', 'dahle-a4-punch'] };
+  printPresets: ['crowned-a4', 'crowned-a4-portrait-six', 'dahle-a4-punch', 'dahle-letter-punch'] };
 const generator = { available: true, updating: false, revision: 'fixture' };
 const station = { online: true, loadedPaperSize: 'a4', loadedPrintPreset: 'crowned-a4-portrait-six',
   supportedRecipeIds: ['household-letter-v6', 'household-crowned-a4-portrait-six-v1'] };
@@ -78,7 +78,7 @@ try {
           const body = request.postDataJSON();
           assert.equal(request.headers().authorization, 'Bearer print-layout-fixture');
           previewRequests.push(body);
-          const dahle = body.printPreset === 'dahle-a4-punch';
+          const dahle = body.printPreset === 'dahle-letter-punch';
           const portraitSix = body.printPreset === 'crowned-a4-portrait-six';
           if (body.dahleCutGuides) await markedPreview.promise;
           const failures = blockArt ? [failure] : [];
@@ -141,8 +141,8 @@ try {
         assert.deepEqual(createRequests, []);
         assert.deepEqual(queueRequests, []);
         blockArt = false;
-        await paper.selectOption('dahle-a4-punch');
-        await dialog.getByText(/Cut 210 × 91 mm strips on the Dahle/).waitFor();
+        await paper.selectOption('dahle-letter-punch');
+        await dialog.getByText(/Cut 215\.9 × 91 mm strips on the Dahle/).waitFor();
         assert.equal(await dieMarks.isChecked(), false);
         assert.equal(await dialog.getByRole('checkbox', { name: /Cameo/ }).count(), 0);
         await generate.waitFor();
@@ -173,11 +173,12 @@ try {
         await dialog.getByRole('alert').getByText(/Network error/).waitFor();
         const originalRequest = structuredClone(createRequests[0]);
         assert.equal(originalRequest.expectedPlanHash, dahleMarkedHash);
+        assert.equal(originalRequest.paperSize, 'letter');
         assert.equal(originalRequest.registrationMarks, false);
         assert.equal(originalRequest.dahleCutGuides, true);
         await page.reload();
         await open.click();
-        assert.equal(await paper.inputValue(), 'dahle-a4-punch');
+        assert.equal(await paper.inputValue(), 'dahle-letter-punch');
         assert.equal(await paper.isDisabled(), true);
         assert.equal(await dieMarks.isChecked(), true);
         assert.equal(await dieMarks.isDisabled(), true);

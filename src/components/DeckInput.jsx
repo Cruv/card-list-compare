@@ -31,11 +31,16 @@ function siteLabel(site) {
   return site;
 }
 
+function matchesPaste(paste, draft) {
+  return paste && (paste.draft === draft || (paste.before === draft && paste.draft === draft.replace(/\r\n?/g, '\n')));
+}
+
 export default function DeckInput({ label, caption, value, onChange, onApplyImport, user }) {
   const fileRef = useRef(null);
   const textRef = useRef(null);
   const snapshotRequest = useRef(0);
   const contentRevision = useRef(0);
+  const latestPaste = useRef(null);
   const inputId = useId();
   const [urlInput, setUrlInput] = useState('');
   const [showUrl, setShowUrl] = useState(false);
@@ -66,6 +71,9 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
 
   // Parent edits such as swapping lists also invalidate pending loads.
   useLayoutEffect(() => () => { contentRevision.current++; }, [value]);
+  useLayoutEffect(() => {
+    if (!matchesPaste(latestPaste.current, value)) latestPaste.current = null;
+  }, [value]);
 
   const cancelContentLoad = useCallback(() => {
     contentRevision.current++;
@@ -92,22 +100,31 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
 
   function previewImport(text, site, skipped = [], selection) {
     const result = selection ? inspectDeckPaste(value, text, ...selection) : inspectDeckImport(text);
-    setReview({ ...result, skipped: [...result.skipped, ...skipped], baseline: value, site, revision: contentRevision.current });
+    setReview({ ...result, skipped: [...result.skipped, ...skipped], draft: value, baseline: value, site, revision: contentRevision.current });
     setError(null);
   }
 
+  function reviewDraft() {
+    closeAllPanels();
+    const paste = latestPaste.current;
+    const pasted = matchesPaste(paste, value);
+    const result = pasted ? inspectDeckPaste(paste.before, paste.clipboard, ...paste.selection) : inspectDeckImport(value);
+    setReview({ ...result, draft: value, baseline: pasted ? paste.before : value, pasted, revision: contentRevision.current });
+  }
+
   function applyImport() {
-    if (!review?.accepted.length || review.baseline !== value) return;
-    const text = review.text;
+    if (!review?.accepted.length || review.draft !== value) return;
+    const { text, baseline } = review;
     if (text !== value) {
-      const restore = onApplyImport ? onApplyImport(text) : () => onChange(value);
+      const restore = onApplyImport ? onApplyImport(text, baseline) : () => onChange(baseline);
       if (!restore) return;
       if (!onApplyImport) onChange(text);
-      setUndoImport({ applied: text, restore, importedList });
+      if (!review.pasted || text !== baseline) setUndoImport({ applied: text, restore, importedList });
       setImportedList(review.site && (review.replacedText === undefined || review.replacedText === value) ? { text, site: review.site } : null);
     }
+    latestPaste.current = null;
     setReview(null);
-    textRef.current?.focus();
+    textRef.current?.focus({ preventScroll: true });
   }
 
   function restoreBeforeImport() {
@@ -172,14 +189,20 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
 
   function handlePaste(e) {
     const pasted = e.clipboardData?.getData('text/plain');
-    if (!pasted?.trim()) return;
-    e.preventDefault();
+    if (!pasted) return;
     const trimmed = pasted.trim();
-    const { selectionStart, selectionEnd } = e.currentTarget;
+    const { selectionStart, selectionEnd, value: textareaValue } = e.currentTarget;
     const selection = [selectionStart, selectionEnd];
-    if (!trimmed.includes('\n') && detectSite(trimmed)) { importFromUrl(trimmed, selection); return; }
-    cancelContentLoad();
-    previewImport(pasted, undefined, [], selection);
+    if (trimmed && !trimmed.includes('\n') && detectSite(trimmed)) {
+      e.preventDefault();
+      latestPaste.current = null;
+      importFromUrl(trimmed, selection);
+      return;
+    }
+    // Let the browser insert the text. Keep the selection for an explicit review
+    // as long as the draft still matches the result of this paste.
+    const draft = textareaValue.slice(0, selectionStart) + pasted.replace(/\r\n?/g, '\n') + textareaValue.slice(selectionEnd);
+    latestPaste.current = { before: value, clipboard: pasted, selection, draft };
   }
 
   async function handleOpenSavePanel() {
@@ -527,11 +550,15 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
         value={value}
         onChange={(e) => {
           cancelContentLoad();
-          onChange(e.target.value);
+          const next = e.currentTarget.value;
+          if (latestPaste.current?.draft !== next) {
+            latestPaste.current = null;
+            setUndoImport(null);
+          }
+          onChange(next);
           setError(null);
           setImportedList(null);
           setReview(null);
-          setUndoImport(null);
         }}
         onPaste={handlePaste}
         placeholder={PLACEHOLDER}
@@ -539,12 +566,14 @@ export default function DeckInput({ label, caption, value, onChange, onApplyImpo
         aria-label={`${label} deck list`}
         aria-describedby={`${inputId}-hint`}
       />
-      {review?.baseline === value && <DeckImportReview key={review.revision} review={review} baseline={value}
+      <div className="deck-import-actions">
+        <button className="btn btn-secondary btn-sm" type="button" disabled={!value.trim() || loading} onClick={reviewDraft}>Review import</button>
+        {undoImport?.applied === value &&
+          <button className="btn btn-secondary btn-sm" type="button" onClick={restoreBeforeImport}>Undo import</button>}
+      </div>
+      {review?.draft === value && <DeckImportReview key={review.revision} review={review} baseline={review.baseline}
         label={`Preview ${label.toLowerCase()} import${review.site ? ` from ${siteLabel(review.site)}` : ''}`}
-        onApply={applyImport} onCancel={() => { setReview(null); textRef.current?.focus(); }} />}
-      {undoImport?.applied === value && <div className="deck-import-actions">
-        <button className="btn btn-secondary btn-sm" type="button" onClick={restoreBeforeImport}>Undo import</button>
-      </div>}
+        onApply={applyImport} onCancel={() => { setReview(null); textRef.current?.focus({ preventScroll: true }); }} />}
       <div className="deck-input-footer" id={`${inputId}-hint`}>
         <a href="#guide/importing-decks">Supported list formats</a>
         <span>{value.trim() ? `${value.trim().split('\n').length} lines` : 'Ready for your list'}</span>

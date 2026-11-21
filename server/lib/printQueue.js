@@ -11,7 +11,7 @@ import { generatePrintPdfs, getPrintGeneratorStatus, PRINT_RECIPES, prunePrintGe
 import { DEFERRED_BACKS_WORKFLOW, DOUBLE_FACED_FIRST, ACTIVE_PRINT_STATES, PRINT_TERMINAL_STATES, readSteps, readBackRequest, isDeferred, finishedStep, nextPrintStep, settledPrintState, workflowSummary, paperClearanceId, missingCancellationStep } from './printWorkflow.js';
 import { queuedPrintNotificationStatement } from './printQueueNotifications.js';
 import { discordPrintCommandRejection } from './discordPrintCommandAuthorization.js';
-import { DAHLE_A4_PRESET, LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, dahleGuideOptions, newPrintPaperSelection, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
+import { LEGACY_STATION_PAPER, NEW_PRINT_PAPER_SIZES, NEW_PRINT_PRESETS, PRINT_PAPER_RECIPES, PRINT_PRESETS, dahleGuideOptions, isDahlePrintPreset, newPrintPaperSelection, printJobPaper, printPaperSelection, stationCanPrintPaper } from './printPaper.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dataDir = dirname(process.env.DB_PATH || join(here, '..', 'data', 'cardlistcompare.db'));
@@ -185,7 +185,7 @@ export async function createPrintJob(userId, deckId, request, assertQueuePaper =
   if (request.registrationMarks !== undefined && typeof request.registrationMarks !== 'boolean') {
     throw printError('registrationMarks must be true or false');
   }
-  const registrationMarks = printPreset !== DAHLE_A4_PRESET && request.registrationMarks !== false;
+  const registrationMarks = !isDahlePrintPreset(printPreset) && request.registrationMarks !== false;
   const guides = dahleGuideOptions(printPreset, request);
   if (typeof request.expectedPlanHash !== 'string' || !/^[a-f0-9]{64}$/.test(request.expectedPlanHash)) throw printError('Preview the print plan before creating a job');
   if (request.queueOnReady !== undefined && typeof request.queueOnReady !== 'boolean') throw printError('queueOnReady must be true or false');
@@ -224,7 +224,7 @@ function alternateLayoutInput(request, creating = false) {
   const selection = select(request.paperSize, request.printPreset);
   if (request.registrationMarks !== undefined && typeof request.registrationMarks !== 'boolean') throw printError('registrationMarks must be true or false');
   const guides = dahleGuideOptions(selection.printPreset, request);
-  return { ...selection, registrationMarks: selection.printPreset !== DAHLE_A4_PRESET && request.registrationMarks !== false,
+  return { ...selection, registrationMarks: !isDahlePrintPreset(selection.printPreset) && request.registrationMarks !== false,
     ...guides };
 }
 
@@ -396,7 +396,7 @@ export async function processNextPrintJob() {
       ...guides,
       cards: copies.map(copy => ({
         id: copy.id, frontPath: copy.front.path, ...(copy.back ? { backPath: copy.back.path } : {}),
-        ...(plan.printPreset === DAHLE_A4_PRESET ? { displayName: copy.displayName, frontSource: copy.front.source,
+        ...(isDahlePrintPreset(plan.printPreset) ? { displayName: copy.displayName, frontSource: copy.front.source,
           ...(copy.back ? { backSource: copy.back.source } : {}) } : {}),
       })),
       outputDir: join(jobDir(row.id), 'output'), batchLabel: `CLC ${row.id.slice(0, 8)}`,
@@ -511,7 +511,7 @@ export async function processNextPrintJob() {
 }
 
 function assertStationLayout({ printPreset }) {
-  if (printPreset === DAHLE_A4_PRESET) {
+  if (isDahlePrintPreset(printPreset)) {
     throw printError('Download the Dahle punch PDF to print it at Actual Size.', 409);
   }
 }

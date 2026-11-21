@@ -44,15 +44,15 @@ groups visually; use a `Sideboard`/`SB` header or `SB:` prefixes to identify the
 sideboard. Without an explicit Commander header, a blank line after mainboard
 content retains the legacy implicit-sideboard behavior.
 
-A paste preview preserves the exact draft text outside the selected range,
-including comments, ignored blocks, and line endings. The preview shows the
-replaced draft text and skipped clipboard rows. Card sections and commanders
-reflect the result applied to the draft. The preview checks clipboard finishes
-before merging with adjacent draft text and checks both partial-row boundaries.
-A fully rejected paste preserves the original draft, including any selected text,
-and leaves Undo available for the last applied import. When pasting would change
-an existing printing at a partial-row boundary, paste at a line boundary or
-select the whole card row.
+In the Compare and Print text boxes, pasting inserts editable text at the current
+selection. Choose **Review import** to preview the result. If the pasted text is
+still the latest edit, the preview shows the replaced draft text and skipped
+clipboard rows. It checks clipboard finishes and both partial-row boundaries.
+Applying that preview preserves the draft text outside the pasted range,
+including comments, ignored blocks and line endings. To fix a partial-row
+printing conflict, paste at a line boundary or select the whole card row.
+After further edits, **Review import** checks the current list as a whole.
+Cancel keeps the text in the box, where you can edit it or use the browser’s undo.
 
 ### Examples
 

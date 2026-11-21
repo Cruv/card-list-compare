@@ -1,17 +1,19 @@
 # Dahle 550 and 63 × 88 mm R3 punch
 
-In CLC’s print review, choose **A4 3×3 · Dahle 550 + 63×88 R3 Punch** under
-**Paper and layout**. **Save as default** remembers it in this browser. Review the
-list, choose **Generate PDFs** and download the files from **Batches**.
+In CLC’s print review, choose **A4 3×3 · Dahle 550 + 63×88 R3 Punch** or
+**US Letter 3×3 · Dahle 550 + 63×88 R3 Punch** under **Paper and layout**.
+**Save as default** remembers it in this browser. Review the list, choose
+**Generate PDFs** and download the files from **Batches**.
 
 ## Print and cut
 
-Print portrait A4 in bordered mode at **Actual Size (100%)**. Turn off Fit to Page,
+Print on the matching portrait paper size in bordered mode at **Actual Size (100%)**. Turn off Fit to Page,
 automatic scaling and borderless enlargement. For double-faced PDFs, use a portrait
 long-edge flip. Finish both sides before cutting. On the household ET-8550, the
-bordered Rear Paper Feeder can accommodate this layout. The separate single-sheet
-Rear Paper Feed Slot has a 20 mm bottom exclusion. Use a paper source rated for your
-stock. [Epson printable areas](https://files.support.epson.com/docid/cpd5/cpd59879/source/specifications/references/et8500_8550_l8160_l8180/spex_printable_area_et8500_8550.html)
+bordered printable area starts 3 mm from each edge. The separate single-sheet
+Rear Paper Feed Slot has a 20 mm bottom exclusion. Choose a paper source rated for
+your stock that prints all four guides at actual size. Letter leaves 3.2 mm at each
+short edge. [Epson printable areas](https://files.support.epson.com/docid/cpd5/cpd59879/source/specifications/references/et8500_8550_l8160_l8180/spex_printable_area_et8500_8550.html)
 
 ```text
                 A4 portrait, artwork face up
@@ -35,9 +37,9 @@ and a first cut 13.5 mm from the top. Regenerate a saved batch for the current
 
 1. **Make the reference edge.** Lay the sheet face up with the top of the cards
    toward the blade and a factory long side square against the perpendicular scale
-   bar. Park the magnetic stop clear of the sheet. Align the first horizontal guide
-   or pair of ticks, 12 mm from the printed top, with the blade. Keep the 285 mm
-   sheet body on the bed and discard the narrow piece on the far side of the blade.
+   bar. Park the magnetic stop clear of the sheet. Align the first cut with the
+   blade, 12 mm from the top on A4 or 3.2 mm on Letter. Keep the sheet body on
+   the bed and discard the narrow piece on the far side of the blade.
    For several sheets, make all the reference trims before resetting the stop.
 2. **Set 91 mm once.** Rotate the body 180° in its plane, keeping the artwork up.
    Set the parallel stop so its paper-contact face is 91 mm from the blade. With
@@ -46,7 +48,7 @@ and a first cut 13.5 mm from the top. Regenerate a saved batch for the current
 3. **Repeat twice.** Lift out the saved strip and bring the rest of the sheet
    straight back onto the bed without rotating it. Seat its new short edge at
    the same stop and keep the next strip. Repeat for the third row and discard
-   the remaining 12 mm outer margin. Retain the full 210 mm length of each strip.
+   the remaining outer margin. Retain the full sheet width of each strip.
 4. **Feed short end first.** Turn the strip 90° from its printed orientation
    and feed a 91 mm end into the punch guide, with artwork visible through the
    die window. The three cards travel single file. Keep the original end margins
@@ -58,37 +60,39 @@ card outline and R3 corners.
 ## Optional strip and punch guides
 
 Select **Include strip cut lines and R3 corner guides** in the Dahle print review,
-alternate layout review or one-sheet proof. The option starts off. Four cyan
-horizontal lines with dark outlines span 201 mm, with thicker end marks in the
-side margins. Align the first line with the Dahle blade and use the remaining
-lines to check the 91 mm stop. Keep each strip at the full 210 mm sheet width.
+alternate layout review or one-sheet proof. The option starts off. Four bold
+lime lines with dark outlines mark the strip cuts. On A4, cut along the center
+of each line. On Letter, cut along the edge of each outer guide closest to the
+edge of the paper and along the centers of the two middle guides. The outer ink extends inward
+so it fits inside the printable area. Use the remaining guides to check the
+91 mm stop after the first cut.
 
 Each occupied front gets four lime arcs with dark outlines, one just outside
 each corner of the 63 × 88 mm cut. With the lever raised, frame one card in the
 opening and look straight down. Slide the strip until all four lime guides hide
 under the die. Lime visible through the opening gives you an edge to adjust.
-Punch guides appear on the face you look at while aligning. Cyan strip lines
+Punch guides appear on the face you look at while aligning. Lime strip lines
 appear on both faces.
 
-Each 50° arc shares the center of the finished R3 corner and has a 3.42 mm radius.
-The 0.52 mm lime stroke has a 0.64 mm dark outline. On the nominal geometry,
+Each 50° arc shares the center of the finished R3 corner and has a 3.64 mm radius.
+The 0.96 mm lime stroke has a 1.08 mm dark outline. On the nominal geometry,
 the lime starts 0.16 mm outside the cut and the dark outline starts 0.10 mm
 outside it. This gives the alignment cue a small clearance. How soon lime peeks
 through on your die depends on its opening, viewing angle and print scale.
-The cyan line has 1.28 mm nominal clearance from the straight card edge.
 
 ## One proof before a batch
 
 On a single full sheet, check that all four cut lines or pairs of ticks printed,
-with 91 mm between adjacent guides and 273 mm between the outer guides. Check
-the first trim at 12 mm and measure the cut strips at 91 mm. With the lever raised,
-check that one 210 × 91 mm strip advances to all three artwork positions without
+with 91 mm between adjacent cut positions and 273 mm between the outer cuts.
+Check the first trim and measure the cut strips at 91 mm. With the lever raised,
+check that one full-length strip advances to all three artwork positions without
 binding. Punch the three positions on the intended stock. Check the frame, corners,
 whether the strip holds together as it advances, and grip at the last card. Check
 front-to-back alignment if applicable. A sheet with clear borders makes any
 misalignment easier to see.
 
-For the marked proof, measure the 50 mm scale line before trimming. With the
+For the marked proof, measure the 50 mm scale line before trimming. On Letter,
+the scale runs down the side opposite the printed identification. With the
 lever raised and one front framed, gently nudge the strip in each direction it
 can travel. Check that lime peeks into the opening and disappears again at
 center. Make a test cut and check whether the finished corners and both faces
@@ -98,16 +102,15 @@ unmarked layout.
 
 ## Layout and hardware evidence
 
-| Dimension | Preset |
-| --- | --- |
-| Page | 210 × 297 mm, portrait |
-| Finished card | 63 × 88 mm upright |
-| Output bleed and cell | 1.5 mm per edge, 66 × 91 mm including bleed |
-| Grid | 198 × 273 mm, 3 columns × 3 rows |
-| Margin from sheet to grid | 6 mm each side, 12 mm top and bottom |
-| Spacing | 3 mm between adjacent finished edges |
-| Row cuts from top | 12, 103, 194, 285 mm |
-| Strips and grip | 210 × 91 mm, with 7.5 mm beyond the first and last finished outlines |
+Both layouts fit nine upright 63 × 88 mm cards in a 198 × 273 mm grid. The
+1.5 mm bleed gives each card a 66 × 91 mm cell and puts 3 mm between finished edges.
+
+| Dimension | A4 portrait | US Letter portrait |
+| --- | --- | --- |
+| Page | 210 × 297 mm | 215.9 × 279.4 mm |
+| Margin from sheet to grid | 6 mm each side, 12 mm top and bottom | 8.95 mm each side, 3.2 mm top and bottom |
+| Row cuts from top | 12, 103, 194, 285 mm | 3.2, 94.2, 185.2, 276.2 mm |
+| Strips and grip | 210 × 91 mm, 7.5 mm beyond each finished end | 215.9 × 91 mm, 10.45 mm beyond each finished end |
 
 - The purchased SKU advertises a nominal 88 × 63 mm R3 outline. The seller’s
   primary photo and instruction image show a guide slot with the die’s 88 mm side

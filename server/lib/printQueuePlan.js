@@ -337,7 +337,8 @@ export async function buildPrintPlan(userId, deckId, options = {}) {
   };
   if (plan.ordinaryCopies > 0 && plan.doubleFacedCopies > 0) plan.sheetPacking = DOUBLE_FACED_FIRST;
   // Preserve the default Letter representation and previously frozen job inputs.
-  const frozen = paperSize === 'letter' ? plan : { ...plan, paperSize, ...(printPreset ? { printPreset } : {}), ...guides };
+  const frozen = paperSize === 'letter' && !printPreset
+    ? plan : { ...plan, paperSize, ...(printPreset ? { printPreset } : {}), ...guides };
   return { ...frozen, planHash: sha256(JSON.stringify(frozen)) };
 }
 

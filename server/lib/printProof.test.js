@@ -23,12 +23,14 @@ function fixture() {
 describe('exact paper proof recipe', () => {
   it('describes all paper layouts and scopes confirmation to precise settings and revision', () => {
     const { generator, version } = fixture();
-    const choices = ['letter', 'a4', 'crowned-a4', 'crowned-a4-portrait-six', 'crowned-a4-landscape', 'dahle-a4-punch'];
+    const choices = ['letter', 'a4', 'crowned-a4', 'crowned-a4-portrait-six', 'crowned-a4-landscape', 'dahle-a4-punch', 'dahle-letter-punch'];
     const proofs = choices.map(paper => generator.describeProof(paper, 'on'));
-    expect(new Set(proofs.map(proof => proof.key)).size).toBe(6);
-    expect(proofs.map(proof => proof.cardsPerSheet)).toEqual([7, 7, 9, 6, 8, 9]);
+    expect(new Set(proofs.map(proof => proof.key)).size).toBe(choices.length);
+    expect(proofs.map(proof => proof.cardsPerSheet)).toEqual([7, 7, 9, 6, 8, 9, 9]);
     expect(proofs[3]).toMatchObject({ paper: 'a4', preset: choices[3], crop: '1mm', trim: [63, 88], bleed: { mode: 'layout-gutters' } });
     expect(proofs[5]).toMatchObject({ paper: 'a4', preset: choices[5], crop: null, registrationMarks: false, bleed: { mode: 'trim', millimeters: 1.5 } });
+    expect(proofs[6]).toMatchObject({ recipeId: 'household-dahle-letter-punch-v1', paper: 'letter', preset: choices[6],
+      crop: null, registrationMarks: false, trim: [63, 88], bleed: { mode: 'trim', millimeters: 1.5 } });
     expect(generator.describeProof(choices[5], 'off').key).toBe(proofs[5].key);
     expect(generator.describeProof(choices[3], 'off').key).not.toBe(proofs[3].key);
     version.adapterHash = 'c'.repeat(64);
@@ -64,7 +66,7 @@ describe('exact paper proof recipe', () => {
     const marked = generator.describeProof(dahle, 'off', 'on');
     expect(marked).toMatchObject({ recipeId: legacy.recipeId, registrationMarks: false, dahleAlignmentMarks: true });
     expect(marked.key).not.toBe(legacy.key);
-    expect(() => generator.describeProof('letter', 'off', 'on')).toThrow('require the Dahle A4 layout');
+    expect(() => generator.describeProof('letter', 'off', 'on')).toThrow('require a Dahle layout');
     expect(() => generator.describeProof(dahle, 'off', 'true')).toThrow('whether to include Dahle alignment marks');
     await expect(generator.downloadProof(dahle, 'on', legacy.key, 'on')).rejects.toMatchObject({ status: 409 });
     await expect(generator.downloadProof(dahle, 'on', marked.key)).rejects.toMatchObject({ status: 409 });
@@ -108,7 +110,7 @@ describe('exact paper proof recipe', () => {
     expect(guided).toMatchObject({ recipeId: legacy.recipeId, registrationMarks: false, dahleCutGuides: true });
     expect(guided).not.toHaveProperty('dahleAlignmentMarks');
     expect(new Set([plain.key, legacy.key, guided.key]).size).toBe(3);
-    expect(() => generator.describeProof('letter', 'off', 'off', 'on')).toThrow('require the Dahle A4 layout');
+    expect(() => generator.describeProof('letter', 'off', 'off', 'on')).toThrow('require a Dahle layout');
     expect(() => generator.describeProof(dahle, 'off', 'on', 'on')).toThrow('Choose one Dahle guide style');
     expect(() => generator.describeProof(dahle, 'off', 'off', 'true')).toThrow('whether to include Dahle cut guides');
     await expect(generator.downloadProof(dahle, 'off', legacy.key, undefined, 'on')).rejects.toMatchObject({ status: 409 });
@@ -123,5 +125,21 @@ describe('exact paper proof recipe', () => {
     expect(requests.at(-1)).toMatchObject({ registrationMarks: false, dahleCutGuides: true });
     expect(requests.at(-1)).not.toHaveProperty('dahleAlignmentMarks');
     await expect(generator.downloadProof(dahle, 'off', legacy.key, 'on')).resolves.toEqual({ proof: legacy, pdf: bytes });
+  });
+
+  it('keeps guided Letter Dahle proof downloads separate from A4 and plain Letter', async () => {
+    const { generator, requests, bytes } = fixture();
+    const preset = 'dahle-letter-punch';
+    const guided = generator.describeProof(preset, 'off', 'off', 'on');
+    const unmarked = generator.describeProof(preset, 'off');
+    const a4 = generator.describeProof('dahle-a4-punch', 'off', 'off', 'on');
+    const standardLetter = generator.describeProof('letter', 'off');
+    for (const proof of [unmarked, a4, standardLetter]) {
+      await expect(generator.downloadProof(preset, 'off', proof.key, 'off', 'on')).rejects.toMatchObject({ status: 409 });
+    }
+    expect(requests).toEqual([]);
+    await expect(generator.downloadProof(preset, 'off', guided.key, 'off', 'on')).resolves.toEqual({ proof: guided, pdf: bytes });
+    expect(requests[0]).toMatchObject({ paperSize: 'letter', printPreset: preset, proofRecipe: 'household-dahle-letter-punch-v1',
+      registrationMarks: false, dahleCutGuides: true });
   });
 });
