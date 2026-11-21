@@ -61,7 +61,9 @@ card outline and R3 corners.
 
 Select **Include strip cut lines and R3 corner guides** in the Dahle print review,
 alternate layout review or one-sheet proof. The option starts off. Four bold
-lime lines with dark outlines mark the strip cuts. On A4, cut along the center
+lime lines with dark outlines mark the strip cuts. Each line keeps the same
+width through the artwork and extends to within 3.2 mm of both side edges.
+Use the ends beyond the artwork to line up the blade. On A4, cut along the center
 of each line. On Letter, cut along the edge of each outer guide closest to the
 edge of the paper and along the centers of the two middle guides. The outer ink extends inward
 so it fits inside the printable area. Use the remaining guides to check the
@@ -137,8 +139,10 @@ columns reversed for a portrait long-edge flip. Blank slots contain no artwork o
 corner guides. Batch labels stay in the margins, and Cameo registration marks are disabled.
 
 CLC maps the source’s finished artwork to the 63 × 88 mm trim area. Scryfall
-sources use the full card image with their small raster aspect tolerances. CLC
-extends the image edges where the source lacks bleed. For saved MPC art, CLC
+sources use the full card image with their small raster aspect tolerances. For
+art without bleed, CLC mirrors nearby pixels outside the trim and skips the
+outermost row or column in that reflection to avoid doubling a dark edge line.
+For saved MPC art, CLC
 recognizes supported finished-only and standard ⅛-inch bleed proportions, clips
 surplus source bleed to 1.5 mm, and rejects ambiguous proportions. The trim scale
 stays the same when output bleed changes. These raster sources do not carry a

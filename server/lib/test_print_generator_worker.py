@@ -11,7 +11,7 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, Num
 from PIL import Image, ImageDraw
 
 from printGeneratorWorker import (CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, DAHLE_LETTER_PUNCH, POINTS_PER_MM,
-                                  chunk, dahle_face, identify_pages, merge, proof, validate_pdf)
+                                  chunk, dahle_face, identify_pages, merge, mirror_artwork_edges, proof, validate_pdf)
 
 
 class DahlePunchTests(unittest.TestCase):
@@ -115,14 +115,10 @@ class DahlePunchTests(unittest.TestCase):
         ends = self.mm_operators(page, b"l")[: -3 if proof_sheet else None]
         curves = self.mm_operators(page, b"c")
         rows = self.row_cuts
-        strip_starts, strip_ends = ([(x, y) for y in rows] for x in (4.5, 205.5))
-        endpoint_starts = [(x, y) for y in rows for x in (4.5, 204.2)]
-        endpoint_ends = [(x, y) for y in rows for x in (5.8, 205.5)]
-        line_starts = strip_starts * 2 + endpoint_starts * 2
+        strip_starts, strip_ends = ([(x, y) for y in rows] for x in (3.2, 206.8))
+        line_starts = strip_starts * 2
         self.assertEqual(starts[:len(line_starts)], line_starts)
-        self.assertEqual(ends, strip_ends * 2 + endpoint_ends * 2)
-        for start, end in zip(starts[8:24], ends[8:24]):
-            self.assertTrue(end[0] < 6 or start[0] > 204)
+        self.assertEqual(ends, strip_ends * 2)
         arc_starts = starts[len(line_starts):]
         self.assertEqual(len(arc_starts), 2 * count)
         self.assertEqual(len(curves), 2 * count)
@@ -132,12 +128,13 @@ class DahlePunchTests(unittest.TestCase):
         stroke_colors = [(op, tuple(map(float, values))) for values, op in operations if op in (b"G", b"RG")]
         gray = (b"G", (0,))
         lime = (b"RG", (0.58, 1, 0.06))
-        widths = [(0.96,), (0.84,), (1.30,), (1.18,)]
-        colors = [gray, lime, gray, lime]
+        widths = [(0.96,), (0.84,)]
+        colors = [gray, lime]
         if occupied_cells:
             widths.extend([(1.08,), (0.96,)])
             colors.extend([gray, lime])
         self.assertEqual(self.mm_operators(page, b"w")[:len(widths)], widths)
+        self.assertEqual([tuple(values) for values, op in operations if op == b"J"], [(0,)] * (len(widths) // 2))
         self.assertEqual(stroke_colors[:len(colors)], colors)
         self.assertEqual(sum(op == b"S" for _, op in operations), len(widths) + (3 if proof_sheet else 0))
         strip_half_width = widths[0][0] / 2
@@ -146,8 +143,8 @@ class DahlePunchTests(unittest.TestCase):
             self.assertEqual(stroke_colors, colors)  # The back has no lime corner arcs.
             return
 
-        arc_half_width = widths[4][0] / 2
-        lime_half_width = widths[5][0] / 2
+        arc_half_width = widths[2][0] / 2
+        lime_half_width = widths[3][0] / 2
         corner_inset = self.bleed + 3
         corners = [(x, y, horizontal, vertical) for left, bottom in occupied_cells
                    for x, horizontal in ((left + corner_inset, -1), (left + self.cell_width - corner_inset, 1))
@@ -193,15 +190,16 @@ class DahlePunchTests(unittest.TestCase):
         for point, expected in (((160, 220), color), ((160, 40), (255, 255, 255))):
             self.assertTrue(all(abs(channel - goal) <= 3 for channel, goal in zip(image.getpixel(point), expected)))
 
-    def check_letter_margin_labels(self, page, *, proof_sheet=False):
+    def check_letter_margin_labels(self, page, *, proof_sheet=False, cut_guides=False):
         self.assertEqual(page.rotation, 0)
         self.assertAlmostEqual(float(page.mediabox.width), 612)
         self.assertAlmostEqual(float(page.mediabox.height), 792)
         labels = []
         page.extract_text(visitor_text=lambda text, cm, tm, font, size:
                           labels.append((text.rstrip(), tm, size)) if text.strip() else None)
-        self.assertEqual(len(labels), 3 if proof_sheet else 2)
-        column_edges = [(3, 8.95), (3, 8.95)]
+        left_count = 3 if cut_guides else 2
+        self.assertEqual(len(labels), left_count + int(proof_sheet))
+        column_edges = [(3, 8.95)] * left_count
         if proof_sheet:
             column_edges.append((206.95, 212.9))
         for (text, position, size), (left, right) in zip(labels, column_edges):
@@ -209,8 +207,21 @@ class DahlePunchTests(unittest.TestCase):
             # Courier's ascent projects to the left after the quarter turn.
             self.assertGreater((position[4] - size * 0.8) / POINTS_PER_MM, left)
             self.assertLess((position[4] + size * 0.3) / POINTS_PER_MM, right)
-            self.assertGreater(position[5] / POINTS_PER_MM, 3)
-            self.assertLess((position[5] + size * 0.6 * len(text)) / POINTS_PER_MM, 276.4)
+        if cut_guides:
+            scales = [float(values[0]) / 100 for values, op in page.get_contents().operations if op == b"Tz"]
+            self.assertEqual(len(scales), 3)
+            for index, ((text, position, size), scale) in enumerate(zip(labels[:3], scales)):
+                self.assertEqual(size, 6.8)
+                self.assertGreater(scale, 0.5)
+                self.assertLessEqual(scale, 1)
+                start = position[5] / POINTS_PER_MM
+                end = start + size * 0.6 * len(text) * scale / POINTS_PER_MM
+                self.assertGreater(start, self.letter_row_cuts[index + 1] + 2.99)
+                self.assertLess(end, self.letter_row_cuts[index] - 2.99)
+        else:
+            for text, position, size in labels[:left_count]:
+                self.assertGreater(position[5] / POINTS_PER_MM, 3)
+                self.assertLess((position[5] + size * 0.6 * len(text)) / POINTS_PER_MM, 276.4)
 
     def test_exact_a4_and_fixed_full_and_partial_page_geometry(self):
         fronts = [{key: value for key, value in card.items() if not key.startswith("back")} for card in self.cards]
@@ -379,14 +390,19 @@ class DahlePunchTests(unittest.TestCase):
         merge({"inputs": [str(full), str(partial)], "output": str(output), "pageCount": 4, **self.letter_paper})
         with PdfReader(output, strict=True) as reader:
             self.assertEqual(reader.metadata.title, "CLC US Letter 3x3 - Dahle 550 + 63x88 R3 Punch")
+            guide_paths = {op: self.mm_operators(reader.pages[0], op)[:8] for op in (b"m", b"l")}
             for index, (page, occupied) in enumerate(zip(reader.pages, (9, 9, 4, 4))):
                 is_back = index % 2 == 1
-                self.check_letter_margin_labels(page)
+                self.check_letter_margin_labels(page, cut_guides=True)
                 self.assertIn(f"| {'BACK' if is_back else 'FRONT'}", page.extract_text())
                 self.assertNotIn("REFEED FOR BACK", page.extract_text())
                 if occupied == 9:
-                    self.assertIn(f"Prepared by: {requester}  |  Batch: {batch}", page.extract_text())
+                    self.assertIn(f"Prepared by: {requester}", page.extract_text())
+                    self.assertIn(f"Batch: {batch}", page.extract_text())
                     self.assertIn(label, page.extract_text())
+                for op, expected in guide_paths.items():
+                    self.assertEqual(self.mm_operators(page, op)[:8], expected)
+                self.assertEqual(self.mm_operators(page, b"l"), guide_paths[b"l"])
                 front = self.letter_cells[:occupied]
                 cells = [(215.9 - self.cell_width - x, y) for x, y in front] if is_back else front
                 self.assertEqual(self.mm_operators(page, b"re"), [(round(x, 4), y, 66, 91) for x, y in cells])
@@ -411,7 +427,7 @@ class DahlePunchTests(unittest.TestCase):
                 with PdfReader(folder / "sheet.pdf", strict=True) as reader:
                     self.assertEqual(len(reader.pages), 1)
                     page = reader.pages[0]
-                    self.check_letter_margin_labels(page, proof_sheet=True)
+                    self.check_letter_margin_labels(page, proof_sheet=True, cut_guides=guided)
                     mark_label = "Dahle strip cut lines + R3 corner guides" if guided else "Dahle row ticks"
                     self.assertIn(f"{mark_label} | FRONT", page.extract_text())
                     self.assertIn(f"{name} | fixture", page.extract_text())
@@ -431,19 +447,16 @@ class DahlePunchTests(unittest.TestCase):
                         self.assertLess(self.letter_row_cuts[0] + 0.36 / 2, 276.4)
                         continue
                     widths = self.mm_operators(page, b"w")
-                    self.assertEqual(widths[:10], [(0.96,), (0.84,), (0.55,), (0.43,), (1.30,), (1.18,),
-                                                   (1.30,), (1.18,), (1.08,), (0.96,)])
+                    self.assertEqual(widths[:-1], [(0.96,), (0.84,), (0.55,), (0.43,), (1.08,), (0.96,)])
+                    self.assertEqual([tuple(values) for values, op in page.get_contents().operations if op == b"J"], [(0,)] * 3)
                     line_y = (185.2, 94.2) * 2 + (275.925, 3.475) * 2
-                    self.assertEqual(starts[:8], [(8.95, y) for y in line_y])
-                    self.assertEqual(ends[:8], [(206.95, y) for y in line_y])
-                    endpoint_y = (185.2, 94.2) * 2 + (275.55, 3.85) * 2
-                    self.assertEqual(starts[8:24], [(x, y) for y in endpoint_y for x in (8.95, 205.65)])
-                    self.assertEqual(ends[8:24], [(x, y) for y in endpoint_y for x in (10.25, 206.95)])
-                    for top, bottom, width in ((275.925, 3.475, 0.55), (275.55, 3.85, 1.30)):
-                        self.assertAlmostEqual(top + width / 2, self.letter_row_cuts[0])
-                        self.assertAlmostEqual(bottom - width / 2, self.letter_row_cuts[-1])
-                        self.assertGreater(bottom - width / 2, 3)
-                        self.assertLess(top + width / 2, 276.4)
+                    self.assertEqual(starts[:8], [(3.2, y) for y in line_y])
+                    self.assertEqual(ends[:-3], [(212.7, y) for y in line_y])
+                    half_outer_width = widths[2][0] / 2
+                    self.assertAlmostEqual(275.925 + half_outer_width, self.letter_row_cuts[0])
+                    self.assertAlmostEqual(3.475 - half_outer_width, self.letter_row_cuts[-1])
+                    self.assertGreater(3.475 - half_outer_width, 3)
+                    self.assertLess(275.925 + half_outer_width, 276.4)
 
     def test_dahle_letter_and_a4_reject_mismatched_paper_sizes(self):
         for paper_size, preset in (("a4", DAHLE_LETTER_PUNCH), ("letter", DAHLE_A4_PUNCH)):
@@ -487,6 +500,38 @@ class DahlePunchTests(unittest.TestCase):
         with PdfReader(self.render("rounded", cards)) as reader:
             image = reader.pages[0].images[0].image
             self.assertTrue(all(abs(channel - goal) <= 3 for channel, goal in zip(image.getpixel((0, 0)), (0, 0, 128))))
+
+    def test_edge_reflection_preserves_small_source_without_repeating_the_outer_pixel(self):
+        source = Image.new("RGB", (5, 7), (210, 210, 210))
+        ImageDraw.Draw(source).rectangle((0, 0, 4, 6), outline=(20, 20, 20))
+        result = mirror_artwork_edges(source, 1)
+        self.assertEqual(result.size, (7, 9))
+        self.assertEqual(result.crop((1, 1, 6, 8)).tobytes(), source.tobytes())
+        for point in ((0, 4), (6, 4), (3, 0), (3, 8), (0, 0), (6, 8)):
+            self.assertEqual(result.getpixel(point), (210, 210, 210))
+
+    def test_plain_dahle_pdfs_extend_past_an_opaque_fringe_but_keep_full_dark_borders(self):
+        width, height, pad = 315, 440, 8
+        for actual_paper in (self.paper, self.letter_paper):
+            for border in (1, 20):
+                with self.subTest(paper=actual_paper["paperSize"], border=border):
+                    path = self.directory / f"opaque-edge-{border}.png"
+                    artwork = Image.new("RGBA", (width, height), (210, 210, 210, 255))
+                    ImageDraw.Draw(artwork).rectangle((0, 0, width - 1, height - 1), outline=(20, 20, 20, 255), width=border)
+                    artwork.save(path)
+                    cards = [{"id": "opaque-edge", "frontPath": str(path), "frontSource": "scryfall"}]
+                    with PdfReader(self.render(f"{actual_paper['paperSize']}-{border}", cards, paper=actual_paper)) as reader:
+                        page = reader.pages[0]
+                        self.assertEqual(self.mm_operators(page, b"c"), [])
+                        image = page.images[0].image
+                        self.assertEqual(image.size, (width + 2 * pad, height + 2 * pad))
+                        x, y = width // 2 + pad, height // 2 + pad
+                        trim_edge = ((pad, y), (width + pad - 1, y), (x, pad), (x, height + pad - 1))
+                        bleed_edge = ((pad - 1, y), (width + pad, y), (x, pad - 1), (x, height + pad))
+                        for point in trim_edge:
+                            self.assertAlmostEqual(image.getpixel(point)[0], 20, delta=3)
+                        for point in bleed_edge:
+                            self.assertAlmostEqual(image.getpixel(point)[0], 210 if border == 1 else 20, delta=3)
 
 
 class PageIdentificationTests(unittest.TestCase):

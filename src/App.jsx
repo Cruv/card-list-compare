@@ -31,11 +31,12 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.68.0';
+const APP_VERSION = '2.68.1';
 const WHATS_NEW = [
   'Paste and keep editing your list, then choose Review import when you’re ready',
-  'Spot the Dahle strip cuts and R3 corners with bolder lime guides',
-  'Fit nine cards on US Letter using the new Dahle 550 + R3 punch preset',
+  'Line up the Dahle blade using bold lime guides that extend beyond the card artwork',
+  'Fit nine cards on US Letter using the Dahle 550 + R3 punch preset',
+  'Get cleaner Dahle bleed at the edges of the card artwork',
 ];
 
 function getResetToken() {
