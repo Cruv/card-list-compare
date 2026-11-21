@@ -1,5 +1,11 @@
 # Current work checkpoint
 
+## Wider Dahle bleed
+
+- v2.67.4 gives new and regenerated Dahle PDFs and paper proofs 1.5 mm of bleed per edge. A4 still fits nine 63 × 88 mm R3 cards, with 3 mm between finished outlines and four cuts for 210 × 91 mm row strips. Earlier PDFs use the geometry printed on their sheets. See the [cutting measurements](DAHLE_A4_PUNCH.md#layout-and-hardware-evidence).
+- The front lime arcs retain their die-relative clearance and the cyan cut lines follow the wider strips. The 91 mm feed, last-card grip and physical alignment still need a proof on the intended stock before sizing a fixed bushing.
+- Disposable Chrome exercised new reviews, proofs and alternate layouts. The real worker rendered both proof variants and generated eight duplex copies with 66 × 91 mm artwork clips and mirrored backs. JavaScript, PDF worker and portable companion tests, the production build, deployment contract and both dependency audits passed. Lint reported five existing warnings.
+
 ## R3 die-window alignment
 
 - v2.67.3 puts the lime arcs close enough to the finished outline for the die to hide them when centered. They print on fronts, where the operator looks through the opening. Cyan strip lines print on both faces. See the [procedure and clearances](DAHLE_A4_PUNCH.md#optional-strip-and-punch-guides).

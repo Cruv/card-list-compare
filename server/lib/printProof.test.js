@@ -28,7 +28,7 @@ describe('exact paper proof recipe', () => {
     expect(new Set(proofs.map(proof => proof.key)).size).toBe(6);
     expect(proofs.map(proof => proof.cardsPerSheet)).toEqual([7, 7, 9, 6, 8, 9]);
     expect(proofs[3]).toMatchObject({ paper: 'a4', preset: choices[3], crop: '1mm', trim: [63, 88], bleed: { mode: 'layout-gutters' } });
-    expect(proofs[5]).toMatchObject({ paper: 'a4', preset: choices[5], crop: null, registrationMarks: false, bleed: { mode: 'trim', millimeters: 1 } });
+    expect(proofs[5]).toMatchObject({ paper: 'a4', preset: choices[5], crop: null, registrationMarks: false, bleed: { mode: 'trim', millimeters: 1.5 } });
     expect(generator.describeProof(choices[5], 'off').key).toBe(proofs[5].key);
     expect(generator.describeProof(choices[3], 'off').key).not.toBe(proofs[3].key);
     version.adapterHash = 'c'.repeat(64);
@@ -93,14 +93,16 @@ describe('exact paper proof recipe', () => {
     await expect(generator.downloadProof(dahle, 'off', unmarked.key)).resolves.toEqual({ proof: unmarked, pdf: bytes });
   });
 
-  it('binds strip cuts and R3 punch guides to a distinct Dahle proof while preserving archived proof keys', async () => {
+  it('binds Dahle guides to distinct proofs and rejects keys for the previous bleed', async () => {
     const { generator, run, requests, bytes } = fixture();
     const dahle = 'dahle-a4-punch';
     const plain = generator.describeProof(dahle, 'off');
     const legacy = generator.describeProof(dahle, 'off', 'on');
     const guided = generator.describeProof(dahle, 'off', undefined, 'on');
-    expect(plain.key).toBe('10ed2f45fb620d9a486e1b320f96d50177595a22dc5de2b64af2ca14831aea4c');
-    expect(legacy.key).toBe('c80b1c57a938f7a3590aefbf7bb3c79ece827fb490cd37149559bed00995c2f5');
+    await expect(generator.downloadProof(dahle, 'off', '10ed2f45fb620d9a486e1b320f96d50177595a22dc5de2b64af2ca14831aea4c'))
+      .rejects.toMatchObject({ status: 409 });
+    await expect(generator.downloadProof(dahle, 'off', 'c80b1c57a938f7a3590aefbf7bb3c79ece827fb490cd37149559bed00995c2f5', 'on'))
+      .rejects.toMatchObject({ status: 409 });
     expect(generator.describeProof(dahle, 'off', 'on', 'off')).toEqual(legacy);
     expect(generator.describeProof(dahle, 'off', 'off', 'off')).toEqual(plain);
     expect(guided).toMatchObject({ recipeId: legacy.recipeId, registrationMarks: false, dahleCutGuides: true });

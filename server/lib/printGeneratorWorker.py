@@ -219,7 +219,8 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             # Portrait has more room above the first row. The landscape marks
             # start farther down, leaving space for two lines below their top edge.
             if recipe == DAHLE_A4_PUNCH:
-                rows = ((15, requester), (24, batch), (33, packet))
+                # Keep all three labels above the first strip's 12 mm cut line.
+                rows = ((15, requester), (22.5, batch), (30, packet))
             elif portrait:
                 rows = ((18, requester), (27, batch), (36, packet))
             else:

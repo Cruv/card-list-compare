@@ -108,7 +108,7 @@ function post(path, body, authorization = 'Bearer owner-1') {
   return fetch(origin + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) }, body: JSON.stringify(body) });
 }
 
-function frozenBatch({ deckId = 1, state = 'backs_pending' } = {}) {
+function frozenBatch({ deckId = 1, state = 'backs_pending', recipe = { id: 'household-letter-v6' } } = {}) {
   const id = randomUUID(), jobPath = join(directory, 'jobs', id);
   mkdirSync(join(jobPath, 'images'), { recursive: true });
   const face = (kind, color) => {
@@ -121,7 +121,8 @@ function frozenBatch({ deckId = 1, state = 'backs_pending' } = {}) {
   const copies = [...Array.from({ length: 8 }, () => single), double].map((copy, index) => ({ ...copy, id: `copy-${index}` }));
   const cards = [{ displayName: single.displayName, setCode: single.setCode, collectorNumber: single.collectorNumber, quantity: 8 },
     { displayName: double.displayName, setCode: double.setCode, collectorNumber: double.collectorNumber, quantity: 1 }];
-  const plan = { version: 2, deckName: 'Frozen fixture cards', mode: deckId ? 'full' : 'adhoc', totalCopies: 9,
+  const paper = recipe.printPreset ? { paperSize: recipe.paperSize, printPreset: recipe.printPreset, registrationMarks: false } : {};
+  const plan = { version: 2, deckName: 'Frozen fixture cards', mode: deckId ? 'full' : 'adhoc', totalCopies: 9, ...paper,
     ordinaryCopies: 8, doubleFacedCopies: 1, artSource: 'scryfall', sheetPacking: 'double-faced-first', cards,
     resolvedCards: cards.map((card, index) => ({ ...card, scryfallId: index ? double.scryfallId : single.scryfallId, isDFC: !!index })),
     source: null, target: deckId ? { id: 1, textHash: digest('original frozen cards'), text: 'Original frozen cards', createdAt: '2026-11-01T12:00:00.000Z' } : null,
@@ -130,7 +131,7 @@ function frozenBatch({ deckId = 1, state = 'backs_pending' } = {}) {
   writeFileSync(join(jobPath, 'original.pdf'), originalPdf);
   const artifact = { id: 'double-faced-001', kind: 'dfc', pageCount: 2, sheetCount: 1, cardCount: 7,
     fileName: 'original.pdf', size: originalPdf.length, sha256: digest(originalPdf) };
-  const manifest = { version: 1, jobId: id, requesterId: 1, plan, copies, artifacts: [artifact], recipe: { id: 'household-letter-v6' } };
+  const manifest = { version: 1, jobId: id, requesterId: 1, plan, copies, artifacts: [artifact], recipe };
   const json = JSON.stringify(manifest), manifestHash = digest(json);
   writeFileSync(join(jobPath, 'manifest.json'), json);
   const at = '2026-11-01T12:00:00.000Z', steps = [{ artifactId: artifact.id, phase: 'fronts', state: 'completed', spoolerId: 'EPSON-42', completedAt: at },
@@ -254,6 +255,27 @@ describe('alternate layout from immutable print receipts', () => {
     expect(await retry.json()).toMatchObject({ job: { id: job.id, state: 'failed' }, isExisting: true });
     expect(rowFor(original.id)).toEqual(before);
     expect(existsSync(join(original.jobPath, 'original.pdf'))).toBe(true);
+  });
+
+  it('regenerates a saved 1 mm Dahle batch with wider bleed and preserves the original PDF', async () => {
+    const recipe = { id: 'household-dahle-a4-punch-v1', paperSize: dahle.paperSize, printPreset: dahle.printPreset, bleedMm: 1 };
+    const original = frozenBatch({ state: 'ready', recipe });
+    db.run('UPDATE print_jobs SET expires_at = NULL WHERE id = ?', [original.id]);
+    const before = rowFor(original.id);
+    const saved = queue.getOwnedPrintJob(1, 1, original.id);
+    const read = await review(original, dahle);
+    const response = await post(original.api, { ...dahle, expectedPlanHash: read.plan.planHash, idempotencyKey: randomUUID() });
+    expect(response.status).toBe(202);
+    const { job } = await response.json();
+    await queue.processNextPrintJob();
+    const current = queue.ownedPrintManifest(1, 1, job.id);
+    expect(current.recipe).toMatchObject({ ...recipe, bleedMm: 1.5 });
+    expect(current.copies).toEqual(original.manifest.copies);
+    expect(rowFor(original.id)).toEqual(before);
+    expect(queue.ownedPrintManifest(1, 1, original.id)).toEqual(original.manifest);
+    const download = await fetch(origin + saved.artifacts[0].downloadUrl, { headers: { Authorization: 'Bearer owner-1' } });
+    expect(download.status).toBe(200);
+    expect(Buffer.from(await download.arrayBuffer())).toEqual(original.originalPdf);
   });
 
   it.each(['dahleAlignmentMarks', 'dahleCutGuides'])('binds %s to a Dahle alternate and keeps it out of the next unmarked layout', async guide => {

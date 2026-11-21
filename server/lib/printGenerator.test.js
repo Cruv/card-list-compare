@@ -377,7 +377,7 @@ describe('PDF adapter publication', () => {
       cards, outputDir: directory, paperSize: 'a4', printPreset: 'dahle-a4-punch', registrationMarks: true,
     });
     expect(chunkSizes).toEqual([9, 2]);
-    expect(result.recipe).toMatchObject({ cardWidthMm: 63, cardHeightMm: 88, bleedMm: 1, registration: 0 });
+    expect(result.recipe).toMatchObject({ cardWidthMm: 63, cardHeightMm: 88, bleedMm: 1.5, registration: 0 });
     expect(result).not.toHaveProperty('dahleAlignmentMarks');
     expect(result).not.toHaveProperty('dahleCutGuides');
     expect(result.slots.slice(-2).map(({ slot, sheet }) => [slot, sheet])).toEqual([[0, 2], [1, 2]]);
