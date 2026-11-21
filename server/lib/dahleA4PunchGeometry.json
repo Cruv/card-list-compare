@@ -19,17 +19,13 @@
   "stripGuideInset": 3.2,
   "cornerGuides": {
     "trimRadius": 3,
-    "offset": 0.64,
+    "offset": 0.36,
     "angles": [20, 70],
-    "outlineWidth": 1.08,
-    "strokeWidth": 0.96
+    "outlineWidth": 0.52,
+    "strokeWidth": 0.4
   },
   "stripGuideStroke": {
-    "outlineWidth": 0.96,
-    "strokeWidth": 0.84
-  },
-  "letterOuterStripGuideStroke": {
-    "outlineWidth": 0.55,
-    "strokeWidth": 0.43
+    "outlineWidth": 0.44,
+    "strokeWidth": 0.28
   }
 }

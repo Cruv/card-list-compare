@@ -60,9 +60,10 @@ card outline and R3 corners.
 ## Optional strip and punch guides
 
 Select **Include strip cut lines and R3 corner guides** in the Dahle print review,
-alternate layout review or one-sheet proof. The option starts off. Four bold
-lime lines with dark outlines mark the strip cuts. Each line keeps the same
-width through the artwork and extends to within 3.2 mm of both side edges.
+alternate layout review or one-sheet proof. The option starts off. Four thin
+lime lines mark the strip cuts. Each has a 0.28 mm lime stroke and a 0.44 mm
+dark outline, with a uniform width through the artwork and the side margins.
+The lines extend to within 3.2 mm of both side edges.
 Use the ends beyond the artwork to line up the blade. On A4, cut along the center
 of each line. On Letter, cut along the edge of each outer guide closest to the
 edge of the paper and along the centers of the two middle guides. The outer ink extends inward
@@ -76,8 +77,8 @@ under the die. Lime visible through the opening gives you an edge to adjust.
 Punch guides appear on the face you look at while aligning. Lime strip lines
 appear on both faces.
 
-Each 50° arc shares the center of the finished R3 corner and has a 3.64 mm radius.
-The 0.96 mm lime stroke has a 1.08 mm dark outline. On the nominal geometry,
+Each 50° arc shares the center of the finished R3 corner and has a 3.36 mm radius.
+The 0.40 mm lime stroke has a 0.52 mm dark outline. On the nominal geometry,
 the lime starts 0.16 mm outside the cut and the dark outline starts 0.10 mm
 outside it. This gives the alignment cue a small clearance. How soon lime peeks
 through on your die depends on its opening, viewing angle and print scale.
