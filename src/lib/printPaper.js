@@ -8,6 +8,15 @@ export const DAHLE_A4_PRESET = 'dahle-a4-punch';
 export const DAHLE_LETTER_PRESET = 'dahle-letter-punch';
 export const isDahlePrintPreset = value => value === DAHLE_A4_PRESET || value === DAHLE_LETTER_PRESET;
 
+export const PRINT_FOIL_PROFILES = Object.freeze({
+  'rainbow-v1': 'Rainbow foil',
+  'surge-v1': 'Surge foil',
+});
+export const isFoilProfile = value => typeof value === 'string' && Object.hasOwn(PRINT_FOIL_PROFILES, value);
+export const foilProfileLabel = value => isFoilProfile(value) ? PRINT_FOIL_PROFILES[value] : undefined;
+export const availablePrintFoilProfiles = capabilities => Object.keys(PRINT_FOIL_PROFILES)
+  .filter(profile => Array.isArray(capabilities?.foilProfiles) && capabilities.foilProfiles.includes(profile));
+
 const { bleed, page, letterPage, rows, trim } = dahleA4PunchGeometry;
 const dahleStripWidth = trim[1] + 2 * bleed;
 const dahleLayout = ([width, height]) => Object.freeze({

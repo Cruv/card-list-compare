@@ -77,6 +77,7 @@ beforeEach(async () => {
     return { revision: 'fixture', recipe, slots: groups.flatMap(group => group.slotMap),
       ...(input.dahleAlignmentMarks ? { dahleAlignmentMarks: true } : {}),
       ...(input.dahleCutGuides ? { dahleCutGuides: true } : {}),
+      ...(input.foilProfile ? { foilProfile: input.foilProfile } : {}),
       images: input.cards.map(card => ({ id: card.id, front: image(card.frontPath), ...(card.backPath ? { back: image(card.backPath) } : {}) })),
       artifacts: groups.map(group => {
       const bytes = Buffer.from(`%PDF-1.4\n${input.batchLabel} ${group.id}\n%%EOF`);
@@ -317,6 +318,59 @@ describe('alternate layout from immutable print receipts', () => {
     expect(rowFor(original.id)).toEqual(before);
     const next = await review({ api: `/api/decks/1/print-jobs/${job.id}/alternate-layout` }, letter);
     expect(next.plan).not.toHaveProperty(guide);
+  });
+
+  it.each([
+    { deckId: 1, layout: dahle, foilProfile: 'rainbow-v1' },
+    { deckId: null, layout: dahleLetter, foilProfile: 'surge-v1' },
+  ])('regenerates exact artwork with $foilProfile on $layout.paperSize and resets the next alternate to standard', async ({ deckId, layout, foilProfile }) => {
+    const original = frozenBatch({ deckId });
+    const before = rowFor(original.id), events = eventsFor(original.id);
+    const jobsPath = deckId === null ? '/api/print-lists/jobs' : `/api/decks/${deckId}/print-jobs`;
+    const standard = await review(original, layout);
+    const selected = await review(original, { ...layout, foilProfile });
+    expect(selected).toMatchObject({ plan: { foilProfile }, layout: standard.layout });
+    expect(selected.plan.planHash).not.toBe(standard.plan.planHash);
+    expect(standard.plan).not.toHaveProperty('foilProfile');
+    expect((await post(`${original.api}/preview`, { ...letter, foilProfile })).status).toBe(400);
+
+    const input = { ...layout, foilProfile, expectedPlanHash: selected.plan.planHash, idempotencyKey: randomUUID() };
+    expect((await post(original.api, { ...input, expectedPlanHash: standard.plan.planHash })).status).toBe(409);
+    const response = await post(original.api, input);
+    expect(response.status).toBe(202);
+    const { job } = await response.json();
+    expect(job).toMatchObject({ foilProfile, queueOnReady: false });
+    const replay = await post(original.api, input);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ job: { id: job.id, foilProfile }, isExisting: true });
+    expect((await post(original.api, { ...input, foilProfile: undefined, expectedPlanHash: standard.plan.planHash })).status).toBe(409);
+
+    await queue.processNextPrintJob();
+    expect(fixtures.render.mock.lastCall[0]).toMatchObject({ foilProfile });
+    expect(queue.getOwnedPrintJob(1, deckId, job.id)).toMatchObject({ state: 'ready', foilProfile, queueOnReady: false });
+    const manifest = queue.ownedPrintManifest(1, deckId, job.id);
+    expect(manifest).toMatchObject({ foilProfile, plan: { foilProfile } });
+    expect(manifest.copies).toEqual(original.manifest.copies);
+    expect((await post(`${jobsPath}/${job.id}/queue`, {})).status).toBe(409);
+
+    const next = { api: `${jobsPath}/${job.id}/alternate-layout` };
+    const reviewed = await review(next, layout);
+    expect(reviewed.plan).not.toHaveProperty('foilProfile');
+    const standardResponse = await post(next.api, { ...layout, expectedPlanHash: reviewed.plan.planHash, idempotencyKey: randomUUID() });
+    expect(standardResponse.status).toBe(202);
+    const { job: standardJob } = await standardResponse.json();
+    expect(standardJob).not.toHaveProperty('foilProfile');
+    await queue.processNextPrintJob();
+    expect(fixtures.render.mock.lastCall[0]).not.toHaveProperty('foilProfile');
+    const standardManifest = queue.ownedPrintManifest(1, deckId, standardJob.id);
+    expect(standardManifest).not.toHaveProperty('foilProfile');
+    expect(standardManifest.plan).not.toHaveProperty('foilProfile');
+    expect(standardManifest.copies).toEqual(original.manifest.copies);
+    expect(rowFor(original.id)).toEqual(before);
+    expect(eventsFor(original.id)).toEqual(events);
+    expect(fixtures.liveArtwork).not.toHaveBeenCalled();
+    expect(fixtures.lookup).not.toHaveBeenCalled();
+    expect(fixtures.recover).not.toHaveBeenCalled();
   });
 
   it('fails the alternate batch if the generator reads different valid artwork bytes after staging', async () => {

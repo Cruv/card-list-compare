@@ -143,6 +143,7 @@ function DahlePunch() {
   return <div className="guide-section">
     <h2>Cut with the Dahle 550 and R3 punch</h2>
     <p>Under <strong>Paper and layout</strong>, choose the <strong>A4 3×3</strong> or <strong>US Letter 3×3</strong> Dahle preset. Both fit nine 63 × 88 mm cards with {bleedMm} mm bleed on every edge and {2 * bleedMm} mm between finished cards. Each sheet cuts into three row strips, {stripSize} on A4 or {DAHLE_LETTER_LAYOUT.stripSize} on Letter.</p>
+    <p>For foil stock, choose <strong>Rainbow foil</strong> or <strong>Surge foil</strong> under <strong>Artwork color</strong> when reviewing or regenerating a Dahle batch. Compare it with <strong>Standard</strong> on the same foil stock using identical printer settings.</p>
     <h3>Print at 100%</h3>
     <p>Download the PDFs and print on the selected paper size using <strong>Actual Size (100%)</strong> in bordered mode. Turn off Fit to Page and borderless enlargement. For double-faced cards, use a portrait long-edge flip and finish both sides before trimming.</p>
     <h3>Trim four times</h3>

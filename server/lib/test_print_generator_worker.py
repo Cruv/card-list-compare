@@ -12,7 +12,7 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, Num
 from PIL import Image, ImageDraw
 
 from printGeneratorWorker import (CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, DAHLE_LETTER_PUNCH, POINTS_PER_MM,
-                                  chunk, dahle_face, identify_pages, merge, mirror_artwork_edges, proof,
+                                  chunk, compensate_foil, dahle_face, identify_pages, merge, mirror_artwork_edges, proof,
                                   repair_scan_fringe, validate_pdf)
 
 
@@ -46,16 +46,18 @@ class DahlePunchTests(unittest.TestCase):
             self.cards.append(card)
 
     def render(self, name, cards, *, double_faced=False, mixed=False, alignment_marks=None, cut_guides=None, paper=None,
-               requester="Fixture", batch="Dahle test", page_label="CLC full or partial", generated_date=None):
+               requester="Fixture", batch="Dahle test", page_label="CLC full or partial", generated_date=None,
+               foil_profile=None):
         directory = self.directory / name
         directory.mkdir()
         packing = {"sheetPacking": "double-faced-first"} if mixed else {}
         alignment = {} if alignment_marks is None else {"dahleAlignmentMarks": alignment_marks}
         guides = {} if cut_guides is None else {"dahleCutGuides": cut_guides}
         identification = {"version": 1, "requesterName": requester, "batchName": batch}
+        finish = {"foilProfile": foil_profile} if foil_profile is not None else {}
         if generated_date is not None:
             identification["generatedDate"] = generated_date
-        chunk({"directory": str(directory), **(paper or self.paper), **packing, **alignment, **guides,
+        chunk({"directory": str(directory), **(paper or self.paper), **packing, **alignment, **guides, **finish,
                "cards": cards, "doubleFaced": double_faced,
                "registrationMarks": True,
                "printedIdentification": identification,
@@ -71,7 +73,66 @@ class DahlePunchTests(unittest.TestCase):
             self.assertIs(result["dahleCutGuides"], True)
         else:
             self.assertNotIn("dahleCutGuides", result)
+        if foil_profile is not None:
+            self.assertEqual(result["foilProfile"], foil_profile)
+        else:
+            self.assertNotIn("foilProfile", result)
         return directory / "sheet.pdf"
+
+    def test_foil_compensation_keeps_neutrals_and_bounds_gamut_with_distinct_midtone_and_chroma_lifts(self):
+        samples = [(0, 0, 0), (255, 255, 255), (128, 128, 128), (100, 75, 50), (255, 145, 0)]
+        with Image.new("RGB", (len(samples), 1)) as artwork:
+            artwork.putdata(samples)
+            with compensate_foil(artwork, "rainbow-v1") as rainbow, compensate_foil(artwork, "surge-v1") as surge:
+                for corrected, gray, warm in ((rainbow, 144, (117, 88, 59)), (surge, 138, (111, 83, 55))):
+                    self.assertEqual(corrected.size, artwork.size)
+                    self.assertEqual(corrected.getpixel((0, 0)), samples[0])
+                    self.assertEqual(corrected.getpixel((1, 0)), samples[1])
+                    self.assertEqual(corrected.getpixel((2, 0)), (gray, gray, gray))
+                    self.assertEqual(corrected.getpixel((3, 0)), warm)
+                    self.assertGreater(max(warm) - min(warm), 50)
+                    red, green, blue = corrected.getpixel((4, 0))
+                    self.assertEqual(red, 255)
+                    self.assertGreater(blue, 0)
+                    self.assertAlmostEqual((green - blue) / (red - blue), 145 / 255, delta=0.005)
+            self.assertEqual([artwork.getpixel((x, 0)) for x in range(len(samples))], samples)
+
+    def test_foil_profiles_change_only_dahle_front_art_and_identify_both_faces(self):
+        geometry = {b"cm", b"re", b"m", b"l", b"c", b"w", b"RG"}
+        for paper in (self.paper, self.letter_paper):
+            name = paper["paperSize"]
+            baseline = self.render(f"{name}-standard", self.cards[:2], paper=paper, double_faced=True, cut_guides=True)
+            with PdfReader(baseline) as original:
+                source_details = json.loads((baseline.parent / "result.json").read_text())["images"]
+                for profile, label in (("rainbow-v1", "Rainbow foil"), ("surge-v1", "Surge foil")):
+                    with self.subTest(paper=name, profile=profile):
+                        sheet = self.render(f"{name}-{profile}", self.cards[:2], paper=paper, double_faced=True,
+                                            cut_guides=True, foil_profile=profile, generated_date="2026-11-20")
+                        actual_details = json.loads((sheet.parent / "result.json").read_text())["images"]
+                        self.assertEqual(actual_details, source_details)
+                        with PdfReader(sheet) as adjusted:
+                            for face, (before, after) in enumerate(zip(original.pages, adjusted.pages)):
+                                self.assertEqual(before.mediabox, after.mediabox)
+                                self.assertEqual([op for op in before.get_contents().operations if op[1] in geometry],
+                                                 [op for op in after.get_contents().operations if op[1] in geometry])
+                                self.assertIn(label, after.extract_text())
+                                self.assertIn("Generated 2026-11-20", after.extract_text())
+                                for old_image, new_image in zip(before.images, after.images):
+                                    self.assertEqual(old_image.image.size, new_image.image.size)
+                                    if face == 0:
+                                        old_color = old_image.image.getpixel((160, 220))
+                                        new_color = new_image.image.getpixel((160, 220))
+                                        self.assertGreater(sum(new_color), sum(old_color))
+                                        self.assertGreater(max(new_color) - min(new_color), max(old_color) - min(old_color))
+                                    else:
+                                        self.assertEqual(old_image.data, new_image.data)
+
+    def test_foil_profiles_require_dahle_and_reject_unknown_profiles(self):
+        for paper, profile in (({"paperSize": "letter"}, "rainbow-v1"), (self.paper, "rainbow"), (self.paper, None),
+                               (self.letter_paper, []), (self.letter_paper, True)):
+            with self.subTest(paper=paper, profile=profile):
+                with self.assertRaisesRegex(ValueError, "supported Dahle foil profile"):
+                    chunk({"directory": str(self.directory), **paper, "foilProfile": profile})
 
     @staticmethod
     def mm_operators(page, operator):

@@ -5,6 +5,20 @@ In CLC’s print review, choose **A4 3×3 · Dahle 550 + 63×88 R3 Punch** or
 **Save as default** remembers it in this browser. Review the list, choose
 **Generate PDFs** and download the files from **Batches**.
 
+## Foil stock
+
+Choose **Rainbow foil** or **Surge foil** under **Artwork color** in a Dahle
+print review or when regenerating a saved batch. Both lift shadows and midtones
+and add some chroma to the front artwork. Rainbow applies the stronger adjustment.
+**Standard** uses the regular artwork colors. The PDF label identifies the foil
+choice, including on the back page of a paired sheet.
+
+Print one **Standard** sheet and one sheet with the matching foil choice on the
+same stock at **Actual Size (100%)**, using the same Epson media and color settings.
+Compare samples after drying under the same light and at a tilt. These are
+starting points for the stock and printer. Epson's driver still handles printer
+color. [Epson color settings](https://files.support.epson.com/docid/cpd5/cpd59879/source/printers/source/printing_software/mac_fy13/references/color_management_options_mac_fy13.html)
+
 ## Print and cut
 
 Print on the matching portrait paper size in bordered mode at **Actual Size (100%)**. Turn off Fit to Page,

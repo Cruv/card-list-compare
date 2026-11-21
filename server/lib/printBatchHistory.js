@@ -88,6 +88,7 @@ export function listPrintBatches(userId, query = {}, { deferredBacks = false } =
       return { id: row.id, deckName: typeof plan.deckName === 'string' ? plan.deckName.slice(0, 200) : 'Card batch',
         totalCopies: number(plan.totalCopies), paperSize: plan.paperSize ?? 'letter', state: row.state, createdAt: row.created_at, updatedAt: row.updated_at,
         ...(plan.printPreset ? { printPreset: plan.printPreset } : {}),
+        ...(plan.foilProfile ? { foilProfile: plan.foilProfile } : {}),
         ...(plan.sheetPacking === DOUBLE_FACED_FIRST ? { requiresMixedPrintSheets: true } : {}),
         queueOnReady: !!row.queue_requested, sourceKind: row.tracked_deck_id === null ? 'list' : 'deck',
         canOpen, canInspect: canControl && !!(row.station_id || row.queued_at || row.queue_requested),

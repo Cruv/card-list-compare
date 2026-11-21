@@ -418,6 +418,34 @@ describe('PDF adapter publication', () => {
       artifacts: [{ id: 'double-faced-001', pageCount: 2 }] });
   });
 
+  it.each([
+    ['a4', 'dahle-a4-punch', 'rainbow-v1', 'surge-v1'],
+    ['letter', 'dahle-letter-punch', 'surge-v1', 'rainbow-v1'],
+  ])('publishes %s foil PDFs only when the worker confirms the selected profile', async (paperSize, printPreset, foilProfile, wrongProfile) => {
+    const directory = await temp();
+    const runtime = { capture: () => ({ directory: '/runtime', revision: 'fixed' }) };
+    const options = { outputDir: directory, paperSize, printPreset, foilProfile,
+      cards: [{ id: 'paired', frontPath: '/front', backPath: '/back' }] };
+    let returnedProfile;
+    const run = async (_command, args) => {
+      const request = JSON.parse(await fs.readFile(args[2], 'utf8'));
+      if (args[1] === 'chunk') {
+        expect(request).toMatchObject({ paperSize, printPreset, foilProfile, doubleFaced: true });
+        await fs.writeFile(path.join(request.directory, 'sheet.pdf'), 'fixture');
+        await fs.writeFile(path.join(request.directory, 'result.json'), JSON.stringify({
+          images: [], registrationMarks: false, foilProfile: returnedProfile,
+        }));
+      } else await fs.copyFile(request.inputs[0], request.output);
+    };
+    const generator = createPrintGenerator({ runtime, run });
+    await expect(generator.generate(options)).rejects.toThrow('did not confirm the requested foil color profile');
+    returnedProfile = wrongProfile;
+    await expect(generator.generate(options)).rejects.toThrow('did not confirm the requested foil color profile');
+    expect(await fs.readdir(directory)).toEqual([]);
+    returnedProfile = foilProfile;
+    await expect(generator.generate(options)).resolves.toMatchObject({ foilProfile, artifacts: [{ pageCount: 2 }] });
+  });
+
   it('tags every ordinary sheet with its own page number and preserves the exact packet identity', async () => {
     const directory = await temp(), requests = [];
     const runtime = { capture: () => ({ directory: '/runtime', revision: 'fixed' }) };

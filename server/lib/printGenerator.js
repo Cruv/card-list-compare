@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { PrintGeneratorRuntime, runPrintCommand } from './printGeneratorRuntime.js';
 import { createPrintProofs } from './printProof.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
-import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, DAHLE_LETTER_PRESET, dahleGuideOptions, isDahlePrintPreset } from './printPaper.js';
+import { PRINT_PRESETS as PAPER_PRESETS, CROWNED_LANDSCAPE_PRESET, CROWNED_PORTRAIT_SIX_PRESET, DAHLE_A4_PRESET, DAHLE_LETTER_PRESET, dahleGuideOptions, foilProfileOptions, isDahlePrintPreset } from './printPaper.js';
 import crownedPortraitGeometry from './crownedPortraitGeometry.json' with { type: 'json' };
 import dahleA4PunchGeometry from './dahleA4PunchGeometry.json' with { type: 'json' };
 
@@ -146,7 +146,7 @@ export function createPrintGenerator(options = {}) {
     },
     async generate({ cards, outputDir, signal, onProgress = () => {}, maxOutputBytes = MAX_OUTPUT_BYTES,
       batchLabel = 'CLC', requesterName, batchName, paperSize = 'letter', printPreset, sheetPacking, registrationMarks = true,
-      dahleAlignmentMarks, dahleCutGuides }) {
+      dahleAlignmentMarks, dahleCutGuides, foilProfile }) {
       if (typeof registrationMarks !== 'boolean') throw new Error('registrationMarks must be true or false');
       if (typeof paperSize !== 'string' || !Object.hasOwn(PRINT_RECIPES, paperSize)) {
         throw new Error('Paper size must be Letter or A4');
@@ -157,6 +157,7 @@ export function createPrintGenerator(options = {}) {
       const recipe = printPreset ? PRINT_PRESETS[printPreset] : PRINT_RECIPES[paperSize];
       const includeMarks = !isDahlePrintPreset(printPreset) && registrationMarks;
       const guides = dahleGuideOptions(printPreset, { dahleAlignmentMarks, dahleCutGuides });
+      const color = foilProfileOptions(printPreset, { foilProfile });
       const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
       const plan = planPrintSheets(cards, recipe, sheetPacking);
       const identification = printPageIdentification({ requesterName, batchName });
@@ -211,7 +212,7 @@ export function createPrintGenerator(options = {}) {
             await fs.writeFile(input, JSON.stringify({ cards: chunk, source: path.join(captured.directory, 'source'),
               label: sheetLabel, printedIdentification, pageLabels: chunkLabels, ...paper, sheetPacking,
               ...(includeMarks ? {} : { registrationMarks: false }),
-              ...guides,
+              ...guides, ...color,
               directory: chunkDirectory, doubleFaced: group.kind === 'dfc' }));
             await execute(['chunk', input]);
             const result = JSON.parse(await fs.readFile(path.join(chunkDirectory, 'result.json'), 'utf8'));
@@ -223,6 +224,9 @@ export function createPrintGenerator(options = {}) {
             }
             if ((result.dahleCutGuides ?? false) !== (guides.dahleCutGuides === true)) {
               throw new Error('The active PDF generator did not confirm the requested Dahle cut guides');
+            }
+            if (result.foilProfile !== color.foilProfile) {
+              throw new Error('The active PDF generator did not confirm the requested foil color profile');
             }
             images.push(...result.images);
             parts.push(path.join(chunkDirectory, 'sheet.pdf'));
@@ -259,7 +263,7 @@ export function createPrintGenerator(options = {}) {
           await fs.link(path.join(working, `${artifact.id}.pdf`), artifact.path);
           published.push(artifact.path);
         }
-        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe, printedIdentification, artifacts, slots, images, ...guides };
+        return { revision: captured.revision, runtimeVersion: path.basename(captured.directory), recipe, printedIdentification, artifacts, slots, images, ...guides, ...color };
       } catch (error) {
         // Any published paths belong to this invocation; existing artifacts were checked before generation.
         for (const filename of published) await fs.rm(filename, { force: true });

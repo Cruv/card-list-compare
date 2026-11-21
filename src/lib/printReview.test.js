@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { batchDetailRefresh, loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printReviewIndexes, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, printPacketBackCountLabel, printReviewReady, printReviewSummary, rejectedPrintCreation, waitingPrintArtifact } from './printReview';
-import { DAHLE_A4_PRESET, availablePrintPaperChoices, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge, selectAvailablePrintPaper } from './printPaper';
+import { DAHLE_A4_PRESET, DAHLE_LETTER_PRESET, availablePrintFoilProfiles, availablePrintPaperChoices, loadDefaultPrintPaper, newPrintPaperChoice, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, refeedSameShortEdge, selectAvailablePrintPaper } from './printPaper';
 import { manaPoolLink, shoppingText } from './manasync';
 
 const face = (side, source = 'scryfall') => ({ face: side, source, identifier: `selected-${side}`, status: 'ready' });
@@ -208,6 +208,15 @@ describe('durable print creation recovery', () => {
     expect(read(request)).not.toHaveProperty('registrationMarks');
     expect(read({ ...request, registrationMarks: 'false' })).toBeNull();
   });
+  it('keeps a reviewed foil profile bound to its exact Dahle PDF request', () => {
+    const read = value => loadPrintCreationIntent({ getItem: () => JSON.stringify(value) }, 'key');
+    const foil = { ...request, ...printPaperRequest(DAHLE_A4_PRESET), registrationMarks: false, queueOnReady: false, foilProfile: 'rainbow-v1' };
+    expect(read(foil)).toMatchObject(foil);
+    expect(read({ ...foil, printPreset: 'crowned-a4' })).toBeNull();
+    expect(read({ ...foil, queueOnReady: true })).toBeNull();
+    expect(read({ ...foil, foilProfile: 'rainbow' })).toBeNull();
+    expect(read(request)).not.toHaveProperty('foilProfile');
+  });
   it.each(['dahleAlignmentMarks', 'dahleCutGuides'])('replays the original %s Dahle request with its reviewed hash and key', flag => {
     const read = value => loadPrintCreationIntent({ getItem: () => JSON.stringify(value) }, 'key');
     const marked = { ...request, ...printPaperRequest(DAHLE_A4_PRESET, { [flag]: true }), registrationMarks: false };
@@ -362,6 +371,14 @@ describe('standalone print drafts', () => {
     expect(read(draft)).not.toHaveProperty('dahleCutGuides');
     expect(read({ ...marked, printPreset: 'crowned-a4' })).toBeNull();
   });
+  it('retains a versioned foil profile for the chosen Dahle draft', () => {
+    const read = value => loadStandalonePrintDraft({ getItem: () => JSON.stringify(value) }, 'key');
+    const foil = { ...draft, ...printPaperRequest(DAHLE_LETTER_PRESET), foilProfile: 'surge-v1' };
+    expect(read(foil)).toEqual(foil);
+    expect(read({ ...foil, foilProfile: 'surge-v2' })).toBeNull();
+    expect(read({ ...draft, paperSize: 'letter', foilProfile: 'surge-v1' })).toBeNull();
+    expect(read(draft)).not.toHaveProperty('foilProfile');
+  });
   it('preserves the current draft and prior recovery when comparison persistence fails', () => {
     const data = new Map([['draft', JSON.stringify(draft)], ['recovery', '{"older":true}']]);
     const storage = { getItem: key => data.get(key) ?? null, removeItem: key => data.delete(key),
@@ -378,6 +395,11 @@ describe('standalone print drafts', () => {
     expect(JSON.parse(data.get('draft'))).toEqual(next);
     expect(JSON.parse(data.get('recovery'))).toEqual(draft);
   });
+});
+
+it('offers only foil profiles advertised by their supported version', () => {
+  expect(availablePrintFoilProfiles({ foilProfiles: ['rainbow-v2', 'surge-v1'] })).toEqual(['surge-v1']);
+  expect(availablePrintFoilProfiles()).toEqual([]);
 });
 
 describe('print review filters and shopping', () => {

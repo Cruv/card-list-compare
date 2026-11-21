@@ -4,11 +4,12 @@ import { previewPrintPlan, savePrintArtToDeck, createPrintJob, getPrintJobs, get
 import DeckInput from './DeckInput';
 import PrintPaperProof from './PrintPaperProof';
 import PrintArtPicker from './PrintArtPicker';
+import PrintFoilProfileSelect from './PrintFoilProfileSelect';
 import PrintRegenerationDialog from './PrintRegenerationDialog';
 import PrintListReview from './PrintListReview';
 import PrintQueue from './PrintQueue';
 import { batchDetailRefresh, loadPrintCreationIntent, loadStandalonePrintDraft, saveStandaloneDraftReplacement, printArtOverridesAfterSave, printCreationRequestKey, printReviewReady, printReviewSummary, printCopyBreakdown, printSourceCopies, canCancelReviewedPrintJob, mixedPrintCompanionWait, rejectedPrintCreation, waitingPrintArtifact } from '../lib/printReview';
-import { CROWNED_A4_PORTRAIT_SIX_PRESET, PRINT_PAPER, availablePrintPaperChoices, isCrownedPrintPreset, isDahlePrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printMarksLabel, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
+import { CROWNED_A4_PORTRAIT_SIX_PRESET, PRINT_PAPER, availablePrintFoilProfiles, availablePrintPaperChoices, foilProfileLabel, isCrownedPrintPreset, isDahlePrintPreset, loadDefaultPrintPaper, newPrintPaperChoice, printMarksLabel, printPaperChoice, printPaperLabel, printPaperRequest, printPaperUnavailable, selectAvailablePrintPaper, stationPaperChoice } from '../lib/printPaper';
 import { useAuth } from '../context/AuthContext';
 import './PrintPanel.css';
 
@@ -96,6 +97,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [paperOverride, setPaperOverride] = useState(savedPaper?.paperSize ? newPrintPaperChoice(printPaperChoice(savedPaper)) : null);
   const [registrationMarks, setRegistrationMarks] = useState(() => (storedRequest ?? storedDraft)?.registrationMarks ?? true);
   const [dahleCutGuides, setDahleCutGuides] = useState(() => (storedRequest ?? storedDraft)?.dahleCutGuides === true);
+  const [foilProfile, setFoilProfile] = useState(() => (storedRequest ?? storedDraft)?.foilProfile);
   const [includeSideboard, setIncludeSideboard] = useState(standalone ? storedRequest?.includeSideboard ?? storedDraft?.includeSideboard ?? false : false);
   const [replacePrintings, setReplacePrintings] = useState(storedRequest?.replacePrintings ?? storedDraft?.replacePrintings ?? false);
   const [excludeBasicLands, setExcludeBasicLands] = useState(storedRequest ? storedRequest.excludeBasicLands ?? false : storedDraft?.excludeBasicLands ?? true);
@@ -119,7 +121,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const [historyError, setHistoryError] = useState('');
   const [confirmationItems, setConfirmationItems] = useState([]);
   const [confirmationError, setConfirmationError] = useState('');
-  const [capabilities, setCapabilities] = useState({});
+  const [serverCapabilities, setCapabilities] = useState(null);
   const [generator, setGenerator] = useState(null);
   const [station, setStation] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -136,7 +138,9 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const revisionRef = useRef(0);
   const creationPending = !!pendingRequest;
   const pendingAction = pendingRequest?.queueOnReady ?? null;
+  const capabilities = serverCapabilities ?? {};
   const availablePaper = availablePrintPaperChoices(capabilities);
+  const availableFoilProfiles = availablePrintFoilProfiles(capabilities);
   const preferredPaper = paperOverride ?? defaultPaper;
   const selectedPaper = pendingRequest ? printPaperChoice(pendingRequest)
     : selectAvailablePrintPaper(preferredPaper, availablePaper);
@@ -146,10 +150,14 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const manualPunch = !!punchLayout;
   const selectedRegistrationMarks = !manualPunch && (pendingRequest ? pendingRequest.registrationMarks ?? true : registrationMarks);
   const selectedDahleCutGuides = manualPunch && (pendingRequest ? pendingRequest.dahleCutGuides === true : dahleCutGuides);
-  const draftPaper = paperOverride ?? (dahleCutGuides && isDahlePrintPreset(defaultPaper) ? defaultPaper : null);
+  const selectedFoilProfile = manualPunch ? (pendingRequest ? pendingRequest.foilProfile : foilProfile) : undefined;
+  const savedFoilProfile = !creationPending && isDahlePrintPreset(preferredPaper) ? foilProfile : undefined;
+  const foilProfileUnavailable = !!savedFoilProfile && (!manualPunch || !availableFoilProfiles.includes(savedFoilProfile));
+  const draftPaper = paperOverride ?? ((dahleCutGuides || foilProfile) && isDahlePrintPreset(defaultPaper) ? defaultPaper : null);
+  const draftFoilProfile = isDahlePrintPreset(draftPaper) ? foilProfile : undefined;
   const canQueueSelectedPaper = capabilities.canQueue && !manualPunch;
   const needsReview = reviewDirty || !!pendingArt.length || (!!plan
-    && (selectedPaper !== printPaperChoice(plan) || selectedDahleCutGuides !== (plan.dahleCutGuides === true)));
+    && (selectedPaper !== printPaperChoice(plan) || selectedDahleCutGuides !== (plan.dahleCutGuides === true) || selectedFoilProfile !== plan.foilProfile));
   const deckArtChoices = pendingArt.filter(choice => choice.saveToDeck);
   const unavailableArtChoices = deckArtChoices.filter(choice => choice.unavailable);
   const selectedArtChoice = pendingArt.find(choice => choice.selectionKey === selectedArtCard?.selectionKey);
@@ -157,6 +165,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   const canSaveArtToDeck = !standalone && !!plan?.target?.textHash && plan.target.id === snapshots[0]?.id
     && !newDeckVersionNeedsReview && selectedArtCard?.baseQuantity > 0;
   const reviewedPaper = PRINT_PAPER[printPaperChoice(plan)];
+  const reviewedFoilLabel = foilProfileLabel(plan?.foilProfile);
   const paperUnavailable = canQueueSelectedPaper ? printPaperUnavailable(printPaperRequest(selectedPaper), station) : '';
   const summary = printReviewSummary(plan);
   const doubleFacedFirst = plan?.sheetPacking === 'double-faced-first';
@@ -179,24 +188,25 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   useEffect(() => {
     if (!standalone) return;
     try {
-      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(draftPaper ? printPaperRequest(draftPaper, { dahleCutGuides }) : {}) }));
+      localStorage.setItem(draftStorageKey, JSON.stringify({ listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, foilProfile: draftFoilProfile, ...(draftPaper ? printPaperRequest(draftPaper, { dahleCutGuides }) : {}) }));
       setDraftError('');
       if (autoComparison && !autoConsumedRef.current) {
         autoConsumedRef.current = true;
         onComparisonConsumed?.(autoComparison.id);
       }
     } catch { setDraftError('This browser could not save your draft. Keep a copy of your card list before leaving this page.'); }
-  }, [standalone, draftStorageKey, listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, draftPaper, dahleCutGuides, autoComparison, onComparisonConsumed]);
+  }, [standalone, draftStorageKey, listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, draftPaper, draftFoilProfile, dahleCutGuides, autoComparison, onComparisonConsumed]);
 
   function switchDraft(draft, comparisonId) {
     if (requestRef.current || busy) return;
     const nextPaper = draft.paperSize ? newPrintPaperChoice(printPaperChoice(draft)) : null;
-    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, ...(draftPaper ? printPaperRequest(draftPaper, { dahleCutGuides }) : {}) };
+    const current = { listName, cardText, comparison, replacePrintings, includeSideboard, excludeBasicLands, additionalCardText, excludedCards, removedCards, printingOverrides, registrationMarks, foilProfile: draftFoilProfile, ...(draftPaper ? printPaperRequest(draftPaper, { dahleCutGuides }) : {}) };
     const next = { listName: draft.listName || '', cardText: draft.cardText || '', comparison: draft.comparison || null,
       replacePrintings: draft.replacePrintings ?? false, includeSideboard: draft.includeSideboard ?? false,
       excludeBasicLands: draft.excludeBasicLands ?? true, additionalCardText: draft.additionalCardText || '',
       excludedCards: draft.excludedCards || [], removedCards: draft.removedCards || [], printingOverrides: draft.printingOverrides || [],
       registrationMarks: draft.registrationMarks ?? registrationMarks,
+      foilProfile: isDahlePrintPreset(nextPaper) ? draft.foilProfile : undefined,
       ...(nextPaper ? printPaperRequest(nextPaper, { dahleCutGuides: draft.dahleCutGuides }) : {}) };
     try { saveStandaloneDraftReplacement(localStorage, draftStorageKey, recoveryStorageKey, current, next); }
     catch { setError('The browser could not save both drafts. Your current draft and compared lists are unchanged. Free browser storage and try again.'); return; }
@@ -208,6 +218,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     setExcludedCards(draft.excludedCards || []); setRemovedCards(draft.removedCards || []);
     setPaperOverride(nextPaper); setRegistrationMarks(next.registrationMarks);
     setDahleCutGuides(next.dahleCutGuides === true);
+    setFoilProfile(next.foilProfile);
     setPrintingOverrides(draft.printingOverrides || []); setPendingArt([]); setSelectedArtCard(null);
     setPlan(null); setEditingSource(true); setActiveView('prepare'); setFocusedJobId(null); setError(''); setNotice('');
     if (comparisonId) { setHandledComparisonId(comparisonId); onComparisonConsumed?.(comparisonId); }
@@ -402,7 +413,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
   async function preview(event) {
     event.preventDefault();
-    if (requestRef.current) return;
+    if (requestRef.current || foilProfileUnavailable) return;
     const comparingVersions = !standalone && mode === 'changes';
     if (comparingVersions && !snapshots.some(snapshot => String(snapshot.id) === baseline)) {
       chooseAnotherBaseline();
@@ -447,15 +458,18 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       }
       const data = standalone ? await previewStandalonePrintJob({
         mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
-        excludeBasicLands, additionalCardText, excludedCards: nextExcludedCards, printingOverrides: nextOverrides, ...printPaperRequest(selectedPaper, { dahleCutGuides: selectedDahleCutGuides }),
+        excludeBasicLands, additionalCardText, excludedCards: nextExcludedCards, printingOverrides: nextOverrides,
+        ...printPaperRequest(selectedPaper, { dahleCutGuides: selectedDahleCutGuides }), foilProfile: selectedFoilProfile,
       }) : await previewPrintPlan(deckId, {
         mode, targetSnapshotId,
         baselineSnapshotId: mode === 'changes' ? Number(baseline) : undefined,
         artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText,
-        excludedCards: nextExcludedCards, printingOverrides: nextOverrides, ...printPaperRequest(selectedPaper, { dahleCutGuides: selectedDahleCutGuides }),
+        excludedCards: nextExcludedCards, printingOverrides: nextOverrides,
+        ...printPaperRequest(selectedPaper, { dahleCutGuides: selectedDahleCutGuides }), foilProfile: selectedFoilProfile,
       });
       if (revision !== revisionRef.current) return;
       if ((data.plan.dahleCutGuides === true) !== selectedDahleCutGuides || data.plan.dahleAlignmentMarks === true) throw new Error('The reviewed marks did not match this layout. Review the print list again.');
+      if (data.plan.foilProfile !== selectedFoilProfile) throw new Error('The reviewed foil color did not match your selection. Review the print list again.');
       setPlan(data.plan);
       if (deckArtConflict) {
         const included = new Set([...data.plan.cards, ...(data.plan.removedCards || []), ...(data.plan.excludedBasicLands || [])]
@@ -491,7 +505,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
   }
 
   async function generate(queueOnReady) {
-    if (!requestRef.current && (needsReview || !printReviewReady(plan) || (queueOnReady && (!canQueueSelectedPaper || paperUnavailable)))) return;
+    if (!requestRef.current && (foilProfileUnavailable || needsReview || !printReviewReady(plan)
+      || (queueOnReady && (!canQueueSelectedPaper || paperUnavailable)))) return;
     setBusy(true);
     setError('');
     try {
@@ -507,11 +522,13 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         const request = standalone ? {
           mode: 'adhoc', listName, cardText, comparison: comparison || undefined, artSource: 'scryfall', includeSideboard, replacePrintings,
           excludeBasicLands, additionalCardText, excludedCards, printingOverrides,
-          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan), plan), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
+          expectedPlanHash: plan.planHash, ...printPaperRequest(printPaperChoice(plan), plan), foilProfile: plan.foilProfile,
+          registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
         } : {
           mode, targetSnapshotId: plan.target.id, baselineSnapshotId: plan.source?.id,
           artSource, includeSideboard, replacePrintings, excludeBasicLands, additionalCardText, excludedCards, printingOverrides, expectedPlanHash: plan.planHash,
-          ...printPaperRequest(printPaperChoice(plan), plan), registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
+          ...printPaperRequest(printPaperChoice(plan), plan), foilProfile: plan.foilProfile,
+          registrationMarks: selectedRegistrationMarks, queueOnReady, idempotencyKey: printCreationRequestKey(),
         };
         // Save before POST: a reload or lost response must recover this exact
         // request instead of creating a second potentially queued batch.
@@ -522,10 +539,12 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       }
       const submitted = requestRef.current;
       const data = standalone ? await createStandalonePrintJob(submitted) : await createPrintJob(deckId, submitted);
+      if (data.job.foilProfile !== submitted.foilProfile) throw new Error('The server did not confirm the saved foil color. Retry the same request to recover the batch.');
       setJobs(old => mergePrintJobs(old, [data.job], data.job.id));
       setPlan(null);
       setPaperOverride(null);
       setDahleCutGuides(false);
+      setFoilProfile(undefined);
       setEditingSource(false);
       setFocusedJobId(data.job.id);
       setActiveView('batches');
@@ -599,6 +618,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
   function renderJob(job) {
     const punchBatch = isDahlePrintPreset(printPaperChoice(job));
+    const foilLabel = foilProfileLabel(job.foilProfile);
     const canQueueBatch = capabilities.canQueue && !punchBatch;
     const queueUnavailable = job.state === 'ready' && canQueueBatch ? printPaperUnavailable(job, station) : '';
     const companionWait = mixedPrintCompanionWait(job, station);
@@ -609,7 +629,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
     }}>{label} {id.slice(0, 8)}</a>;
     const canConfirm = job.manifestSha256 && !sourceBatchId;
     return <article className="print-panel-card print-batch" key={job.id}>
-      <div className="print-panel-heading"><div><h4>{job.deckName || 'Print batch'}</h4><p className="print-panel-meta">{job.totalCopies} cards · {printPaperLabel(job)}{(punchBatch || job.registrationMarks === false) && ` · ${printMarksLabel(job)}`} · Batch {job.id.slice(0, 8)}</p></div><span className={`print-panel-status print-batch-status print-batch-status--${job.state}`}>{STATES[job.state] || job.state}</span></div>
+      <div className="print-panel-heading"><div><h4>{job.deckName || 'Print batch'}</h4><p className="print-panel-meta">{job.totalCopies} cards · {printPaperLabel(job)}{foilLabel && ` · ${foilLabel}`}{(punchBatch || job.registrationMarks === false) && ` · ${printMarksLabel(job)}`} · Batch {job.id.slice(0, 8)}</p></div><span className={`print-panel-status print-batch-status print-batch-status--${job.state}`}>{STATES[job.state] || job.state}</span></div>
       {sourceBatchId && <p className="print-panel-meta">Alternate layout of {batchLink(sourceBatchId, 'source batch')}. Confirm usable copies on {confirmationBatchId === sourceBatchId ? 'that batch' : batchLink(confirmationBatchId, 'original batch')}.</p>}
       {job.state === 'preparing' && <p>Creating your PDFs{job.progress?.totalSheets ? ` · ${job.progress.completedSheets || 0}/${job.progress.totalSheets} sheets ready` : '…'}</p>}
       {job.state === 'ready' && (punchBatch
@@ -675,13 +695,19 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
 
     {creationPending && <section className="print-panel-confirmation" aria-label="Recover print batch request">
       <h3>{busy ? 'Creating your batch…' : 'Checking your batch request'}</h3>
-      <p>{pendingRequest?.mode === 'adhoc' ? pendingRequest.listName.trim() || 'Print list' : `Snapshot #${pendingRequest?.targetSnapshotId}`} · {printPaperLabel(pendingRequest)}{(manualPunch || pendingRequest?.registrationMarks === false) && ` · ${printMarksLabel(pendingRequest)}`} · {pendingAction ? 'Generate and print' : 'Generate PDFs only'}.</p>
+      <p>{pendingRequest?.mode === 'adhoc' ? pendingRequest.listName.trim() || 'Print list' : `Snapshot #${pendingRequest?.targetSnapshotId}`} · {printPaperLabel(pendingRequest)}{selectedFoilProfile && ` · ${foilProfileLabel(selectedFoilProfile)}`}{(manualPunch || pendingRequest?.registrationMarks === false) && ` · ${printMarksLabel(pendingRequest)}`} · {pendingAction ? 'Generate and print' : 'Generate PDFs only'}.</p>
       <p>The result is not confirmed. Retry the saved request to recover the same batch without printing twice. Your card list stays locked until it is resolved.</p>
       <button className="btn btn-primary" type="button" disabled={busy} onClick={() => generate(pendingAction)}>Retry same batch request</button>
     </section>}
 
     <div className="print-prepare-view" hidden={activeView !== 'prepare'}>
     {!!activity.activeCount && <div className="print-active-summary"><span>{activity.activeCount} active {activity.activeCount === 1 ? 'batch' : 'batches'} · {STATES[activeJob.state] || activeJob.state}</span><button type="button" className="print-text-button" onClick={() => setActiveView('batches')}>View batches</button></div>}
+    {savedFoilProfile && (editingSource || foilProfileUnavailable) && <section className="print-panel-confirmation" aria-label="Draft artwork color">
+      <p role="status">{foilProfileUnavailable
+        ? serverCapabilities ? `${foilProfileLabel(savedFoilProfile)} is unavailable for this draft.` : `Checking support for ${foilProfileLabel(savedFoilProfile)}…`
+        : `Artwork color is set to ${foilProfileLabel(savedFoilProfile)}.`}</p>
+      <button type="button" className="print-text-button" disabled={busy} onClick={() => change(setFoilProfile, undefined, true)}>Use Standard color</button>
+    </section>}
     <PrintPaperProof userId={user.id} selectedPaper={selectedPaper} selectedMarks={selectedRegistrationMarks} selectedDahleCutGuides={selectedDahleCutGuides} generator={generator} />
     {editingSource && !creationPending && <form className="print-panel-card print-source" onSubmit={preview}>
       <h3>Choose cards</h3>
@@ -701,7 +727,7 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       </div>}
       {options}
       {artSource === 'saved-mpc' && <p className="print-panel-meta">Every face needs saved MPC art. Missing choices stop the batch.</p>}
-      <div className="print-panel-actions"><button className="btn btn-primary" type="submit" disabled={busy || (standalone ? !cardText.trim() || cardText.length > 100000 : !snapshots.length) || (mode === 'changes' && !baseline)}>{busy ? 'Checking artwork…' : 'Review print list'}</button>{plan && <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => setEditingSource(false)}>Back to review</button>}</div>
+      <div className="print-panel-actions"><button className="btn btn-primary" type="submit" disabled={busy || foilProfileUnavailable || (standalone ? !cardText.trim() || cardText.length > 100000 : !snapshots.length) || (mode === 'changes' && !baseline)}>{busy ? 'Checking artwork…' : 'Review print list'}</button>{plan && <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => setEditingSource(false)}>Back to review</button>}</div>
       {standalone && previousDraft?.cardText?.trim() && <details><summary>Previous draft</summary><p>{previousDraft.listName || 'Unnamed print list'} is saved in this browser.</p><button className="btn btn-secondary btn-sm" type="button" disabled={busy} onClick={() => switchDraft(previousDraft)}>Restore previous draft</button></details>}
     </form>}
 
@@ -746,11 +772,14 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
           <button type="button" className="btn btn-secondary" disabled={busy || creationPending || selectedPaper === defaultPaper} onClick={savePaperDefault}>Save as default</button>
           <span className="print-panel-meta">Browser default: {PRINT_PAPER[defaultPaper].label}</span>
         </>}
+        {manualPunch && (availableFoilProfiles.length > 0 || selectedFoilProfile) &&
+          <PrintFoilProfileSelect available={availableFoilProfiles} value={selectedFoilProfile} disabled={busy || creationPending}
+            onChange={value => change(setFoilProfile, value, true)} />}
         {manualPunch
           ? <label className="print-panel-check"><input type="checkbox" checked={selectedDahleCutGuides} disabled={busy || creationPending} onChange={event => change(setDahleCutGuides, event.target.checked, true)} />Include strip cut lines and R3 corner guides</label>
           : <label className="print-panel-check"><input type="checkbox" checked={selectedRegistrationMarks} disabled={busy || creationPending} onChange={event => setRegistrationMarks(event.target.checked)} />Include Cameo registration marks</label>}
       </div>
-      {punchLayout && !creationPending && <p className="print-panel-meta">63 × 88 mm finished cards · {punchLayout.bleedMm} mm bleed per edge · {punchLayout.stripSize} row strips. Print the PDFs at 100% and proof one sheet with your punch. <a href="#guide/dahle-punch">Dahle cutting guide</a></p>}
+      {punchLayout && !creationPending && <p className="print-panel-meta">63 × 88 mm finished cards · {punchLayout.bleedMm} mm bleed per edge · {punchLayout.stripSize} row strips. Print the PDFs at 100% and proof one sheet with your punch.{selectedFoilProfile && ' Check the adjusted front colors on that sheet.'} <a href="#guide/dahle-punch">Dahle cutting guide</a></p>}
       {selectedPaper === CROWNED_A4_PORTRAIT_SIX_PRESET && <p className="print-panel-meta">Prints six cards in the top two rows, leaving the bottom row free of cards.{selectedRegistrationMarks && <> Get the matching Silhouette Studio cut paths in the <a href="#guide/printing">printing guide</a>.</>}</p>}
       {isCrownedPrintPreset(selectedPaper) && <p className="print-panel-meta">Feed Crowned 313 gsm stock through the Epson Rear Paper Feeder at 100% with Thick Paper and Envelopes enabled. Let the finished sheets cure overnight before cutting or sleeving.</p>}
       {paperUnavailable && <p className="print-panel-meta">{paperUnavailable} You can still generate PDFs.</p>}
@@ -760,8 +789,8 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
         {summary?.packets > 0 && (doubleFacedFirst
           ? ` · ${summary.packets} ${summary.packets === 1 ? 'sheet' : 'sheets'} to flip`
           : ` · ${summary.packets} double-sided ${summary.packets === 1 ? 'sheet' : 'sheets'}`)}
-      </strong><span>{reviewedPaper.label} · {reviewedPaper.punchLayout ? printMarksLabel(plan) : selectedRegistrationMarks ? `${reviewedPaper.templateVersion || reviewedPaper.template} cut template` : 'No registration marks'}</span></div><div className="print-panel-actions">
-        {needsReview ? <button type="button" className="btn btn-primary" disabled={busy || creationPending} onClick={preview}>{busy ? 'Checking artwork…' : deckArtConflict ? 'Review latest deck' : 'Review updated list'}</button> : <><button className={`btn ${canQueueSelectedPaper && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{canQueueSelectedPaper && <button className="btn btn-primary" disabled={busy || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
+      </strong><span>{reviewedPaper.label}{reviewedFoilLabel && ` · ${reviewedFoilLabel}`} · {reviewedPaper.punchLayout ? printMarksLabel(plan) : selectedRegistrationMarks ? `${reviewedPaper.templateVersion || reviewedPaper.template} cut template` : 'No registration marks'}</span></div><div className="print-panel-actions">
+        {needsReview ? <button type="button" className="btn btn-primary" disabled={busy || creationPending || foilProfileUnavailable} onClick={preview}>{busy ? 'Checking artwork…' : deckArtConflict ? 'Review latest deck' : 'Review updated list'}</button> : <><button className={`btn ${canQueueSelectedPaper && !paperUnavailable ? 'btn-secondary' : 'btn-primary'}`} disabled={busy || foilProfileUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === true} onClick={() => generate(false)} type="button">Generate PDFs</button>{canQueueSelectedPaper && <button className="btn btn-primary" disabled={busy || foilProfileUnavailable || !!paperUnavailable || !generator?.available || !printReviewReady(plan) || pendingAction === false} onClick={() => generate(true)} type="button">Generate & print</button>}</>}
       </div></div>
     </section>}
 
@@ -787,6 +816,6 @@ export default function PrintPanel({ deck, snapshots = [], standalone = false, i
       <a href="#print-station">Open Printer</a>
     </details>
     {selectedArtCard && <PrintArtPicker card={selectedArtCard} currentScryfallId={selectedArtChoice?.scryfallId || printingOverrides.find(item => item.selectionKey === selectedArtCard.selectionKey)?.scryfallId || selectedArtCard.scryfallId} stagedSaveToDeck={selectedArtChoice?.saveToDeck} onChoose={pickArt} onClose={() => setSelectedArtCard(null)} canSaveToDeck={canSaveArtToDeck} disabled={busy || creationPending || newDeckVersionNeedsReview} />}
-    {regeneratingJob && <PrintRegenerationDialog job={regeneratingJob} deckId={deckId} availablePaper={availablePaper} onClose={() => setRegeneratingJob(null)} onCreated={showRegeneratedJob} />}
+    {regeneratingJob && <PrintRegenerationDialog job={regeneratingJob} deckId={deckId} availablePaper={availablePaper} availableFoilProfiles={availableFoilProfiles} onClose={() => setRegeneratingJob(null)} onCreated={showRegeneratedJob} />}
   </div>;
 }

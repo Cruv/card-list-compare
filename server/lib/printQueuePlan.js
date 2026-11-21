@@ -5,7 +5,7 @@ import { printCardKey, isBasicLand } from '../../src/lib/printSelection.js';
 import { normalizeCardName, normalizedName } from '../../src/lib/cardIdentity.js';
 import { get } from '../db.js';
 import { fetchCardImageUrls } from './scryfallImages.js';
-import { dahleGuideOptions, newPrintPaperSelection, printPaperSelection } from './printPaper.js';
+import { dahleGuideOptions, foilProfileOptions, newPrintPaperSelection, printPaperSelection } from './printPaper.js';
 import { DOUBLE_FACED_FIRST } from './printWorkflow.js';
 
 export const MAX_PRINT_COPIES = 250;
@@ -278,6 +278,7 @@ export function savedPrintArt(savedArtwork, card, face) {
 export async function buildPrintPlan(userId, deckId, options = {}) {
   const { paperSize, printPreset } = newPrintPaperSelection(options.paperSize, options.printPreset);
   const guides = dahleGuideOptions(printPreset, options);
+  const color = foilProfileOptions(printPreset, options);
   const inputs = selectPrintInputs(readPrintInputs(userId, deckId, options), options);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error('Artwork metadata review exceeded 60 seconds. Review the print list again.')), PRINT_METADATA_TIMEOUT_MS);
@@ -338,7 +339,7 @@ export async function buildPrintPlan(userId, deckId, options = {}) {
   if (plan.ordinaryCopies > 0 && plan.doubleFacedCopies > 0) plan.sheetPacking = DOUBLE_FACED_FIRST;
   // Preserve the default Letter representation and previously frozen job inputs.
   const frozen = paperSize === 'letter' && !printPreset
-    ? plan : { ...plan, paperSize, ...(printPreset ? { printPreset } : {}), ...guides };
+    ? plan : { ...plan, paperSize, ...(printPreset ? { printPreset } : {}), ...guides, ...color };
   return { ...frozen, planHash: sha256(JSON.stringify(frozen)) };
 }
 

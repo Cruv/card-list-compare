@@ -2,9 +2,10 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../context/AuthContext';
 import { createAlternatePrintLayout, previewAlternatePrintLayout } from '../lib/api';
-import { PRINT_PAPER, printPaperChoice, printPaperRequest, validDahleGuideOptions } from '../lib/printPaper';
+import { PRINT_PAPER, foilProfileLabel, isDahlePrintPreset, isFoilProfile, printPaperChoice, printPaperRequest, validDahleGuideOptions } from '../lib/printPaper';
 import { printCreationRequestKey, rejectedPrintCreation } from '../lib/printReview';
 import { useModalLayer } from '../lib/useModalLayer';
+import PrintFoilProfileSelect from './PrintFoilProfileSelect';
 import './ConfirmModal.css';
 
 function loadRequest(key) {
@@ -14,7 +15,9 @@ function loadRequest(key) {
       || typeof request.registrationMarks !== 'boolean' || !validDahleGuideOptions(request)) return null;
     const paper = printPaperRequest(printPaperChoice(request), request);
     if (request.paperSize !== paper.paperSize || request.printPreset !== paper.printPreset) return null;
-    return { ...paper, registrationMarks: request.registrationMarks, expectedPlanHash: request.expectedPlanHash, idempotencyKey: request.idempotencyKey };
+    if (request.foilProfile !== undefined && (!isFoilProfile(request.foilProfile) || !isDahlePrintPreset(paper.printPreset))) return null;
+    return { ...paper, registrationMarks: request.registrationMarks, foilProfile: request.foilProfile,
+      expectedPlanHash: request.expectedPlanHash, idempotencyKey: request.idempotencyKey };
   } catch { return null; }
 }
 
@@ -24,7 +27,7 @@ function printIdentity(card) {
 
 const faceLabel = face => face === 'back' ? 'Back' : face === 'front' ? 'Front' : 'Card';
 
-export default function PrintRegenerationDialog({ job, deckId, availablePaper, onClose, onCreated }) {
+export default function PrintRegenerationDialog({ job, deckId, availablePaper, availableFoilProfiles, onClose, onCreated }) {
   const { user, getSession, isCurrentSession } = useAuth();
   const userId = user.id;
   const storageKey = `clc-print-layout-request:${userId}:${deckId ?? 'adhoc'}:${job.id}`;
@@ -33,6 +36,8 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
   const [choice, setChoice] = useState(() => pending ? printPaperChoice(pending) : availablePaper.find(paper => paper !== sourcePaper) ?? availablePaper[0]);
   const [marks, setMarks] = useState(pending?.registrationMarks ?? (job.registrationMarks !== false));
   const [dahleCutGuides, setDahleCutGuides] = useState(pending?.dahleCutGuides === true);
+  const [foilProfile, setFoilProfile] = useState(() => pending ? pending.foilProfile
+    : availableFoilProfiles.includes(job.foilProfile) ? job.foilProfile : undefined);
   const [attempt, setAttempt] = useState(0);
   const [review, setReview] = useState(null);
   const [error, setError] = useState('');
@@ -46,29 +51,33 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
   const dahle = !!punchLayout;
   const registrationMarks = !dahle && marks;
   const selectedDahleCutGuides = dahle && (pending ? pending.dahleCutGuides === true : dahleCutGuides);
-  const options = useMemo(() => ({ ...printPaperRequest(paper, { dahleCutGuides: selectedDahleCutGuides }), registrationMarks }), [paper, selectedDahleCutGuides, registrationMarks]);
+  const selectedFoilProfile = dahle ? (pending ? pending.foilProfile : foilProfile) : undefined;
+  const foilProfileUnavailable = !pending && !!selectedFoilProfile && !availableFoilProfiles.includes(selectedFoilProfile);
+  const options = useMemo(() => ({ ...printPaperRequest(paper, { dahleCutGuides: selectedDahleCutGuides }),
+    registrationMarks, foilProfile: selectedFoilProfile }), [paper, selectedDahleCutGuides, registrationMarks, selectedFoilProfile]);
   const preview = review?.options === options && review.attempt === attempt ? review : null;
   const data = preview?.data;
   const failures = data?.artworkFailures ?? [];
-  const canCreate = pending || (data?.plan?.readyToGenerate && !failures.length && data.generator?.available);
+  const canCreate = pending || (!foilProfileUnavailable && data?.plan?.readyToGenerate && !failures.length && data.generator?.available);
 
   function dismiss() { if (!controllerRef.current) onClose(); }
   useModalLayer(dismiss, { containerRef: dialogRef, initialFocusRef: pending ? undefined : paperRef });
 
   useEffect(() => {
-    if (pending) return;
+    if (pending || foilProfileUnavailable) return;
     const session = getSession(userId);
     if (!session) return;
     const controller = new AbortController();
     const { signal } = controller;
     previewAlternatePrintLayout(deckId, job.id, options, signal, session.token).then(data => {
       if ((data.plan.dahleCutGuides === true) !== selectedDahleCutGuides || data.plan.dahleAlignmentMarks === true) throw new Error('The artwork review did not match this layout. Check the saved batch again.');
+      if (data.plan.foilProfile !== selectedFoilProfile) throw new Error('The reviewed foil color did not match your selection. Check the saved batch again.');
       if (!signal.aborted && isCurrentSession(session)) setReview({ options, attempt, data });
     }).catch(error => {
       if (!signal.aborted && isCurrentSession(session)) setReview({ options, attempt, error: error.message });
     });
     return () => controller.abort();
-  }, [deckId, job.id, options, attempt, pending, userId, getSession, isCurrentSession, selectedDahleCutGuides]);
+  }, [deckId, job.id, options, attempt, pending, userId, getSession, isCurrentSession, selectedDahleCutGuides, selectedFoilProfile, foilProfileUnavailable]);
 
   useEffect(() => () => controllerRef.current?.abort(), []);
 
@@ -112,6 +121,7 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
       const result = await createAlternatePrintLayout(deckId, job.id, request, signal, session.token);
       if (signal.aborted || !isCurrentSession(session)) return;
       if (result.job?.alternateLayoutOf?.id !== job.id) throw new Error('The server did not return the saved alternate batch. Retry this request to retrieve it.');
+      if (result.job.foilProfile !== request.foilProfile) throw new Error('The server did not confirm the saved foil color. Retry the same request to recover the batch.');
       clearRequest(request);
       onCreated(result.job, result.isExisting);
     } catch (failure) {
@@ -139,6 +149,12 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
               <option key={value} value={value}>{PRINT_PAPER[value].optionLabel || PRINT_PAPER[value].label}{value === sourcePaper ? ' (original)' : ''}</option>)}
           </select>
         </label>
+        {dahle && (availableFoilProfiles.length > 0 || selectedFoilProfile) &&
+          <PrintFoilProfileSelect available={availableFoilProfiles} value={selectedFoilProfile} disabled={!!pending}
+            onChange={value => { setFoilProfile(value); setError(''); }} />}
+        {foilProfileUnavailable
+          ? <p role="status">{foilProfileLabel(selectedFoilProfile)} is unavailable for this layout. Select Standard to continue.</p>
+          : selectedFoilProfile && <p className="print-panel-meta">Check the adjusted front colors on a single proof sheet.</p>}
         {dahle
           ? <>
             <label className="print-panel-check"><input type="checkbox" checked={selectedDahleCutGuides} disabled={!!pending} onChange={event => { setDahleCutGuides(event.target.checked); setError(''); }} />Include strip cut lines and R3 corner guides</label>
@@ -148,13 +164,13 @@ export default function PrintRegenerationDialog({ job, deckId, availablePaper, o
           </>
           : <label className="print-panel-check"><input type="checkbox" checked={pending?.registrationMarks ?? marks} disabled={!!pending} onChange={event => { setMarks(event.target.checked); setError(''); }} />Include Cameo registration marks</label>}
         {error && <p className="print-panel-error" role="alert">{error}</p>}
-        {pending && !submitting && <p role="status">Retry the saved request to retrieve or finish the same batch.{pending.dahleAlignmentMarks && ' This request uses strip index marks.'}</p>}
-        {!pending && !preview && <p role="status">Checking the original artwork and layout…</p>}
-        {!pending && preview?.error && <div className="print-panel-error" role="alert">
+        {pending && !submitting && <p role="status">Retry the saved request to retrieve or finish the same batch.{pending.foilProfile && ` Artwork color is set to ${foilProfileLabel(pending.foilProfile)}.`}{pending.dahleAlignmentMarks && ' This request uses strip index marks.'}</p>}
+        {!pending && !foilProfileUnavailable && !preview && <p role="status">Checking the original artwork and layout…</p>}
+        {!pending && !foilProfileUnavailable && preview?.error && <div className="print-panel-error" role="alert">
           <p>{preview.error}</p>
           <button className="btn btn-secondary btn-sm" type="button" onClick={() => setAttempt(value => value + 1)}>Check saved batch again</button>
         </div>}
-        {!pending && data && <>
+        {!pending && !foilProfileUnavailable && data && <>
           <dl className="print-regeneration-counts" aria-label="New layout counts">
             <div><dt>Cards</dt><dd>{data.plan.totalCopies}</dd></div>
             <div><dt>Front sheets</dt><dd>{data.layout.frontSheets}</dd></div>
