@@ -86,16 +86,18 @@ so it fits inside the printable area. Use the remaining guides to check the
 
 Each occupied front gets four lime arcs with dark outlines, one just outside
 each corner of the 63 × 88 mm cut. With the lever raised, frame one card in the
-opening and look straight down. Slide the strip until all four lime guides hide
-under the die. Lime visible through the opening gives you an edge to adjust.
+opening and look straight down. Nudge the strip in opposite directions until
+lime peeks through, then center it between those positions so all four guides
+hide under the die. Use the strip and the card frame to keep the feed square.
 Punch guides appear on the face you look at while aligning. Lime strip lines
 appear on both faces.
 
-Each 50° arc shares the center of the finished R3 corner and has a 3.36 mm radius.
+Each 40° arc shares the center of the finished R3 corner and has a 3.76 mm radius.
 The 0.40 mm lime stroke has a 0.52 mm dark outline. On the nominal geometry,
-the lime starts 0.16 mm outside the cut and the dark outline starts 0.10 mm
-outside it. This gives the alignment cue a small clearance. How soon lime peeks
-through on your die depends on its opening, viewing angle and print scale.
+the lime starts 0.56 mm outside the cut and the dark outline starts 0.50 mm
+outside it. The shorter arc also stays clear of the strip edges. How soon lime
+peeks through on your die depends on its opening, viewing angle and print scale.
+Generate a fresh marked proof or regenerate a batch to use this placement.
 
 ## One proof before a batch
 

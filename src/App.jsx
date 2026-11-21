@@ -31,9 +31,9 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.69.0';
+const APP_VERSION = '2.69.1';
 const WHATS_NEW = [
-  'Lift front artwork colors for Rainbow foil and Surge foil in Dahle PDFs',
+  'Give Dahle lime corner guides more clearance around the punch',
 ];
 
 function getResetToken() {

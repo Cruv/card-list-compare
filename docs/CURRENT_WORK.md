@@ -1,5 +1,11 @@
 # Current work checkpoint
 
+## Dahle R3 corner clearance
+
+- v2.69.1 starts from `f40c6b3`. A4 and Letter move the front lime arcs 0.40 mm outward and shorten their span from 50° to 40°. The nominal R3 cut clears the lime by 0.56 mm and the dark outline by 0.50 mm.
+- The nominal aperture model hides all guide ink through 0.45 mm of translation and shows lime in all sampled directions at 0.85 mm. Full strokes survive a modeled 0.75 mm inward trim at each strip edge. A new marked proof on the actual die is pending.
+- On November 21, 2026, 1,583 JavaScript tests and 32 PDF worker tests passed. The production build, both dependency audits and the deployment contract passed. Lint reported five existing warnings. Both disposable Chrome review suites passed. Digital comparisons against `f40c6b3` found only front corner path changes in marked PDFs across both papers. Plain and legacy-mark PDFs matched byte for byte.
+
 ## Dahle foil color
 
 - v2.69.0 starts from `f9d2aaf`. Both Dahle paper sizes offer Rainbow foil and Surge foil in new and regenerated PDFs. The selected color adjustment is tied to the reviewed request and printed on the sheet. It applies to front artwork at the existing trim and bleed dimensions.

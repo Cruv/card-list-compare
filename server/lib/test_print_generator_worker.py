@@ -175,13 +175,13 @@ class DahlePunchTests(unittest.TestCase):
         # The stroke is centered in the 3 mm gutter between finished cards.
         self.assertGreater(self.bleed - self.mm_operators(page, b"w")[1][0] / 2, 1.25)
 
-    def check_cut_guides(self, page, occupied_cells, *, proof_sheet=False):
+    def check_cut_guides(self, page, occupied_cells, *, proof_sheet=False, letter=False):
         count = 4 * len(occupied_cells)
         starts = self.mm_operators(page, b"m")[: -3 if proof_sheet else None]
         ends = self.mm_operators(page, b"l")[: -3 if proof_sheet else None]
         curves = self.mm_operators(page, b"c")
-        rows = self.row_cuts
-        strip_starts, strip_ends = ([(x, y) for y in rows] for x in (3.2, 206.8))
+        rows = (275.98, 185.2, 94.2, 3.42) if letter else self.row_cuts
+        strip_starts, strip_ends = ([(x, y) for y in rows] for x in (3.2, 212.7 if letter else 206.8))
         line_starts = strip_starts * 2
         self.assertEqual(starts[:len(line_starts)], line_starts)
         self.assertEqual(ends, strip_ends * 2)
@@ -215,42 +215,50 @@ class DahlePunchTests(unittest.TestCase):
         corners = [(x, y, horizontal, vertical) for left, bottom in occupied_cells
                    for x, horizontal in ((left + corner_inset, -1), (left + self.cell_width - corner_inset, 1))
                    for y, vertical in ((bottom + corner_inset, -1), (bottom + self.cell_height - corner_inset, 1))]
-        lime_points = []
+        outline_points, lime_points = [], []
         for arc_index, ((x, y, horizontal, vertical), start, curve) in enumerate(zip(corners, arc_starts, curves)):
             vectors = [((px - x) * horizontal, (py - y) * vertical)
                        for px, py in (start, curve[:2], curve[2:4], curve[4:])]
-            self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 20, places=2)
-            self.assertAlmostEqual(math.degrees(math.atan2(vectors[-1][1], vectors[-1][0])), 70, places=2)
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[0][1], vectors[0][0])), 25, places=2)
+            self.assertAlmostEqual(math.degrees(math.atan2(vectors[-1][1], vectors[-1][0])), 65, places=2)
             for index in range(21):
                 t = index / 20
                 weights = ((1-t)**3, 3*t*(1-t)**2, 3*t*t*(1-t), t**3)
                 dx, dy = (sum(weight * vector[axis] for weight, vector in zip(weights, vectors)) for axis in range(2))
                 radius = math.hypot(dx, dy)
-                self.assertAlmostEqual(radius - arc_half_width - 3, 0.10, places=3)
-                self.assertAlmostEqual(radius - lime_half_width - 3, 0.16, places=3)
-                self.assertLess((radius + arc_half_width) * max(dx, dy) / radius, corner_inset - strip_half_width)
-                # Test just inside the lime stroke, away from the antialiased edge.
-                lime_scale = (radius - lime_half_width + 0.03) / radius
-                self.assertGreater(corner_inset - dy * lime_scale, 1.25)  # Both ends survive the modeled strip trim.
+                self.assertAlmostEqual(radius - arc_half_width - 3, 0.50, places=3)
+                self.assertAlmostEqual(radius - lime_half_width - 3, 0.56, places=3)
+                # A bound for the whole stroke, including both butt ends, along either axis.
+                self.assertGreater(corner_inset - max(dx, dy) - arc_half_width, 0.75)
                 if arc_index < 4:
-                    lime_points.append((horizontal * (28.5 + dx * lime_scale), vertical * (41 + dy * lime_scale)))
-        self.check_punch_window(lime_points)
+                    # For visible peeks, sample just inside the lime stroke beyond the antialiased edge.
+                    for points, inward in ((outline_points, arc_half_width), (lime_points, lime_half_width - 0.03)):
+                        scale = (radius - inward) / radius
+                        points.append((horizontal * (28.5 + dx * scale), vertical * (41 + dy * scale)))
+        self.check_punch_window(outline_points, lime_points)
 
-    def check_punch_window(self, lime_points):
-        def distance(x, y):
-            # Rounded 63 × 88 mm window centered at the origin, R3 at each corner.
-            x, y = abs(x) - 28.5, abs(y) - 41
-            return math.hypot(max(x, 0), max(y, 0)) + min(max(x, y), 0) - 3
+    def check_punch_window(self, outline_points, lime_points):
+        def clearance(points, dx=0, dy=0, angle=0, *, width=63, height=88, radius=3):
+            cos, sin = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+            distances = []
+            for px, py in points:
+                x, y = px - dx, py - dy
+                x, y = abs(x * cos + y * sin) - width / 2 + radius, abs(-x * sin + y * cos) - height / 2 + radius
+                distances.append(math.hypot(max(x, 0), max(y, 0)) + min(max(x, y), 0) - radius)
+            return min(distances)
 
-        self.assertGreater(min(distance(x, y) for x, y in lime_points), 0)
+        self.assertAlmostEqual(clearance(outline_points), 0.50, places=3)
         for degrees in range(0, 360, 5):
             angle = math.radians(degrees)
-            dx, dy = 0.35 * math.cos(angle), 0.35 * math.sin(angle)
-            self.assertLess(min(distance(x - dx, y - dy) for x, y in lime_points), -0.1)
+            x, y = math.cos(angle), math.sin(angle)
+            self.assertGreater(clearance(outline_points, 0.45 * x, 0.45 * y), 0.045)
+            self.assertLess(clearance(lime_points, 0.85 * x, 0.85 * y), -0.15)
+        # Model a slightly wider/longer opening and a smaller corner radius together.
+        self.assertGreater(clearance(outline_points, 0.2, 0.2, width=63.2, height=88.2, radius=2.85), 0.01)
+        # Modest skew can combine with an otherwise tolerated shift to show the guide.
         for degrees in (-0.75, 0.75):
-            angle = math.radians(degrees)
-            cos, sin = math.cos(angle), math.sin(angle)
-            self.assertLess(min(distance(x * cos + y * sin, -x * sin + y * cos) for x, y in lime_points), 0)
+            self.assertGreater(clearance(outline_points, angle=degrees), 0.20)
+            self.assertLess(clearance(lime_points, 0.45, angle=degrees), -0.035)
 
     def check_image(self, page, slot, color):
         image = page.images[f"/Card{slot + 1}"].image
@@ -478,7 +486,6 @@ class DahlePunchTests(unittest.TestCase):
         merge({"inputs": [str(full), str(partial)], "output": str(output), "pageCount": 4, **self.letter_paper})
         with PdfReader(output, strict=True) as reader:
             self.assertEqual(reader.metadata.title, "CLC US Letter 3x3 - Dahle 550 + 63x88 R3 Punch")
-            guide_paths = {op: self.mm_operators(reader.pages[0], op)[:8] for op in (b"m", b"l")}
             for index, (page, occupied) in enumerate(zip(reader.pages, (9, 9, 4, 4))):
                 is_back = index % 2 == 1
                 self.check_letter_margin_labels(page, cut_guides=True)
@@ -488,16 +495,13 @@ class DahlePunchTests(unittest.TestCase):
                     self.assertIn(f"Prepared by: {requester}", page.extract_text())
                     self.assertIn(f"Batch: {batch}", page.extract_text())
                     self.assertIn(label, page.extract_text())
-                for op, expected in guide_paths.items():
-                    self.assertEqual(self.mm_operators(page, op)[:8], expected)
-                self.assertEqual(self.mm_operators(page, b"l"), guide_paths[b"l"])
                 front = self.letter_cells[:occupied]
+                self.check_cut_guides(page, [] if is_back else front, letter=True)
                 cells = [(215.9 - self.cell_width - x, y) for x, y in front] if is_back else front
                 self.assertEqual(self.mm_operators(page, b"re"), [(round(x, 4), y, 66, 91) for x, y in cells])
                 self.assertEqual(self.mm_operators(page, b"cm"),
                                  [(66.2, 0, 0, 91.2, round(x - 0.1, 4), round(y - 0.1, 4)) for x, y in cells])
                 self.assertEqual(len(page.images), occupied)
-                self.assertEqual(len(self.mm_operators(page, b"c")), 0 if is_back else 8 * occupied)
                 for slot in range(occupied):
                     self.check_image(page, slot, (self.back_colors if is_back else self.front_colors)[slot])
 
@@ -534,17 +538,13 @@ class DahlePunchTests(unittest.TestCase):
                         self.assertGreater(self.letter_row_cuts[-1] - 0.36 / 2, 3)
                         self.assertLess(self.letter_row_cuts[0] + 0.36 / 2, 276.4)
                         continue
+                    self.check_cut_guides(page, self.letter_cells, proof_sheet=True, letter=True)
                     widths = self.mm_operators(page, b"w")
-                    self.assertEqual(widths[:-1], [(0.44,), (0.28,), (0.52,), (0.40,)])
-                    self.assertEqual([tuple(values) for values, op in page.get_contents().operations if op == b"J"], [(0,)] * 2)
-                    line_y = (275.98, 185.2, 94.2, 3.42) * 2
-                    self.assertEqual(starts[:8], [(3.2, y) for y in line_y])
-                    self.assertEqual(ends[:-3], [(212.7, y) for y in line_y])
                     half_outer_width = widths[0][0] / 2
-                    self.assertAlmostEqual(line_y[0] + half_outer_width, self.letter_row_cuts[0])
-                    self.assertAlmostEqual(line_y[3] - half_outer_width, self.letter_row_cuts[-1])
-                    self.assertGreater(line_y[3] - half_outer_width, 3)
-                    self.assertLess(line_y[0] + half_outer_width, 276.4)
+                    self.assertAlmostEqual(starts[0][1] + half_outer_width, self.letter_row_cuts[0])
+                    self.assertAlmostEqual(starts[3][1] - half_outer_width, self.letter_row_cuts[-1])
+                    self.assertGreater(starts[3][1] - half_outer_width, 3)
+                    self.assertLess(starts[0][1] + half_outer_width, 276.4)
 
     def test_dahle_letter_and_a4_reject_mismatched_paper_sizes(self):
         for paper_size, preset in (("a4", DAHLE_LETTER_PUNCH), ("letter", DAHLE_A4_PUNCH)):

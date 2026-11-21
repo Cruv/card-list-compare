@@ -19,8 +19,8 @@
   "stripGuideInset": 3.2,
   "cornerGuides": {
     "trimRadius": 3,
-    "offset": 0.36,
-    "angles": [20, 70],
+    "offset": 0.76,
+    "angles": [25, 65],
     "outlineWidth": 0.52,
     "strokeWidth": 0.4
   },

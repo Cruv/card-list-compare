@@ -99,9 +99,10 @@ the option on for Cameo Print & Cut.
 
 Both Dahle layouts offer **Include strip cut lines and R3 corner guides**, off by
 default, in Prepare, alternate layout review, and the Dahle one-sheet proof. Use
-the four thin lime guides to cut 91 mm strips at the full sheet width. With the front
-of a card framed in the R3 die, slide it until all four lime arcs disappear under the
-metal. Check this cue on a proof with your die. [Marked proof instructions](DAHLE_A4_PUNCH.md#one-proof-before-a-batch)
+the four thin lime guides to cut 91 mm strips at the full sheet width. Frame the front
+of a card in the R3 die and nudge the strip in both directions until lime peeks through.
+Center it between those positions with all four arcs hidden. Check this cue on a proof
+with your die. [Marked proof instructions](DAHLE_A4_PUNCH.md#one-proof-before-a-batch)
 
 For foil stock, choose **Rainbow foil** or **Surge foil** under **Artwork color**
 in a Dahle review. The choice adjusts front artwork and is printed on the batch
