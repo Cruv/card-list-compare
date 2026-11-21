@@ -4,8 +4,8 @@ Status: CLC includes comparison-to-print handoff, editable artwork review, PDF g
 station API and a native Mac companion. The owner accepted the Mac Adobe color test and
 corrected companion sheet.
 
-US Letter batches use `letter-standard-v6`. New A4 batches use Crowned A4 Portrait 3×3,
-Portrait 3×2 or the [Dahle 550 manual strip layout](DAHLE_A4_PUNCH.md).
+Standard US Letter batches use `letter-standard-v6`. New A4 batches use Crowned A4 Portrait 3×3,
+Portrait 3×2 or the [Dahle 550 manual strip layout](DAHLE_A4_PUNCH.md), which is also available in US Letter.
 All three align each card’s short edge with the sheet’s 210 mm edge and
 its long edge with the 297 mm edge. The [October 15 owner report](HOUSEHOLD_PRINT_RECIPE.md)
 accepts the working Letter printing path. Cutting and manual duplex checks apply to
@@ -30,7 +30,8 @@ the comparison mode are frozen privately with the job; public summaries expose h
 Open **Print → New print list** in the navigation to create an ad-hoc batch. Give it a name, then
 paste cards, upload a text/CSV list, or import a supported deck URL. Importing here copies
 the list without tracking the deck. Quantities and exact set/collector metadata use the
-same card-list format as Compare. Include the sideboard when wanted, review the Scryfall
+same card-list format as Compare. Paste in the text box and keep editing, or choose
+**Review import** to check how CLC reads the text. Include the sideboard when wanted, review the Scryfall
 front/back artwork, then **Generate PDFs** or **Generate & print**.
 
 The draft is saved per signed-in account in this browser. Prepared batches are kept in
@@ -76,9 +77,9 @@ and unsupported meld layouts block generation before a job is created. Then choo
 **Generate PDFs** or, for an authorized household
 account, **Generate & print**. Ready PDFs can also be queued later.
 
-In print review, choose **US Letter**, **Crowned A4 · Portrait 3×3**,
-**Crowned A4 · Portrait 3×2** or **A4 3×3 · Dahle 550 + 63×88 R3 Punch** and save
-a default for your account in this browser.
+In print review, choose standard **US Letter**, one of the two **Crowned A4** portrait
+presets, or the **Dahle 550 + 63×88 R3 Punch** preset in A4 or US Letter. You can
+save a default for your account in this browser.
 The batch keeps that choice through generation, printing, saved backs and interrupted-pass
 recovery. Saved standard A4 and Crowned A4 Landscape batches remain available with their
 matching PDFs and station recipes. Older batches without a saved paper size use US Letter.
@@ -96,9 +97,9 @@ Clear **Include Cameo registration marks** for hand cutting or a die cutter. The
 fronts and backs keep the same card positions, paper size, and thin sheet labels. Leave
 the option on for Cameo Print & Cut.
 
-The Dahle layout offers **Include strip cut lines and R3 corner guides**, off by
+Both Dahle layouts offer **Include strip cut lines and R3 corner guides**, off by
 default, in Prepare, alternate layout review, and the Dahle one-sheet proof. Use
-the four cyan horizontal lines to cut 210 × 91 mm strips on the Dahle. With the front
+the four bold lime guides to cut 91 mm strips at the full sheet width. With the front
 of a card framed in the R3 die, slide it until all four lime arcs disappear under the
 metal. Check this cue on a proof with your die. [Marked proof instructions](DAHLE_A4_PUNCH.md#one-proof-before-a-batch)
 
@@ -311,12 +312,12 @@ registration and manual refeed checks.
 
 ### Printed sheet identification
 
-Every newly generated page carries **Queued by**, the saved **Batch** label, its exact
-sheet/packet identity and **FRONT** or **BACK** in the top margin above the cards,
-including when registration marks are turned off. Fronts with matching backs also say
-**REFEED FOR BACK** there. Longer lines use a smaller font to fit. Every label stays
-within the area defined by the registration marks. These values are frozen when the job
-is created, so saved backs still match their requester and labeled front sheets later.
+Every newly generated page carries the requester, the saved **Batch** label, its exact
+sheet/packet identity and **FRONT** or **BACK**. Letter Dahle uses a side margin.
+Other recipes place these labels in the top margin, including when registration marks
+are off. Station recipes add **REFEED FOR BACK** to fronts with matching backs.
+Longer lines use a smaller font to fit. The job freezes these values, so saved backs
+still match their requester and labeled front sheets later.
 
 The historical Windows command was:
 

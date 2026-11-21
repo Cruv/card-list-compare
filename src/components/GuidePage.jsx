@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DAHLE_A4_LAYOUT } from '../lib/printPaper';
+import { DAHLE_A4_LAYOUT, DAHLE_LETTER_LAYOUT } from '../lib/printPaper';
 import './GuidePage.css';
 
 const SECTIONS = [
@@ -92,7 +92,7 @@ function Printing() {
     <ol className="guide-steps">
       <li><strong>Choose cards.</strong> Paste, upload or import a list. For a comparison, choose new copies or the full After list. For a tracked deck, choose the whole version or Before/After versions. Basic lands start excluded; sideboard inclusion and replacing copies for printing changes start off.</li>
       <li><strong>Review &amp; print.</strong> Choose Review print list. Check every quantity, printing and front/back preview. Open <strong>Edit selection</strong> to add extra cards, change options or restore removed suggestions. Use <strong>Pick art</strong> on any cards you want to change, then choose <strong>Review updated list</strong> once to apply them together. <strong>Also save to this deck</strong> saves eligible choices to the tracked deck. Clear the checkbox for a batch-only choice.</li>
-      <li><strong>Paper and printing.</strong> Choose US Letter, a Crowned A4 portrait layout or <a href="#guide/dahle-punch">the Dahle strip layout</a> in the print review. <strong>Save as default</strong> remembers the choice in this browser. Each batch keeps its preset for fronts and backs. Use <strong>Generate PDFs</strong> to download or <strong>Generate &amp; print</strong> when the Mac is set up for that paper and layout. Follow the batch under Batches or on Printer.</li>
+      <li><strong>Paper and printing.</strong> Choose US Letter, a Crowned A4 portrait layout or <a href="#guide/dahle-punch">a Dahle strip layout</a> in the print review. <strong>Save as default</strong> remembers the choice in this browser. Each batch keeps its preset for fronts and backs. Use <strong>Generate PDFs</strong> to download or <strong>Generate &amp; print</strong> when the Mac is set up for that paper and layout. Follow the batch under Batches or on Printer.</li>
     </ol>
     <p>Artwork can use exact Scryfall printings or saved MPC artwork. Choose <strong>Save art for home PDFs</strong> in MPCFill artwork before selecting it as the source. Missing or unusable required faces must be resolved before generation. A double-faced card needs both selected faces.</p>
     <p><strong>Card entries</strong> and <strong>physical copies</strong> are different: one entry for 10 Plains represents 10 copies. Review shows the source counts, copies already covered by a comparison baseline, excluded basic lands and manual removals so you can explain the final total.</p>
@@ -142,20 +142,20 @@ function DahlePunch() {
   const { bleedMm, stripSize, stripWidthMm, topMarginMm } = DAHLE_A4_LAYOUT;
   return <div className="guide-section">
     <h2>Cut with the Dahle 550 and R3 punch</h2>
-    <p>In the print review, choose <strong>A4 3×3 · Dahle 550 + 63×88 R3 Punch</strong> under <strong>Paper and layout</strong>. Choose <strong>Save as default</strong> to reuse it in this browser. New PDFs have nine 63 × 88 mm cards with {bleedMm} mm bleed on every edge, {2 * bleedMm} mm between finished cards, and three {stripSize} row strips.</p>
+    <p>Under <strong>Paper and layout</strong>, choose the <strong>A4 3×3</strong> or <strong>US Letter 3×3</strong> Dahle preset. Both fit nine 63 × 88 mm cards with {bleedMm} mm bleed on every edge and {2 * bleedMm} mm between finished cards. Each sheet cuts into three row strips, {stripSize} on A4 or {DAHLE_LETTER_LAYOUT.stripSize} on Letter.</p>
     <h3>Print at 100%</h3>
-    <p>Download the PDFs and print on A4 using <strong>Actual Size (100%)</strong> in bordered mode. Turn off Fit to Page and borderless enlargement. For double-faced cards, use a portrait long-edge flip and finish both sides before trimming.</p>
+    <p>Download the PDFs and print on the selected paper size using <strong>Actual Size (100%)</strong> in bordered mode. Turn off Fit to Page and borderless enlargement. For double-faced cards, use a portrait long-edge flip and finish both sides before trimming.</p>
     <h3>Trim four times</h3>
     <p>Earlier Dahle PDFs may have 90 mm strips. Measure between the cut lines or row ticks on your PDF to set the stop.</p>
     <ol className="guide-steps">
-      <li>Place the sheet face up, with the top of the printed cards toward the blade and a factory long edge against the Dahle’s perpendicular scale bar. Leave the stop clear. Align the first horizontal guide or pair of ticks, {topMarginMm} mm below the top on a new PDF, with the blade. Keep the sheet on the bed and discard the narrow offcut.</li>
+      <li>Place the sheet face up, with the top of the printed cards toward the blade and a factory long edge against the Dahle’s perpendicular scale bar. Leave the stop clear. Align the first cut with the blade. It is {topMarginMm} mm from the top on new A4 PDFs and {DAHLE_LETTER_LAYOUT.topMarginMm} mm on Letter. On marked Letter sheets, cut along the edge of each outer lime guide closest to the edge of the paper. Cut through the center of the two middle guides.</li>
       <li>Rotate the sheet 180° in its plane. For new PDFs, set the factory stop to <strong>{stripWidthMm} mm from the blade</strong>. Put the fresh short edge against the stop, with a factory long edge square against the scale bar. Cut and keep the row between the stop and the blade.</li>
       <li>Move the remaining sheet back onto the bed without rotating it. Put its new cut edge against the same stop. Repeat twice, keeping the next two rows. Discard the final offcut.</li>
       <li>Turn each row strip 90° so the short end enters the punch first and the cards advance single file. Keep both end margins for handling. Center each card in the die window before pulling the lever.</li>
     </ol>
     <h3>Proof one sheet with your equipment</h3>
     <p>Before the first wider batch, check that all four strip boundaries printed and are spaced {stripWidthMm} mm apart. Trim one strip and dry-feed its full length through the punch, then try all three positions using your intended stock. Check the centering, corners and handling of the last card. Check both faces if you print duplex.</p>
-    <p>Choose <strong>Include strip cut lines and R3 corner guides</strong> in the Dahle review or one-sheet proof. Measure the 50 mm scale line, then trim the strips along the cyan horizontal guides. Feed a strip front side up with the lever raised. Look straight down at the framed card. Nudge the strip to see the lime peek into the opening, then line up the card until all four guides disappear under the die. On the first cut, check that all guide ink stayed on the scrap and the card is centered on both faces.</p>
+    <p>Choose <strong>Include strip cut lines and R3 corner guides</strong> in the Dahle review or one-sheet proof. Measure the 50 mm scale line before trimming. On Letter the scale runs down the side. Feed a strip front side up with the lever raised. Look straight down at the framed card. Nudge the strip to see the lime peek into the opening, then line up the card until all four guides disappear under the die. On the first cut, check that all guide ink stayed on the scrap and the card is centered on both faces.</p>
   </div>;
 }
 

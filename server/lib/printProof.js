@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { DAHLE_A4_PRESET, dahleGuideOptions } from './printPaper.js';
+import { dahleGuideOptions, isDahlePrintPreset } from './printPaper.js';
 
 const proofError = (message, status) => Object.assign(new Error(message), { status });
 const maxProofBytes = 8 * 1024 * 1024;
@@ -22,7 +22,7 @@ export function createPrintProofs(runtime, run, recipes) {
     const guides = dahleGuideOptions(recipe.printPreset, { dahleAlignmentMarks: alignmentMarks === 'on', dahleCutGuides: cutGuides === 'on' });
     const version = runtime.getStatus();
     if (!version.revision || !version.adapterHash) throw proofError('The PDF generator is still getting ready', 503);
-    const dahle = recipe.printPreset === DAHLE_A4_PRESET;
+    const dahle = isDahlePrintPreset(recipe.printPreset);
     const settings = { recipeId: recipe.id, paper: recipe.paperSize, preset: recipe.printPreset ?? null,
       template: recipe.template, registrationMarks: !dahle && marks === 'on', crop: recipe.crop ?? null,
       bleed: dahle ? { mode: 'trim', millimeters: recipe.bleedMm } : { mode: 'layout-gutters' },

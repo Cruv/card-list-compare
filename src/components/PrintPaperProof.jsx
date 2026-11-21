@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { downloadPrintProof, getPrintProof } from '../lib/api';
-import { DAHLE_A4_LAYOUT, DAHLE_A4_PRESET, PRINT_PAPER, printMarksLabel } from '../lib/printPaper';
+import { DAHLE_LETTER_PRESET, PRINT_PAPER, printMarksLabel } from '../lib/printPaper';
 
 const confirmationKey = (userId, proof) => `clc-paper-proof:${userId}:${proof.key}`;
 
@@ -22,7 +22,8 @@ export default function PrintPaperProof({ userId, selectedPaper, selectedMarks, 
   const [download, setDownload] = useState(null);
   const [confirmation, setConfirmation] = useState(null);
   const paper = paperOverride ?? selectedPaper;
-  const dahle = paper === DAHLE_A4_PRESET;
+  const punchLayout = PRINT_PAPER[paper].punchLayout;
+  const dahle = !!punchLayout;
   const marks = !dahle && (marksOverride ?? (paper === selectedPaper ? selectedMarks : true));
   const dahleCutGuides = dahle && (dahleCutGuidesOverride ?? (paper === selectedPaper && selectedDahleCutGuides));
   const runtimeRevision = generator?.revision;
@@ -31,9 +32,9 @@ export default function PrintPaperProof({ userId, selectedPaper, selectedMarks, 
   const selection = `${paper}:${marks}:${dahleCutGuides}:${available}:${runtimeRevision}:${adapterHash}:${request}`;
   const current = load?.selection === selection ? load : null;
   const proof = current?.proof;
-  const dahleStrips = dahle && proof
-    ? `${DAHLE_A4_LAYOUT.stripLengthMm} × ${proof.trim[1] + 2 * proof.bleed.millimeters} mm strips`
-    : 'the strips';
+  const dahleStrips = dahle
+    ? `${proof ? `${punchLayout.stripLengthMm} × ${proof.trim[1] + 2 * proof.bleed.millimeters} mm` : punchLayout.stripSize} strips`
+    : '';
   const saved = confirmation?.key === proof?.key ? confirmation?.checked : savedProofCheck(userId, proof);
   const downloading = download?.pending === true;
 
@@ -80,9 +81,10 @@ export default function PrintPaperProof({ userId, selectedPaper, selectedMarks, 
       </div>
       <ol>
         <li>Load the selected stock and print one sheet at Actual Size (100%). Measure the 50 mm line before cutting.</li>
-        <li>{dahle ? `Cut ${dahleStrips} on the Dahle using the ${dahleCutGuides ? 'horizontal cyan cut lines' : 'row ticks'}.`
+        <li>{dahle ? `Cut ${dahleStrips} on the Dahle using the ${dahleCutGuides ? 'horizontal lime cut lines' : 'row ticks'}.`
           : marks ? 'Use the matching Cameo cut template and check that all registration marks are readable.'
             : 'Use the cut layout as a guide for manual trimming.'}</li>
+        {paper === DAHLE_LETTER_PRESET && <li>Make sure all four cut guides printed.{dahleCutGuides && ' Cut along the edge of each outer lime guide closest to the edge of the paper. Cut through the center of the two middle guides.'}</li>}
         {dahle && <li>Feed each strip into the 63 × 88 mm R3 punch.{dahleCutGuides && ' With a card framed in the opening, nudge the strip until you see the lime guides peek through. Center the card until all four disappear under the die.'}</li>}
         <li>Measure a cut card at 63 × 88 mm. Check that its dark frame is complete and that no white slivers show along the cut edges.</li>
         {dahleCutGuides && <li>Check that the guide ink stayed on the scrap.</li>}
