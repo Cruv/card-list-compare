@@ -159,7 +159,7 @@ export function createPrintGenerator(options = {}) {
       const guides = dahleGuideOptions(printPreset, { dahleAlignmentMarks, dahleCutGuides });
       const paper = { paperSize, ...(printPreset ? { printPreset } : {}) };
       const plan = planPrintSheets(cards, recipe, sheetPacking);
-      const printedIdentification = printPageIdentification({ requesterName, batchName });
+      const identification = printPageIdentification({ requesterName, batchName });
       if (!path.isAbsolute(outputDir || '')) throw new Error('PDF output directory must be absolute');
       if (typeof batchLabel !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9 _-]{0,23}$/.test(batchLabel)) {
         throw new Error('Batch label must contain 1–24 printable letters, numbers, spaces, hyphens or underscores');
@@ -175,6 +175,10 @@ export function createPrintGenerator(options = {}) {
       const published = [];
       try {
         await proofs.waitForPending();
+        const startedAt = new Date();
+        const month = String(startedAt.getMonth() + 1).padStart(2, '0');
+        const day = String(startedAt.getDate()).padStart(2, '0');
+        const printedIdentification = { ...identification, generatedDate: `${startedAt.getFullYear()}-${month}-${day}` };
         await fs.mkdir(working, { recursive: true });
         // Never replace completed artifacts during an accidental duplicate invocation.
         for (const group of plan) {

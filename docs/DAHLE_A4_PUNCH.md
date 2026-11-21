@@ -141,8 +141,10 @@ corner guides. Batch labels stay in the margins, and Cameo registration marks ar
 
 CLC maps the source’s finished artwork to the 63 × 88 mm trim area. Scryfall
 sources use the full card image with their small raster aspect tolerances. For
-art without bleed, CLC mirrors nearby pixels outside the trim and skips the
-outermost row or column in that reflection to avoid doubling a dark edge line.
+Scryfall scans that need bleed, CLC can repair a narrow dark scan edge using
+nearby colors before reflecting pixels into the bleed. The repair targets the
+outermost opaque pixels on a matching edge and preserves the card's printed scale.
+The reflection skips the outermost row or column.
 For saved MPC art, CLC
 recognizes supported finished-only and standard ⅛-inch bleed proportions, clips
 surplus source bleed to 1.5 mm, and rejects ambiguous proportions. The trim scale

@@ -273,7 +273,8 @@ describe('PDF adapter publication', () => {
     const recipe = presets.find(preset => preset.printPreset === printPreset) || PRINT_RECIPES[paperSize ?? 'letter'];
     expect(result.recipe).toBe(recipe);
     expect([...requests, ...merges].every(request => request.paperSize === recipe.paperSize && request.printPreset === printPreset)).toBe(true);
-    expect(result.printedIdentification).toEqual({ version: 1, requesterName: 'Denny', batchName: 'Friday proxies' });
+    expect(result.printedIdentification).toEqual({ version: 1, requesterName: 'Denny', batchName: 'Friday proxies',
+      generatedDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
     const packetCount = Math.ceil(count / recipe.cardsPerSheet);
     expect(result.artifacts).toHaveLength(packetCount + 1);
     expect(result.artifacts[0]).toMatchObject({ id: 'fronts', kind: 'ordinary', pageCount: 1, cardCount: 1, label: 'CLC 1234abcd fronts' });

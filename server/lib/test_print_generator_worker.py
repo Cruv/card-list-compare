@@ -1,5 +1,6 @@
 """Margin-label regressions; run with the same pypdf/Pillow runtime as the worker."""
 import hashlib
+from io import BytesIO
 import json
 import math
 from pathlib import Path
@@ -11,7 +12,8 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, Num
 from PIL import Image, ImageDraw
 
 from printGeneratorWorker import (CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, DAHLE_LETTER_PUNCH, POINTS_PER_MM,
-                                  chunk, dahle_face, identify_pages, merge, mirror_artwork_edges, proof, validate_pdf)
+                                  chunk, dahle_face, identify_pages, merge, mirror_artwork_edges, proof,
+                                  repair_scan_fringe, validate_pdf)
 
 
 class DahlePunchTests(unittest.TestCase):
@@ -44,16 +46,19 @@ class DahlePunchTests(unittest.TestCase):
             self.cards.append(card)
 
     def render(self, name, cards, *, double_faced=False, mixed=False, alignment_marks=None, cut_guides=None, paper=None,
-               requester="Fixture", batch="Dahle test", page_label="CLC full or partial"):
+               requester="Fixture", batch="Dahle test", page_label="CLC full or partial", generated_date=None):
         directory = self.directory / name
         directory.mkdir()
         packing = {"sheetPacking": "double-faced-first"} if mixed else {}
         alignment = {} if alignment_marks is None else {"dahleAlignmentMarks": alignment_marks}
         guides = {} if cut_guides is None else {"dahleCutGuides": cut_guides}
+        identification = {"version": 1, "requesterName": requester, "batchName": batch}
+        if generated_date is not None:
+            identification["generatedDate"] = generated_date
         chunk({"directory": str(directory), **(paper or self.paper), **packing, **alignment, **guides,
                "cards": cards, "doubleFaced": double_faced,
                "registrationMarks": True,
-               "printedIdentification": {"version": 1, "requesterName": requester, "batchName": batch},
+               "printedIdentification": identification,
                "pageLabels": [{"page": 1, "phase": "fronts", "label": page_label}] +
                ([{"page": 2, "phase": "backs", "label": page_label}] if double_faced else [])})
         result = json.loads((directory / "result.json").read_text())
@@ -223,6 +228,27 @@ class DahlePunchTests(unittest.TestCase):
             for text, position, size in labels[:left_count]:
                 self.assertGreater(position[5] / POINTS_PER_MM, 3)
                 self.assertLess((position[5] + size * 0.6 * len(text)) / POINTS_PER_MM, 276.4)
+
+    def test_printed_paper_and_date_fit_a4_and_letter_on_both_faces(self):
+        requester, batch, label = "R" * 48, "B" * 96, "S" * 96
+        for paper, cut_guides, stock in ((self.paper, True, "A4"),
+                                         (self.letter_paper, True, "US Letter"),
+                                         (self.letter_paper, False, "US Letter")):
+            with self.subTest(paper=stock, cut_guides=cut_guides):
+                sheet = self.render(f"{stock}-{cut_guides}", self.cards[:1], paper=paper, cut_guides=cut_guides,
+                                    double_faced=True, requester=requester, batch=batch, page_label=label,
+                                    generated_date="2026-11-20")
+                with PdfReader(sheet) as reader:
+                    for page, phase in zip(reader.pages, ("FRONT", "BACK")):
+                        if stock == "A4":
+                            self.check_media_and_labels(page)
+                        else:
+                            self.check_letter_margin_labels(page, cut_guides=cut_guides)
+                        text = page.extract_text()
+                        self.assertIn(f"{stock} | Generated 2026-11-20", text)
+                        self.assertIn(f"Prepared by: {requester}", text)
+                        self.assertIn(f"Batch: {batch}", text)
+                        self.assertIn(f"{label} | {phase}", text)
 
     def test_exact_a4_and_fixed_full_and_partial_page_geometry(self):
         fronts = [{key: value for key, value in card.items() if not key.startswith("back")} for card in self.cards]
@@ -534,6 +560,68 @@ class DahlePunchTests(unittest.TestCase):
                         for point in bleed_edge:
                             self.assertAlmostEqual(image.getpixel(point)[0], 210 if border == 1 else 20, delta=3)
 
+    def test_scan_fringe_repairs_only_opaque_outer_pixels_that_track_the_adjacent_art(self):
+        width, height = 40, 60
+        clean = Image.new("RGB", (width, height))
+        clean.putdata([(70 + x + y,) * 3 for y in range(height) for x in range(width)])
+        fringe = clean.copy()
+        for y in range(height):
+            for x, inward in ((0, 1), (width - 1, width - 2)):
+                fringe.putpixel((x, y), tuple(value // 2 for value in clean.getpixel((inward, y))))
+        for x in range(width):
+            for y, inward in ((0, 1), (height - 1, height - 2)):
+                fringe.putpixel((x, y), tuple(value // 2 for value in clean.getpixel((x, inward))))
+
+        opacity = Image.new("L", clean.size, 255)
+        opacity.putpixel((0, 7), 120)
+        opacity.putpixel((1, 11), 120)
+        expected = clean.copy()
+        for y in range(1, height - 1):
+            for x, inward in ((0, 1), (width - 1, width - 2)):
+                expected.putpixel((x, y), clean.getpixel((inward, y)))
+        for x in range(1, width - 1):
+            for y, inward in ((0, 1), (height - 1, height - 2)):
+                expected.putpixel((x, y), clean.getpixel((x, inward)))
+        for point in ((0, 0), (0, height - 1), (width - 1, 0), (width - 1, height - 1), (0, 7), (0, 11)):
+            expected.putpixel(point, fringe.getpixel(point))
+        repair_scan_fringe(fringe, opacity)
+        self.assertEqual(fringe.tobytes(), expected.tobytes())
+
+        for border in (1, 4):
+            with self.subTest(intentional_frame_width=border):
+                framed = clean.copy()
+                ImageDraw.Draw(framed).rectangle((0, 0, width - 1, height - 1), outline=(50, 50, 50), width=border)
+                original = framed.tobytes()
+                repair_scan_fringe(framed, None)
+                self.assertEqual(framed.tobytes(), original)
+
+    def test_scan_fringe_repair_is_limited_to_scryfall_artwork_requiring_synthetic_bleed(self):
+        def bordered_source(name, size):
+            width, height = size
+            image = Image.new("RGB", size, (100, 100, 100))
+            draw = ImageDraw.Draw(image)
+            draw.rectangle((0, height // 2, width - 1, height - 1), fill=(190, 190, 190))
+            draw.line((0, 0, 0, height // 2 - 1), fill=(50, 50, 50))
+            draw.line((0, height // 2, 0, height - 1), fill=(95, 95, 95))
+            path = self.directory / name
+            image.save(path)
+            return path
+
+        trim = bordered_source("trim.png", (630, 880))
+        small = bordered_source("small.png", (315, 440))
+        native = bordered_source("native.png", (694, 944))
+        for path, source, output_bleed, pad, sample in (
+                (trim, "scryfall", 0, 0, 50),
+                (trim, "scryfall", 1.5, 15, 100),
+                (small, "scryfall", 1.5, 8, 50),
+                (trim, "saved-mpc", 1.5, 15, 50),
+                (native, "saved-mpc", 1.5, 0, 50),
+                (native, "saved-mpc", 3.2, 1, 50)):
+            with self.subTest(source=source, output_bleed=output_bleed):
+                face, _, _ = dahle_face(path, source, output_bleed)
+                with Image.open(BytesIO(face._data)) as image:
+                    self.assertAlmostEqual(image.getpixel((pad, 100 + pad))[0], sample, delta=3)
+
 
 class PageIdentificationTests(unittest.TestCase):
     def setUp(self):
@@ -575,11 +663,13 @@ class PageIdentificationTests(unittest.TestCase):
             self.assertIn(f"CLC 1234abcd DFC 1/2 | {'FRONT' if index == 0 else 'BACK'}", page.extract_text())
 
     def test_hostile_pdf_text_is_literal_and_maximum_names_fit_the_margin(self):
-        self.identity.update(requesterName="(person) \\ <test>", batchName="W" * 96)
+        self.identity.update(requesterName="(person) \\ <test>", batchName="W" * 96, generatedDate="2026-11-20")
+        self.labels[0]["label"] = "F" * 96
         identify_pages(self.pdf, self.identity, self.labels)
         reader = PdfReader(self.pdf)
         self.assertIn("Queued by: (person) \\ <test>", reader.pages[0].extract_text())
         for page in reader.pages:
+            self.assertIn("US Letter | Generated 2026-11-20", page.extract_text())
             runs = []
             page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm, size)))
             for text, tm, size in runs:
@@ -590,6 +680,13 @@ class PageIdentificationTests(unittest.TestCase):
                 self.assertIn(tm[5], (571, 578))
                 self.assertLessEqual(tm[4] + len(text.rstrip("\n")) * size * 0.6, 726)
 
+    def test_invalid_generation_dates_are_rejected_before_changing_the_sheet(self):
+        original = self.pdf.read_bytes()
+        for invalid in (None, "2026-02-30", "20261120", "2026-11-20 (test)"):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "date must be YYYY-MM-DD"):
+                identify_pages(self.pdf, {**self.identity, "generatedDate": invalid}, self.labels)
+        self.assertEqual(self.pdf.read_bytes(), original)
+
     def test_a4_labels_fit_each_side_and_paper_sizes_cannot_be_mixed(self):
         writer = PdfWriter(clone_from=self.pdf)
         for page in writer.pages:
@@ -599,7 +696,7 @@ class PageIdentificationTests(unittest.TestCase):
             image[NameObject("/Height")] = NumberObject(4960)
         with self.pdf.open("wb") as stream:
             writer.write(stream)
-        identify_pages(self.pdf, self.identity, self.labels)
+        identify_pages(self.pdf, {**self.identity, "generatedDate": "2026-11-20"}, self.labels, "a4")
         validate_pdf(self.pdf, 2, "a4")
         with self.assertRaisesRegex(ValueError, "landscape Letter"):
             validate_pdf(self.pdf, 2, "letter")
@@ -609,6 +706,7 @@ class PageIdentificationTests(unittest.TestCase):
             page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm)) if text.strip() else None)
             self.assertEqual([round(tm[5], 2) for _, tm in runs], [561.2, 554.2])
             self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
+            self.assertIn("A4 | Generated 2026-11-20", runs[-1][0])
 
     def test_crowned_portrait_restores_geometry_without_reencoding_and_keeps_margin_labels(self):
         writer = PdfWriter(clone_from=self.pdf)
@@ -620,7 +718,7 @@ class PageIdentificationTests(unittest.TestCase):
         with self.pdf.open("wb") as stream:
             writer.write(stream)
         validate_pdf(self.pdf, 2, "crowned-a4", upstream=True)
-        self.identity["batchName"] = "W" * 96
+        self.identity.update(batchName="W" * 96, generatedDate="2026-11-20")
         self.labels[0]["label"] = "X" * 96
         identify_pages(self.pdf, self.identity, self.labels, "crowned-a4", refeed_front=True)
         validate_pdf(self.pdf, 2, "crowned-a4")
@@ -634,6 +732,7 @@ class PageIdentificationTests(unittest.TestCase):
             runs = []
             page.extract_text(visitor_text=lambda text, cm, tm, font, size: runs.append((text, tm, size)) if text.strip() else None)
             self.assertEqual([round(tm[5], 2) for _, tm, _ in runs], [823.68, 814.68, 805.68])
+            self.assertIn("A4 | Generated 2026-11-20", runs[0][0])
             self.assertIn(["FRONT", "BACK"][index], runs[-1][0])
             for text, tm, size in runs:
                 self.assertLess(tm[4] + len(text.rstrip("\n")) * size * 0.6, 595.2 - 66)

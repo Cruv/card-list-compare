@@ -313,7 +313,9 @@ registration and manual refeed checks.
 ### Printed sheet identification
 
 Every newly generated page carries the requester, the saved **Batch** label, its exact
-sheet/packet identity and **FRONT** or **BACK**. Letter Dahle uses a side margin.
+sheet/packet identity, **FRONT** or **BACK**, the paper size and the generation date.
+The date comes from the server's configured time zone when PDF generation starts.
+Letter Dahle uses a side margin.
 Other recipes place these labels in the top margin, including when registration marks
 are off. Station recipes add **REFEED FOR BACK** to fronts with matching backs.
 Longer lines use a smaller font to fit. The job freezes these values, so saved backs
