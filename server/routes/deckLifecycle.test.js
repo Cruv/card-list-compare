@@ -131,6 +131,65 @@ describe('snapshot selection and physical-deck marker', () => {
   });
 });
 
+describe('restoring a saved version', () => {
+  it('copies the exact list as the latest version and safely repeats the same request', async () => {
+    const text = '// Commander\r\n1 Carmen, Cruel Skymarcher (LCC) [26]\r\n\r\n1 Sol Ring (CMM) [396] *F*\r\n// original note  \r\n';
+    const original = snapshot(text);
+    const sourceText = 'Commander\n1 Alela, Artful Provocateur\n\n1 Lightning Bolt';
+    const latest = snapshot(sourceText);
+    db.run('UPDATE tracked_decks SET paper_snapshot_id = ?, commanders = ? WHERE id = 1', [original, '["Alela, Artful Provocateur"]']);
+    db.run('INSERT INTO deck_source_sync (deck_id, revision, base_raw_text, base_text, source_text) VALUES (1, 2, ?, ?, ?)',
+      [sourceText, sourceText, sourceText]);
+    const source = db.get('SELECT * FROM deck_source_sync WHERE deck_id = 1');
+
+    const path = `/api/decks/1/snapshots/${original}/restore`;
+    const body = { expectedLatestSnapshotId: latest };
+    const restored = await request(path, 'POST', body);
+    expect(restored.status).toBe(201);
+    const { snapshotId, changed } = await restored.json();
+    expect(changed).toBe(true);
+    expect((await (await request('/api/decks/1/snapshots')).json()).snapshots.map(s => s.id)).toEqual([snapshotId, latest, original]);
+    expect((await (await request(`/api/decks/1/snapshots/${snapshotId}`)).json()).snapshot.deck_text).toBe(text);
+    expect(db.get('SELECT paper_snapshot_id, commanders FROM tracked_decks WHERE id = 1'))
+      .toEqual({ paper_snapshot_id: original, commanders: '["Carmen, Cruel Skymarcher"]' });
+    expect(db.get('SELECT * FROM deck_source_sync WHERE deck_id = 1')).toEqual(source);
+
+    const retry = await request(path, 'POST', body);
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({ snapshotId, changed: false });
+    expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(3);
+  });
+
+  it('rejects invalid requests, another deck’s version, and a stale latest version', async () => {
+    const original = snapshot('1 Sol Ring');
+    const latest = snapshot('1 Counterspell');
+    db.run("INSERT INTO users (username, password_hash) VALUES ('other', 'unused')");
+    db.run("INSERT INTO tracked_owners (user_id, archidekt_username) VALUES (2, 'other')");
+    db.run("INSERT INTO tracked_decks (id, user_id, tracked_owner_id, archidekt_deck_id, deck_name) VALUES (3, 2, 2, 3, 'Other deck')");
+    const other = db.run("INSERT INTO deck_snapshots (tracked_deck_id, deck_text) VALUES (3, '1 Island')").lastInsertRowid;
+    const path = `/api/decks/1/snapshots/${original}/restore`;
+
+    expect((await request(path, 'POST', {})).status).toBe(400);
+    expect((await request(path, 'POST', { expectedLatestSnapshotId: latest, deck_text: '1 Island' })).status).toBe(400);
+    expect((await request(`/api/decks/1/snapshots/${other}/restore`, 'POST', { expectedLatestSnapshotId: latest })).status).toBe(404);
+    expect((await request(`/api/decks/3/snapshots/${other}/restore`, 'POST', { expectedLatestSnapshotId: other })).status).toBe(404);
+    expect((await request(path, 'POST', { expectedLatestSnapshotId: original })).status).toBe(409);
+    expect(db.get('SELECT COUNT(*) AS count FROM deck_snapshots').count).toBe(3);
+  });
+
+  it('can restore an empty version and clears a previously tagged commander', async () => {
+    const original = snapshot('');
+    const latest = snapshot('Commander\n1 Carmen, Cruel Skymarcher\n\n1 Sol Ring');
+    db.run('UPDATE tracked_decks SET commanders = ? WHERE id = 1', ['["Carmen, Cruel Skymarcher"]']);
+
+    const restored = await request(`/api/decks/1/snapshots/${original}/restore`, 'POST', { expectedLatestSnapshotId: latest });
+    expect(restored.status).toBe(201);
+    const { snapshotId } = await restored.json();
+    expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [snapshotId]).deck_text).toBe('');
+    expect(db.get('SELECT commanders FROM tracked_decks WHERE id = 1').commanders).toBe('[]');
+  });
+});
+
 describe('deck metadata patches', () => {
   it('validates every tag and field before changing existing notes, tags or alerts', async () => {
     db.run("UPDATE tracked_decks SET notes = 'Original', price_alert_threshold = 15, price_alert_baseline = 100 WHERE id = 1");

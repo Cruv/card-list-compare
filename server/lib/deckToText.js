@@ -1,3 +1,11 @@
+export function formatDeckCardLine(quantity, name, setCode, collectorNumber, isFoil) {
+  let line = `${quantity} ${name}`;
+  if (setCode) line += ` (${setCode})`;
+  if (collectorNumber) line += ` [${collectorNumber}]`;
+  if (isFoil) line += ' *F*';
+  return line;
+}
+
 export function archidektToText(data) {
   const mainLines = [];
   const sideLines = [];
@@ -16,10 +24,7 @@ export function archidektToText(data) {
       typeof c === 'string' ? c.toLowerCase() : (c.name || '').toLowerCase()
     );
 
-    let line = `${qty} ${name}`;
-    if (setCode) line += ` (${setCode})`;
-    if (collectorNumber) line += ` [${collectorNumber}]`;
-    if (modifier === 'Foil') line += ` *F*`;
+    const line = formatDeckCardLine(qty, name, setCode, collectorNumber, modifier === 'Foil');
 
     // Maybeboard/considering cards are skipped even when they also carry a
     // board category — must match the client (src/lib/fetcher.js) exactly.

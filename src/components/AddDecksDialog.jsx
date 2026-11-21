@@ -210,7 +210,7 @@ function ScopedAddDecksDialog({ userId, onClose, onAdded }) {
       {draft.tab === 'url' && <form className="add-decks-form" onSubmit={importUrl}>
         <label>Deck URL<input type="url" value={draft.url} onChange={event => edit({ url: event.target.value })} maxLength={2000} disabled={disabled} required placeholder="https://archidekt.com/decks/…" /></label>
         <label>Deck name (optional)<input value={draft.name} onChange={event => edit({ name: event.target.value })} maxLength={200} disabled={disabled} /></label>
-        <p>{site && !TRACKED_SITES.includes(site) ? 'This site supports a one-time list import. Review the list before saving a manual deck.' : 'Archidekt, Moxfield, and DeckCheck stay linked for future updates. Saved local edits remain protected.'}</p>
+        <p>{site && !TRACKED_SITES.includes(site) ? 'This site supports a one-time list import. Review the list before saving a manual deck.' : 'Archidekt, Moxfield, and DeckCheck stay linked for future updates. CLC syncs Archidekt card changes and keeps your saved printings.'}</p>
         {reviewedSource && <p role="status">Reviewed list ready to save. {reviewedSource.name && `Source deck: ${reviewedSource.name}`}</p>}
         <button className="btn btn-primary" type="submit" disabled={disabled || !!importReview || !draft.url.trim()}>{reviewedSource ? 'Track reviewed deck' : 'Preview list'}</button>
         {reviewedSource && <button type="button" className="btn btn-secondary" disabled={disabled} onClick={() => setReviewedSource(null)}>Undo import</button>}

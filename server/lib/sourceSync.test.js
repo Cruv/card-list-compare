@@ -45,6 +45,14 @@ const count = () => db.get('SELECT COUNT(*) AS count FROM deck_snapshots WHERE t
 function addSnapshot(text) {
   return String(db.run('INSERT INTO deck_snapshots (tracked_deck_id,deck_text) VALUES (1,?)', [text]).lastInsertRowid);
 }
+function useReviewedProvider() {
+  db.run("UPDATE tracked_decks SET source_type = 'deckcheck' WHERE id = 1");
+}
+function stageLegacyArchidektCandidate(text = changedText) {
+  db.run(`INSERT INTO deck_source_sync (deck_id, revision, source_raw_text, source_text, pending)
+    VALUES (1, 1, ?, ?, 1) ON CONFLICT(deck_id) DO UPDATE SET revision = revision + 1,
+      source_raw_text = excluded.source_raw_text, source_text = excluded.source_text, pending = 1`, [text, text]);
+}
 function acceptProposal(text = localText) {
   const current = snapshots.latestSnapshot(1);
   const { receipt } = proposals.submitProposal(1, '1', { operationId: randomUUID(), baseSnapshotId: String(current.id),
@@ -71,34 +79,38 @@ function request(router, method, url, token, body) {
   });
 }
 
-it('preserves an accepted ManaSync edit when Archidekt is unchanged, then stages a changed source', () => {
+it('preserves an accepted ManaSync edit when Archidekt is unchanged, then saves the changed source alongside it', () => {
   expect(observe()).toMatchObject({ changed: true, pendingReview: false, sourceSync: { status: 'synced', revision: 1 } });
   const paperId = state().currentSnapshotId;
   db.run('UPDATE tracked_decks SET paper_snapshot_id = ? WHERE id = 1', [paperId]);
   const accepted = acceptProposal();
   expect(observe()).toMatchObject({ changed: false, pendingReview: false, sourceSync: { status: 'local_changes', currentSnapshotId: accepted.resultSnapshotId } });
-  expect(observe(changedText)).toMatchObject({ changed: false, pendingReview: true, sourceSync: {
-    status: 'pending_review', baseText, sourceText: changedText, currentText: localText } });
-  expect(count()).toBe(2);
+  expect(observe(changedText)).toMatchObject({ changed: true, pendingReview: false, previousText: localText, sourceSync: {
+    status: 'synced', baseText: changedText, sourceText: changedText, currentText: changedText } });
+  expect(count()).toBe(3);
+  expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [accepted.resultSnapshotId]).deck_text).toBe(localText);
   expect(db.get('SELECT paper_snapshot_id FROM tracked_decks WHERE id = 1').paper_snapshot_id).toBe(Number(paperId));
   expect(db.get('SELECT COUNT(*) AS count FROM collection_cards').count).toBe(0);
 });
 
-it('advances known source-only decks automatically and protects legacy heads with no proven source baseline', () => {
+it('saves the first different Archidekt observation on a legacy deck and keeps the previous version', () => {
   expect(state()).toMatchObject({ status: 'unknown', revision: 0, currentText: null });
-  addSnapshot(localText);
-  expect(observe()).toMatchObject({ changed: false, pendingReview: true, sourceSync: { baseText: null, currentText: localText } });
-  source.reviewSource(1, 1, review('source'));
+  const previous = addSnapshot(localText);
+  expect(observe()).toMatchObject({ changed: true, pendingReview: false, sourceSync: { baseText, currentText: baseText } });
+  expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [previous]).deck_text).toBe(localText);
   expect(observe(changedText)).toMatchObject({ changed: true, sourceSync: { status: 'synced', currentText: changedText } });
 });
 
-it('establishes a legacy baseline only when its existing current text agrees with fetched source', () => {
-  addSnapshot('1 Sol Ring (cmm) 396\r\n');
-  expect(observe()).toMatchObject({ changed: false, pendingReview: false, sourceSync: { status: 'synced', baseText } });
+it('establishes a legacy baseline without replacing saved printings or formatting when the lineup matches', () => {
+  const savedText = '1 Sol Ring (lcc) 313 *F*\r\n';
+  addSnapshot(savedText);
+  expect(observe()).toMatchObject({ changed: false, pendingReview: false,
+    sourceSync: { status: 'synced', baseText: savedText, currentText: savedText, sourceText: baseText } });
   expect(count()).toBe(1);
 });
 
 it('keep acknowledges once, leaves the digital head intact and only asks again for another source change', () => {
+  useReviewedProvider();
   observe(); acceptProposal(); observe(changedText);
   const operation = review();
   const kept = source.reviewSource(1, 1, operation);
@@ -111,6 +123,7 @@ it('keep acknowledges once, leaves the digital head intact and only asks again f
 });
 
 it.each(['source', 'merge'])('atomically applies %s once and replays the original receipt after restart and later edits', async action => {
+  useReviewedProvider();
   observe(); acceptProposal(); observe(changedText);
   const exact = 'Mainboard\r\n2 Sol Ring (CMM) 396\r\n1 Island (DMU) 265\r\n// exact note  \r\n';
   const operation = review(action, action === 'merge' ? { reviewedText: exact } : {});
@@ -127,6 +140,7 @@ it.each(['source', 'merge'])('atomically applies %s once and replays the origina
 });
 
 it.each(['source', 'merge'])('preserves a manually assigned commander when reviewing untagged %s text', action => {
+  useReviewedProvider();
   observe(); acceptProposal(); observe(changedText);
   db.run('UPDATE tracked_decks SET commanders = ? WHERE id = 1', [JSON.stringify(['Chosen commander'])]);
   const operation = review(action, action === 'merge' ? { reviewedText: `${changedText}\n1 Mountain` } : {});
@@ -145,6 +159,7 @@ it.each([
   ['source', 'remove previous tagged', changedText, []],
   ['merge', 'remove previous tagged', changedText, []],
 ])('lets %s review %s commander metadata', (action, _change, text, expected) => {
+  useReviewedProvider();
   observe();
   addSnapshot(`Commander\n1 Old Leader\n\n${localText}`);
   db.run('UPDATE tracked_decks SET commanders = ? WHERE id = 1', [JSON.stringify(['Old Leader'])]);
@@ -154,6 +169,7 @@ it.each([
 });
 
 it('rejects changed source revisions, changed current snapshot pins, foreign accounts and invalid merge requests', () => {
+  useReviewedProvider();
   observe(); acceptProposal(); observe(changedText);
   const stale = review('source');
   observe('3 Sol Ring (CMM) [396]');
@@ -170,6 +186,7 @@ it('rejects changed source revisions, changed current snapshot pins, foreign acc
 });
 
 it('rolls back the source decision and digital snapshot if durable receipt storage fails', () => {
+  useReviewedProvider();
   observe(); acceptProposal(); observe(changedText);
   const before = state();
   db.run("CREATE TRIGGER fail_source_receipt BEFORE INSERT ON deck_source_reviews BEGIN SELECT RAISE(ABORT, 'receipt failure'); END");
@@ -179,6 +196,7 @@ it('rolls back the source decision and digital snapshot if durable receipt stora
 });
 
 it('retains exact acknowledged and pending source texts after snapshot pruning and database restart', async () => {
+  useReviewedProvider();
   observe();
   const initial = state().currentSnapshotId;
   db.run("UPDATE server_settings SET value = '1' WHERE key = 'max_snapshots_per_deck'");
@@ -202,39 +220,73 @@ it('treats formatting as equivalent but keeps effective boards, commander, quant
   expect(key(baseText)).not.toBe(key(`${baseText} *F*`));
   expect(key(baseText)).not.toBe(key('1 Sol Ring (LCC) [396]'));
   expect(key(baseText)).not.toBe(key(changedText));
+  useReviewedProvider();
   observe(localText); acceptProposal(`${baseText}\n\n1 Island (DMU) [265]`);
   expect(observe(changedText)).toMatchObject({ changed: false, pendingReview: true });
 });
 
-it('separates raw source changes from enrichment drift without hiding explicit printing changes', async () => {
+it('records Archidekt printing-only changes without creating a version or changing the saved list', async () => {
   observe(baseText, { rawText: '1 Sol Ring' });
   expect(observe('1 Sol Ring (LCC) [313]', { rawText: '1 Sol Ring' })).toMatchObject({ changed: false, pendingReview: false });
   expect(state()).toMatchObject({ status: 'synced', baseText, currentText: baseText });
   acceptProposal();
   fetchDeck.mockResolvedValue(upstream(1, { card: { oracleCard: { name: 'Sol Ring' }, edition: { editioncode: 'LEA' } } }));
   enrich.mockResolvedValue(baseText);
-  expect(await source.refreshArchidektDeck(1, 1)).toMatchObject({ changed: false, pendingReview: true,
+  expect(await source.refreshArchidektDeck(1, 1)).toMatchObject({ changed: false, pendingReview: false,
     sourceSync: { sourceText: '1 Sol Ring (LEA)', currentText: localText } });
+  expect(count()).toBe(2);
   expect(source.preservesSourceIdentity('1 Sol Ring', `${baseText} *F*`)).toBe(false);
   expect(source.preservesSourceIdentity('1 Sol Ring *F*', baseText)).toBe(false);
   expect(source.preservesSourceIdentity('1 Sol Ring', baseText)).toBe(true);
   expect(source.preservesSourceIdentity('2 Sol Ring', baseText)).toBe(false);
 });
 
-it('re-reads the digital head at commit when a ManaSync proposal is accepted during a source fetch', async () => {
+it('follows Archidekt quantities and boards while keeping saved printings for retained copies', async () => {
+  observe(`${baseText}\n1 Island (DMU) [265]\n\nSideboard\n1 Negate (DMU) [58]`);
+  const editedText = '1 Sol Ring (LCC) [313] *F*\n1 Island (DMU) [265]\n\nSideboard\n1 Negate (M20) [69] *F*';
+  const previous = addSnapshot(editedText);
+  const incoming = upstream();
+  incoming.cards.unshift({ quantity: 1, card: { name: 'Sol Ring', edition: { editioncode: 'LTC' }, collectorNumber: '284' } });
+  incoming.cards.push(
+    { quantity: 1, card: { name: 'Negate', edition: { editioncode: 'DMU' }, collectorNumber: '58' } },
+    { quantity: 1, card: { name: 'Baneslayer Angel', edition: { editioncode: 'M21' }, collectorNumber: '6' }, modifier: 'Foil', categories: ['Sideboard'] },
+  );
+  fetchDeck.mockResolvedValue(incoming);
+  const refreshed = await source.refreshArchidektDeck(1, 1);
+  expect(refreshed).toMatchObject({ changed: true, pendingReview: false, previousText: editedText,
+    sourceSync: { status: 'synced', sourceText: '1 Sol Ring (LTC) [284]\n1 Sol Ring (CMM) [396]\n1 Negate (DMU) [58]\n\nSideboard\n1 Baneslayer Angel (M21) [6] *F*' } });
+  expect(refreshed.sourceSync.baseText).toBe(refreshed.deckText);
+  const cards = snapshots.structuredCards(refreshed.deckText).cards;
+  expect(cards).toEqual(expect.arrayContaining([
+    { name: 'Sol Ring', section: 'mainboard', quantity: 1, setCode: 'LCC', collectorNumber: '313', finish: 'foil' },
+    { name: 'Sol Ring', section: 'mainboard', quantity: 1, setCode: 'LTC', collectorNumber: '284', finish: 'nonfoil' },
+    { name: 'Negate', section: 'mainboard', quantity: 1, setCode: 'M20', collectorNumber: '69', finish: 'foil' },
+    { name: 'Baneslayer Angel', section: 'sideboard', quantity: 1, setCode: 'M21', collectorNumber: '6', finish: 'foil' },
+  ].map(card => expect.objectContaining(card))));
+  expect(cards).toHaveLength(4);
+  expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [previous]).deck_text).toBe(editedText);
+  expect(await source.refreshArchidektDeck(1, 1)).toMatchObject({ changed: false, pendingReview: false, deckText: refreshed.deckText });
+  expect(count()).toBe(3);
+});
+
+it.each([
+  [1, false, localText],
+  [2, true, changedText],
+])('re-reads the digital head when a proposal is accepted while Archidekt fetches %i copies', async (quantity, changed, currentText) => {
   observe();
   let release;
   fetchDeck.mockImplementation(() => new Promise(resolve => { release = resolve; }));
   const refreshing = source.refreshArchidektDeck(1, 1);
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   const accepted = acceptProposal();
-  release(upstream(2));
-  expect(await refreshing).toMatchObject({ changed: false, pendingReview: true, sourceSync: { currentSnapshotId: accepted.resultSnapshotId, currentText: localText } });
-  expect(count()).toBe(2);
+  release(upstream(quantity));
+  expect(await refreshing).toMatchObject({ changed, pendingReview: false, previousText: localText, sourceSync: { currentText } });
+  expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [accepted.resultSnapshotId]).deck_text).toBe(localText);
+  expect(count()).toBe(changed ? 3 : 2);
 });
 
 it('serializes concurrent upstream requests and compares against a review committed while downloading', async () => {
-  observe(); acceptProposal(); observe(changedText);
+  observe(); acceptProposal(); stageLegacyArchidektCandidate();
   let release;
   fetchDeck.mockImplementationOnce(() => new Promise(resolve => { release = resolve; })).mockResolvedValueOnce(upstream(4));
   const first = source.refreshArchidektDeck(1, 1);
@@ -242,10 +294,11 @@ it('serializes concurrent upstream requests and compares against a review commit
   await vi.waitFor(() => expect(release).toBeTypeOf('function'));
   expect(fetchDeck).toHaveBeenCalledTimes(1);
   source.reviewSource(1, 1, review('keep'));
-  release(upstream(3));
-  expect(await first).toMatchObject({ changed: false, pendingReview: true });
-  expect(await second).toMatchObject({ changed: false, pendingReview: true, sourceSync: { sourceText: '4 Sol Ring (CMM) [396]', baseText: changedText, currentText: localText } });
+  release(upstream(2));
+  expect(await first).toMatchObject({ changed: false, pendingReview: false, sourceSync: { currentText: localText } });
+  expect(await second).toMatchObject({ changed: true, pendingReview: false, sourceSync: { baseText: '4 Sol Ring (CMM) [396]', currentText: '4 Sol Ring (CMM) [396]' } });
   expect(fetchDeck).toHaveBeenCalledTimes(2);
+  expect(count()).toBe(3);
 });
 
 it('rejects incomplete upstream responses, permits a genuine empty deck and keeps user-set commander metadata', async () => {
@@ -268,6 +321,7 @@ it('rejects incomplete upstream responses, permits a genuine empty deck and keep
 });
 
 it('protects source review routes with owned sessions and exposes source summaries in deck lists', async () => {
+  useReviewedProvider();
   observe(); acceptProposal(); observe(changedText);
   expect((await request(sourceRouter, 'GET', '/1/source-sync', session[1])).body).toEqual(state());
   expect((await request(sourceRouter, 'GET', '/1/source-sync', session[2])).status).toBe(404);
@@ -293,21 +347,37 @@ it('uses the coordinator for initial tracking, manual refresh, bulk refresh, not
   observe(); acceptProposal();
   fetchDeck.mockResolvedValue(upstream(2));
   const single = await request(deckRouter, 'POST', '/1/refresh', session[1]);
-  expect(single.body).toMatchObject({ changed: false, pendingReview: true });
+  expect(single.body).toMatchObject({ changed: true, pendingReview: false });
+  fetchDeck.mockResolvedValue(upstream(3));
   const bulk = await request(deckRouter, 'POST', '/refresh-all', session[1]);
-  expect(bulk.body.summary.pendingReview).toBe(1);
-  expect(bulk.body.results.find(result => result.deckId === 1)).toMatchObject({ changed: false, pendingReview: true });
+  expect(bulk.body.summary).toMatchObject({ changed: 2, pendingReview: 0 });
+  expect(bulk.body.results.find(result => result.deckId === 1)).toMatchObject({ changed: true, pendingReview: false });
   const scheduler = await import('./notificationScheduler.js');
-  expect(await scheduler.processSingleDeck(db.get('SELECT * FROM tracked_decks WHERE id = 1'))).toMatchObject({ changed: false, pendingReview: true });
+  fetchDeck.mockResolvedValue(upstream(4));
+  expect(await scheduler.processSingleDeck(db.get('SELECT * FROM tracked_decks WHERE id = 1'))).toEqual({ changed: true });
   db.run('UPDATE tracked_decks SET auto_refresh_hours = 6, last_refreshed_at = NULL WHERE id = 1');
+  fetchDeck.mockResolvedValue(upstream(5));
   await scheduler.autoRefreshScheduledDecks();
-  expect(state()).toMatchObject({ status: 'pending_review', currentText: localText, sourceText: changedText });
-  expect(count()).toBe(2);
+  expect(state()).toMatchObject({ status: 'synced', currentText: '5 Sol Ring (CMM) [396]', sourceText: '5 Sol Ring (CMM) [396]' });
+  expect(count()).toBe(6);
   expect(fetchDeck).toHaveBeenCalledTimes(6);
 });
 
+it.each([true, false])('publishes an already pending Archidekt change on refresh (has baseline: %s)', async hasBaseline => {
+  if (hasBaseline) observe();
+  const previous = addSnapshot(localText);
+  stageLegacyArchidektCandidate();
+  const previousCount = count();
+  fetchDeck.mockResolvedValue(upstream(2));
+  expect(await source.refreshArchidektDeck(1, 1)).toMatchObject({ changed: true, pendingReview: false, previousText: localText,
+    sourceSync: { status: 'synced', baseText: changedText, currentText: changedText } });
+  expect(db.get('SELECT deck_text FROM deck_snapshots WHERE id = ?', [previous]).deck_text).toBe(localText);
+  expect(await source.refreshArchidektDeck(1, 1)).toMatchObject({ changed: false, pendingReview: false });
+  expect(count()).toBe(previousCount + 1);
+});
 
 it('keeps an existing pending candidate under review after the current head is returned to the old baseline', () => {
+  useReviewedProvider();
   observe(); acceptProposal(); observe(changedText);
   addSnapshot(baseText);
   expect(observe(changedText)).toMatchObject({ changed: false, pendingReview: true, sourceSync: { currentText: baseText } });
@@ -332,12 +402,16 @@ it('promotes the same ManaSync-created source deck on native tracking while prot
   const promoted = await request(deckRouter, 'POST', '/', session[1], input);
   expect(promoted).toMatchObject({ status: 200, body: { linkedExisting: true, deck: {
     id: Number(manual.id), tracked_owner_id: 1, archidekt_deck_id: 99, source_type: 'archidekt',
-    deck_url: 'https://archidekt.com/decks/99', deck_name: 'My protected manual deck',
-    paper_snapshot_id: paperId, notes: 'Keep my notes', source_sync: { status: 'pending_review', pending: true }
+    deck_url: 'https://archidekt.com/decks/99', deck_name: 'Archidekt deck',
+    paper_snapshot_id: paperId, notes: 'Keep my notes', source_sync: { status: 'synced', pending: false }
   } } });
-  expect(source.sourceSyncState(1, Number(manual.id))).toMatchObject({ baseText: null, sourceText: changedText,
-    currentText: `${localText}\n// intentional local note`, currentSnapshotId: String(latestId) });
-  expect(db.all('SELECT id FROM deck_snapshots WHERE tracked_deck_id = ?', [manual.id]).map(row => row.id)).toEqual([paperId, latestId]);
+  const current = source.sourceSyncState(1, Number(manual.id));
+  expect(current).toMatchObject({ baseText: changedText, sourceText: changedText, currentText: changedText });
+  expect(db.all('SELECT id, deck_text FROM deck_snapshots WHERE tracked_deck_id = ? ORDER BY id', [manual.id])).toEqual([
+    { id: paperId, deck_text: localText },
+    { id: latestId, deck_text: `${localText}\n// intentional local note` },
+    { id: Number(current.currentSnapshotId), deck_text: changedText },
+  ]);
   expect(db.get('SELECT COUNT(*) AS count FROM tracked_decks WHERE user_id = 1').count).toBe(2);
   const again = await request(deckRouter, 'POST', '/', session[1], input);
   expect(again.body.deck.id).toBe(Number(manual.id));

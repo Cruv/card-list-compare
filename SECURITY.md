@@ -392,12 +392,16 @@ require a new application release or artificial regression test.
   enforcement; exports during a transaction are rejected. Deleting an account cascades its
   connections, print operations, decks, proposals, and tokens, preventing reused user IDs from
   inheriting saved credentials.
-- Archidekt reconciliation decisions require an authenticated owner session. Integration
-  read/propose/create tokens cannot accept source changes. Each decision pins the candidate
+- Manual source review decisions require an authenticated owner session. Integration
+  read/propose/create tokens cannot make these decisions. Each decision pins the candidate
   revision and current digital snapshot/hash, and stores an immutable per-owner operation
-  receipt. Replays recover the same result; changed requests or stale reviews conflict.
-  Source text remains separate from current snapshots until an authorized decision or a
-  source-only update can apply it. Source reviews never modify remote Archidekt decks.
+  receipt. Replays recover the same result, and changed requests or stale reviews conflict.
+  A validated Archidekt lineup change advances the tracked digital deck automatically.
+  Source integrations read provider lists and write only to CLC’s digital deck and tracking
+  state.
+- Restoring a saved version requires an owner login session and a snapshot from that deck.
+  The request checks the expected latest version and saves the selected text in a new
+  digital snapshot. The paper marker remains attached to its existing snapshot.
 
 - Native-batch artwork reporting uses owner-scoped manifest and private image routes. Source
   paths, symlinks, image structure, sizes, and hashes are checked before files are retained.

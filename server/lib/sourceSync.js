@@ -2,6 +2,7 @@ import { get, run, transaction } from '../db.js';
 import { latestSnapshot, structuredCards, textHash } from './structuredSnapshots.js';
 import { fetchDeck } from './archidekt.js';
 import { archidektToText } from './deckToText.js';
+import { archidektLineupKey, keepArchidektLocalPrintings } from './archidektLineup.js';
 import { enrichDeckText } from './enrichDeckText.js';
 import { pruneSnapshots } from './pruneSnapshots.js';
 import { parse, sectionedLines } from '../../src/lib/parser.js';
@@ -93,26 +94,33 @@ function saveRow(deckId, values) {
   [deckId, (previous?.revision ?? 0) + Number(changed), ...fields.map(field => values[field]), values.checked_at]);
 }
 
-// Called only after the fetch/enrichment finishes. The transaction re-reads the
-// head: a proposal or manual snapshot committed during the request is protected.
+// Re-read the latest snapshot after the fetch. Archidekt advances history when
+// its source changes. Other providers stage changes when the local deck diverges.
 export function observeSource(userId, deckId, { rawText, text, name, commanders = [] }) {
   return transaction(() => {
     const deck = ownedDeck(userId, deckId);
     const current = latestSnapshot(deckId);
     const previous = sourceRow(deckId);
     const checkedAt = new Date().toISOString();
-    const sameSource = previous?.base_raw_text != null && sourceTextKey(rawText) === sourceTextKey(previous.base_raw_text);
-    const currentMatchesSource = sourceTextKey(current?.deck_text ?? null) === sourceTextKey(text);
+    const isArchidekt = deck.source_type === 'archidekt';
+    const sourceKey = isArchidekt ? archidektLineupKey : sourceTextKey;
+    const sameSource = previous?.base_raw_text != null && sourceKey(rawText) === sourceKey(previous.base_raw_text);
+    const currentMatchesSource = current != null && sourceKey(current.deck_text) === sourceKey(text);
     const followsBase = previous?.base_text != null && sourceTextKey(current?.deck_text ?? null) === sourceTextKey(previous.base_text);
-    // A known source-only head may advance. An unknown legacy head is trusted
-    // only when it matches the actual fetched source, never because it is latest.
-    const publish = !previous?.pending && (!current || (!sameSource && followsBase));
-    const acknowledge = publish || currentMatchesSource;
-    const pending = !sameSource && !acknowledge;
-    let changed = false;
-    if (publish && !currentMatchesSource) {
-      run("INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,?)", [deckId, text, `${deck.source_type} source`]);
-      changed = true;
+    const publish = isArchidekt
+      ? !current || !sameSource
+      : !previous?.pending && (!current || (!sameSource && followsBase));
+    const acknowledge = publish || (!isArchidekt && currentMatchesSource);
+    const pending = !isArchidekt && !sameSource && !acknowledge;
+    const changed = publish && !currentMatchesSource;
+    let publishedText = text;
+    if (isArchidekt && current) {
+      publishedText = changed
+        ? keepArchidektLocalPrintings(current.deck_text, text, previous?.base_raw_text)
+        : current.deck_text;
+    }
+    if (changed) {
+      run("INSERT INTO deck_snapshots (tracked_deck_id,deck_text,nickname) VALUES (?,?,?)", [deckId, publishedText, `${deck.source_type} source`]);
       const sourceHadCommander = previous?.base_raw_text && parse(previous.base_raw_text).commanders.length > 0;
       const savedCommanders = commanders.length || sourceHadCommander ? JSON.stringify(commanders) : deck.commanders;
       run('UPDATE tracked_decks SET deck_name = ?, commanders = ? WHERE id = ?',
@@ -120,8 +128,8 @@ export function observeSource(userId, deckId, { rawText, text, name, commanders 
       pruneSnapshots(deckId);
     }
     saveRow(deckId, {
-      base_raw_text: acknowledge ? rawText : previous?.base_raw_text ?? null,
-      base_text: acknowledge ? text : previous?.base_text ?? null,
+      base_raw_text: isArchidekt || acknowledge ? rawText : previous?.base_raw_text ?? null,
+      base_text: acknowledge ? publishedText : previous?.base_text ?? null,
       source_raw_text: rawText, source_text: text, pending: Number(pending), checked_at: checkedAt,
     });
     run('UPDATE tracked_decks SET last_refreshed_at = datetime("now") WHERE id = ?', [deckId]);
@@ -135,8 +143,8 @@ export function observeSource(userId, deckId, { rawText, text, name, commanders 
 }
 
 // Metadata enrichment must never rewrite a printing or finish explicitly
-// reported by Archidekt. If carry-forward/Scryfall cannot honor it, review the
-// exact raw list instead of silently choosing another printing.
+// reported by Archidekt. Fall back to the exact provider list if enrichment
+// would change a source printing.
 export function preservesSourceIdentity(rawText, enrichedText) {
   const originals = structuredCards(rawText).cards.sort((a, b) =>
     Number(!!b.setCode) + Number(!!b.collectorNumber) - Number(!!a.setCode) - Number(!!a.collectorNumber));

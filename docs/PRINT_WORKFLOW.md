@@ -210,16 +210,17 @@ draft is resolved. A failed initial read cannot establish a safe save revision. 
 must reload before saving; there is no unconditional-write fallback. These checks do not
 rewrite artwork frozen in existing plans, jobs or PDFs.
 
-Archidekt URL imports and tracked Archidekt snapshots preserve the user's selected set
-and collector number. The default Scryfall source resolves that exact printing, including
-paired DFC faces; an unavailable exact printing blocks preparation instead of substituting
-another edition. A reviewed **Pick art** override takes precedence.
+Archidekt URL imports and newly added tracked copies use the Archidekt set and
+collector number. A tracked lineup update carries forward the saved printing and artwork
+for retained copies. The default Scryfall source resolves the exact printing, including
+paired DFC faces. An unavailable exact printing blocks preparation. A reviewed **Pick art**
+override takes precedence.
 
 The selected snapshot is the source of that identity. DeckCheck provides names and
 quantities, so a later saved DeckCheck/plain-text import carries forward prior snapshot
 metadata where possible and resolves newly added cards through Scryfall. Printing does
-not fetch current Archidekt choices to replace that snapshot's art. Protected source
-changes still go through source review. In changes mode, an art-only swap requests
+not fetch current Archidekt choices to replace that snapshot's art. A changed Archidekt
+lineup becomes a separate digital snapshot. In changes mode, an art-only swap requests
 replacement copies only when **Replace copies when the set or printing changes** is enabled.
 
 The preview includes a plan hash covering resolved printing IDs, face URLs and saved MPC

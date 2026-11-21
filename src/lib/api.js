@@ -157,6 +157,12 @@ export const getDeckSnapshots = (deckId) =>
 export const deleteSnapshot = (deckId, snapshotId) =>
   apiFetch(`/decks/${deckId}/snapshots/${snapshotId}`, { method: 'DELETE' });
 
+export const restoreSnapshot = (deckId, snapshotId, expectedLatestSnapshotId) =>
+  apiFetch(`/decks/${deckId}/snapshots/${snapshotId}/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedLatestSnapshotId }),
+  });
+
 export const renameSnapshot = (deckId, snapshotId, nickname) =>
   apiFetch(`/decks/${deckId}/snapshots/${snapshotId}`, {
     method: 'PATCH',

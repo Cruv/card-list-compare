@@ -31,9 +31,10 @@ import WhatsNewModal from './components/WhatsNewModal';
 import { PRINT_COMPARISON_EVENT, loadPrintComparison, consumePrintComparison } from './lib/printComparisonHandoff';
 import './App.css';
 
-const APP_VERSION = '2.69.1';
+const APP_VERSION = '2.70.0';
 const WHATS_NEW = [
-  'Give Dahle lime corner guides more clearance around the punch',
+  'Sync Archidekt card changes automatically and keep your saved printings',
+  'Restore an older deck list as the latest version',
 ];
 
 function getResetToken() {
