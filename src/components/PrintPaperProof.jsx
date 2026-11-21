@@ -81,7 +81,9 @@ export default function PrintPaperProof({ userId, selectedPaper, selectedMarks, 
       </div>
       <ol>
         <li>Load the selected stock and print one sheet at Actual Size (100%). Measure the 50 mm line before cutting.</li>
-        <li>{dahle ? `Cut ${dahleStrips} on the Dahle using the ${dahleCutGuides ? 'horizontal lime cut lines' : 'row ticks'}.`
+        <li>{dahle ? `Cut ${dahleStrips} on the Dahle using the ${dahleCutGuides
+          ? 'horizontal lime cut lines. Line up the blade with the lines in the side margins.'
+          : 'row ticks.'}`
           : marks ? 'Use the matching Cameo cut template and check that all registration marks are readable.'
             : 'Use the cut layout as a guide for manual trimming.'}</li>
         {paper === DAHLE_LETTER_PRESET && <li>Make sure all four cut guides printed.{dahleCutGuides && ' Cut along the edge of each outer lime guide closest to the edge of the paper. Cut through the center of the two middle guides.'}</li>}

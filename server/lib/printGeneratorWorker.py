@@ -180,7 +180,7 @@ def validate_pdf(filename, count, recipe, *, upstream=False):
         reader.close()
 
 
-def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False, proof_scale=False):
+def identify_pages(filename, identification, labels, recipe="letter", *, refeed_front=False, proof_scale=False, cut_guides=False):
     """Add vector identification in the sheet's printable margins."""
     values = [identification.get("requesterName"), identification.get("batchName")]
     if identification.get("version") != 1 or any(not isinstance(value, str) or not value
@@ -190,6 +190,7 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
         raise ValueError("Page identification exceeds the approved margin")
     dahle = recipe in DAHLE_PAPER
     dahle_letter = recipe == DAHLE_LETTER_PUNCH
+    marked_letter = dahle_letter and cut_guides
     temporary = filename.with_suffix(".identified.pdf")
     with open(filename, "rb") as source:
         reader = PdfReader(source, strict=True)
@@ -228,7 +229,12 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             top = float(page.mediabox.top)
             # Portrait has more room above the first row. The landscape marks
             # start farther down, leaving space for two lines below their top edge.
-            if dahle_letter:
+            if marked_letter:
+                # Each rotated line occupies one strip so the full-width cut
+                # guides stay continuous through the side margins.
+                strip_height = (DAHLE_GEOMETRY["trim"][1] + 2 * DAHLE_GEOMETRY["bleed"]) * POINTS_PER_MM
+                rows = ((top / 2 + strip_height, requester), (top / 2, batch), (top / 2 - strip_height, packet))
+            elif dahle_letter:
                 # The 3.2 mm top and bottom margins hold cut lines. Put the
                 # labels in the left 8.95 mm margin, inside the printable area.
                 rows = ((5.35, f"{requester}  |  {batch}"), (8.03, packet))
@@ -242,16 +248,26 @@ def identify_pages(filename, identification, labels, recipe="letter", *, refeed_
             inset = 66
             # Courier's advance is 0.6 em. Allow room for the final glyph and for
             # rounding without shortening the packet or the manual refeed message.
-            room = (top if dahle_letter else float(page.mediabox.width)) - 2 * inset - 1
+            if marked_letter:
+                room = strip_height - 6 * POINTS_PER_MM
+            else:
+                room = (top if dahle_letter else float(page.mediabox.width)) - 2 * inset - 1
             max_size = 6.8 if dahle_letter else 8 if portrait or dahle else 7
             commands = ["q", "0 g", "BT"]
             for offset, text in rows:
-                size = min(max_size, room / (0.6 * len(text)))
-                if dahle_letter:
-                    begin = (top - 0.6 * len(text) * size) / 2
-                    matrix = f"0 1 -1 0 {pdf_coordinates(offset)} {begin:g}"
+                if marked_letter:
+                    size = max_size
+                    advance = 0.6 * len(text) * size
+                    span = min(advance, room)
+                    commands.append(f"{100 * span / advance:.4f} Tz")
+                    matrix = f"0 1 -1 0 {pdf_coordinates(6.6)} {offset - span / 2:.6f}"
                 else:
-                    matrix = f"1 0 0 1 {inset} {top - offset:g}"
+                    size = min(max_size, room / (0.6 * len(text)))
+                    if dahle_letter:
+                        begin = (top - 0.6 * len(text) * size) / 2
+                        matrix = f"0 1 -1 0 {pdf_coordinates(offset)} {begin:g}"
+                    else:
+                        matrix = f"1 0 0 1 {inset} {top - offset:g}"
                 commands.extend((f"/CLCPageIdentity {size:.3f} Tf", f"{matrix} Tm",
                                  f"<{text.encode('ascii').hex()}> Tj"))
             commands.extend(("ET", "Q"))
@@ -393,26 +409,23 @@ def stroke_dahle_guides(commands, paths, geometry, *, stroke_rgb=None):
     commands.append("Q")
 
 
-def dahle_strip_guides(commands, row_cuts, left, right, *, letter):
+def dahle_strip_guides(commands, row_cuts, page_width, *, letter):
     # Every cut has the same position on both faces and on partial sheets.
     line = DAHLE_GEOMETRY["stripGuideStroke"]
-    outer_line = DAHLE_GEOMETRY["letterOuterStripGuideStroke"]
-    endpoints = DAHLE_GEOMETRY["stripGuideEndpoint"]
     lime = DAHLE_GEOMETRY["cutGuideRgb"]
-    length = endpoints["length"]
+    left = DAHLE_GEOMETRY["stripGuideInset"]
+    right = page_width - left
     inner_cuts = row_cuts[1:-1] if letter else row_cuts
-    for spans, geometry, outer in ((((left, right),), line, outer_line),
-                                   (((left, left + length), (right - length, right)), endpoints, endpoints)):
-        paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l"
-                 for y in inner_cuts for start, end in spans]
-        stroke_dahle_guides(commands, paths, geometry, stroke_rgb=lime)
-        if letter:
-            # The outside edge of the dark outline locates these two cuts. All
-            # ink stays inside the 3.2 mm cut so the edge survives bordered printing.
-            half_width = outer["outlineWidth"] / 2
-            paths = [f"{pdf_coordinates(start, y)} m {pdf_coordinates(end, y)} l"
-                     for y in (row_cuts[0] - half_width, row_cuts[-1] + half_width) for start, end in spans]
-            stroke_dahle_guides(commands, paths, outer, stroke_rgb=lime)
+    paths = [f"{pdf_coordinates(left, y)} m {pdf_coordinates(right, y)} l" for y in inner_cuts]
+    stroke_dahle_guides(commands, paths, line, stroke_rgb=lime)
+    if letter:
+        # The outside edge of the dark outline locates these two cuts. All
+        # ink stays inside the 3.2 mm cut so the edge survives bordered printing.
+        outer_line = DAHLE_GEOMETRY["letterOuterStripGuideStroke"]
+        half_width = outer_line["outlineWidth"] / 2
+        paths = [f"{pdf_coordinates(left, y)} m {pdf_coordinates(right, y)} l"
+                 for y in (row_cuts[0] - half_width, row_cuts[-1] + half_width)]
+        stroke_dahle_guides(commands, paths, outer_line, stroke_rgb=lime)
 
 
 def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
@@ -443,7 +456,7 @@ def generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks=Fa
     tick_start, tick_end = DAHLE_GEOMETRY["tick"]
     letter = recipe == DAHLE_LETTER_PUNCH
     if letter:
-        # Start the guides at the grid, clear of the two side-margin labels.
+        # Plain row ticks start at the grid, clear of the two side-margin labels.
         tick_start, tick_end = side, side + tick_end - tick_start
     row_cuts = [page_height - top - boundary * cell_height for boundary in range(rows + 1)]
     metadata = [{"id": card["id"]} for card in cards]
@@ -478,7 +491,7 @@ def generate_dahle_sheet(cards, output, recipe, double_faced, alignment_marks=Fa
                              f"{pdf_coordinates(image_width)} 0 0 {pdf_coordinates(image_height, image_x, image_y)} cm",
                              f"{name} Do", "Q"))
         if cut_guides:
-            dahle_strip_guides(commands, row_cuts, tick_start, page_width - tick_start, letter=letter)
+            dahle_strip_guides(commands, row_cuts, page_width, letter=letter)
             # The punch is aligned from the front. Near-cut ink on the back
             # could enter the finished card if the two passes are offset.
             if corner_cells:
@@ -617,7 +630,7 @@ def chunk(request):
     else:
         metadata = generate_upstream_sheet(request, recipe, output, registration_marks)
     identify_pages(output, request["printedIdentification"], request["pageLabels"], recipe,
-                   refeed_front=double_faced and not dahle, proof_scale=request.get("proofScale", False))
+                   refeed_front=double_faced and not dahle, proof_scale=request.get("proofScale", False), cut_guides=cut_guides)
     validate_pdf(output, 2 if double_faced else 1, recipe)
     result = {"images": metadata, "registrationMarks": registration_marks}
     if alignment_marks:

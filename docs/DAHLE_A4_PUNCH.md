@@ -61,7 +61,9 @@ card outline and R3 corners.
 
 Select **Include strip cut lines and R3 corner guides** in the Dahle print review,
 alternate layout review or one-sheet proof. The option starts off. Four bold
-lime lines with dark outlines mark the strip cuts. On A4, cut along the center
+lime lines with dark outlines mark the strip cuts. Each line keeps the same
+width through the artwork and extends to within 3.2 mm of both side edges.
+Use the ends beyond the artwork to line up the blade. On A4, cut along the center
 of each line. On Letter, cut along the edge of each outer guide closest to the
 edge of the paper and along the centers of the two middle guides. The outer ink extends inward
 so it fits inside the printable area. Use the remaining guides to check the

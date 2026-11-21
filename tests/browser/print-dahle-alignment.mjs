@@ -199,7 +199,7 @@ try {
         assert.equal(await confirm.count(), 0);
         markedProof.resolve();
         await proof.getByText(/Dahle strip cut lines and R3 corner guides/).waitFor();
-        await proof.getByText(`Cut ${stripSize} strips on the Dahle using the horizontal lime cut lines.`, { exact: true }).waitFor();
+        await proof.getByText(`Cut ${stripSize} strips on the Dahle using the horizontal lime cut lines. Line up the blade with the lines in the side margins.`, { exact: true }).waitFor();
         await proof.getByText(/outer lime guide closest to the edge of the paper/).waitFor();
         await proof.getByText(/Feed each strip into the 63 × 88 mm R3 punch.*all four disappear under the die/).waitFor();
         await proof.getByText('Check that the guide ink stayed on the scrap.', { exact: true }).waitFor();
