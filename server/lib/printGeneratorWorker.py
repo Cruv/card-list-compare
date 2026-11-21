@@ -356,14 +356,16 @@ def opaque_artwork(image):
 
 def mirror_artwork_edges(image, pad):
     width, height = image.size
+    # Reflect without repeating the outermost source pixels. Some scans have
+    # a one-pixel fringe, and duplicating it makes a heavier seam at the trim.
     horizontal = Image.new("RGB", (width + 2 * pad, height))
-    horizontal.paste(ImageOps.mirror(image.crop((0, 0, pad, height))), (0, 0))
+    horizontal.paste(ImageOps.mirror(image.crop((1, 0, pad + 1, height))), (0, 0))
     horizontal.paste(image, (pad, 0))
-    horizontal.paste(ImageOps.mirror(image.crop((width - pad, 0, width, height))), (width + pad, 0))
+    horizontal.paste(ImageOps.mirror(image.crop((width - pad - 1, 0, width - 1, height))), (width + pad, 0))
     padded = Image.new("RGB", (horizontal.width, height + 2 * pad))
-    padded.paste(ImageOps.flip(horizontal.crop((0, 0, horizontal.width, pad))), (0, 0))
+    padded.paste(ImageOps.flip(horizontal.crop((0, 1, horizontal.width, pad + 1))), (0, 0))
     padded.paste(horizontal, (0, pad))
-    padded.paste(ImageOps.flip(horizontal.crop((0, height - pad, horizontal.width, height))), (0, height + pad))
+    padded.paste(ImageOps.flip(horizontal.crop((0, height - pad - 1, horizontal.width, height - 1))), (0, height + pad))
     return padded
 
 

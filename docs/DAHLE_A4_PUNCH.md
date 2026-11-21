@@ -139,8 +139,10 @@ columns reversed for a portrait long-edge flip. Blank slots contain no artwork o
 corner guides. Batch labels stay in the margins, and Cameo registration marks are disabled.
 
 CLC maps the source’s finished artwork to the 63 × 88 mm trim area. Scryfall
-sources use the full card image with their small raster aspect tolerances. CLC
-extends the image edges where the source lacks bleed. For saved MPC art, CLC
+sources use the full card image with their small raster aspect tolerances. For
+art without bleed, CLC mirrors nearby pixels outside the trim and skips the
+outermost row or column in that reflection to avoid doubling a dark edge line.
+For saved MPC art, CLC
 recognizes supported finished-only and standard ⅛-inch bleed proportions, clips
 surplus source bleed to 1.5 mm, and rejects ambiguous proportions. The trim scale
 stays the same when output bleed changes. These raster sources do not carry a

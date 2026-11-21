@@ -36,6 +36,7 @@ const WHATS_NEW = [
   'Paste and keep editing your list, then choose Review import when you’re ready',
   'Line up the Dahle blade using bold lime guides that extend beyond the card artwork',
   'Fit nine cards on US Letter using the Dahle 550 + R3 punch preset',
+  'Get cleaner Dahle bleed at the edges of the card artwork',
 ];
 
 function getResetToken() {

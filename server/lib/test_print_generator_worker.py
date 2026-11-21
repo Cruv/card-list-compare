@@ -11,7 +11,7 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, Num
 from PIL import Image, ImageDraw
 
 from printGeneratorWorker import (CROWNED_LANDSCAPE, DAHLE_A4_PUNCH, DAHLE_LETTER_PUNCH, POINTS_PER_MM,
-                                  chunk, dahle_face, identify_pages, merge, proof, validate_pdf)
+                                  chunk, dahle_face, identify_pages, merge, mirror_artwork_edges, proof, validate_pdf)
 
 
 class DahlePunchTests(unittest.TestCase):
@@ -500,6 +500,38 @@ class DahlePunchTests(unittest.TestCase):
         with PdfReader(self.render("rounded", cards)) as reader:
             image = reader.pages[0].images[0].image
             self.assertTrue(all(abs(channel - goal) <= 3 for channel, goal in zip(image.getpixel((0, 0)), (0, 0, 128))))
+
+    def test_edge_reflection_preserves_small_source_without_repeating_the_outer_pixel(self):
+        source = Image.new("RGB", (5, 7), (210, 210, 210))
+        ImageDraw.Draw(source).rectangle((0, 0, 4, 6), outline=(20, 20, 20))
+        result = mirror_artwork_edges(source, 1)
+        self.assertEqual(result.size, (7, 9))
+        self.assertEqual(result.crop((1, 1, 6, 8)).tobytes(), source.tobytes())
+        for point in ((0, 4), (6, 4), (3, 0), (3, 8), (0, 0), (6, 8)):
+            self.assertEqual(result.getpixel(point), (210, 210, 210))
+
+    def test_plain_dahle_pdfs_extend_past_an_opaque_fringe_but_keep_full_dark_borders(self):
+        width, height, pad = 315, 440, 8
+        for actual_paper in (self.paper, self.letter_paper):
+            for border in (1, 20):
+                with self.subTest(paper=actual_paper["paperSize"], border=border):
+                    path = self.directory / f"opaque-edge-{border}.png"
+                    artwork = Image.new("RGBA", (width, height), (210, 210, 210, 255))
+                    ImageDraw.Draw(artwork).rectangle((0, 0, width - 1, height - 1), outline=(20, 20, 20, 255), width=border)
+                    artwork.save(path)
+                    cards = [{"id": "opaque-edge", "frontPath": str(path), "frontSource": "scryfall"}]
+                    with PdfReader(self.render(f"{actual_paper['paperSize']}-{border}", cards, paper=actual_paper)) as reader:
+                        page = reader.pages[0]
+                        self.assertEqual(self.mm_operators(page, b"c"), [])
+                        image = page.images[0].image
+                        self.assertEqual(image.size, (width + 2 * pad, height + 2 * pad))
+                        x, y = width // 2 + pad, height // 2 + pad
+                        trim_edge = ((pad, y), (width + pad - 1, y), (x, pad), (x, height + pad - 1))
+                        bleed_edge = ((pad - 1, y), (width + pad, y), (x, pad - 1), (x, height + pad))
+                        for point in trim_edge:
+                            self.assertAlmostEqual(image.getpixel(point)[0], 20, delta=3)
+                        for point in bleed_edge:
+                            self.assertAlmostEqual(image.getpixel(point)[0], 210 if border == 1 else 20, delta=3)
 
 
 class PageIdentificationTests(unittest.TestCase):
