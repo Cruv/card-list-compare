@@ -128,17 +128,17 @@ class DahlePunchTests(unittest.TestCase):
         stroke_colors = [(op, tuple(map(float, values))) for values, op in operations if op in (b"G", b"RG")]
         gray = (b"G", (0,))
         lime = (b"RG", (0.58, 1, 0.06))
-        widths = [(0.96,), (0.84,)]
+        widths = [(0.44,), (0.28,)]
         colors = [gray, lime]
         if occupied_cells:
-            widths.extend([(1.08,), (0.96,)])
+            widths.extend([(0.52,), (0.40,)])
             colors.extend([gray, lime])
         self.assertEqual(self.mm_operators(page, b"w")[:len(widths)], widths)
         self.assertEqual([tuple(values) for values, op in operations if op == b"J"], [(0,)] * (len(widths) // 2))
         self.assertEqual(stroke_colors[:len(colors)], colors)
         self.assertEqual(sum(op == b"S" for _, op in operations), len(widths) + (3 if proof_sheet else 0))
         strip_half_width = widths[0][0] / 2
-        self.assertAlmostEqual(self.bleed - strip_half_width, 1.02)
+        self.assertAlmostEqual(self.bleed - strip_half_width, 1.28)
         if not occupied_cells:
             self.assertEqual(stroke_colors, colors)  # The back has no lime corner arcs.
             return
@@ -161,6 +161,7 @@ class DahlePunchTests(unittest.TestCase):
                 dx, dy = (sum(weight * vector[axis] for weight, vector in zip(weights, vectors)) for axis in range(2))
                 radius = math.hypot(dx, dy)
                 self.assertAlmostEqual(radius - arc_half_width - 3, 0.10, places=3)
+                self.assertAlmostEqual(radius - lime_half_width - 3, 0.16, places=3)
                 self.assertLess((radius + arc_half_width) * max(dx, dy) / radius, corner_inset - strip_half_width)
                 # Test just inside the lime stroke, away from the antialiased edge.
                 lime_scale = (radius - lime_half_width + 0.03) / radius
@@ -447,16 +448,16 @@ class DahlePunchTests(unittest.TestCase):
                         self.assertLess(self.letter_row_cuts[0] + 0.36 / 2, 276.4)
                         continue
                     widths = self.mm_operators(page, b"w")
-                    self.assertEqual(widths[:-1], [(0.96,), (0.84,), (0.55,), (0.43,), (1.08,), (0.96,)])
-                    self.assertEqual([tuple(values) for values, op in page.get_contents().operations if op == b"J"], [(0,)] * 3)
-                    line_y = (185.2, 94.2) * 2 + (275.925, 3.475) * 2
+                    self.assertEqual(widths[:-1], [(0.44,), (0.28,), (0.52,), (0.40,)])
+                    self.assertEqual([tuple(values) for values, op in page.get_contents().operations if op == b"J"], [(0,)] * 2)
+                    line_y = (275.98, 185.2, 94.2, 3.42) * 2
                     self.assertEqual(starts[:8], [(3.2, y) for y in line_y])
                     self.assertEqual(ends[:-3], [(212.7, y) for y in line_y])
-                    half_outer_width = widths[2][0] / 2
-                    self.assertAlmostEqual(275.925 + half_outer_width, self.letter_row_cuts[0])
-                    self.assertAlmostEqual(3.475 - half_outer_width, self.letter_row_cuts[-1])
-                    self.assertGreater(3.475 - half_outer_width, 3)
-                    self.assertLess(275.925 + half_outer_width, 276.4)
+                    half_outer_width = widths[0][0] / 2
+                    self.assertAlmostEqual(line_y[0] + half_outer_width, self.letter_row_cuts[0])
+                    self.assertAlmostEqual(line_y[3] - half_outer_width, self.letter_row_cuts[-1])
+                    self.assertGreater(line_y[3] - half_outer_width, 3)
+                    self.assertLess(line_y[0] + half_outer_width, 276.4)
 
     def test_dahle_letter_and_a4_reject_mismatched_paper_sizes(self):
         for paper_size, preset in (("a4", DAHLE_LETTER_PUNCH), ("letter", DAHLE_A4_PUNCH)):

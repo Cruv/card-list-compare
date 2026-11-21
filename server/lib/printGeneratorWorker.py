@@ -417,17 +417,13 @@ def dahle_strip_guides(commands, row_cuts, page_width, *, letter):
     lime = DAHLE_GEOMETRY["cutGuideRgb"]
     left = DAHLE_GEOMETRY["stripGuideInset"]
     right = page_width - left
-    inner_cuts = row_cuts[1:-1] if letter else row_cuts
-    paths = [f"{pdf_coordinates(left, y)} m {pdf_coordinates(right, y)} l" for y in inner_cuts]
-    stroke_dahle_guides(commands, paths, line, stroke_rgb=lime)
     if letter:
         # The outside edge of the dark outline locates these two cuts. All
         # ink stays inside the 3.2 mm cut so the edge survives bordered printing.
-        outer_line = DAHLE_GEOMETRY["letterOuterStripGuideStroke"]
-        half_width = outer_line["outlineWidth"] / 2
-        paths = [f"{pdf_coordinates(left, y)} m {pdf_coordinates(right, y)} l"
-                 for y in (row_cuts[0] - half_width, row_cuts[-1] + half_width)]
-        stroke_dahle_guides(commands, paths, outer_line, stroke_rgb=lime)
+        half_width = line["outlineWidth"] / 2
+        row_cuts = [row_cuts[0] - half_width, *row_cuts[1:-1], row_cuts[-1] + half_width]
+    paths = [f"{pdf_coordinates(left, y)} m {pdf_coordinates(right, y)} l" for y in row_cuts]
+    stroke_dahle_guides(commands, paths, line, stroke_rgb=lime)
 
 
 def dahle_corner_paths(cells, cell_width, cell_height, bleed, geometry):
