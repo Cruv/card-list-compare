@@ -25,25 +25,35 @@ export function keepArchidektLocalPrintings(currentText, sourceText, previousSou
 
   const previousCopies = new Map();
   for (const row of inspectDeckImport(previousSourceText ?? '').accepted) {
-    const key = JSON.stringify([row.section, printingKey(row)]);
-    previousCopies.set(key, (previousCopies.get(key) ?? 0) + row.quantity);
+    const printing = printingKey(row);
+    if (!previousCopies.has(printing)) previousCopies.set(printing, new Map());
+    const copies = previousCopies.get(printing);
+    copies.set(row.section, (copies.get(row.section) ?? 0) + row.quantity);
   }
 
-  const retained = [], added = [];
   const incoming = inspectDeckImport(sourceText).accepted.map(row => {
     const printing = printingKey(row);
-    const key = JSON.stringify([row.section, printing]);
-    const continuing = Math.min(row.quantity, previousCopies.get(key) ?? 0);
-    previousCopies.set(key, (previousCopies.get(key) ?? 0) - continuing);
     const local = localByName.get(normalizeCardName(row.displayName)) ?? [];
-    // Use local choices on continuing copies first, leaving identifiable new
-    // source printings available for any increase in quantity.
-    const before = { quantity: continuing, local, printing, section: row.section, kept: [] };
-    const extra = { ...before, quantity: row.quantity - continuing, kept: [] };
-    if (before.quantity) retained.push(before);
-    if (extra.quantity) added.push(extra);
-    return { row, before, extra };
+    const before = { quantity: 0, local, printing, section: row.section, kept: [] };
+    const extra = { ...before, quantity: row.quantity, kept: [] };
+    return { row, before, extra, previous: previousCopies.get(printing) };
   });
+
+  // Match continuing source copies in their original section first, then match
+  // moves. This reserves the incoming printing of any identifiable extra copy.
+  for (const sameSection of [true, false]) {
+    for (const { before, extra, previous } of incoming) {
+      if (!previous || !extra.quantity) continue;
+      for (const [section, available] of previous) {
+        if (!extra.quantity) break;
+        if (sameSection && section !== before.section) continue;
+        const continuing = Math.min(available, extra.quantity);
+        previous.set(section, available - continuing);
+        before.quantity += continuing;
+        extra.quantity -= continuing;
+      }
+    }
+  }
 
   function allocate(slots, sameSection, samePrinting) {
     for (const slot of slots) {
@@ -59,8 +69,9 @@ export function keepArchidektLocalPrintings(currentText, sourceText, previousSou
     }
   }
 
-  for (const sameSection of [true, false]) {
-    for (const slots of [retained, added]) {
+  for (const group of ['before', 'extra']) {
+    const slots = incoming.map(entry => entry[group]).filter(slot => slot.quantity);
+    for (const sameSection of [true, false]) {
       allocate(slots, sameSection, true);
       allocate(slots, sameSection, false);
     }
