@@ -53,7 +53,9 @@ function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, on
   const storageKey = sourceReviewKey(userId, deckId);
   const providerName = { archidekt: 'Archidekt', moxfield: 'Moxfield', deckcheck: 'DeckCheck' }[state?.sourceProvider || sourceProvider] || 'Archidekt';
   const archidekt = providerName === 'Archidekt';
-  useEffect(() => { onAttentionChange?.(!!(state?.pending || work?.operation || work?.dirty || error)); }, [state?.pending, work?.operation, work?.dirty, error, onAttentionChange]);
+  const reviewActive = Boolean(state?.pending || work?.operation || (!archidekt && work?.dirty));
+  const archivedMerge = archidekt && !reviewActive && work?.dirty && work.action === 'merge';
+  useEffect(() => { onAttentionChange?.(reviewActive || Boolean(error)); }, [reviewActive, error, onAttentionChange]);
   function replace(value) { workRef.current = value; setWork(value); }
 
   useEffect(() => {
@@ -176,7 +178,12 @@ function ScopedSourceSyncReview({ userId, deckId, sourceProvider, refreshKey, on
     {loading && <p role="status">Loading source status…</p>}
     {error && <p role="alert" className="source-sync-error">{error}</p>}
     {notice && <p role="status">{notice}</p>}
-    {ready && work && (state?.pending || work.dirty || work.operation) && <div className="source-sync-work">
+    {ready && archivedMerge && <details className="source-sync-raw">
+      <summary>Saved merge draft</summary>
+      <p>You can copy text from this earlier draft.</p>
+      <label>Draft deck list<textarea readOnly value={work.mergedText} /></label>
+    </details>}
+    {ready && work && reviewActive && <div className="source-sync-work">
       {stale && !work.operation && <div className="source-sync-warning"><p>The saved deck or {providerName} candidate changed during this review. Your merged text is preserved.</p><button type="button" className="btn btn-secondary btn-sm" onClick={rebase} disabled={busy}>Review latest versions with my edits</button></div>}
       <div className="source-sync-comparisons">
         <CardDiff title={`Changes if you use ${providerName}`} before={basis.currentText} after={basis.sourceText} />

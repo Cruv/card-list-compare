@@ -4,7 +4,7 @@
 
 - v2.70.0 starts from `a1aadda`. A changed Archidekt lineup saves a new version automatically. Saved printings and finishes carry forward for retained copies. New copies use their incoming printing. Rechecking the same lineup keeps the current digital version.
 - Version history offers **Restore as latest** for older lists. Restore saves the exact selected text in a new version, checks the current version before writing, and uses the established history retention rules. The provider baseline, paper marker and saved artwork settings stay intact.
-- On November 21, 2026, 1,590 JavaScript tests, 290 portable companion tests, the production build, deployment contract and both audits passed. Lint reported five existing warnings. Disposable Chrome tested automatic refresh, exact printings and artwork, the old snapshot, keyboard restore, mobile cancellation and a provider failure. A read-only Archidekt fetch and merge check matched the live lineup while retaining the saved printings.
+- On November 21, 2026, 1,591 JavaScript tests, 290 portable companion tests, the production build, deployment contract and both audits passed. Lint reported five existing warnings. Disposable Chrome tested automatic refresh, exact printings and artwork, archived review drafts, the old snapshot, keyboard restore, mobile cancellation and a provider failure. A read-only Archidekt fetch and merge check matched the live lineup while retaining the saved printings.
 - The separate ManaSync checkout's source-refresh harness describes the pre-v2.70.0 Archidekt review policy. The CLC source-sync and browser checks cover the revised behavior.
 
 ## Dahle R3 corner clearance

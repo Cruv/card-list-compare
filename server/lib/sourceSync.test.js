@@ -269,6 +269,20 @@ it('follows Archidekt quantities and boards while keeping saved printings for re
   expect(count()).toBe(3);
 });
 
+it('moves the saved printing with a retained copy when Archidekt adds another copy in its former board', async () => {
+  observe();
+  addSnapshot('1 Sol Ring (LCC) [313] *F*');
+  const incoming = upstream(1, { categories: ['Sideboard'] });
+  incoming.cards.unshift({ quantity: 1, card: { name: 'Sol Ring', edition: { editioncode: 'LTC' }, collectorNumber: '284' } });
+  fetchDeck.mockResolvedValue(incoming);
+
+  expect(await source.refreshArchidektDeck(1, 1)).toMatchObject({
+    changed: true,
+    deckText: '1 Sol Ring (LTC) [284]\n\nSideboard\n1 Sol Ring (LCC) [313] *F*',
+    sourceSync: { sourceText: `1 Sol Ring (LTC) [284]\n\nSideboard\n${baseText}` },
+  });
+});
+
 it.each([
   [1, false, localText],
   [2, true, changedText],
